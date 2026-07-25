@@ -1,7 +1,13 @@
 name: Release Portable
+
 on:
-  push: { tags: ['v*'] }
+  push:
+    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 env:
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/browsers
 
@@ -16,9 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with: { java-version: '26', distribution: 'temurin' }
+        with:
+          java-version: '26'
+          distribution: 'temurin'
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with:
+          node-version: '22'
       - name: Ensure jpackage available
         run: jpackage --version
       - name: Portable (Unix)
@@ -26,8 +35,31 @@ jobs:
         run: bash scripts/build-portable.sh
       - name: Portable (Win)
         if: runner.os == 'Windows'
-        run: scripts/build-portable.bat
+        run: scripts\build-portable.bat
       - uses: actions/upload-artifact@v4
         with:
           name: PlaywrightAutomationStudio-${{ runner.os }}
           path: dist/PlaywrightAutomationStudio-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: PlaywrightAutomationStudio-*
+          merge-multiple: true
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Playwright Automation Studio ${{ github.ref_name }}
+          body_path: docs/RELEASE_NOTES.md
+          files: artifacts/*.zip
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

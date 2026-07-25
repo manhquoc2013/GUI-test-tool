@@ -54,8 +54,8 @@ mkdir "%BUNDLE_ROOT%\browsers"
 mkdir "%BUNDLE_ROOT%\tools\node"
 mkdir "%BUNDLE_ROOT%\tools\playwright-cli"
 
-if exist data\project (
-  xcopy /e /y /q data\project\* "%BUNDLE_ROOT%\data\project\" >nul
+if exist data\project\.gitkeep (
+  copy /y data\project\.gitkeep "%BUNDLE_ROOT%\data\project\.gitkeep" >nul
 )
 
 echo Step 5: Setting up Node.js portable...

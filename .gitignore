@@ -1,8 +1,13 @@
 work/
 data/reports/
 data/exports/*.xlsx
+data/project/**
+!data/project/.gitkeep
+data/config/**
+!data/config/.gitkeep
 target/
 .idea/
 *.iml
 dist/
 .DS_Store
+.ai-context.md

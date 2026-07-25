@@ -93,9 +93,9 @@ mkdir -p "${BUNDLE_ROOT}/browsers"
 mkdir -p "${BUNDLE_ROOT}/tools/node/bin"
 mkdir -p "${BUNDLE_ROOT}/tools/playwright-cli"
 
-# Seed sample project if present in repo
-if [ -d "data/project" ]; then
-  cp -R data/project/. "${BUNDLE_ROOT}/data/project/" 2>/dev/null || true
+# Empty project tree only — never ship local developer project data
+if [ -f "data/project/.gitkeep" ]; then
+  cp "data/project/.gitkeep" "${BUNDLE_ROOT}/data/project/.gitkeep"
 fi
 
 # 5. Bundle Node.js LTS
