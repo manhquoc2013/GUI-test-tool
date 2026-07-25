@@ -1,0 +1,8 @@
+work/
+data/reports/
+data/exports/*.xlsx
+target/
+.idea/
+*.iml
+dist/
+.DS_Store

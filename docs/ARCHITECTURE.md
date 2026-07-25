@@ -1,0 +1,447 @@
+# Architecture
+
+## Overview
+
+**Playwright Automation Studio** is a JavaFX desktop application for managing and running Playwright test automation without writing code manually. Users organize tests in a three-level tree hierarchy (**Group → Suite → Case**), record browser interactions via Playwright codegen, add assertions via a visual builder UI, and run tests with shared browser context. Results are persisted as structured reports with screenshots, exportable to Excel.
+
+The application runs **in-process** — test scripts are compiled and executed within the same JVM using `javax.tools.JavaCompiler` and a `URLClassLoader`, enabling shared browser context across multiple cases.
+
+---
+
+## Technology Stack
+
+| Component | Technology | Version | Purpose |
+|-----------|-----------|---------|---------|
+| Language | Java | 26 | Application and test scripts |
+| UI Framework | JavaFX (FXML) | 26.0.1 | Desktop UI with declarative FXML layouts |
+| Browser Automation | Playwright Java | 1.61.0 | Browser launch, page interaction, codegen |
+| JSON | Jackson | 2.18.2 | Serialization of project data and reports |
+| Excel Export | Apache POI | 5.5.1 | Report export to `.xlsx` |
+| Build | Maven | 3.9+ | Compilation, dependency management, JavaFX plugin |
+| CI/CD | GitHub Actions | — | Build verification and portable release packaging |
+| Portable Bundling | jpackage + Node.js | — | Self-contained application images |
+| CSS Theme | Catppuccin Mocha | — | Dark theme for all UI |
+
+---
+
+## Package Structure
+
+```
+com.studio/
+├── App.java                              # JavaFX Application entry point
+│
+├── model/                                # Data models (7 classes)
+│   ├── TestGroup.java                    # Group node (can be nested)
+│   ├── TestSuite.java                    # Suite node (contains cases)
+│   ├── TestCase.java                     # Individual test case (holds per-case assertions)
+│   ├── Assertion.java                    # Assertion definition (type, value, status, 46 types)
+│   ├── CaseResult.java                   # Per-case run outcome
+│   ├── AssertResult.java                 # Per-assertion run outcome
+│   └── RunReport.java                    # Full run report (all cases)
+│
+├── store/                                # Filesystem persistence (3 classes)
+│   ├── ProjectStore.java                 # Group/Suite/Case CRUD + tree load + case collection
+│   ├── ReportStore.java                  # Run report read/write/delete
+│   └── SettingsStore.java                # User preferences (browser, headless, etc.)
+│
+├── service/                              # Business logic (8 classes)
+│   ├── TestRunnerService.java            # Run orchestration — all 4 scopes, compile, execute
+│   ├── SharedBrowserSession.java         # In-process Playwright browser context lifecycle
+│   ├── AssertCodeGenerator.java          # 46 assert types → soft-assert Java code block
+│   ├── ScriptHarnessTransformer.java     # Rewrites codegen output for in-process execution
+│   ├── ExcelReportService.java           # 3-sheet Excel export (Summary, Cases, Asserts)
+│   ├── AssertResultsScorer.java          # Reads assert-results JSON to determine pass/fail
+│   ├── ToastService.java                 # Non-blocking toast notifications
+│   └── StatusBarService.java             # Bottom status bar text management
+│
+├── controller/                           # FXML controllers (8 classes)
+│   ├── MainShellController.java          # Shell: sidebar toggle, navigation, toast host, help drawer
+│   ├── ExplorerPageController.java       # Tree CRUD, drag-drop, run buttons, preview panel
+│   ├── SuiteWorkspacePageController.java # Code editor, Record/Run, terminal, assert management
+│   ├── ReportsPageController.java        # Report list with filters
+│   ├── ReportDetailPageController.java   # Per-report detail with case expansion, Excel export
+│   ├── AssertBuilderPopupController.java # Assertion creation/modification modal (46 types)
+│   ├── EntityFormDialog.java             # Create/Edit modals for Group, Suite, Case entities
+│   └── ViewNavigator.java                # Static page navigation + FXML cache
+│
+├── runtime/
+│   └── StudioRuntime.java                # Thread-local Page + BrowserContext for harness
+│
+└── util/                                 # Utilities (9 classes)
+    ├── StudioPaths.java                  # APP_HOME resolution + directory structure
+    ├── BrowserDetector.java              # Cross-platform browser discovery
+    ├── StringEscapeUtil.java             # Java string escaping for code generation
+    ├── DialogTheme.java                  # Dark scrim + click-outside-to-dismiss for all dialogs
+    ├── BusyButtons.java                  # Async button states during long-running operations
+    ├── RunTargetResolve.java             # Browser/headless resolution: case → suite → default
+    ├── StatusDisplay.java                # Icons + CSS classes + Vietnamese labels for statuses
+    ├── StudioIcons.java                  # Emoji icon constants for UI labels
+    ├── AssertTypeDisplay.java            # 46 assertion type categories + filter combo
+    └── EntityTime.java                   # Timestamp helpers: ISO-8601 store, HH:mm:ss dd/MM/yyyy display
+```
+
+---
+
+## Data Flow
+
+```mermaid
+flowchart TB
+    User((User))
+    
+    subgraph UI["JavaFX UI (FXML)"]
+        Explorer[ExplorerPage<br/>Tree CRUD + Run]
+        Workspace[SuiteWorkspacePage<br/>Record + Edit + Run]
+        Reports[ReportsPage<br/>Run History]
+        Detail[ReportDetailPage<br/>Per-Run Breakdown]
+        AssertPopup[AssertBuilderPopup<br/>46 Assertion Types]
+        EntityForm[EntityFormDialog<br/>Group/Suite/Case Create/Edit]
+    end
+    
+    subgraph Services["Service Layer"]
+        Runner[TestRunnerService<br/>Compile + Execute]
+        BrowserSession[SharedBrowserSession<br/>Browser Lifecycle]
+        AssertGen[AssertCodeGenerator<br/>Soft-Assert Inject]
+        HarnessXform[ScriptHarnessTransformer<br/>In-Process Rewrite]
+        AssertScorer[AssertResultsScorer<br/>Pass/Fail Scoring]
+        Excel[ExcelReportService]
+        Toast[ToastService]
+        StatusBar[StatusBarService]
+    end
+    
+    subgraph Stores["Persistence Layer"]
+        ProjectStore[ProjectStore<br/>data/project/]
+        ReportStore[ReportStore<br/>data/reports/]
+        Settings[SettingsStore<br/>data/config/]
+    end
+    
+    subgraph FS["Filesystem"]
+        Groups[group.json files]
+        Suites[suite.json + .java files]
+        Reports[report.json + screenshots]
+        Config[settings.json]
+        Harness[work/harness/]
+    end
+    
+    Explorer -->|Open| Workspace
+    Explorer -->|Run| Runner
+    Workspace -->|Run| Runner
+    Workspace --> Record
+    Workspace --> AssertPopup
+    AssertPopup -->|Save| Suites
+    Runner --> BrowserSession
+    Runner --> AssertGen
+    Runner --> HarnessXform
+    Runner --> AssertScorer
+    Runner --> ReportStore
+    Reports --> Detail
+    Detail --> Excel
+    ReportStore --> Reports
+    ReportStore --> FS
+    ProjectStore --> FS
+    Settings --> FS
+    
+    Runner --> ProjectStore
+    Explorer --> ProjectStore
+    Workspace --> ProjectStore
+    EntityForm --> ProjectStore
+```
+
+---
+
+## Run Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Explorer/Workspace
+    participant Runner as TestRunnerService
+    participant Store as ProjectStore
+    participant Session as SharedBrowserSession
+    participant Compiler as javax.tools.JavaCompiler
+    participant Harness as Compiled Harness Class
+    
+    User->>UI: Click Run (All / Group / Suite / Case)
+    UI->>Runner: run(scope, path, headless, browser, stopOnFirst, shareContext)
+    
+    Runner->>Store: collectCasesForScope(scope, path)
+    Store-->>Runner: List&lt;CaseResult&gt; (with SKIPPED pre-marked)
+    
+    alt shareContext ON and >1 case to run
+        Runner->>Session: start(headless, browser)
+    end
+    
+    loop For each case
+        alt case.status == SKIPPED
+            Note over Runner: Skip — skipReason already set
+        else stopOnFirstFailure AND prior failures > 0
+            Runner->>Runner: Mark SKIPPED — "Stopped after first failure"
+        else
+            Runner->>Store: readCaseScript(suiteDir, caseId)
+            Store-->>Runner: .java source
+            Runner->>Runner: ScriptHarnessTransformer.transform(script)
+            Runner->>Runner: AssertCodeGenerator.generateAssertBlock(activeAsserts from case)
+            Note over Runner: Inject soft-assert block via brace matching
+            Runner->>Runner: Write harness to work/harness/&lt;runId&gt;/
+            Runner->>Compiler: compileHarness(harnessFile)
+            
+            alt Compilation failed
+                Runner->>Runner: CaseResult.status = ERROR
+            else
+                Runner->>Runner: Set StudioRuntime.page for harness
+                Runner->>Harness: invoke main() via URLClassLoader
+                Harness-->>Runner: Execution completes
+                Runner->>Runner: AssertResultsScorer.countFailures(assertResultsFile)
+                
+                alt any ACTIVE assert FAILED
+                    Runner->>Runner: CaseResult.status = FAILED
+                else
+                    Runner->>Runner: CaseResult.status = PASSED
+                end
+                Runner->>Runner: Screenshot path assigned (PASSED/FAILED)
+            end
+        end
+    end
+    
+    alt shareContext ON
+        Runner->>Session: close()
+    end
+    
+    Runner->>Store: reportStore.saveReport(report)
+    Runner-->>UI: RunReport (with results)
+    UI->>User: Toast summary (xP / yF / zS)
+    UI->>UI: Navigate to Reports or show results inline
+```
+
+---
+
+## Filesystem Layout
+
+All runtime data lives under `APP_HOME` (resolved by `StudioPaths`):
+
+```
+APP_HOME/
+├── data/
+│   ├── config/
+│   │   └── settings.json              # User preferences
+│   ├── project/                       # ★ Group → Suite → Case mirror tree
+│   │   ├── Smoke/                     # Group folder (has group.json)
+│   │   │   ├── group.json
+│   │   │   ├── LoginFlow/             # Suite folder (has suite.json)
+│   │   │   │   ├── suite.json         # Suite metadata + cases[] with per-case assertions[]
+│   │   │   │   ├── LoginValid.java    # Playwright script
+│   │   │   │   └── LoginWrong.java
+│   │   │   └── HomePage/
+│   │   │       ├── suite.json
+│   │   │       └── OpenHome.java
+│   │   └── Regression/                # Root-level group (or nested)
+│   │       └── group.json
+│   ├── reports/                       # Run history
+│   │   └── 20260725-142301/
+│   │       ├── report.json            # RunReport serialized
+│   │       └── screenshots/
+│   │           ├── LoginValid_PASSED.png
+│   │           └── LoginWrong_FAILED.png
+│   └── exports/                       # Default Excel export suggestion
+├── work/                              # ★ Temporary — safe to delete
+│   ├── compile/                       # javac output
+│   └── harness/                       # Transformed scripts per run
+│       └── 20260725-142301/
+│           ├── tc-001_Run.java
+│           ├── tc-001_asserts.json
+│           └── tc-001_Run.class
+```
+
+**Key rules:**
+
+- A folder with `group.json` is a **Group** — it can contain sub-groups and suites.
+- A folder with `suite.json` is a **Suite** — it contains test case `.java` files and no sub-folders.
+- A folder must not contain both `group.json` and `suite.json`.
+- `work/` and `data/reports/` are in `.gitignore`. `data/project/` may be committed as sample data.
+- `ProjectStore`, `ReportStore`, and `StudioPaths` always resolve paths through `APP_HOME/data/` — no relative paths mixed into `src/`.
+
+---
+
+## Key Design Decisions
+
+### In-process test execution
+
+Tests run in the **same JVM** as the application. This enables:
+
+- **Shared browser context** — one `BrowserContext` for all cases in a Suite/Group/All run.
+- **Session persistence** — cookies, localStorage, and sessions carry across cases (e.g., login once, use for checkout).
+- **Soft-assert injection** — assertions are injected as a Java code block and compiled together with the harness.
+
+The `ScriptHarnessTransformer` rewrites codegen output to remove `Playwright.create()` / `launch()` / `close()` calls and replace them with `StudioRuntime.page()` (a `ThreadLocal`).
+
+### Assertion model — per-case
+
+Assertions are defined **per case** within `suite.json` (not per-suite). Each assertion has:
+
+- `type` — one of 46 assertion types across 8 categories
+- `value` / `locator` / `attribute` / `expectedValue` / `operator` — assertion parameters
+- `status` — `DRAFT` | `ACTIVE` | `INACTIVE`
+- `timeoutMs` — default 30,000ms
+- `exact` — boolean for exact match mode
+- `altContains` — alternative contains text
+
+Only `ACTIVE` assertions are injected and executed. `DRAFT` and `INACTIVE` are skipped.
+
+**Legacy migration**: Suite-level `assertions[]` key still exists on `TestSuite` but is automatically migrated to the first case on load via `migrateLegacyAssertionsToCases()`. New saves always clear the legacy key.
+
+The `AssertCodeGenerator` produces a try/catch block that:
+
+1. Wraps each assertion in `try { ... } catch (Throwable t) { __studioFailed.add(...) }`
+2. Writes `assert-results-*.json` with pass/fail/skip status per assertion
+3. Throws `AssertionError` at the end if any assertion failed
+
+The runner reads `assert-results` via `AssertResultsScorer` to determine the final case status — **assertion failure always means case FAILED**, even if the harness exits with code 0.
+
+### Entity status lifecycle
+
+| Entity | Possible Statuses | Set By |
+|--------|-------------------|--------|
+| Suite | `DRAFT` → `ACTIVE` / `INACTIVE` | User (context menu / combo box) |
+| Case | `Draft` → `Ready` | Auto-set to `Ready` after recording; can also set `Inactive` |
+| Assertion | `DRAFT` / `ACTIVE` / `INACTIVE` | User (Assertion Builder) |
+
+**Run gates:**
+- Suite must be `ACTIVE` for any run action (Suite / Case run).
+- Case must be `Ready` (has recorded script) to run.
+- Case must have at least one `ACTIVE` assertion to be collected (not skipped).
+
+### Browser resolution hierarchy
+
+Browser and headless settings resolve via **inheritance chain** (`RunTargetResolve`):
+
+1. Case has non-blank `browser` → use case
+2. Else suite has non-blank `browser` → use suite
+3. Else → **Playwright Chromium** (`CHROMIUM`) — application default
+
+Same chain for `headless`: case → suite → Settings (`headlessDefault`, default `false`).
+
+The UI displays «Mặc định (Playwright Chromium)» as the first browser combo option.
+
+### Entity metadata
+
+All entities (Suite, Case) carry `createdAt` and `updatedAt` timestamps:
+
+- Stored as ISO-8601 with local offset in JSON
+- Displayed as `HH:mm:ss dd/MM/yyyy` (local time)
+- Backfilled on first load for legacy data
+- `updatedAt` bumped on metadata saves
+
+### Entity create/edit forms
+
+`EntityFormDialog` is a shared form builder used for Group, Suite, and Case creation/editing. It replaces the old simple `TextInputDialog` with a full-featured modal that includes:
+
+- Name (required)
+- Description
+- Status combo (Draft/Active/Inactive for suites; Draft/Ready/Inactive for cases)
+- Start URL (cases only)
+- Browser combo («Mặc định» + detected browsers)
+- Headless checkbox
+
+### FXML-based UI
+
+All major views are defined in `src/main/resources/fxml/` with corresponding controller classes. The `ViewNavigator` statelessly caches loaded pages in a static map, allowing navigation between Explorer, Workspace, and Reports without reloading.
+
+| FXML File | Controller | Purpose |
+|-----------|-----------|---------|
+| `main_shell.fxml` | `MainShellController` | Shell layout, sidebar, toast host, help drawer |
+| `explorer_page.fxml` | `ExplorerPageController` | Tree view, CRUD, drag-drop, Run buttons, preview panel |
+| `suite_workspace_page.fxml` | `SuiteWorkspacePageController` | Code editor, Record, Run, terminal, suite info |
+| `reports_page.fxml` | `ReportsPageController` | Run history list with filters |
+| `report_detail_page.fxml` | `ReportDetailPageController` | Per-run breakdown, case expansion, Excel export |
+| `assert_builder_popup.fxml` | `AssertBuilderPopupController` | Modal assertion builder (46 types, add/edit/delete/reorder) |
+
+The **Suite Workspace** is NOT cached — it is freshly loaded each time via `ViewNavigator.navigateToWorkspace()`.
+
+---
+
+## Toast Notification System
+
+The `ToastService` provides non-blocking, auto-dismissing notifications overlaid on the main shell. Toasts stack in the top-right corner and auto-fade after 2.5–4 seconds. The service is static and can be called from any controller on the JavaFX Application Thread.
+
+Toast types:
+
+| Type | Color | Use Case |
+|------|-------|----------|
+| SUCCESS | Green | CRUD operations, Save, Export, Record finished |
+| INFO | Gray/Light blue | Status changes, Run started, Navigation |
+| WARN | Orange | Suite INACTIVE warning, Stop after first failure |
+| ERROR | Red | Compile failed, Record error, Export failed |
+
+---
+
+## Help Drawer
+
+A right-side help panel can be toggled open/closed from the sidebar (❔ button). It slides in as a drawer over the content area with a scrim backdrop — clicking the scrim or the close button dismisses it. Content is placeholder; expandable in future releases.
+
+---
+
+## Sidebar
+
+The left sidebar supports two modes:
+
+- **Expanded** (220px): Full labels on nav buttons, visible suite section, text "Chạy tất cả"
+- **Collapsed** (56px): Icon-only buttons with tooltips
+
+Toggle via the sidebar toggle button. The sidebar shows the active suite name (set when workspace is opened).
+
+---
+
+## Drag-and-Drop
+
+The Explorer tree supports drag-and-drop for:
+
+- **Suite reorder** within same group
+- **Case reorder** within same suite (persists order to `suite.json`)
+- **Cross-group suite move**: drop a suite onto a different group folder
+
+Cases cannot leave their suite. Drag uses JavaFX `TransferMode.MOVE` with clipboard content.
+
+---
+
+## CI/CD
+
+### `.github/workflows/ci.yml`
+
+Triggers on every push and PR to `main`: Checkout → JDK 26 → Maven cache → `mvn -B -DskipTests package`.
+
+### `.github/workflows/release-portable.yml`
+
+Triggers on tag (e.g. `v1.0.0`) or manual `workflow_dispatch`:
+
+| Runner | Artifact |
+|--------|----------|
+| `macos-latest` | `PlaywrightAutomationStudio-mac-*.zip` |
+| `windows-latest` | `PlaywrightAutomationStudio-win-*.zip` |
+| `ubuntu-latest` | `PlaywrightAutomationStudio-linux-*.zip` |
+
+### Portable Bundle Layout
+
+```
+PlaywrightAutomationStudio-&lt;os&gt;-&lt;arch&gt;/
+├── PlaywrightAutomationStudio[.exe]    # Launcher (double-click to run)
+├── runtime/                            # Embedded JRE (jlink)
+├── app/                                # Application JAR + dependencies
+├── tools/
+│   ├── node/bin/node[.exe]             # Node.js portable (for codegen)
+│   └── playwright-cli/                 # Playwright npm package
+├── browsers/                           # Chromium (PLAYWRIGHT_BROWSERS_PATH)
+├── data/                               # Runtime data (empty on first run)
+├── work/                               # Temp directory
+└── README-PORTABLE.txt
+```
+
+---
+
+## APP_HOME Resolution
+
+`StudioPaths` resolves `APP_HOME` via (in priority):
+
+1. System property `-Dstudio.home=/path` (jpackage sets this)
+2. Environment variable `STUDIO_HOME`
+3. Environment variable `APP_HOME`
+4. JAR/classpath parent detection (portable layout: `app/` → parent)
+5. `user.dir` fallback (dev mode / Maven `javafx:run`)

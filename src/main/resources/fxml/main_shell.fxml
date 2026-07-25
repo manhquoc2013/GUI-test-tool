@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.studio.controller.MainShellController"
+            stylesheets="@../css/studio.css"
+            styleClass="root-pane">
+    <top>
+        <HBox styleClass="header-bar" spacing="10" alignment="CENTER_LEFT">
+            <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
+            <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
+            <Label text="🦾 Playwright Automation Studio" styleClass="app-title"/>
+            <HBox HBox.hgrow="ALWAYS"/>
+            <Button fx:id="stopRunBtn" text="⏹ Dừng" styleClass="header-stop-btn" onAction="#stopRun"
+                    visible="false" managed="false"/>
+            <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
+            <Button fx:id="helpBtn" text="❓ Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
+        </HBox>
+    </top>
+    <left>
+        <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">
+            <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
+            <Button fx:id="navExplorerBtn" text="🧭 Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
+            <Button fx:id="navReportsBtn" text="📊 Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
+            <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
+            <Label fx:id="sidebarSuiteSectionLabel" text="📌 SUITE ĐANG MỞ" styleClass="sidebar-section-label">
+                <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>
+            </Label>
+            <HBox fx:id="sidebarActiveSuiteRow" spacing="4" alignment="CENTER_LEFT">
+                <VBox.margin><Insets left="14" right="10"/></VBox.margin>
+                <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="⭕ (trống)"
+                       HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <Button fx:id="clearActiveSuiteBtn" text="✕" styleClass="sidebar-clear-suite-btn"
+                        onAction="#clearActiveSuite" visible="false" managed="false"
+                        focusTraversable="false"/>
+            </HBox>
+            <VBox VBox.vgrow="ALWAYS"/>
+            <Button fx:id="runAllBtn" text="▶️ Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
+                <VBox.margin><Insets left="12" right="12" bottom="8"/></VBox.margin>
+            </Button>
+        </VBox>
+    </left>
+    <center>
+        <StackPane fx:id="shellStack" styleClass="shell-stack">
+            <StackPane fx:id="contentArea" styleClass="content-area">
+                <Label text="👆 Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
+            </StackPane>
+
+            <!-- Help: overlay + right drawer (hidden by default) -->
+            <StackPane fx:id="helpLayer" styleClass="help-layer" visible="false" managed="false"
+                       mouseTransparent="false">
+                <Region fx:id="helpScrim" styleClass="help-scrim" maxWidth="Infinity" maxHeight="Infinity"/>
+                <VBox fx:id="helpDrawer" styleClass="help-drawer"
+                      StackPane.alignment="CENTER_RIGHT" spacing="0" maxHeight="Infinity">
+                    <HBox styleClass="help-drawer-header" spacing="8" alignment="CENTER_LEFT">
+                        <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
+                        <Label text="❓ Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
+                               maxWidth="Infinity"/>
+                        <Button fx:id="helpCloseBtn" text="✖️" styleClass="icon-btn" onAction="#hideHelp"
+                                focusTraversable="false"/>
+                    </HBox>
+                    <Separator/>
+                    <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="help-drawer-scroll">
+                        <VBox fx:id="helpContent" spacing="12" styleClass="help-drawer-body">
+                            <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
+                        </VBox>
+                    </ScrollPane>
+                </VBox>
+            </StackPane>
+
+            <VBox fx:id="toastContainer" styleClass="toast-container" pickOnBounds="false"
+                  maxWidth="380" maxHeight="Infinity" alignment="BOTTOM_RIGHT"
+                  StackPane.alignment="BOTTOM_RIGHT">
+                <padding><Insets top="12" right="12" bottom="48" left="12"/></padding>
+            </VBox>
+        </StackPane>
+    </center>
+    <bottom>
+        <HBox styleClass="status-bar" spacing="8">
+            <padding><Insets top="4" right="14" bottom="4" left="14"/></padding>
+            <Label fx:id="statusLabel" text="🟢 Sẵn sàng"/>
+            <HBox HBox.hgrow="ALWAYS"/>
+            <Label fx:id="browserLabel" text="🌐 Chromium"/>
+        </HBox>
+    </bottom>
+</BorderPane>
