@@ -45,7 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - User settings persistence in `data/config/settings.json`
 - `APP_HOME` resolution chain: `studio.home` property → `STUDIO_HOME` env → JAR location → `user.dir`
 - Portable build scripts (macOS/Linux + Windows) — Node.js 20.18.0 LTS + Playwright CLI + Chromium bundled
-- GitHub Actions CI/CD — build verification on PR/push (`ci.yml`), matrix portable release on tag (`release-portable.yml`)
+- GitHub Actions CI/CD — build verification (`ci.yml`) and matrix portable release (`release-portable.yml`) only on version tags (`v*`)
 - Catppuccin Mocha dark theme (`studio.css`)
 - FXML-based UI — 6 layouts with dedicated controllers
 

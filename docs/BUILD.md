@@ -116,10 +116,10 @@ PlaywrightAutomationStudio-<os>-<arch>/
 
 ### `.github/workflows/ci.yml`
 
-Triggers on every **push** and **pull request** to `main`:
+Triggers only on **version tags** (`v*`), e.g. `v1.0.0`:
 
-- Checkout → Setup JDK 26 → Cache Maven → `mvn -B -DskipTests package`
-- PR fails if compilation fails.
+- Checkout → Setup JDK 26 → `mvn -B -DskipTests package`
+- Does **not** run on push or pull request to `main`.
 
 ### `.github/workflows/release-portable.yml`
 

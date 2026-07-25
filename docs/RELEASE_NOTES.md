@@ -85,8 +85,8 @@ The entire UI uses the [Catppuccin Mocha](https://github.com/catppuccin/catppucc
 
 GitHub Actions pipelines:
 
-- **ci.yml** — Build verification on every PR and push to `main`.
-- **release-portable.yml** — Matrix build (macOS, Windows, Linux) on tag, producing portable `.zip` artifacts.
+- **ci.yml** — Build verification on version tags (`v*`) only.
+- **release-portable.yml** — Matrix portable build (macOS, Windows, Linux) on the same tags, producing `.zip` artifacts.
 
 ---
 

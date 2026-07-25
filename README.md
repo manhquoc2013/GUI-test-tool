@@ -36,7 +36,7 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
 - **Cross-platform browser detection** — Automatically detects Playwright-bundled Chromium, Firefox, WebKit, plus system-installed Chrome and Edge channels.
 - **Collapsible sidebar** — Sidebar collapses to a 44px strip for maximum workspace area. Terminal auto-shows on Record/Run.
 - **Portable distribution** — Self-contained bundle with embedded JRE, Node.js LTS, Playwright CLI, and Chromium browser. No installation required.
-- **GitHub Actions CI/CD** — Build verification on every PR/push; matrix portable releases for macOS, Windows, and Linux on tag.
+- **GitHub Actions CI/CD** — Build verification and matrix portable releases (macOS, Windows, Linux) only on version tags (`v*`).
 - **Catppuccin Mocha dark theme** — Consistent, comfortable dark UI.
 
 ---

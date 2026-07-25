@@ -406,7 +406,7 @@ Cases cannot leave their suite. Drag uses JavaFX `TransferMode.MOVE` with clipbo
 
 ### `.github/workflows/ci.yml`
 
-Triggers on every push and PR to `main`: Checkout → JDK 26 → Maven cache → `mvn -B -DskipTests package`.
+Triggers only on version tags (`v*`): Checkout → JDK 26 → `mvn -B -DskipTests package`. Does not run on push/PR to `main`.
 
 ### `.github/workflows/release-portable.yml`
 
