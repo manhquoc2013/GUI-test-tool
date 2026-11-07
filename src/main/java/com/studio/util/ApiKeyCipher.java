@@ -13,7 +13,9 @@ import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.List;
 
 /**
  * Transparent AES-256-GCM encryption & decryption utility for storing API keys securely at rest.
@@ -186,13 +188,18 @@ public final class ApiKeyCipher {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             if (interfaces != null) {
-                for (NetworkInterface nif : Collections.list(interfaces)) {
+                List<NetworkInterface> list = Collections.list(interfaces);
+                list.sort(Comparator.comparing(NetworkInterface::getName));
+                for (NetworkInterface nif : list) {
+                    if (nif.isLoopback()) {
+                        continue;
+                    }
                     byte[] mac = nif.getHardwareAddress();
                     if (mac != null && mac.length > 0) {
                         for (byte b : mac) {
                             sb.append(String.format("%02X", b));
                         }
-                        break; // Use the first valid hardware MAC
+                        break; // Use the first valid hardware MAC in deterministic sorted order
                     }
                 }
             }

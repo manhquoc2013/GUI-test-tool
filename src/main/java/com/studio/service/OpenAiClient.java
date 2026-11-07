@@ -33,7 +33,7 @@ public class OpenAiClient {
                 .connectTimeout(Duration.ofSeconds(15))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build(),
-             DEFAULT_MAPPER);
+                DEFAULT_MAPPER);
     }
 
     public OpenAiClient(HttpClient httpClient, ObjectMapper mapper) {
@@ -97,14 +97,21 @@ public class OpenAiClient {
      * Resolve user-friendly provider name from Base URL.
      */
     public static String resolveProviderName(String baseUrl) {
-        if (baseUrl == null || baseUrl.isBlank()) return "OpenAI";
+        if (baseUrl == null || baseUrl.isBlank())
+            return "OpenAI";
         String lower = baseUrl.toLowerCase();
-        if (lower.contains("googleapis.com") || lower.contains("gemini")) return "Gemini";
-        if (lower.contains("openrouter.ai")) return "OpenRouter";
-        if (lower.contains("deepseek.com")) return "DeepSeek";
-        if (lower.contains("groq.com")) return "Groq";
-        if (lower.contains("ollama") || lower.contains("localhost") || lower.contains("127.0.0.1")) return "Local/Ollama";
-        if (lower.contains("openai.com")) return "OpenAI";
+        if (lower.contains("googleapis.com") || lower.contains("gemini"))
+            return "Gemini";
+        if (lower.contains("openrouter.ai"))
+            return "OpenRouter";
+        if (lower.contains("deepseek.com"))
+            return "DeepSeek";
+        if (lower.contains("groq.com"))
+            return "Groq";
+        if (lower.contains("ollama") || lower.contains("localhost") || lower.contains("127.0.0.1"))
+            return "Local/Ollama";
+        if (lower.contains("openai.com"))
+            return "OpenAI";
         return "AI";
     }
 
@@ -137,7 +144,8 @@ public class OpenAiClient {
             if (response.statusCode() == 200) {
                 return new ConnectionTestResult(true, latency, "Kết nối thành công (" + latency + "ms) tới " + baseUrl);
             } else if (response.statusCode() == 401) {
-                return new ConnectionTestResult(false, latency, "Xác thực thất bại (HTTP 401): API Key không chính xác.");
+                return new ConnectionTestResult(false, latency,
+                        "Xác thực thất bại (HTTP 401): API Key không chính xác.");
             } else {
                 String errorMsg = extractErrorMessage(response.body());
                 String safeMsg = com.studio.util.SecuritySanitizer.sanitize("Lỗi từ server (" + response.statusCode() + "): " + errorMsg, apiKey);
@@ -196,7 +204,8 @@ public class OpenAiClient {
         String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
         if (apiKey.isBlank()) {
-            throw new IOException("Chưa cấu hình " + provider + " API Key. Vui lòng mở Cài đặt để điền API Key hoặc thiết lập biến môi trường.");
+            throw new IOException("Chưa cấu hình " + provider
+                    + " API Key. Vui lòng mở Cài đặt để điền API Key hoặc thiết lập biến môi trường.");
         }
 
         String targetUrl = baseUrl + "/chat/completions";
@@ -271,14 +280,15 @@ public class OpenAiClient {
                     return error.asText();
                 }
                 String msg = error.path("message").asText();
-                if (!msg.isBlank()) return msg;
+                if (!msg.isBlank())
+                    return msg;
             }
             String directMsg = tree.path("message").asText();
-            if (!directMsg.isBlank()) return directMsg;
+            if (!directMsg.isBlank())
+                return directMsg;
         } catch (Exception ignored) {
         }
         String cleaned = responseBody.replaceAll("\\s+", " ").trim();
         return cleaned.length() > 200 ? cleaned.substring(0, 200) + "..." : cleaned;
     }
 }
-

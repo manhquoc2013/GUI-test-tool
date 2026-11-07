@@ -32,8 +32,7 @@ public class AiSettingsDialog {
             "gpt-4o-mini",
             "o3-mini",
             "o1",
-            "gpt-4-turbo"
-    );
+            "gpt-4-turbo");
 
     public static List<String> getPresetsForBaseUrl(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -48,35 +47,30 @@ public class AiSettingsDialog {
                     "deepseek/deepseek-r1",
                     "deepseek/deepseek-chat",
                     "meta-llama/llama-3.3-70b-instruct",
-                    "google/gemini-2.0-flash-exp:free"
-            );
+                    "google/gemini-2.0-flash-exp:free");
         } else if (lower.contains("deepseek.com")) {
             return List.of(
                     "deepseek-chat",
-                    "deepseek-reasoner"
-            );
+                    "deepseek-reasoner");
         } else if (lower.contains("groq.com")) {
             return List.of(
                     "llama-3.3-70b-versatile",
                     "deepseek-r1-distill-llama-70b",
                     "llama-3.1-8b-instant",
-                    "mixtral-8x7b-32768"
-            );
+                    "mixtral-8x7b-32768");
         } else if (lower.contains("localhost") || lower.contains("127.0.0.1") || lower.contains("ollama")) {
             return List.of(
                     "llama3.2",
                     "qwen2.5-coder",
                     "deepseek-r1",
                     "mistral",
-                    "codellama"
-            );
+                    "codellama");
         } else if (lower.contains("googleapis.com") || lower.contains("gemini")) {
             return List.of(
                     "gemini-2.0-flash",
                     "gemini-1.5-flash",
                     "gemini-1.5-pro",
-                    "gemini-3.8-flash"
-            );
+                    "gemini-3.8-flash");
         }
         return DEFAULT_OPENAI_PRESETS;
     }

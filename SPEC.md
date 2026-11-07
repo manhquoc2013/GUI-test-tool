@@ -1,41 +1,72 @@
-# Technical Specification: API Key Security & Transparent Storage Encryption
+# Technical Specification: Advanced AI Agent Test Generation, Automation & Script Optimization Engine
 
 ## 1. Objectives & Overview
-Implement enterprise-grade security for AI API keys (OpenAI, Gemini, OpenRouter, Groq, DeepSeek, etc.) across Playwright Automation Studio:
-1. **Encryption at Rest**: Store all API keys in `settings.json` and H2 database using authenticated AES-256-GCM encryption with machine-bound key derivation (PBKDF2WithHmacSHA256).
-2. **Transparent Backward Compatibility**: Seamlessly detect legacy plaintext keys (`sk-...`), automatically migrate and re-encrypt on the next save without user friction.
-3. **Leak-Proof Export & Import**: Automatically sanitize / mask API keys (`sk-***`) when exporting settings to JSON for sharing; protect existing credentials from being overwritten by masked placeholders on import.
-4. **Execution & Log Sanitization**: Detect and redact API keys from test execution logs, terminal outputs, error messages, and reports.
+Upgrade the AI capabilities in Playwright Automation Studio (`GUI-test-tool`) into a state-of-the-art AI Test Engineering Agent, synthesizing best practices from:
+1. **Midscene.js**: Token-optimized interactive DOM tree extraction, multi-candidate resilient locators, visual/semantic intent mapping.
+2. **Testsigma**: Dual representation (declarative NLP test steps + runnable code), test data parameterization (equivalence partitioning & boundary analysis), assertion mapping.
+3. **Skyvern**: Agentic task decomposition (Planner -> Generator -> Validator), scratchpad reasoning, live DOM context scanning.
+4. **Automa**: Resilient wait conditions (`waitForLoadState`, `waitForSelector`), exception recovery, stable element identification.
 
 ## 2. Core Architecture & Enhancements
 
-### 2.1 Cryptographic Service (`com.studio.util.ApiKeyCipher`)
-- **Algorithm**: `AES/GCM/NoPadding` (256-bit key, 128-bit authentication tag, 12-byte cryptographic random IV per encryption).
-- **Key Derivation**: `PBKDF2WithHmacSHA256` (65,536 iterations, 256-bit output).
-- **Entropy Sources**: Machine-bound identifiers (OS username, user home, OS name, network MAC/hardware hash) mixed with an internal application salt.
-- **Envelope Format**: `enc:v1:<base64(iv + ciphertext_with_tag)>`.
-- **Validation**:
-  - GCM authentication tag protects against unauthorized modification/tampering.
-  - Fail-safe fallback: If decryption fails (e.g. copied to a different machine), clear or prompt safely without crashing.
+### 2.1 Model Layer
+- **`com.studio.model.TestStep`**:
+  - `stepNumber`: int
+  - `action`: String (e.g. `NAVIGATE`, `CLICK`, `FILL`, `SELECT`, `ASSERT_VISIBLE`, `ASSERT_TEXT`)
+  - `target`: String (selector or semantic element name)
+  - `testData`: String (input value or parameter)
+  - `description`: String (human-readable step explanation)
+  - `expectedResult`: String (verification outcome)
+- **`com.studio.model.TestDataItem`**:
+  - `scenario`: String (e.g. "Valid Inputs", "Missing Required Field", "Boundary Length")
+  - `parameters`: Map<String, String> (field-value pairs)
+  - `expectedOutcome`: String
+- **`com.studio.model.AiGeneratedCase`**:
+  - Enhanced with `List<TestStep> testSteps`
+  - Enhanced with `List<TestDataItem> testDataSets`
+  - Enhanced with `List<String> preconditions`
+- **`com.studio.model.TestCase`**:
+  - Enhanced with `List<TestStep> testSteps`
+  - Enhanced with `List<TestDataItem> testDataSets`
 
-### 2.2 Storage & Dual-Persistence Layer (`com.studio.store.SettingsStore`)
-- On `save(Settings s)`:
-  - Deep-clone or transform `Settings` so on-disk `settings.json` and database `system_settings` only persist the encrypted envelope `enc:v1:...`.
-  - In-memory `Settings` remains ready for runtime execution.
-- On `load()`:
-  - Detect `enc:v1:` prefix -> decrypt transparently.
-  - Detect plaintext key -> keep in memory, will automatically be encrypted on the next save cycle.
-- On `exportSettings(Path targetFile)`:
-  - Mask the API key (e.g. `sk-••••••` or empty) so backup files are safe to share with teammates.
-- On `importSettings(Path sourceFile)`:
-  - If imported key is masked / contains `•••` or `***`, keep the current existing local key intact.
+### 2.2 Live DOM-Aware Context Injection
+- **`LiveDomScanner` / Integration with `SharedBrowserSession` & `EnhancedDomExtractor`**:
+  - Inspects active Playwright `Page` from `SharedBrowserSession` or runs quick headless inspection for a given URL.
+  - Passes structured element list (`data-testid`, `role`, `text`, stable `id`, `name`) into AI context so generated scripts use real, accurate locators instead of hallucinated ones.
 
-### 2.3 Output & Log Sanitizer (`com.studio.util.SecuritySanitizer`)
-- Detect API key patterns (`sk-[A-Za-z0-9_-]{20,}`, `Bearer ...`) and active in-memory API keys.
-- Redact to `sk-...[last 4 chars]` across `TestRunnerService`, `StatusBarService`, and terminal callbacks.
+### 2.3 Multi-Stage AI Agent Architecture (`AiTestGeneratorService`)
+- **Stage 1: Test Planning & Scenario Decomposition**:
+  - Analyzes PRD / user prompt / live DOM context.
+  - Synthesizes positive, negative, and edge cases with test data variations.
+- **Stage 2: Resilient Playwright Java Script Generation**:
+  - Embeds `StudioRuntime.healLocator("selector", "description")` on element interactions.
+  - Interleaves explicit Playwright wait conditions:
+    `page.waitForLoadState(LoadState.DOMCONTENTLOADED);`
+    `page.waitForLoadState(LoadState.NETWORKIDLE);`
+  - Produces structured JSON containing summary, cases, NLP `testSteps`, `testDataSets`, and Java `scriptCode`.
+- **Stage 3: Syntax & Best-Practice Validator (Linter & Auto-Fixer)**:
+  - Validates class structure, imports, balanced braces, and ensures no prohibited calls (`playwright.chromium().launch()`, `page.close()`).
+  - Auto-corrects common formatting flaws before presenting to the user.
 
-## 3. Testing Strategy
-- `ApiKeyCipherTest`: Encryption/decryption roundtrip, random IV uniqueness, tampering rejection, legacy key support.
-- `SettingsSecurityTest`: Verify `settings.json` never contains plaintext API keys on disk.
-- `SettingsExportSecurityTest`: Verify export file masking and safe import behavior.
-- `LogSanitizerTest`: Verify redaction of keys in terminal logs and messages.
+### 2.4 Token & Context Optimizer (`AiTokenOptimizer`)
+- Compact DOM representation: Formats extracted interactive DOM into a compact markdown table/DSL, saving ~70% tokens compared to raw JSON.
+- Context budgeting: Allocates token windows across system prompt, history, attachments, DOM context, and output headroom.
+
+### 2.5 UI / UX Polish (`AiAssistantPageController` & FXML)
+- Dedicated "Các bước kiểm thử (Steps)" tab in preview pane with formatted NLP steps.
+- Dedicated "Dữ liệu kiểm thử (Test Data)" tab in preview pane with boundary/scenario data.
+- "Quét DOM Trình duyệt (Scan Live DOM)" toolbar action to inject active browser DOM into prompt context.
+- Updated counters and badges (`Steps (N)`, `Assertions (N)`, `Data (N)`).
+
+### 2.6 Security & Storage Encryption (`ApiKeyCipher` & `SecuritySanitizer`)
+- **Encryption at Rest**: AES-256-GCM encryption with machine-bound PBKDF2WithHmacSHA256 entropy (deterministic sorted network interfaces and OS metadata) in `settings.json` and H2 database.
+- **Leak-Proof Export & Import**: Automatic API key masking (`sk-••••...`) on settings export, and preservation of existing local keys on import.
+- **Log & Output Sanitization**: Active redaction of sensitive credentials and tokens in terminal output and UI error notifications.
+
+## 3. Verification & Testing Strategy
+- Unit tests for `TestStep` and `TestDataItem` models & JSON serialization.
+- Unit tests for `AiTestGeneratorService` multi-stage prompt generation, DOM context formatting, and JSON response parsing.
+- Unit tests for `ScriptValidator` / syntax auto-fixing.
+- Unit tests for `AiAssistantPageController` tab bindings and live DOM scan integration.
+- Unit tests for `ApiKeyCipherTest`, `SettingsSecurityTest`, `SecuritySanitizerTest`.
+- Regression verification: All 138+ tests must PASS.

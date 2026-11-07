@@ -80,7 +80,7 @@ public class AiConfig {
             return com.studio.util.ApiKeyCipher.decrypt(apiKey.trim());
         }
         String env = System.getenv("OPENAI_API_KEY");
-        return env != null ? com.studio.util.ApiKeyCipher.decrypt(env.trim()) : "";
+        return env != null ? env.trim() : "";
     }
 
     @JsonIgnore
@@ -110,4 +110,3 @@ public class AiConfig {
         return !getEffectiveApiKey().isEmpty();
     }
 }
-

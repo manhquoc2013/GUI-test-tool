@@ -86,4 +86,3 @@ public class SettingsDualPersistenceTest {
         assertEquals("sk-export-key", reloaded.getAiConfig().getApiKey());
     }
 }
-

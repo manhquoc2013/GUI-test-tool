@@ -45,3 +45,4 @@ class SecuritySanitizerTest {
         assertEquals("Normal log with no secrets", SecuritySanitizer.sanitize("Normal log with no secrets"));
     }
 }
+

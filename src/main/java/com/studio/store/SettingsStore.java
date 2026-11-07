@@ -130,7 +130,9 @@ public class SettingsStore {
             try {
                 Files.createDirectories(configDir);
                 mapper.writeValue(settingsFile.toFile(), prepareForStorage(fromDb));
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                System.err.println("[SettingsStore] Không thể khôi phục file settings từ DB: " + e.getMessage());
+            }
             return fromDb;
         }
 
@@ -144,7 +146,9 @@ public class SettingsStore {
 
         try {
             save(defaults);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[SettingsStore] Không thể lưu cài đặt mặc định: " + e.getMessage());
+        }
 
         return defaults;
     }
@@ -153,7 +157,8 @@ public class SettingsStore {
      * Save settings to both disk and embedded H2 database for absolute durability.
      */
     public void save(Settings s) throws IOException {
-        if (s == null) return;
+        if (s == null)
+            return;
 
         Settings persistent = prepareForStorage(s);
 
@@ -167,14 +172,16 @@ public class SettingsStore {
     }
 
     /**
-     * Export current system settings to an external JSON file with optional API key masking.
+     * Export current system settings to an external JSON file with optional API key
+     * masking.
      */
     public void exportSettings(Path targetFile) throws IOException {
         exportSettings(targetFile, true);
     }
 
     public void exportSettings(Path targetFile, boolean maskApiKey) throws IOException {
-        if (targetFile == null) return;
+        if (targetFile == null)
+            return;
         if (targetFile.getParent() != null) {
             Files.createDirectories(targetFile.getParent());
         }
@@ -188,7 +195,8 @@ public class SettingsStore {
 
     /**
      * Import system settings from an external JSON file and persist.
-     * If the imported file contains a masked key placeholder, local credentials are preserved.
+     * If the imported file contains a masked key placeholder, local credentials are
+     * preserved.
      */
     public Settings importSettings(Path sourceFile) throws IOException {
         if (sourceFile == null || !Files.exists(sourceFile)) {
@@ -216,7 +224,8 @@ public class SettingsStore {
     }
 
     private Settings prepareForStorage(Settings source) {
-        if (source == null) return null;
+        if (source == null)
+            return null;
         Settings copy = new Settings();
         copy.setBrowser(source.getBrowser());
         copy.setHeadlessDefault(source.isHeadlessDefault());
@@ -241,7 +250,12 @@ public class SettingsStore {
         if (s != null && s.getAiConfig() != null) {
             String rawKey = s.getAiConfig().getApiKey();
             if (rawKey != null && !rawKey.isBlank()) {
-                s.getAiConfig().setApiKey(com.studio.util.ApiKeyCipher.decrypt(rawKey));
+                String decrypted = com.studio.util.ApiKeyCipher.decrypt(rawKey);
+                if (decrypted.isEmpty() && com.studio.util.ApiKeyCipher.isEncrypted(rawKey)) {
+                    System.err.println("[SettingsStore] Cảnh báo: Không thể giải mã API key đã lưu trữ (sai máy hoặc dữ liệu bị thay đổi).");
+                } else {
+                    s.getAiConfig().setApiKey(decrypted);
+                }
             }
         }
     }
@@ -249,19 +263,21 @@ public class SettingsStore {
     private void saveToDatabase(Settings s) {
         String sql = "MERGE INTO system_settings (setting_key, setting_value, updated_at) KEY(setting_key) VALUES (?, ?, ?)";
         try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+                PreparedStatement ps = conn.prepareStatement(sql)) {
             String json = mapper.writeValueAsString(s);
             ps.setString(1, DB_SETTINGS_KEY);
             ps.setString(2, json);
             ps.setLong(3, System.currentTimeMillis());
             ps.executeUpdate();
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[SettingsStore] Không thể lưu cài đặt vào database: " + e.getMessage());
+        }
     }
 
     private Settings loadFromDatabase() {
         String sql = "SELECT setting_value FROM system_settings WHERE setting_key = ?";
         try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+                PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, DB_SETTINGS_KEY);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -271,7 +287,9 @@ public class SettingsStore {
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[SettingsStore] Không thể đọc cài đặt từ database: " + e.getMessage());
+        }
         return null;
     }
 }

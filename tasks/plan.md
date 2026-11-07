@@ -1,25 +1,38 @@
-# Plan: API Key Security & Transparent Storage Encryption
+# Implementation Plan: AI Agent Test Generation & Automation Optimization
 
-## Vertical Slices
+## Phase 1: Models & Data Structures
+- Create `com.studio.model.TestStep.java` (stepNumber, action, target, testData, description, expectedResult).
+- Create `com.studio.model.TestDataItem.java` (scenario, parameters, expectedOutcome).
+- Enhance `com.studio.model.AiGeneratedCase.java` with testSteps, testDataSets, preconditions.
+- Enhance `com.studio.model.TestCase.java` with testSteps, testDataSets.
+- Unit tests for model serialization and Jackson mappings.
 
-1. **Slice 1: Cryptographic Engine (`ApiKeyCipher`)**
-   - Implement `com.studio.util.ApiKeyCipher` with AES-256-GCM and PBKDF2WithHmacSHA256 device-bound entropy.
-   - Support `encrypt(String plain)`, `decrypt(String cipherOrPlain)`, `isEncrypted(String str)`.
-   - Write comprehensive unit tests in `ApiKeyCipherTest`.
+## Phase 2: Live DOM Scanner & Token Optimization
+- Create/Enhance DOM representation formatting in `com.studio.service.AiTokenOptimizer.java` (compact element table format).
+- Create `com.studio.service.LiveDomScanner.java` to extract interactive DOM from `SharedBrowserSession` or URL via headless Playwright page.
+- Unit tests for DOM formatting and token estimation.
 
-2. **Slice 2: Storage Dual-Persistence & Export Protection (`SettingsStore`)**
-   - Update `SettingsStore.save()` to write encrypted API keys to disk & H2 database.
-   - Update `SettingsStore.load()` to transparently decrypt `enc:v1:...` envelopes.
-   - Update `SettingsStore.exportSettings()` to mask API keys.
-   - Update `SettingsStore.importSettings()` to preserve existing local keys when masked keys are imported.
-   - Add unit tests in `SettingsSecurityTest`.
+## Phase 3: Multi-Stage AI Generator & Validator Engine
+- Update `AiTestGeneratorService.java`:
+  - Upgrade `SYSTEM_PROMPT` to enforce dual representation (NLP testSteps + Test Data + Playwright Java code with `StudioRuntime.healLocator(...)` and wait patterns).
+  - Add `generateTestCasesWithDom(config, userPrompt, attachments, contextInfo, domJson, history)` overload.
+  - Implement `ScriptValidator` / auto-fixer for Playwright Java template integrity.
+  - Update `applyCasesToSuite(...)` to propagate `testSteps` and `testDataSets` into `TestCase`.
+- Unit tests for `AiTestGeneratorService` with mock JSON containing steps, data sets, and scripts.
 
-3. **Slice 3: Log & Terminal Output Sanitizer (`SecuritySanitizer`)**
-   - Implement `com.studio.util.SecuritySanitizer` with pattern matching & active key redaction.
-   - Hook into `TestRunnerService` terminal output and `OpenAiClient` error logging.
-   - Add unit tests in `SecuritySanitizerTest`.
+## Phase 4: UI & Controller Integration
+- Update `ai_assistant_page.fxml` to add "Các bước kiểm thử (Steps)" tab, "Dữ liệu kiểm thử (Test Data)" tab, and "Quét DOM (Live Scan)" action.
+- Update `AiAssistantPageController.java` to bind new tabs, handle Live DOM scanning, and display steps and test data.
+- Add CSS styling for steps list and test data table in `studio.css`.
 
-4. **Slice 4: Verification, Full Build & Git Checkpoint**
-   - Run full unit test suite `mvn clean test`.
-   - Verify UI dialogs still load and function cleanly without regressions.
-   - Commit changes atomically.
+## Phase 5: Verification & Full Regression
+- Run unit test suite: `mvn test`.
+- Verify zero regressions across all existing features.
+- Update `tasks/learnings.md` and summarize results.
+
+## Phase 6: Security Hardening & Deterministic Storage Encryption
+- Restore and stabilize `ApiKeyCipher.java` with deterministic network interface sorting for entropy stability.
+- Safeguard `SettingsStore.java` with non-destructive fallback if decryption fails, avoiding wiping out database mirrors.
+- Add error logging for database and disk storage operations in `SettingsStore`.
+- Protect log and terminal outputs via `SecuritySanitizer.sanitize(...)` in `OpenAiClient` and `TestRunnerService`.
+- Verify all 138 unit tests pass cleanly.
