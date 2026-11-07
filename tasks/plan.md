@@ -1,24 +1,31 @@
-# Implementation Plan: Multi-Tier Self-Healing Engine
+# Implementation Plan: AI Agent Test Generation & Automation Optimization
 
-## Phase 1: Models & Core Runtime Engine
-- Create `HealedStepMeta.java` in `com.studio.model`.
-- Add `healedSteps` property to `CaseResult.java`.
-- Create `EnhancedDomExtractor.java` in `com.studio.runtime`.
-- Create `HeuristicHealer.java` in `com.studio.runtime`.
-- Create `OptimizedSelfHealingExecutor.java` in `com.studio.runtime`.
-- Enhance `StudioRuntime.java` with executor holder, `healLocator()`, and audit collection methods.
-- Write unit tests for `HeuristicHealer` and `OptimizedSelfHealingExecutor`.
+## Phase 1: Models & Data Structures
+- Create `com.studio.model.TestStep.java` (stepNumber, action, target, testData, description, expectedResult).
+- Create `com.studio.model.TestDataItem.java` (scenario, parameters, expectedOutcome).
+- Enhance `com.studio.model.AiGeneratedCase.java` with testSteps, testDataSets, preconditions.
+- Enhance `com.studio.model.TestCase.java` with testSteps, testDataSets.
+- Unit tests for model serialization and Jackson mappings.
 
-## Phase 2: Harness & Assert Generation Integration
-- Update `ScriptHarnessTransformer.java` to support healing wrapper (`StudioRuntime.healLocator(...)` or direct healing transformation).
-- Update `AssertCodeGenerator.java` to route element locators through `StudioRuntime.healLocator(...)`.
-- Write unit tests for `ScriptHarnessTransformer` and `AssertCodeGenerator` healing behavior.
+## Phase 2: Live DOM Scanner & Token Optimization
+- Create/Enhance DOM representation formatting in `com.studio.service.AiTokenOptimizer.java` (compact element table format).
+- Create `com.studio.service.LiveDomScanner.java` to extract interactive DOM from `SharedBrowserSession` or URL via headless Playwright page.
+- Unit tests for DOM formatting and token estimation.
 
-## Phase 3: Runner & Report Audit Trail Integration
-- Update `TestRunnerService.java` to initialize `OptimizedSelfHealingExecutor` with `SettingsStore` / `OpenAiClient` and inject into `StudioRuntime`.
-- Collect healed steps into `CaseResult` at end of case execution.
-- Update `HtmlReportService.java` to render `[Auto-Healed]` badges and audit details table.
+## Phase 3: Multi-Stage AI Generator & Validator Engine
+- Update `AiTestGeneratorService.java`:
+  - Upgrade `SYSTEM_PROMPT` to enforce dual representation (NLP testSteps + Test Data + Playwright Java code with `StudioRuntime.healLocator(...)` and wait patterns).
+  - Add `generateTestCasesWithDom(config, userPrompt, attachments, contextInfo, domJson, history)` overload.
+  - Implement `ScriptValidator` / auto-fixer for Playwright Java template integrity.
+  - Update `applyCasesToSuite(...)` to propagate `testSteps` and `testDataSets` into `TestCase`.
+- Unit tests for `AiTestGeneratorService` with mock JSON containing steps, data sets, and scripts.
 
-## Phase 4: Full Verification & Learnings
-- Run full regression tests (`mvn test`).
-- Record learnings in `tasks/learnings.md`.
+## Phase 4: UI & Controller Integration
+- Update `ai_assistant_page.fxml` to add "Các bước kiểm thử (Steps)" tab, "Dữ liệu kiểm thử (Test Data)" tab, and "Quét DOM (Live Scan)" action.
+- Update `AiAssistantPageController.java` to bind new tabs, handle Live DOM scanning, and display steps and test data.
+- Add CSS styling for steps list and test data table in `studio.css`.
+
+## Phase 5: Verification & Full Regression
+- Run unit test suite: `mvn test`.
+- Verify zero regressions across all existing features.
+- Update `tasks/learnings.md` and summarize results.

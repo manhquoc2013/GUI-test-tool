@@ -1,5 +1,7 @@
 package com.studio.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studio.model.AiChatMessage;
 import com.studio.service.DocumentParserService.ParsedDocument;
 
@@ -103,6 +105,70 @@ public class AiTokenOptimizer {
     }
 
     /**
+     * Format reduced DOM JSON into a compact Markdown element table for AI ingestion (70% token savings).
+     * Inspired by Midscene.js and Skyvern compact DOM representations.
+     */
+    public String formatDomForPrompt(String domJson, int maxElements) {
+        if (domJson == null || domJson.isBlank()) {
+            return "";
+        }
+        int limit = maxElements > 0 ? maxElements : 50;
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(domJson);
+            if (!root.isArray() || root.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("### Giao diện DOM tương tác thực tế (Live Page Elements):\n");
+            sb.append("| # | Tag | Candidate Locator | Role/Type | Text/Placeholder/Label |\n");
+            sb.append("|---|---|---|---|---|\n");
+            int count = 0;
+            for (JsonNode node : root) {
+                if (count >= limit) break;
+                String tag = node.path("tag").asText("");
+                String id = node.path("id").asText("");
+                String testId = node.path("testId").asText("");
+                String name = node.path("name").asText("");
+                String role = node.path("role").asText("");
+                String type = node.path("type").asText("");
+                String text = node.path("text").asText("");
+                String aria = node.path("ariaLabel").asText("");
+                String placeholder = node.path("placeholder").asText("");
+
+                String locator;
+                if (!testId.isBlank()) {
+                    locator = "[data-testid=\"" + testId + "\"]";
+                } else if (!id.isBlank() && !id.equals("null")) {
+                    locator = "#" + id;
+                } else if (!name.isBlank() && !name.equals("null")) {
+                    locator = tag + "[name=\"" + name + "\"]";
+                } else if (!aria.isBlank() && !aria.equals("null")) {
+                    locator = "[aria-label=\"" + aria + "\"]";
+                } else if (!role.isBlank() && !role.equals("null") && !text.isBlank()) {
+                    locator = "role=" + role + "[name=\"" + text + "\"]";
+                } else if (!text.isBlank()) {
+                    locator = tag + ":has-text(\"" + text + "\")";
+                } else {
+                    locator = tag;
+                }
+
+                String roleType = !role.isBlank() && !role.equals("null") ? role : (!type.isBlank() ? type : "-");
+                String desc = !text.isBlank() ? text : (!placeholder.isBlank() ? "ph: " + placeholder : (!aria.isBlank() ? aria : "-"));
+                if (desc.length() > 40) {
+                    desc = desc.substring(0, 37) + "...";
+                }
+
+                sb.append(String.format("| %d | %s | `%s` | %s | %s |\n", count + 1, tag, locator, roleType, desc));
+                count++;
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return compressText(domJson, 2000);
+        }
+    }
+
+    /**
      * Construct optimized list of OpenAiClient.ChatMessage using sliding window,
      * summarized history, compressed attachments, and token budget enforcement.
      */
@@ -112,6 +178,21 @@ public class AiTokenOptimizer {
             String currentUserPrompt,
             List<ParsedDocument> attachments,
             String contextInfo,
+            int maxTokens,
+            int maxTurns) {
+        return buildOptimizedMessages(systemPrompt, history, currentUserPrompt, attachments, contextInfo, null, maxTokens, maxTurns);
+    }
+
+    /**
+     * Construct optimized list with Live DOM context injection.
+     */
+    public List<OpenAiClient.ChatMessage> buildOptimizedMessages(
+            String systemPrompt,
+            List<AiChatMessage> history,
+            String currentUserPrompt,
+            List<ParsedDocument> attachments,
+            String contextInfo,
+            String domContext,
             int maxTokens,
             int maxTurns) {
 
@@ -125,6 +206,10 @@ public class AiTokenOptimizer {
         StringBuilder userContent = new StringBuilder();
         if (contextInfo != null && !contextInfo.isBlank()) {
             userContent.append("### Ngữ cảnh Suite hiện tại:\n").append(contextInfo.trim()).append("\n\n");
+        }
+
+        if (domContext != null && !domContext.isBlank()) {
+            userContent.append(domContext.trim()).append("\n\n");
         }
 
         userContent.append("### Yêu cầu người dùng:\n").append(currentUserPrompt != null ? currentUserPrompt.trim() : "").append("\n\n");

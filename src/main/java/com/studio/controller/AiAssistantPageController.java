@@ -58,6 +58,7 @@ public class AiAssistantPageController implements Initializable {
     @FXML private FlowPane attachedChipsPane;
     @FXML private TextArea promptInputArea;
     @FXML private Button attachFileBtn;
+    @FXML private Button scanDomBtn;
     @FXML private Button clearAttachmentsBtn;
     @FXML private ProgressIndicator generationProgress;
     @FXML private Button sendBtn;
@@ -67,9 +68,13 @@ public class AiAssistantPageController implements Initializable {
     @FXML private Label previewCaseNameLabel;
     @FXML private Label previewCaseUrlLabel;
     @FXML private TabPane detailTabPane;
+    @FXML private Tab previewStepsTab;
+    @FXML private ListView<String> previewStepsListView;
     @FXML private TextArea previewScriptEditor;
     @FXML private Tab previewAssertsTab;
     @FXML private ListView<String> previewAssertsListView;
+    @FXML private Tab previewTestDataTab;
+    @FXML private ListView<String> previewTestDataListView;
     @FXML private TextArea rawResponseViewer;
 
     private final SettingsStore settingsStore = new SettingsStore();
@@ -78,10 +83,12 @@ public class AiAssistantPageController implements Initializable {
     private final AiTestGeneratorService aiGenerator = new AiTestGeneratorService();
     private final AiChatHistoryStore chatHistoryStore = new AiChatHistoryStore();
     private final AiTokenOptimizer tokenOptimizer = new AiTokenOptimizer();
+    private final com.studio.service.LiveDomScanner domScanner = new com.studio.service.LiveDomScanner();
 
     private final List<DocumentParserService.ParsedDocument> attachedDocuments = new ArrayList<>();
     private final List<AiGeneratedCase> currentGeneratedCases = new ArrayList<>();
     private AiChatSession currentSession = new AiChatSession("global");
+    private String liveDomJson = null;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -92,6 +99,7 @@ public class AiAssistantPageController implements Initializable {
         if (clearChatBtn != null) UiIcons.setGraphic(clearChatBtn, UiIcons.TRASH, 12);
         if (sendBtn != null) UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
         if (attachFileBtn != null) UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
+        if (scanDomBtn != null) UiIcons.setGraphic(scanDomBtn, UiIcons.SEARCH, 12);
         if (applyToSuiteBtn != null) UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
         if (refreshTargetsBtn != null) UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
 
@@ -107,7 +115,9 @@ public class AiAssistantPageController implements Initializable {
                     setText(null);
                     setGraphic(null);
                 } else {
-                    setText(item.getName() + " (" + item.getAssertions().size() + " asserts)");
+                    int stepsCount = item.getTestSteps() != null ? item.getTestSteps().size() : 0;
+                    int assertsCount = item.getAssertions() != null ? item.getAssertions().size() : 0;
+                    setText(item.getName() + " (" + stepsCount + " steps, " + assertsCount + " asserts)");
                 }
             }
         });
@@ -413,11 +423,12 @@ public class AiAssistantPageController implements Initializable {
 
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
+        String domContext = liveDomJson;
 
         Thread thread = new Thread(() -> {
             try {
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        aiConfig, prompt, docsSnapshot, context, currentSession.getMessages()
+                        aiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages()
                 );
 
                 Platform.runLater(() -> {
@@ -481,6 +492,10 @@ public class AiAssistantPageController implements Initializable {
             previewScriptEditor.clear();
             previewAssertsListView.getItems().clear();
             previewAssertsTab.setText("Assertions (0)");
+            if (previewStepsListView != null) previewStepsListView.getItems().clear();
+            if (previewStepsTab != null) previewStepsTab.setText("Các bước kiểm thử (0)");
+            if (previewTestDataListView != null) previewTestDataListView.getItems().clear();
+            if (previewTestDataTab != null) previewTestDataTab.setText("Dữ liệu kiểm thử (0)");
             return;
         }
 
@@ -495,6 +510,89 @@ public class AiAssistantPageController implements Initializable {
             previewAssertsListView.getItems().add(a.getType() + loc + val);
         }
         previewAssertsTab.setText("Assertions (" + c.getAssertions().size() + ")");
+
+        if (previewStepsListView != null) {
+            previewStepsListView.getItems().clear();
+            for (com.studio.model.TestStep step : c.getTestSteps()) {
+                previewStepsListView.getItems().add(step.toString());
+            }
+            if (previewStepsTab != null) {
+                previewStepsTab.setText("Các bước (" + c.getTestSteps().size() + ")");
+            }
+        }
+
+        if (previewTestDataListView != null) {
+            previewTestDataListView.getItems().clear();
+            for (com.studio.model.TestDataItem item : c.getTestDataSets()) {
+                previewTestDataListView.getItems().add(item.getScenario() + " -> " + item.getParameters() + " [" + item.getExpectedOutcome() + "]");
+            }
+            if (previewTestDataTab != null) {
+                previewTestDataTab.setText("Dữ liệu (" + c.getTestDataSets().size() + ")");
+            }
+        }
+    }
+
+    @FXML
+    public void scanLiveDom() {
+        String prompt = promptInputArea != null ? promptInputArea.getText() : "";
+        String targetUrl = extractUrl(prompt);
+        if (targetUrl == null || targetUrl.isBlank()) {
+            TextInputDialog dialog = new TextInputDialog("https://example.com");
+            dialog.setTitle("Quét Live DOM Trang Web");
+            dialog.setHeaderText("Nhập URL trang web cần quét các phần tử DOM tương tác:");
+            dialog.setContentText("URL:");
+            DialogTheme.apply(dialog);
+            Optional<String> res = dialog.showAndWait();
+            if (res.isPresent() && !res.get().isBlank()) {
+                targetUrl = res.get().trim();
+            } else {
+                return;
+            }
+        }
+
+        final String finalUrl = targetUrl;
+        ToastService.info("🌐 Đang quét cấu trúc DOM tương tác từ " + finalUrl + "...");
+        if (generationProgress != null) {
+            generationProgress.setVisible(true);
+            generationProgress.setManaged(true);
+        }
+
+        Thread thread = new Thread(() -> {
+            try {
+                String dom = domScanner.scanUrl(finalUrl, 10000);
+                Platform.runLater(() -> {
+                    if (generationProgress != null) {
+                        generationProgress.setVisible(false);
+                        generationProgress.setManaged(false);
+                    }
+                    if (dom != null && !dom.equals("[]") && !dom.isBlank()) {
+                        liveDomJson = dom;
+                        ToastService.success("✨ Đã quét và nạp ngữ cảnh DOM cho " + finalUrl + "!");
+                    } else {
+                        ToastService.warn("Không trích xuất được phần tử tương tác nào từ URL đã cho.");
+                    }
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    if (generationProgress != null) {
+                        generationProgress.setVisible(false);
+                        generationProgress.setManaged(false);
+                    }
+                    ToastService.error("Lỗi khi quét DOM: " + e.getMessage());
+                });
+            }
+        }, "DomScanner-Worker");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private String extractUrl(String text) {
+        if (text == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://[^\\s\"'<>]+").matcher(text);
+        if (m.find()) {
+            return m.group();
+        }
+        return null;
     }
 
     @FXML

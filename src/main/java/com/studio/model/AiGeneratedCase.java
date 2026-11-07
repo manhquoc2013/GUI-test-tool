@@ -13,6 +13,9 @@ public class AiGeneratedCase {
     private String startUrl = "";
     private String scriptCode = "";
     private List<Assertion> assertions = new ArrayList<>();
+    private List<TestStep> testSteps = new ArrayList<>();
+    private List<TestDataItem> testDataSets = new ArrayList<>();
+    private List<String> preconditions = new ArrayList<>();
     private String targetCaseId;
 
     public AiGeneratedCase() {
@@ -57,11 +60,47 @@ public class AiGeneratedCase {
     }
 
     public List<Assertion> getAssertions() {
+        if (assertions == null) {
+            assertions = new ArrayList<>();
+        }
         return assertions;
     }
 
     public void setAssertions(List<Assertion> assertions) {
         this.assertions = assertions != null ? assertions : new ArrayList<>();
+    }
+
+    public List<TestStep> getTestSteps() {
+        if (testSteps == null) {
+            testSteps = new ArrayList<>();
+        }
+        return testSteps;
+    }
+
+    public void setTestSteps(List<TestStep> testSteps) {
+        this.testSteps = testSteps != null ? testSteps : new ArrayList<>();
+    }
+
+    public List<TestDataItem> getTestDataSets() {
+        if (testDataSets == null) {
+            testDataSets = new ArrayList<>();
+        }
+        return testDataSets;
+    }
+
+    public void setTestDataSets(List<TestDataItem> testDataSets) {
+        this.testDataSets = testDataSets != null ? testDataSets : new ArrayList<>();
+    }
+
+    public List<String> getPreconditions() {
+        if (preconditions == null) {
+            preconditions = new ArrayList<>();
+        }
+        return preconditions;
+    }
+
+    public void setPreconditions(List<String> preconditions) {
+        this.preconditions = preconditions != null ? preconditions : new ArrayList<>();
     }
 
     public String getTargetCaseId() {
@@ -72,4 +111,3 @@ public class AiGeneratedCase {
         this.targetCaseId = targetCaseId;
     }
 }
-

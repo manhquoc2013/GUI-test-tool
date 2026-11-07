@@ -81,6 +81,7 @@
                           styleClass="ai-prompt-input"/>
                 <HBox spacing="8" alignment="CENTER_LEFT">
                     <Button text="Đính kèm tài liệu / Ảnh" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary"/>
+                    <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary"/>
                     <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false"/>
                     <HBox HBox.hgrow="ALWAYS"/>
                     <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
@@ -117,12 +118,18 @@
                     </HBox>
 
                     <TabPane fx:id="detailTabPane" VBox.vgrow="ALWAYS" styleClass="workspace-tabs">
+                        <Tab fx:id="previewStepsTab" text="Các bước kiểm thử (0)" closable="false">
+                            <ListView fx:id="previewStepsListView" styleClass="case-list"/>
+                        </Tab>
                         <Tab text="Playwright Java Script" closable="false">
                             <TextArea fx:id="previewScriptEditor" styleClass="code-editor" wrapText="false" editable="true"
                                       promptText="// Mã Playwright Java của case sẽ hiển thị tại đây..."/>
                         </Tab>
                         <Tab fx:id="previewAssertsTab" text="Assertions (0)" closable="false">
                             <ListView fx:id="previewAssertsListView" styleClass="case-list"/>
+                        </Tab>
+                        <Tab fx:id="previewTestDataTab" text="Dữ liệu kiểm thử (0)" closable="false">
+                            <ListView fx:id="previewTestDataListView" styleClass="case-list"/>
                         </Tab>
                         <Tab text="Phản hồi gốc (JSON/Raw)" closable="false">
                             <TextArea fx:id="rawResponseViewer" styleClass="code-editor" wrapText="true" editable="false"

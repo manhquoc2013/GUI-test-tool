@@ -25,6 +25,8 @@ public class TestCase {
     private String createdAt;
     private String updatedAt;
     private List<Assertion> assertions = new ArrayList<>();
+    private List<TestStep> testSteps = new ArrayList<>();
+    private List<TestDataItem> testDataSets = new ArrayList<>();
 
     public TestCase() {
     }
@@ -134,5 +136,27 @@ public class TestCase {
 
     public boolean hasActiveAssertions() {
         return countActiveAssertions() > 0;
+    }
+
+    public List<TestStep> getTestSteps() {
+        if (testSteps == null) {
+            testSteps = new ArrayList<>();
+        }
+        return testSteps;
+    }
+
+    public void setTestSteps(List<TestStep> testSteps) {
+        this.testSteps = testSteps != null ? testSteps : new ArrayList<>();
+    }
+
+    public List<TestDataItem> getTestDataSets() {
+        if (testDataSets == null) {
+            testDataSets = new ArrayList<>();
+        }
+        return testDataSets;
+    }
+
+    public void setTestDataSets(List<TestDataItem> testDataSets) {
+        this.testDataSets = testDataSets != null ? testDataSets : new ArrayList<>();
     }
 }

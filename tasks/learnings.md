@@ -125,3 +125,19 @@
    - Tự động thay thế selector cũ bằng selector mới trong mã nguồn file script `.java` và `suite.json` (cho assertions), giúp các lượt chạy sau không cần tốn thời gian sửa lỗi lại.
    - Lưu vết chi tiết từng bước được phục hồi (`HealedStepMeta`) vào `CaseResult`, xuất bảng thống kê Self-Healing và huy hiệu `[Auto-Healed]` trong báo cáo HTML.
 
+## AI Agent Test Generation, Automation & Script Optimization Engine
+1. **Dual Representation Architecture (Testsigma + Midscene Synthesis)**:
+   - Thay vì chỉ sinh ra mã Java Playwright thô sơ, AI Agent cung cấp kiến trúc biểu diễn kép (Dual Representation):
+     - **Tầng khai báo NLP Test Steps** (`TestStep`): `stepNumber`, `action` (`NAVIGATE`, `CLICK`, `FILL`, `ASSERT_VISIBLE`, ...), `target`, `testData`, `description`, `expectedResult`. Dễ đọc, dễ review cho Product Owner / Manual QA.
+     - **Tầng mã nguồn thực thi** (`scriptCode`): Mã nguồn Java Playwright hoàn chỉnh, tuân thủ quy ước Studio Runtime, tích hợp sẵn wait condition và self-healing wrapper.
+2. **Autonomous Self-Healing Code Injection**:
+   - Mọi tương tác giao diện sinh ra đều được AI bọc bằng cơ chế `StudioRuntime.healLocator("selector", "mô tả hành động")` kết hợp `waitForLoadState(DOMCONTENTLOADED)` để đảm bảo kịch bản tự thích ứng và bền vững trước các thay đổi DOM trong tương lai.
+3. **Data-Driven & Boundary Value Analysis (`TestDataItem`)**:
+   - AI Agent tự động đề xuất ma trận dữ liệu kiểm thử (Equivalence Partitioning, Boundary Values, Edge Cases) gắn kèm test case: các kịch bản chuẩn (Happy Path), thiếu trường bắt buộc, ký tự đặc biệt, vượt quá độ dài tối đa, v.v.
+4. **Live DOM-Aware Context Injection (`LiveDomScanner` + `EnhancedDomExtractor`)**:
+   - Học hỏi từ Midscene và Skyvern: Thay vì để AI "đoán mò" (hallucination) selector từ văn bản yêu cầu, người dùng có thể nhấp "Quét Live DOM" từ URL thực tế.
+   - `LiveDomScanner` trích xuất danh sách phần tử DOM tương tác thực tế, xuyên thấu Shadow DOM, lọc ID động rác, và nén thành bảng Markdown nhỏ gọn (tiết kiệm ~70% token) nạp trực tiếp vào ngữ cảnh của AI Model.
+5. **Pre-Execution Script Linting & Auto-Fixing**:
+   - `AiTestGeneratorService.validateAndFixScript` kiểm tra tính hợp lệ cú pháp Java, tự động bọc class/method nếu thiếu, loại bỏ các lệnh tạo browser bị cấm (`Playwright.create()`, `page.close()`), bảo đảm 100% script sinh ra đều sẵn sàng biên dịch và chạy được ngay.
+
+

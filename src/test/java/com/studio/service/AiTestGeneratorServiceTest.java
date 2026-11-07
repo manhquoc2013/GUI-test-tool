@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,7 +86,7 @@ class AiTestGeneratorServiceTest {
         assertEquals(2, c.getAssertions().size());
         assertEquals("ELEMENT_VISIBLE", c.getAssertions().get(0).getType());
         assertEquals("#welcome-msg", c.getAssertions().get(0).getLocator());
-        assertEquals("PAGE_TITLE_CONTAINS", c.getAssertions().get(1).getType());
+        assertEquals("TITLE_CONTAINS", c.getAssertions().get(1).getType());
         assertEquals("Dashboard", c.getAssertions().get(1).getValue());
     }
 
@@ -147,6 +148,131 @@ class AiTestGeneratorServiceTest {
         assertEquals("OpenRouter", OpenAiClient.resolveProviderName("https://openrouter.ai/api/v1"));
         assertEquals("OpenAI", OpenAiClient.resolveProviderName("https://api.openai.com/v1"));
         assertEquals("Local/Ollama", OpenAiClient.resolveProviderName("http://localhost:11434/v1"));
+    }
+
+    @Test
+    void testParseResponseWithStepsAndDataSets() {
+        String json = """
+            {
+              "summary": "Kịch bản đăng nhập đầy đủ",
+              "cases": [
+                {
+                  "name": "TC_Login_Advanced",
+                  "description": "Kiểm thử đăng nhập và phân quyền",
+                  "startUrl": "https://example.com/login",
+                  "preconditions": [
+                    "Đã có tài khoản hoạt động"
+                  ],
+                  "testSteps": [
+                    {
+                      "stepNumber": 1,
+                      "action": "NAVIGATE",
+                      "target": "https://example.com/login",
+                      "description": "Điều hướng đến trang đăng nhập",
+                      "expectedResult": "Trang mở thành công"
+                    },
+                    {
+                      "stepNumber": 2,
+                      "action": "FILL",
+                      "target": "#username",
+                      "testData": "admin",
+                      "description": "Nhập username",
+                      "expectedResult": "Giá trị đã điền"
+                    }
+                  ],
+                  "testDataSets": [
+                    {
+                      "scenario": "Admin Login",
+                      "parameters": {
+                        "role": "ADMIN",
+                        "user": "admin"
+                      },
+                      "expectedOutcome": "SUCCESS"
+                    }
+                  ],
+                  "scriptCode": "page.locator(\\"#username\\").fill(\\"admin\\");",
+                  "assertions": [
+                    {
+                      "type": "ELEMENT_VISIBLE",
+                      "locator": "#dashboard",
+                      "status": "ACTIVE"
+                    }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        AiTestGeneratorService.GenerationResult result = service.parseResponse(json);
+        assertNotNull(result);
+        assertEquals(1, result.getCases().size());
+        AiGeneratedCase c = result.getCases().get(0);
+        assertEquals("TC_Login_Advanced", c.getName());
+        assertEquals(1, c.getPreconditions().size());
+        assertEquals(2, c.getTestSteps().size());
+        assertEquals("NAVIGATE", c.getTestSteps().get(0).getAction());
+        assertEquals(1, c.getTestDataSets().size());
+        assertEquals("Admin Login", c.getTestDataSets().get(0).getScenario());
+        assertEquals("ADMIN", c.getTestDataSets().get(0).getParameters().get("role"));
+
+        // Script should be auto-wrapped with package and class wrapper
+        assertTrue(c.getScriptCode().contains("package com.test;"));
+        assertTrue(c.getScriptCode().contains("public class TC_Login_Advanced"));
+        assertTrue(c.getScriptCode().contains("StudioRuntime.page()"));
+    }
+
+    @Test
+    void testValidateAndFixScriptStripIllegalLifecycle() {
+        String illegalScript = """
+            package com.test;
+            import com.microsoft.playwright.*;
+            public class TestIllegal {
+                public static void main(String[] args) {
+                    Playwright pw = Playwright.create();
+                    Browser br = pw.chromium().launch();
+                    Page page = br.newPage();
+                    page.navigate("https://example.com");
+                    page.close();
+                    br.close();
+                }
+            }
+            """;
+
+        String fixed = service.validateAndFixScript(illegalScript, "TestIllegal", "https://example.com");
+        assertFalse(fixed.contains("Playwright.create()"));
+        assertFalse(fixed.contains(".launch()"));
+        assertTrue(fixed.contains("// Studio manages page/browser lifecycle"));
+    }
+
+    @Test
+    void testApplyCasesToSuiteWithStepsAndDataSets() throws IOException {
+        Path suiteDir = tempDir.resolve("AdvancedSuite");
+        Files.createDirectories(suiteDir);
+        TestSuite suite = new TestSuite("AdvancedSuite", "Suite with steps and data");
+        suite.setStatus("ACTIVE");
+        new ObjectMapper().writeValue(suiteDir.resolve("suite.json").toFile(), suite);
+
+        AiGeneratedCase genCase = new AiGeneratedCase("TC_WithSteps", "Test with steps", "https://example.com");
+        genCase.setTestSteps(List.of(
+                new com.studio.model.TestStep(1, "CLICK", "#btn", "", "Click button", "Button clicked")
+        ));
+        genCase.setTestDataSets(List.of(
+                new com.studio.model.TestDataItem("Edge 1", Map.of("key", "val"), "OK")
+        ));
+
+        List<TestCase> applied = service.applyCasesToSuite(suiteDir, List.of(genCase), projectStore);
+        assertEquals(1, applied.size());
+        TestCase tc = applied.get(0);
+        assertEquals(1, tc.getTestSteps().size());
+        assertEquals(1, tc.getTestDataSets().size());
+
+        // Reload suite from disk and verify persistence
+        TestSuite reloaded = projectStore.loadAndMigrateSuite(suiteDir);
+        TestCase reloadedTc = reloaded.getCases().get(0);
+        assertEquals(1, reloadedTc.getTestSteps().size());
+        assertEquals("CLICK", reloadedTc.getTestSteps().get(0).getAction());
+        assertEquals(1, reloadedTc.getTestDataSets().size());
+        assertEquals("Edge 1", reloadedTc.getTestDataSets().get(0).getScenario());
     }
 }
 

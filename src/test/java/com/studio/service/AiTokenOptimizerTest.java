@@ -82,5 +82,39 @@ public class AiTokenOptimizerTest {
         assertFalse(hasMsg1, "Message #1 should be pruned into summary");
         assertTrue(hasMsg20, "Message #20 should be in sliding window");
     }
+
+    @Test
+    public void testFormatDomForPrompt() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+
+        assertEquals("", optimizer.formatDomForPrompt("", 50));
+        assertEquals("", optimizer.formatDomForPrompt("[]", 50));
+
+        String domJson = """
+            [
+              {
+                "tag": "button",
+                "id": "btn-submit",
+                "testId": "login-submit-btn",
+                "role": "button",
+                "text": "Sign In"
+              },
+              {
+                "tag": "input",
+                "name": "username",
+                "type": "text",
+                "placeholder": "Enter username"
+              }
+            ]
+            """;
+
+        String formatted = optimizer.formatDomForPrompt(domJson, 10);
+        assertNotNull(formatted);
+        assertTrue(formatted.contains("Live Page Elements"));
+        assertTrue(formatted.contains("[data-testid=\"login-submit-btn\"]"));
+        assertTrue(formatted.contains("input[name=\"username\"]"));
+        assertTrue(formatted.contains("Sign In"));
+        assertTrue(formatted.contains("Enter username"));
+    }
 }
 

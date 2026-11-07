@@ -6,6 +6,8 @@ import com.studio.model.AiConfig;
 import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
 import com.studio.model.TestCase;
+import com.studio.model.TestDataItem;
+import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
 import com.studio.service.DocumentParserService.ParsedDocument;
 import com.studio.store.ProjectStore;
@@ -13,12 +15,16 @@ import com.studio.store.ProjectStore;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * Service to generate and update Playwright test cases, automation scripts, and assertions
- * using OpenAI models from user prompts and documents.
+ * using OpenAI models from user prompts, documents, and live DOM contexts.
+ * Incorporates best practices from Midscene, Testsigma, Skyvern, and Automa.
  */
 public class AiTestGeneratorService {
 
@@ -65,11 +71,25 @@ public class AiTestGeneratorService {
     }
 
     public static final String SYSTEM_PROMPT = """
-        You are an expert QA Automation Engineer specialized in Playwright Java for "Playwright Automation Studio".
-        Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or UI screenshots, and generate ready-to-run Playwright Java test cases with structured assertions.
+        You are an expert QA Automation Architect specialized in Playwright Java for "Playwright Automation Studio".
+        Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or live UI DOM elements, and generate complete, ready-to-run Playwright Java test cases with dual representations (declarative NLP test steps and runnable script code).
 
-        ### Execution Environment Rules:
-        1. In this studio, the browser/page lifecycle is managed automatically. Test scripts must follow this Java template:
+        ### Core Architectural Principles (Inspired by Testsigma, Midscene, Skyvern):
+        1. **Dual Representation**:
+           - Provide human-readable declarative test steps (`testSteps`): Step #, Action, Target, Test Data, Description, Expected Result.
+           - Provide parameterized test data sets (`testDataSets`): Cover Equivalence Partitioning & Boundary Value Analysis (e.g., Valid credentials, Invalid input, Empty fields, Extreme length).
+           - Provide executable Java code in `scriptCode`.
+
+        2. **Resilience & Autonomous Self-Healing**:
+           - For element interactions, wrap dynamic selectors using the Studio's built-in self-healing proxy:
+             `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").click();`
+             or `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").fill("value");`
+           - Interleave explicit wait conditions where page state shifts or navigates:
+             `page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);`
+           - Prefer semantic selectors (`[data-testid='...']`, `[aria-label='...']`, `role=button[name='...']`, text locator). If live DOM elements are provided in the prompt, prioritize those exact candidate selectors!
+
+        3. **Execution Environment Rules**:
+           - Browser and Page lifecycles are managed automatically by the Studio. Scripts must follow this Java template:
         ```java
         package com.test;
 
@@ -80,13 +100,14 @@ public class AiTestGeneratorService {
             public static void main(String[] args) {
                 Page page = com.studio.runtime.StudioRuntime.page();
                 page.navigate("<StartUrl>");
-                // User interactions here (page.locator(...).click(), fill, selectOption, etc.)
+                page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);
+                // User interactions and assertions using StudioRuntime.healLocator(...)
             }
         }
         ```
-        Do NOT call playwright.chromium().launch(), browser.newContext(), or page.close(). The Studio manages these.
+           - DO NOT call `playwright.chromium().launch()`, `Playwright.create()`, `browser.newContext()`, or `page.close()`. The Studio manages these.
 
-        2. Each test case can have assertions. The supported Assertion types include:
+        4. **Supported Assertion Types**:
            - TITLE_CONTAINS (value: text)
            - TITLE_EQUALS (value: title)
            - URL_CONTAINS (value: substring)
@@ -103,20 +124,51 @@ public class AiTestGeneratorService {
            - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
            - CUSTOM_JS (value: javascript expression returning boolean)
 
-        3. Response format:
+        5. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
-          "summary": "Brief summary of generated tests in Vietnamese",
+          "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
           "cases": [
             {
               "name": "Case_Identifier_Name",
-              "description": "Clear description of test scenario",
+              "description": "Mô tả mục tiêu kịch bản",
               "startUrl": "https://example.com/target",
+              "preconditions": [
+                "Tài khoản kiểm thử đã được kích hoạt"
+              ],
+              "testSteps": [
+                {
+                  "stepNumber": 1,
+                  "action": "NAVIGATE",
+                  "target": "https://example.com/target",
+                  "testData": "",
+                  "description": "Mở trang đích",
+                  "expectedResult": "Trang tải xong thành công"
+                },
+                {
+                  "stepNumber": 2,
+                  "action": "FILL",
+                  "target": "[data-testid=\"username\"]",
+                  "testData": "user@example.com",
+                  "description": "Nhập tên đăng nhập",
+                  "expectedResult": "Giá trị hiển thị trong ô nhập"
+                }
+              ],
+              "testDataSets": [
+                {
+                  "scenario": "Trường hợp chuẩn (Happy Path)",
+                  "parameters": {
+                    "username": "user@example.com",
+                    "password": "Password123!"
+                  },
+                  "expectedOutcome": "SUCCESS"
+                }
+              ],
               "scriptCode": "Java code as described above",
               "assertions": [
                 {
                   "type": "ELEMENT_VISIBLE",
-                  "locator": "selector",
+                  "locator": "[data-testid=\"dashboard\"]",
                   "value": "",
                   "status": "ACTIVE"
                 }
@@ -132,7 +184,7 @@ public class AiTestGeneratorService {
     public GenerationResult generateTestCases(AiConfig config, String userPrompt,
                                              List<ParsedDocument> attachments,
                                              String contextInfo) throws IOException, InterruptedException {
-        return generateTestCases(config, userPrompt, attachments, contextInfo, List.of());
+        return generateTestCases(config, userPrompt, attachments, contextInfo, (String) null, List.of());
     }
 
     /**
@@ -142,13 +194,27 @@ public class AiTestGeneratorService {
                                              List<ParsedDocument> attachments,
                                              String contextInfo,
                                              List<com.studio.model.AiChatMessage> history) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, (String) null, history);
+    }
+
+    /**
+     * Generate test cases with Live DOM context injection.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history) throws IOException, InterruptedException {
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
+
         List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
                 SYSTEM_PROMPT,
                 history,
                 userPrompt,
                 attachments,
                 contextInfo,
+                formattedDom,
                 maxTokens,
                 AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
         );
@@ -173,11 +239,11 @@ public class AiTestGeneratorService {
                 context.append("Existing Java Script:\n```java\n").append(currentScript).append("\n```\n");
             }
         }
-        return generateTestCases(config, userPrompt, attachments, context.toString());
+        return generateTestCases(config, userPrompt, attachments, context.toString(), null, List.of());
     }
 
     /**
-     * Parse OpenAI JSON output into GenerationResult.
+     * Parse OpenAI JSON output into GenerationResult with steps, test data, and validated scripts.
      */
     public GenerationResult parseResponse(String rawResponse) {
         if (rawResponse == null || rawResponse.isBlank()) {
@@ -194,17 +260,76 @@ public class AiTestGeneratorService {
             if (casesArray.isArray()) {
                 for (JsonNode cNode : casesArray) {
                     AiGeneratedCase ac = new AiGeneratedCase();
-                    ac.setName(sanitizeCaseName(cNode.path("name").asText("GeneratedCase")));
+                    String rawName = cNode.path("name").asText("GeneratedCase");
+                    String safeName = sanitizeCaseName(rawName);
+                    ac.setName(safeName);
                     ac.setDescription(cNode.path("description").asText(""));
-                    ac.setStartUrl(cNode.path("startUrl").asText(""));
-                    ac.setScriptCode(cNode.path("scriptCode").asText(""));
+                    String startUrl = cNode.path("startUrl").asText("");
+                    ac.setStartUrl(startUrl);
 
+                    // Preconditions
+                    JsonNode preNode = cNode.path("preconditions");
+                    if (preNode.isArray()) {
+                        List<String> pres = new ArrayList<>();
+                        for (JsonNode p : preNode) {
+                            if (p.isTextual() && !p.asText().isBlank()) {
+                                pres.add(p.asText().trim());
+                            }
+                        }
+                        ac.setPreconditions(pres);
+                    }
+
+                    // Test Steps (NLP steps)
+                    JsonNode stepsNode = cNode.path("testSteps");
+                    if (stepsNode.isArray()) {
+                        List<TestStep> steps = new ArrayList<>();
+                        int idx = 1;
+                        for (JsonNode sNode : stepsNode) {
+                            int stepNum = sNode.path("stepNumber").asInt(idx);
+                            String action = sNode.path("action").asText("ACTION");
+                            String target = sNode.path("target").asText("");
+                            String testData = sNode.path("testData").asText("");
+                            String desc = sNode.path("description").asText("");
+                            String expected = sNode.path("expectedResult").asText("");
+                            steps.add(new TestStep(stepNum, action, target, testData, desc, expected));
+                            idx++;
+                        }
+                        ac.setTestSteps(steps);
+                    }
+
+                    // Test Data Sets
+                    JsonNode dataSetsNode = cNode.path("testDataSets");
+                    if (dataSetsNode.isArray()) {
+                        List<TestDataItem> dataItems = new ArrayList<>();
+                        for (JsonNode dNode : dataSetsNode) {
+                            String scenario = dNode.path("scenario").asText("Scenario");
+                            String expectedOutcome = dNode.path("expectedOutcome").asText("SUCCESS");
+                            Map<String, String> params = new LinkedHashMap<>();
+                            JsonNode paramsNode = dNode.path("parameters");
+                            if (paramsNode.isObject()) {
+                                Iterator<Map.Entry<String, JsonNode>> fields = paramsNode.fields();
+                                while (fields.hasNext()) {
+                                    Map.Entry<String, JsonNode> field = fields.next();
+                                    params.put(field.getKey(), field.getValue().asText(""));
+                                }
+                            }
+                            dataItems.add(new TestDataItem(scenario, params, expectedOutcome));
+                        }
+                        ac.setTestDataSets(dataItems);
+                    }
+
+                    // Validate & Auto-fix script code
+                    String rawScript = cNode.path("scriptCode").asText("");
+                    String validatedScript = validateAndFixScript(rawScript, safeName, startUrl);
+                    ac.setScriptCode(validatedScript);
+
+                    // Assertions
                     JsonNode assertsNode = cNode.path("assertions");
                     if (assertsNode.isArray()) {
                         List<Assertion> asserts = new ArrayList<>();
                         for (JsonNode aNode : assertsNode) {
                             Assertion a = new Assertion();
-                            a.setType(aNode.path("type").asText("PAGE_HAS_TEXT"));
+                            a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
                             a.setValue(aNode.path("value").asText(""));
                             a.setLocator(aNode.path("locator").asText(""));
                             a.setAttribute(aNode.path("attribute").asText(""));
@@ -226,7 +351,77 @@ public class AiTestGeneratorService {
     }
 
     /**
-     * Apply generated cases into a TestSuite in ProjectStore.
+     * Validates script structure and auto-corrects missing imports or class wrappers.
+     */
+    public String validateAndFixScript(String scriptCode, String caseName, String startUrl) {
+        if (scriptCode == null || scriptCode.isBlank()) {
+            String className = (caseName != null && !caseName.isBlank()) ? caseName : "TestCaseAuto";
+            String url = (startUrl != null && !startUrl.isBlank()) ? startUrl : "about:blank";
+            return """
+                package com.test;
+
+                import com.microsoft.playwright.*;
+                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+
+                public class %s {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                        page.navigate("%s");
+                        page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);
+                    }
+                }
+                """.formatted(className, url);
+        }
+
+        String cleaned = scriptCode.trim();
+
+        // Strip illegal Playwright lifecycle calls
+        cleaned = cleaned.replaceAll("(?m)^\\s*Playwright\\s+\\w+\\s*=\\s*Playwright\\.create\\(\\);?", "");
+        cleaned = cleaned.replaceAll("(?m)^\\s*Browser\\s+\\w+\\s*=\\s*\\w+\\.\\w+\\(\\)\\.launch\\([^)]*\\);?", "");
+        cleaned = cleaned.replaceAll("(?m)^\\s*\\w+\\.close\\(\\);?", "// Studio manages page/browser lifecycle");
+
+        // If it's missing standard package or class wrapper
+        if (!cleaned.contains("public class") && !cleaned.contains("class ")) {
+            String className = (caseName != null && !caseName.isBlank()) ? caseName : "GeneratedTest";
+            return """
+                package com.test;
+
+                import com.microsoft.playwright.*;
+                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+
+                public class %s {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                %s
+                    }
+                }
+                """.formatted(className, indentScript(cleaned, "        "));
+        }
+
+        // Ensure package com.test;
+        if (!cleaned.contains("package com.test;")) {
+            cleaned = "package com.test;\n\n" + cleaned;
+        }
+
+        // Ensure standard imports
+        if (!cleaned.contains("import com.microsoft.playwright.*;")) {
+            cleaned = cleaned.replace("package com.test;\n", "package com.test;\n\nimport com.microsoft.playwright.*;\nimport static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;\n");
+        }
+
+        return cleaned;
+    }
+
+    private String indentScript(String code, String indent) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : code.split("\\r?\\n")) {
+            sb.append(indent).append(line).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Apply generated cases into a TestSuite in ProjectStore, updating scripts, assertions,
+     * testSteps, and testDataSets.
      */
     public List<TestCase> applyCasesToSuite(Path suiteDir, List<AiGeneratedCase> generatedCases,
                                            ProjectStore projectStore) throws IOException {
@@ -275,6 +470,14 @@ public class AiTestGeneratorService {
             // Replace assertions if present
             if (genCase.getAssertions() != null && !genCase.getAssertions().isEmpty()) {
                 projectStore.replaceAssertions(suiteDir, targetCase.getId(), genCase.getAssertions());
+            }
+
+            // Update Steps and Test Data
+            if ((genCase.getTestSteps() != null && !genCase.getTestSteps().isEmpty()) ||
+                (genCase.getTestDataSets() != null && !genCase.getTestDataSets().isEmpty())) {
+                projectStore.updateCaseStepsAndData(suiteDir, targetCase.getId(), genCase.getTestSteps(), genCase.getTestDataSets());
+                targetCase.setTestSteps(new ArrayList<>(genCase.getTestSteps()));
+                targetCase.setTestDataSets(new ArrayList<>(genCase.getTestDataSets()));
             }
 
             applied.add(targetCase);

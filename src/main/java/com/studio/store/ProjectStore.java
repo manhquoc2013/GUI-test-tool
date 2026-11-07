@@ -517,6 +517,20 @@ public class ProjectStore {
         mapper.writeValue(suiteJson.toFile(), suite);
     }
 
+    public void updateCaseStepsAndData(Path suiteDir, String caseId, List<com.studio.model.TestStep> steps, List<com.studio.model.TestDataItem> dataSets) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+        if (steps != null) {
+            tc.setTestSteps(new ArrayList<>(steps));
+        }
+        if (dataSets != null) {
+            tc.setTestDataSets(new ArrayList<>(dataSets));
+        }
+        suite.clearLegacyAssertions();
+        mapper.writeValue(suiteJson.toFile(), suite);
+    }
+
     private TestCase requireCase(TestSuite suite, String caseId) {
         return suite.getCases().stream()
                 .filter(c -> c.getId().equals(caseId))

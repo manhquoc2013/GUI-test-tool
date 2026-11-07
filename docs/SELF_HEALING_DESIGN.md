@@ -122,3 +122,4 @@ Dựa trên nghiên cứu mã nguồn 4 nền tảng kiểm thử và browser ag
 ## 5. Kết Quả Kiểm Thử & Hiệu Năng
 - **Độ trễ trung bình**: Giảm từ ~4.000ms xuống **< 30ms** cho hơn 80% trường hợp hỏng selector nhờ tầng Heuristic và Cache.
 - **Độ bao phủ kiểm thử**: Toàn bộ **101/101 tests** trong suite kiểm thử tự động của dự án đạt trạng thái PASS 100%.
+
