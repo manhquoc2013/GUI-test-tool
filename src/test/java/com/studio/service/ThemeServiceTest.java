@@ -183,5 +183,17 @@ public class ThemeServiceTest {
             }
         }
     }
+
+    @Test
+    void testCssDoesNotContainInvalidUsePrefSizeLookup() throws Exception {
+        for (String path : List.of("/css/studio.css", "/css/studio-light.css")) {
+            try (var is = getClass().getResourceAsStream(path)) {
+                assertNotNull(is, path + " not found");
+                String content = new String(is.readAllBytes());
+                assertFalse(content.contains("use-pref-size"),
+                        path + " contains invalid JavaFX CSS keyword 'use-pref-size' which triggers CssStyleHelper warnings");
+            }
+        }
+    }
 }
 

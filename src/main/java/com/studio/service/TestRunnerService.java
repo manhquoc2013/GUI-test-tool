@@ -8,6 +8,7 @@ import com.studio.store.ReportStore;
 import com.studio.store.SettingsStore;
 import com.studio.util.StudioPaths;
 
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.*;
@@ -16,6 +17,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 
 import javax.tools.Diagnostic;
@@ -270,11 +272,23 @@ public class TestRunnerService {
 
                 // Compile the harness
                 Path assertResultsFile = harnessDir.resolve(cr.getTestCaseId() + "_asserts.json");
-                boolean compiled = compileHarness(harnessFile, harnessDir, terminalOutput);
+                List<String> compileErrors = new ArrayList<>();
+                boolean compiled = compileHarness(harnessFile, harnessDir, terminalOutput, compileErrors);
                 if (!compiled) {
                     cr.setStatus("ERROR");
-                    cr.setFailureReason("Compilation failed");
-                    cr.setLogExcerpt("See terminal for compilation errors");
+                    cr.setFailureReason("Lỗi biên dịch mã kiểm thử (Compilation failed)");
+                    StringBuilder sb = new StringBuilder("❌ LỖI BIÊN DỊCH MÃ NGUỒN (Compilation Error):\n");
+                    if (!compileErrors.isEmpty()) {
+                        for (String err : compileErrors) {
+                            sb.append("   • ").append(err).append("\n");
+                        }
+                    } else {
+                        sb.append("   • Trình biên dịch javac không thể biên dịch file kiểm thử.\n");
+                    }
+                    sb.append("\n🔍 CÁCH TÁI HIỆN:\n");
+                    sb.append("   1. Kiểm tra mã nguồn file: ").append(cr.getScriptFile() != null ? cr.getScriptFile() : harnessFile.getFileName().toString()).append("\n");
+                    sb.append("   2. Sửa lại cú pháp Java hoặc các thư viện phụ thuộc.");
+                    cr.setLogExcerpt(sb.toString());
                     report.setFailed(report.getFailed() + 1);
                     terminal("ERROR: Compilation failed for " + cr.getTestCaseName()
                             + " — xem chi tiết Compile ở trên", terminalOutput);
@@ -355,11 +369,32 @@ public class TestRunnerService {
                     long duration = System.currentTimeMillis() - start;
                     Path rawScreenshot = Path.of(harnessScreenshotBase + ".png");
 
+                    // Load assert results for detail view
+                    cr.setAssertResults(AssertResultsScorer.loadResults(assertResultsFile));
+
                     if (failures > 0) {
                         cr.setStatus("FAILED");
                         cr.setFailureReason(failures + " assertion(s) failed");
                         cr.setScreenshotPath(finalizeScreenshot(rawScreenshot, ssFailed));
                         report.setFailed(report.getFailed() + 1);
+
+                        StringBuilder assertLog = new StringBuilder();
+                        assertLog.append(String.format("❌ KIỂM TRA THẤT BẠI: Phát hiện %d assertion không thỏa mãn.\n\n", failures));
+                        assertLog.append("🔍 CÁCH TÁI HIỆN (Steps to Reproduce):\n");
+                        if (runningCase != null && runningCase.getStartUrl() != null && !runningCase.getStartUrl().isBlank()) {
+                            assertLog.append("   1. Mở trang: ").append(runningCase.getStartUrl()).append("\n");
+                        }
+                        assertLog.append("   2. Chạy kịch bản: '").append(cr.getTestCaseName()).append("'\n");
+                        assertLog.append("   3. Đối chiếu các mục Assert bị thất bại trong danh sách kiểm tra bên trên:\n");
+                        for (AssertResult ar : cr.getAssertResults()) {
+                            if ("FAILED".equalsIgnoreCase(ar.getStatus())) {
+                                assertLog.append(String.format("      • [%s] %s: %s\n",
+                                        ar.getType() != null ? ar.getType() : "ASSERT",
+                                        ar.getDetail() != null ? ar.getDetail() : "",
+                                        ar.getMessage() != null ? ar.getMessage() : "Giá trị không khớp"));
+                            }
+                        }
+                        cr.setLogExcerpt(assertLog.toString());
                     } else {
                         cr.setStatus("PASSED");
                         cr.setScreenshotPath(finalizeScreenshot(rawScreenshot, ssPassed));
@@ -368,20 +403,31 @@ public class TestRunnerService {
                     cr.setDurationMs(duration);
                     cr.setExitCode(0);
 
-                    // Load assert results for detail view
-                    cr.setAssertResults(AssertResultsScorer.loadResults(assertResultsFile));
-
                     terminal(String.format("  %s: %s (%dms)", cr.getTestCaseName(), cr.getStatus(), duration), terminalOutput);
                     RunProgressService.caseFinished(cr);
 
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     if (RunCancelService.isCancelRequested()) {
                         markCaseCancelled(cr, report, start, ssFailed.toString(), terminalOutput);
                         applyCancelToPending(allCases, terminalOutput);
                         break;
                     }
+                    String currentUrl = null;
+                    try {
+                        if (StudioRuntime.page() != null) {
+                            currentUrl = StudioRuntime.page().url();
+                        }
+                    } catch (Throwable ignored) {}
+
+                    String reason = extractFailureReason(e);
+                    String startUrl = (currentUrl != null && !currentUrl.isBlank())
+                            ? currentUrl
+                            : (runningCase != null ? runningCase.getStartUrl() : null);
+                    String reproLog = buildReproductionLog(e, cr.getTestCaseName(), cr.getScriptFile(), startUrl);
+
                     cr.setStatus("FAILED");
-                    cr.setFailureReason(e.getMessage() != null ? e.getMessage() : "Unknown error");
+                    cr.setFailureReason(reason);
+                    cr.setLogExcerpt(reproLog);
                     cr.setDurationMs(System.currentTimeMillis() - start);
                     cr.setScreenshotPath(finalizeScreenshot(
                             Path.of(harnessScreenshotBase + ".png"), ssFailed));
@@ -548,10 +594,16 @@ public class TestRunnerService {
      * Returns true if compilation succeeded with no errors.
      */
     private boolean compileHarness(Path sourceFile, Path outputDir, Consumer<String> terminalOutput) {
+        return compileHarness(sourceFile, outputDir, terminalOutput, null);
+    }
+
+    private boolean compileHarness(Path sourceFile, Path outputDir, Consumer<String> terminalOutput, List<String> errorCollector) {
         try {
             JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
             if (compiler == null) {
-                terminal("ERROR: Không tìm thấy Java compiler (cần JDK, không phải JRE)", terminalOutput);
+                String msg = "Không tìm thấy Java compiler (cần JDK, không phải JRE)";
+                terminal("ERROR: " + msg, terminalOutput);
+                if (errorCollector != null) errorCollector.add(msg);
                 return false;
             }
 
@@ -579,8 +631,12 @@ public class TestRunnerService {
 
             if (!success) {
                 for (Diagnostic<? extends JavaFileObject> d : diagnostics.getDiagnostics()) {
-                    terminal("  Compile: " + d.getKind() + " line " + d.getLineNumber()
-                            + ": " + d.getMessage(null), terminalOutput);
+                    String line = String.format("Compile %s [dòng %d]: %s",
+                            d.getKind(), d.getLineNumber(), d.getMessage(null));
+                    terminal("  " + line, terminalOutput);
+                    if (errorCollector != null) {
+                        errorCollector.add(line);
+                    }
                 }
             }
 
@@ -588,6 +644,9 @@ public class TestRunnerService {
             return success;
         } catch (Exception e) {
             terminal("Compile exception: " + e.getMessage(), terminalOutput);
+            if (errorCollector != null) {
+                errorCollector.add("Compile exception: " + e.getMessage());
+            }
             return false;
         }
     }
@@ -596,7 +655,7 @@ public class TestRunnerService {
      * Load the compiled harness class via URLClassLoader and invoke its main method.
      * Supports both default-package and packaged classes (e.g. package com.test;).
      */
-    private void runHarnessClass(Path classDir, String className) throws Exception {
+    private void runHarnessClass(Path classDir, String className) throws Throwable {
         URLClassLoader cl = new URLClassLoader(
             new URL[]{classDir.toUri().toURL()},
             getClass().getClassLoader()
@@ -616,9 +675,162 @@ public class TestRunnerService {
             }
             java.lang.reflect.Method main = cls.getMethod("main", String[].class);
             main.invoke(null, (Object) new String[0]);
+        } catch (InvocationTargetException ite) {
+            Throwable target = ite.getTargetException();
+            throw (target != null ? target : ite);
         } finally {
             cl.close();
         }
+    }
+
+    /**
+     * Recursively unwrap reflection, execution, or generic runtime wrapper exceptions.
+     */
+    public static Throwable unwrapCause(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            Throwable next = null;
+            if (curr instanceof InvocationTargetException ite && ite.getTargetException() != null) {
+                next = ite.getTargetException();
+            } else if (curr instanceof ExecutionException ee && ee.getCause() != null) {
+                next = ee.getCause();
+            } else if (curr.getCause() != null && curr.getCause() != curr) {
+                if (curr.getMessage() == null || curr instanceof RuntimeException) {
+                    next = curr.getCause();
+                }
+            }
+            if (next != null && next != curr) {
+                curr = next;
+            } else {
+                break;
+            }
+        }
+        return curr != null ? curr : t;
+    }
+
+    /**
+     * Extract a concise, meaningful failure message (e.g. Playwright timeout with selector).
+     */
+    public static String extractFailureReason(Throwable t) {
+        Throwable unwrapped = unwrapCause(t);
+        String msg = unwrapped.getMessage();
+        if (msg == null || msg.isBlank()) {
+            Throwable c = unwrapped.getCause();
+            while (c != null && c != unwrapped) {
+                if (c.getMessage() != null && !c.getMessage().isBlank()) {
+                    msg = c.getMessage();
+                    break;
+                }
+                c = c.getCause();
+            }
+        }
+        if (msg == null || msg.isBlank()) {
+            return unwrapped.getClass().getSimpleName();
+        }
+
+        String cleanMsg = msg.trim();
+        if (cleanMsg.contains("waiting for locator(")) {
+            int start = cleanMsg.indexOf("waiting for locator(");
+            int end = cleanMsg.indexOf(")", start);
+            if (end > start) {
+                String locatorPart = cleanMsg.substring(start, end + 1);
+                String firstLine = cleanMsg.split("\\r?\\n")[0].trim();
+                return firstLine + " [" + locatorPart + "]";
+            }
+        } else if (cleanMsg.contains("waiting for selector")) {
+            int start = cleanMsg.indexOf("waiting for selector");
+            int end = cleanMsg.indexOf("\n", start);
+            String selectorPart = end > start ? cleanMsg.substring(start, end).trim() : cleanMsg.substring(start).trim();
+            String firstLine = cleanMsg.split("\\r?\\n")[0].trim();
+            return firstLine + " [" + selectorPart + "]";
+        }
+
+        String firstLine = cleanMsg.split("\\r?\\n")[0].trim();
+        return firstLine.isEmpty() ? unwrapped.getClass().getSimpleName() : firstLine;
+    }
+
+    /**
+     * Builds structured diagnosis log with steps to reproduce and troubleshooting guidance.
+     */
+    public static String buildReproductionLog(Throwable t, String caseName, String scriptFile, String startUrl) {
+        Throwable root = unwrapCause(t);
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("❌ CHI TIẾT LỖI (Execution Error):\n");
+        sb.append("   • Loại lỗi: ").append(root.getClass().getName()).append("\n");
+        String message = root.getMessage();
+        if (message != null && !message.isBlank()) {
+            sb.append("   • Thông báo: ").append(message.trim()).append("\n");
+        } else {
+            sb.append("   • Thông báo: (Không có thông báo lỗi từ runtime)\n");
+        }
+
+        // Find relevant stack frame in test script or harness
+        StackTraceElement scriptFrame = null;
+        for (StackTraceElement elem : root.getStackTrace()) {
+            String cn = elem.getClassName();
+            String fn = elem.getFileName();
+            if (fn != null && fn.endsWith(".java")
+                    && !cn.startsWith("com.studio.service.")
+                    && !cn.startsWith("java.lang.reflect.")
+                    && !cn.startsWith("jdk.internal.")) {
+                scriptFrame = elem;
+                break;
+            }
+        }
+
+        sb.append("\n🔍 CÁCH TÁI HIỆN (Steps to Reproduce):\n");
+        int step = 1;
+        if (startUrl != null && !startUrl.isBlank()) {
+            sb.append(String.format("   %d. Mở trình duyệt và truy cập URL: %s\n", step++, startUrl));
+        }
+        if (scriptFile != null && !scriptFile.isBlank()) {
+            sb.append(String.format("   %d. File kịch bản kiểm thử: %s\n", step++, scriptFile));
+        }
+        if (caseName != null && !caseName.isBlank()) {
+            sb.append(String.format("   %d. Test case: %s\n", step++, caseName));
+        }
+        if (scriptFrame != null) {
+            sb.append(String.format("   %d. Điểm dừng lỗi: %s.%s() tại dòng %d (file %s)\n",
+                    step++, scriptFrame.getClassName(), scriptFrame.getMethodName(),
+                    scriptFrame.getLineNumber(), scriptFrame.getFileName()));
+        }
+
+        // Contextual advice
+        String lowerMsg = (message != null ? message : "").toLowerCase();
+        if (lowerMsg.contains("timeout") || lowerMsg.contains("waiting for locator")
+                || root.getClass().getSimpleName().contains("Timeout")) {
+            sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
+            sb.append("   • Playwright chờ phần tử UI xuất hiện nhưng hết thời gian chờ (Timeout 30s).\n");
+            sb.append("   • Kiểm tra ảnh chụp màn hình kiểm chứng đính kèm: Nếu trang đang dừng ở màn hình Đăng nhập (hoặc popup/dialog), kịch bản cần thực hiện bước đăng nhập hoặc xử lý popup trước khi tương tác các phần tử bên trong.\n");
+            sb.append("   • Kiểm tra lại bộ chọn (CSS / XPath locator) xem có chính xác với DOM hiện tại không.\n");
+        } else if (lowerMsg.contains("target closed") || lowerMsg.contains("page closed")) {
+            sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
+            sb.append("   • Trình duyệt hoặc tab trang web đã bị đóng bất ngờ trước khi hoàn thành các bước.\n");
+        } else if (lowerMsg.contains("strict mode violation")) {
+            sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
+            sb.append("   • Bộ chọn trả về nhiều hơn một phần tử (Strict mode violation). Hãy thêm .first() hoặc dùng bộ chọn đặc thù hơn.\n");
+        } else if (root instanceof AssertionError) {
+            sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
+            sb.append("   • Dữ liệu hoặc trạng thái thực tế trên giao diện không thỏa mãn điều kiện mong đợi (Assertion Failed).\n");
+        }
+
+        // Full trace
+        sb.append("\n📋 VẾT STACK TRACE ĐẦY ĐỦ:\n");
+        StackTraceElement[] st = root.getStackTrace();
+        int count = 0;
+        for (StackTraceElement elem : st) {
+            sb.append("   at ").append(elem.toString()).append("\n");
+            if (++count >= 15) {
+                int rem = st.length - count;
+                if (rem > 0) {
+                    sb.append("   ... (còn ").append(rem).append(" dòng ẩn)\n");
+                }
+                break;
+            }
+        }
+
+        return sb.toString();
     }
 
     private String resolveFullyQualifiedClassName(Path classDir, String simpleClassName) {

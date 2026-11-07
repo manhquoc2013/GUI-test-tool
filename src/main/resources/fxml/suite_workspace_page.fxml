@@ -44,10 +44,11 @@
 
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
 
-        <!-- Group 2: Authoring (Save & AI) -->
+        <!-- Group 2: Authoring (Save, AI & Export) -->
         <HBox spacing="6" alignment="CENTER_LEFT" styleClass="workspace-btn-group">
             <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
             <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
+            <Button text="Xuất Excel" fx:id="exportExcelBtn" onAction="#exportSuiteExcel" styleClass="toolbar-btn-excel"/>
         </HBox>
 
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>

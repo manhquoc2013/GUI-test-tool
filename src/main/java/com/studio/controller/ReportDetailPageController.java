@@ -83,6 +83,7 @@ public class ReportDetailPageController {
     @FXML private ImageView screenshotView;
 
     // --- Log excerpt ---
+    @FXML private Label detailLogHeader;
     @FXML private TextArea logExcerpt;
 
     // --- Right detail drawer (help-style overlay) ---
@@ -248,7 +249,7 @@ public class ReportDetailPageController {
             if ("SKIPPED".equals(cr.getStatus()) && cr.getSkipReason() != null) {
                 return new javafx.beans.property.SimpleStringProperty(cr.getSkipReason());
             }
-            if ("FAILED".equals(cr.getStatus()) && cr.getFailureReason() != null) {
+            if (("FAILED".equals(cr.getStatus()) || "ERROR".equals(cr.getStatus())) && cr.getFailureReason() != null) {
                 return new javafx.beans.property.SimpleStringProperty(truncate(cr.getFailureReason(), 120));
             }
             if (cr.getSkipReason() != null && !cr.getSkipReason().isEmpty()) {
@@ -256,9 +257,31 @@ public class ReportDetailPageController {
             }
             return new javafx.beans.property.SimpleStringProperty("");
         });
+        caseReasonCol.setCellFactory(col -> new TableCell<CaseResult, String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setTooltip(null);
+                } else {
+                    setText(item);
+                    CaseResult cr = getTableRow() != null ? getTableRow().getItem() : null;
+                    if (cr != null && cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
+                        com.studio.util.UiTooltips.install(this, cr.getFailureReason());
+                    } else {
+                        com.studio.util.UiTooltips.install(this, item);
+                    }
+                }
+            }
+        });
     }
 
     private void setupAssertColumns() {
+        Label emptyAssertPlaceholder = new Label("Không có kết quả Assert (kịch bản không khai báo assertion hoặc gặp ngoại lệ trong quá trình chạy).");
+        emptyAssertPlaceholder.setStyle("-fx-text-fill: #94a3b8; -fx-font-style: italic; -fx-padding: 10px;");
+        assertsTable.setPlaceholder(emptyAssertPlaceholder);
+
         ResponsiveTableColumns.install(assertsTable,
                 ResponsiveTableColumns.Spec.fixed(assertIndexCol, 44),
                 ResponsiveTableColumns.Spec.flex(assertTypeCol, 1.3, 120),
@@ -529,20 +552,44 @@ public class ReportDetailPageController {
             assertsTable.getItems().clear();
         }
 
-        // Log excerpt: failure reason > skip reason > log excerpt
-        String text = null;
-        if ("FAILED".equals(cr.getStatus()) && cr.getFailureReason() != null) {
-            text = cr.getFailureReason();
-        } else if ("SKIPPED".equals(cr.getStatus()) && cr.getSkipReason() != null) {
-            text = "⏭️ ĐÃ BỎ QUA: " + cr.getSkipReason();
-        } else if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isEmpty()) {
-            text = cr.getLogExcerpt();
+        // Update detail header based on status
+        if (detailLogHeader != null) {
+            if ("FAILED".equals(cr.getStatus()) || "ERROR".equals(cr.getStatus())) {
+                detailLogHeader.setText("Chi tiết lỗi & Cách tái hiện");
+            } else if ("SKIPPED".equals(cr.getStatus())) {
+                detailLogHeader.setText("Lý do bỏ qua");
+            } else {
+                detailLogHeader.setText("Ghi chú thực thi");
+            }
+        }
+
+        // Build comprehensive detail log
+        StringBuilder sb = new StringBuilder();
+        if ("FAILED".equals(cr.getStatus())) {
+            if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
+                sb.append("❌ NGUYÊN NHÂN THẤT BẠI: ").append(cr.getFailureReason()).append("\n\n");
+            }
+            if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
+                sb.append(cr.getLogExcerpt());
+            } else if (sb.length() == 0) {
+                sb.append("❌ Test case thực thi thất bại.");
+            }
+        } else if ("ERROR".equals(cr.getStatus())) {
+            if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
+                sb.append("⚠️ LỖI KỊCH BẢN / BIÊN DỊCH: ").append(cr.getFailureReason()).append("\n\n");
+            }
+            if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
+                sb.append(cr.getLogExcerpt());
+            }
+        } else if ("SKIPPED".equals(cr.getStatus())) {
+            sb.append("⏭️ ĐÃ BỎ QUA: ").append(cr.getSkipReason() != null ? cr.getSkipReason() : "Không có lý do");
         } else if ("PASSED".equals(cr.getStatus())) {
-            text = "✅ Case đạt." + (cr.getScreenshotPath() != null ? " Xem ảnh chụp bên trên." : "");
-        } else if ("ERROR".equals(cr.getStatus()) && cr.getFailureReason() != null) {
-            text = cr.getFailureReason();
+            sb.append("✅ Test case thực thi thành công và đạt tất cả các kiểm tra.");
+            if (cr.getScreenshotPath() != null) {
+                sb.append(" Xem ảnh chụp màn hình kiểm chứng bên trên.");
+            }
         } else {
-            text = "📝 Không có thông tin chi tiết cho case này.";
+            sb.append("📝 Không có thông tin bổ sung cho case này.");
         }
 
         // Self-Healing details
@@ -554,10 +601,10 @@ public class ReportDetailPageController {
                         hm.getActionDescription(), hm.getMethod(), hm.getConfidence() * 100,
                         hm.getOriginalSelector(), hm.getRepairedSelector()));
             }
-            text = (text != null ? text : "") + healedLog.toString();
+            sb.append(healedLog);
         }
 
-        logExcerpt.setText(text != null ? text : "");
+        logExcerpt.setText(sb.toString());
 
         // Screenshot path + preview
         Path resolvedShot = resolveScreenshotFile(cr.getScreenshotPath());

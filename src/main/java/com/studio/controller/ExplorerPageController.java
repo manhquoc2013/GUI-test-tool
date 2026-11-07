@@ -3,6 +3,7 @@ package com.studio.controller;
 import com.studio.model.*;
 import com.studio.service.RunProgressService;
 import com.studio.service.StatusBarService;
+import com.studio.service.TestCaseExcelExportService;
 import com.studio.service.TestRunnerService;
 import com.studio.service.ToastService;
 import com.studio.store.ProjectStore;
@@ -28,7 +29,9 @@ import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -505,7 +508,9 @@ public class ExplorerPageController {
                 case "group" -> {
                     menu.getItems().addAll(
                             menuItem("Nhóm mới", this::addGroup),
-                            menuItem("Suite mới", this::addSuite)
+                            menuItem("Suite mới", this::addSuite),
+                            new SeparatorMenuItem(),
+                            menuItem("Xuất Test Cases (Excel)", this::exportSelectedGroupExcel)
                     );
                     if (!isRootItem(selected)) {
                         menu.getItems().addAll(
@@ -526,6 +531,7 @@ public class ExplorerPageController {
                     menu.getItems().addAll(
                             menuItem("Case mới", this::addCase),
                             workspaceMenuItem("Mở Workspace", this::openWorkspace),
+                            menuItem("Xuất Test Cases (Excel)", this::exportSelectedSuiteExcel),
                             new SeparatorMenuItem()
                     );
                     String suiteKey = StatusDisplay.normalize(ref.status);
@@ -1960,6 +1966,52 @@ public class ExplorerPageController {
                 ref.parentName, suiteName, suiteDir);
         if (ctrl != null) {
             ctrl.loadSuite(suite, suiteDir, caseToSelect);
+        }
+    }
+
+    private void exportSelectedSuiteExcel() {
+        TreeItem<Object> selected = resolveTarget();
+        NodeRef ref = selected != null ? getNodeRef(selected) : null;
+        if (ref == null) return;
+        Path suiteDir = resolveSuitePath(ref);
+        if (suiteDir == null || !Files.isDirectory(suiteDir)) return;
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("📤 Xuất Test Cases (Suite) ra Excel chuẩn QA");
+        chooser.setInitialFileName(ref.name + "_TestCases.xlsx");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
+        File file = chooser.showSaveDialog(projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestSuite suite = projectStore.loadAndMigrateSuite(suiteDir);
+            String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "Project";
+            TestCaseExcelExportService.exportSuite(suite, groupName, suiteDir, file.toPath());
+            ToastService.success("📤 Đã xuất Excel test cases: " + file.getName());
+        } catch (Exception e) {
+            ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
+        }
+    }
+
+    private void exportSelectedGroupExcel() {
+        TreeItem<Object> selected = resolveTarget();
+        NodeRef ref = selected != null ? getNodeRef(selected) : null;
+        if (ref == null) return;
+        Path groupDir = resolveGroupDir(ref);
+        if (groupDir == null || !Files.isDirectory(groupDir)) return;
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("📤 Xuất toàn bộ Test Cases (Nhóm) ra Excel chuẩn QA");
+        chooser.setInitialFileName((ref.name != null && !ref.name.isBlank() ? ref.name : "Group") + "_TestCases.xlsx");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
+        File file = chooser.showSaveDialog(projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestCaseExcelExportService.exportGroup(groupDir, projectStore, file.toPath());
+            ToastService.success("📤 Đã xuất Excel toàn bộ test cases nhóm: " + file.getName());
+        } catch (Exception e) {
+            ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
         }
     }
 

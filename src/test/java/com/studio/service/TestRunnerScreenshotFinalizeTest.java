@@ -70,4 +70,37 @@ class TestRunnerScreenshotFinalizeTest {
         // Invoking with unqualified class name should resolve package and execute main
         assertDoesNotThrow(() -> m.invoke(runner, tempDir, "PackagedCase_Run"));
     }
+
+    @Test
+    void testUnwrapCauseAndExtractFailureReason() {
+        com.microsoft.playwright.TimeoutError timeoutError = new com.microsoft.playwright.TimeoutError(
+                "Timeout 30000ms exceeded.\ncall log:\n  - waiting for locator(\"input#description\")");
+        java.lang.reflect.InvocationTargetException ite = new java.lang.reflect.InvocationTargetException(timeoutError);
+
+        Throwable unwrapped = TestRunnerService.unwrapCause(ite);
+        assertSame(timeoutError, unwrapped);
+
+        String reason = TestRunnerService.extractFailureReason(ite);
+        assertNotNull(reason);
+        assertNotEquals("Unknown error", reason);
+        assertTrue(reason.contains("Timeout 30000ms exceeded"), "Reason should contain timeout: " + reason);
+        assertTrue(reason.contains("input#description"), "Reason should include locator info: " + reason);
+    }
+
+    @Test
+    void testBuildReproductionLogIncludesStepsAndHints() {
+        com.microsoft.playwright.TimeoutError timeoutError = new com.microsoft.playwright.TimeoutError(
+                "Timeout 30000ms exceeded waiting for locator(\"input#description\")");
+        java.lang.reflect.InvocationTargetException ite = new java.lang.reflect.InvocationTargetException(timeoutError);
+
+        String log = TestRunnerService.buildReproductionLog(
+                ite, "case 1", "case 1.java", "https://example.com/login");
+
+        assertNotNull(log);
+        assertTrue(log.contains("CÁCH TÁI HIỆN"), "Log should contain reproduction steps");
+        assertTrue(log.contains("https://example.com/login"), "Log should contain URL");
+        assertTrue(log.contains("case 1.java"), "Log should contain script file");
+        assertTrue(log.contains("GỢI Ý XỬ LÝ"), "Log should contain troubleshooting hint");
+        assertTrue(log.contains("Đăng nhập"), "Hint should mention login verification");
+    }
 }

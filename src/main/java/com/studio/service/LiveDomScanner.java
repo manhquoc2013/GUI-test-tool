@@ -5,6 +5,7 @@ import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.LoadState;
+import com.studio.util.PlaywrightUtil;
 import com.studio.runtime.EnhancedDomExtractor;
 
 /**
@@ -45,7 +46,7 @@ public class LiveDomScanner {
         Page page = null;
 
         try {
-            playwright = Playwright.create();
+            playwright = PlaywrightUtil.create();
             browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
             page = browser.newPage();
             page.setDefaultNavigationTimeout(timeout);

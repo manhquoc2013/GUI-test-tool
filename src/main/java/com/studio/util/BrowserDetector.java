@@ -56,10 +56,13 @@ public class BrowserDetector {
         return list;
     }
 
-    static Path resolvePlaywrightBrowsersPath() {
+    public static Path resolvePlaywrightBrowsersPath() {
         String env = System.getenv("PLAYWRIGHT_BROWSERS_PATH");
         if (env != null && !env.isBlank()) {
-            return Paths.get(env);
+            Path p = Paths.get(env);
+            if (Files.isDirectory(p)) {
+                return p;
+            }
         }
         Path portable = StudioPaths.getAppHome().resolve("browsers");
         if (Files.isDirectory(portable)) {

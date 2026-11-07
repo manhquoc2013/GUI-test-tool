@@ -1,5 +1,6 @@
 package com.studio;
 
+import com.studio.util.PlaywrightUtil;
 import com.studio.util.StudioPaths;
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader;
@@ -12,6 +13,12 @@ public class App extends Application {
     @Override
     public void start(Stage primaryStage) throws Exception {
         StudioPaths.ensureDirectories();
+
+        // Configure Playwright browsers directory for bundled portable execution
+        java.nio.file.Path bundled = PlaywrightUtil.resolveBrowsersPath();
+        if (bundled != null && java.nio.file.Files.isDirectory(bundled)) {
+            System.setProperty("playwright.browsers.path", bundled.toAbsolutePath().toString());
+        }
 
         // Asynchronously synchronize workspace and reports into embedded H2 database cache
         Thread syncThread = new Thread(() -> {

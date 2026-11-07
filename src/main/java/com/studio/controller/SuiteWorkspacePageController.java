@@ -3,6 +3,7 @@ package com.studio.controller;
 import com.studio.model.*;
 import com.studio.service.RunProgressService;
 import com.studio.service.StatusBarService;
+import com.studio.service.TestCaseExcelExportService;
 import com.studio.service.TestRunnerService;
 import com.studio.service.ToastService;
 import com.studio.store.ProjectStore;
@@ -11,6 +12,7 @@ import com.studio.store.SettingsStore;
 import com.studio.util.AssertTypeDisplay;
 import com.studio.util.BusyButtons;
 import com.studio.util.DialogTheme;
+import com.studio.util.PlaywrightUtil;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
 import com.studio.util.StudioPaths;
@@ -23,8 +25,10 @@ import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
@@ -47,6 +51,7 @@ public class SuiteWorkspacePageController {
     @FXML private Button runCaseBtn;
     @FXML private Button runSuiteBtn;
     @FXML private Button saveBtn;
+    @FXML private Button exportExcelBtn;
     @FXML private Button toggleSplitBtn;
     @FXML private Button clearTerminalBtn;
     @FXML private Button hideTerminalBtn;
@@ -250,6 +255,11 @@ public class SuiteWorkspacePageController {
                 saveBtn.setOnAction(e -> saveCode());
                 UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, "#7aa2f7");
                 com.studio.util.UiTooltips.install(saveBtn, "Lưu kịch bản Playwright (Ctrl+S)");
+            }
+            if (exportExcelBtn != null) {
+                exportExcelBtn.setOnAction(e -> exportSuiteExcel());
+                UiIcons.setGraphic(exportExcelBtn, UiIcons.EXCEL, 12, "#10b981");
+                com.studio.util.UiTooltips.install(exportExcelBtn, "Xuất toàn bộ kịch bản kiểm thử ra file Excel chuẩn QA");
             }
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
@@ -1009,6 +1019,30 @@ public class SuiteWorkspacePageController {
         return confirm.showAndWait().filter(b -> b == ButtonType.OK).isPresent();
     }
 
+    @FXML
+    private void exportSuiteExcel() {
+        if (suite == null || suitePath == null) {
+            ToastService.warn("⚠️ Không có Suite nào đang mở để xuất Excel");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("📤 Xuất Test Cases ra Excel chuẩn QA");
+        String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
+        String safeName = sName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+        chooser.setInitialFileName(safeName + "_TestCases.xlsx");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
+        File file = chooser.showSaveDialog(backBtn != null && backBtn.getScene() != null ? backBtn.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            String groupName = suitePath.getParent() != null ? suitePath.getParent().getFileName().toString() : "Project";
+            TestCaseExcelExportService.exportSuite(suite, groupName, suitePath, file.toPath());
+            ToastService.success("📤 Đã xuất tài liệu Test Cases: " + file.getName());
+        } catch (Exception e) {
+            ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
+        }
+    }
+
     private int runCodegenBlocking(TestCase targetCase, String url) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         Path nodeExe = StudioPaths.getNodeExecutable();
@@ -1054,6 +1088,22 @@ public class SuiteWorkspacePageController {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(suitePath.toFile());
         pb.redirectErrorStream(true);
+
+        // Bind bundled browsers and node paths so codegen works completely offline
+        Path bundledBrowsers = PlaywrightUtil.resolveBrowsersPath();
+        if (bundledBrowsers != null && Files.isDirectory(bundledBrowsers)) {
+            pb.environment().put("PLAYWRIGHT_BROWSERS_PATH", bundledBrowsers.toAbsolutePath().toString());
+        }
+        Path nodeExecutable = StudioPaths.getNodeExecutable();
+        if (nodeExecutable != null && Files.exists(nodeExecutable)) {
+            Path nodeBin = nodeExecutable.getParent();
+            if (nodeBin != null && Files.isDirectory(nodeBin)) {
+                String sep = System.getProperty("os.name", "").toLowerCase().contains("win") ? ";" : ":";
+                String curPath = pb.environment().getOrDefault("PATH", "");
+                pb.environment().put("PATH", nodeBin.toAbsolutePath() + sep + curPath);
+            }
+        }
+
         Process process = pb.start();
 
         Thread outputThread = new Thread(() -> {

@@ -74,11 +74,20 @@ public class StudioPaths {
 
     public static Path getToolsDir() { return resolve("tools"); }
     public static Path getNodeDir() { return getToolsDir().resolve("node"); }
+    public static Path getBrowsersDir() { return resolve("browsers"); }
 
     public static Path getNodeExecutable() {
         String os = System.getProperty("os.name").toLowerCase();
         String nodeExe = os.contains("win") ? "node.exe" : "node";
-        return getNodeDir().resolve("bin").resolve(nodeExe);
+        Path inBin = getNodeDir().resolve("bin").resolve(nodeExe);
+        if (Files.exists(inBin)) {
+            return inBin;
+        }
+        Path inRoot = getNodeDir().resolve(nodeExe);
+        if (Files.exists(inRoot)) {
+            return inRoot;
+        }
+        return inBin;
     }
 
     public static Path getPlaywrightCliDir() { return getToolsDir().resolve("playwright-cli"); }

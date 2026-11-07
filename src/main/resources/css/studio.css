@@ -2026,10 +2026,10 @@
     -fx-spacing: 6;
 }
 .workspace-action-bar .button {
-    -fx-min-width: use-pref-size;
+    -fx-min-width: -1;
 }
 .workspace-btn-group .button {
-    -fx-min-width: use-pref-size;
+    -fx-min-width: -1;
     -fx-pref-width: -1;
     -fx-font-size: 12px;
     -fx-padding: 5 10;

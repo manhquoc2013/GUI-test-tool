@@ -36,8 +36,8 @@ mkdir %JPACKAGE_INPUT%\lib
 copy target\%JAR_NAME% %JPACKAGE_INPUT%\ >nul
 xcopy /e /y /q target\lib\* %JPACKAGE_INPUT%\lib\ >nul
 
-echo Step 3: Creating app-image with embedded JRE...
-jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.App --dest %JPACKAGE_OUT% --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
+echo Step 3: Creating app-image with embedded JRE (including javac compiler)...
+jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.App --dest %JPACKAGE_OUT% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 echo Step 4: Assembling portable layout...
@@ -71,15 +71,36 @@ if not exist "%NODE_ZIP%" (
 echo   Extracting Node.js...
 powershell -Command "Expand-Archive -Path '%NODE_ZIP%' -DestinationPath '%TEMP%\node-extract' -Force"
 xcopy /e /y /q "%TEMP%\node-extract\node-v%NODE_VERSION%-win-x64\*" "%BUNDLE_ROOT%\tools\node\" >nul
+mkdir "%BUNDLE_ROOT%\tools\node\bin" 2>nul
+if exist "%BUNDLE_ROOT%\tools\node\node.exe" copy /y "%BUNDLE_ROOT%\tools\node\node.exe" "%BUNDLE_ROOT%\tools\node\bin\node.exe" >nul
 
-echo Step 6: Installing Playwright CLI + Chromium...
-set PATH=%BUNDLE_ROOT%\tools\node;%PATH%
+echo Step 6: Installing Playwright CLI + Chromium (Offline bundle)...
+set PATH=%BUNDLE_ROOT%\tools\node;%BUNDLE_ROOT%\tools\node\bin;%PATH%
 cd "%BUNDLE_ROOT%\tools\playwright-cli"
 call npm init -y > nul 2>&1
 call npm install playwright@1.61.0 > nul 2>&1
 cd /d "%DIR%"
 set PLAYWRIGHT_BROWSERS_PATH=%BUNDLE_ROOT%\browsers
-call npx --prefix "%BUNDLE_ROOT%\tools\playwright-cli" playwright install chromium
+
+if exist "%LOCALAPPDATA%\ms-playwright\chromium*" (
+  echo   Pre-populating Chromium from local cache...
+  xcopy /e /y /q "%LOCALAPPDATA%\ms-playwright\chromium*" "%BUNDLE_ROOT%\browsers\" >nul 2>&1
+  xcopy /e /y /q "%LOCALAPPDATA%\ms-playwright\ffmpeg*" "%BUNDLE_ROOT%\browsers\" >nul 2>&1
+)
+
+if not exist "%BUNDLE_ROOT%\browsers\chromium*" (
+  echo   Downloading Chromium into bundled browsers directory...
+  call npx --prefix "%BUNDLE_ROOT%\tools\playwright-cli" playwright install chromium
+)
+
+echo   Verifying Chromium with Playwright Java CLI...
+call mvn -q exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium" >nul 2>&1
+
+if not exist "%BUNDLE_ROOT%\browsers\chromium*" (
+  echo ERROR: Failed to bundle Chromium into %BUNDLE_ROOT%\browsers! Portable distribution incomplete.
+  exit /b 1
+)
+echo   Bundled Chromium verified in: %BUNDLE_ROOT%\browsers
 
 echo Step 7: Creating launcher...
 (

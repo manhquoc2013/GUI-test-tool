@@ -5,6 +5,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.studio.util.PlaywrightUtil;
 
 /**
  * Manages shared Playwright BrowserContext for multi-case runs in-process.
@@ -20,7 +21,7 @@ public class SharedBrowserSession implements AutoCloseable {
      * Start a shared session. browserId = "CHROMIUM", "FIREFOX", "WEBKIT", "CHROME", "EDGE".
      */
     public void start(boolean headless, String browserId) {
-        playwright = Playwright.create();
+        playwright = PlaywrightUtil.create();
         BrowserType.LaunchOptions opts = new BrowserType.LaunchOptions().setHeadless(headless);
         String id = browserId != null ? browserId.toUpperCase() : "CHROMIUM";
 

@@ -9,6 +9,7 @@ JAR_NAME="playwright-automation-studio-1.0.0.jar"
 DIST_ROOT="dist/${APP_NAME}"
 JPACKAGE_INPUT="target/jpackage-input"
 JPACKAGE_OUT="target/jpackage-out"
+PLAYWRIGHT_BROWSERS_PATH_ORIG="${PLAYWRIGHT_BROWSERS_PATH:-}"
 
 echo "=== Building ${APP_NAME} Portable (jpackage app-image) ==="
 
@@ -41,7 +42,7 @@ cp "target/${JAR_NAME}" "${JPACKAGE_INPUT}/"
 cp -R target/lib/* "${JPACKAGE_INPUT}/lib/"
 
 # 3. jpackage app-image with embedded runtime
-echo "Step 3: Creating app-image with embedded JRE..."
+echo "Step 3: Creating app-image with embedded JRE (including javac compiler)..."
 jpackage \
   --type app-image \
   --name "${APP_NAME}" \
@@ -49,6 +50,7 @@ jpackage \
   --main-jar "${JAR_NAME}" \
   --main-class com.studio.App \
   --dest "${JPACKAGE_OUT}" \
+  --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,jdk.compiler,jdk.unsupported \
   --java-options "-Dstudio.home=\$ROOTDIR" \
   --java-options "-Dfile.encoding=UTF-8" \
   --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
@@ -119,9 +121,10 @@ echo "  Extracting Node.js..."
 tar -xzf "/tmp/${NODE_ARCHIVE}" -C /tmp/
 rm -rf "${NODE_DIR:?}/"*
 cp -R /tmp/node-v${NODE_VERSION}-${OS}-${ARCH}/* "${NODE_DIR}/"
+chmod -R +x "${NODE_DIR}/bin" 2>/dev/null || true
 
 # 6. Playwright CLI + browsers
-echo "Step 6: Installing Playwright CLI + Chromium..."
+echo "Step 6: Installing Playwright CLI + Chromium (Offline bundle)..."
 export PATH="${NODE_DIR}/bin:$PATH"
 PW_CLI_DIR="${BUNDLE_ROOT}/tools/playwright-cli"
 cd "${PW_CLI_DIR}"
@@ -130,7 +133,39 @@ npm install playwright@1.61.0 > /dev/null 2>&1
 cd "$DIR"
 
 export PLAYWRIGHT_BROWSERS_PATH="${BUNDLE_ROOT}/browsers"
-npx --prefix "${PW_CLI_DIR}" playwright install chromium
+
+# Check if Chromium already exists in host cache to speed up / avoid network fetch
+HOST_PW_CACHE=""
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH_ORIG:-}" ] && [ -d "${PLAYWRIGHT_BROWSERS_PATH_ORIG}" ]; then
+  HOST_PW_CACHE="${PLAYWRIGHT_BROWSERS_PATH_ORIG}"
+elif [ -d "$HOME/Library/Caches/ms-playwright" ]; then
+  HOST_PW_CACHE="$HOME/Library/Caches/ms-playwright"
+elif [ -d "$HOME/.cache/ms-playwright" ]; then
+  HOST_PW_CACHE="$HOME/.cache/ms-playwright"
+fi
+
+if [ -n "$HOST_PW_CACHE" ] && ls "${HOST_PW_CACHE}"/chromium* >/dev/null 2>&1; then
+  echo "  Pre-populating Chromium from host cache (${HOST_PW_CACHE})..."
+  cp -R "${HOST_PW_CACHE}"/chromium* "${BUNDLE_ROOT}/browsers/" 2>/dev/null || true
+  cp -R "${HOST_PW_CACHE}"/ffmpeg* "${BUNDLE_ROOT}/browsers/" 2>/dev/null || true
+fi
+
+if ! ls "${BUNDLE_ROOT}/browsers"/chromium* >/dev/null 2>&1; then
+  echo "  Downloading Chromium into bundled browsers directory..."
+  npx --prefix "${PW_CLI_DIR}" playwright install chromium
+fi
+
+# Ensure Playwright Java driver matches and verifies Chromium
+echo "  Verifying Chromium with Playwright Java CLI..."
+mvn -q exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium" || true
+
+# Verify bundling succeeded
+if ! ls "${BUNDLE_ROOT}/browsers"/chromium* >/dev/null 2>&1; then
+  echo "ERROR: Failed to bundle Chromium into ${BUNDLE_ROOT}/browsers! Portable distribution incomplete."
+  exit 1
+fi
+chmod -R +x "${BUNDLE_ROOT}/browsers" 2>/dev/null || true
+echo "  ✓ Bundled Chromium verified in: ${BUNDLE_ROOT}/browsers"
 
 # 7. Convenience launcher that exports PLAYWRIGHT_BROWSERS_PATH (no host java)
 echo "Step 7: Writing convenience launcher..."

@@ -32,6 +32,9 @@ public final class UiIcons {
     /** Save floppy disk */
     public static final String SAVE = "M 19 21 H 5 a 2 2 0 0 1 -2 -2 V 5 a 2 2 0 0 1 2 -2 h 11 l 5 5 v 11 a 2 2 0 0 1 -2 2 Z M 7 3 v 5 h 8 V 3 Z M 7 21 h 10 v -8 H 7 Z";
 
+    /** Excel / Spreadsheet */
+    public static final String EXCEL = "M 14 2 H 6 c -1.1 0 -2 0.9 -2 2 v 16 c 0 1.1 0.9 2 2 2 h 12 c 1.1 0 2 -0.9 2 -2 V 8 l -6 -6 z M 13 9 V 3.5 L 18.5 9 H 13 z M 15.8 17.5 l -1.6 -2.5 l -1.6 2.5 h -1.8 l 2.5 -3.7 l -2.3 -3.5 h 1.8 l 1.4 2.3 l 1.4 -2.3 h 1.8 l -2.3 3.5 l 2.5 3.7 h -1.9 z";
+
     /** AI Sparkles */
     public static final String AI_SPARKLES = "M 12 2 L 14.2 7.8 L 20 10 L 14.2 12.2 L 12 18 L 9.8 12.2 L 4 10 L 9.8 7.8 Z M 19 2 L 20 5 L 23 6 L 20 7 L 19 10 L 18 7 L 15 6 L 18 5 Z M 5 18 L 6 20 L 8 21 L 6 22 L 5 24 L 4 22 L 2 21 L 4 20 Z";
 

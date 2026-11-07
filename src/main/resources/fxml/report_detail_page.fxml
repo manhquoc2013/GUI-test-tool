@@ -89,10 +89,10 @@
                         <ImageView fx:id="screenshotView" preserveRatio="true" smooth="true"
                                    visible="false"/>
                     </StackPane>
-                    <Label text="Ghi chú" styleClass="section-header"/>
-                    <TextArea fx:id="logExcerpt" styleClass="log-excerpt" editable="false" prefHeight="110"
+                    <Label fx:id="detailLogHeader" text="Chi tiết lỗi &amp; Cách tái hiện" styleClass="section-header"/>
+                    <TextArea fx:id="logExcerpt" styleClass="log-excerpt" editable="false" prefHeight="220"
                               maxWidth="Infinity" wrapText="true"
-                              promptText="Chọn case để xem chi tiết"/>
+                              promptText="Chọn case để xem chi tiết lỗi và các bước tái hiện..."/>
                 </VBox>
             </ScrollPane>
         </VBox>
