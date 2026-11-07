@@ -7,6 +7,7 @@ import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
 import com.studio.service.HtmlReportService;
+import com.studio.service.I18nService;
 import com.studio.service.ToastService;
 import com.studio.store.ReportStore;
 import com.studio.util.AssertTypeDisplay;
@@ -708,10 +709,10 @@ public class ReportDetailPageController {
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(lang.isVietnamese() ? "🌐 Xuất báo cáo HTML độc lập" : "🌐 Export Standalone HTML Report");
+        chooser.setTitle(I18nService.get(lang, "export.chooser.title.report_html"));
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
-        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        String prefix = I18nService.get(lang, "export.filename.prefix.report");
         chooser.setInitialFileName(prefix + currentReport.getRunId() + ".html");
         File file = chooser.showSaveDialog(window);
         if (file != null) {
@@ -742,10 +743,10 @@ public class ReportDetailPageController {
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất báo cáo Excel" : "📤 Export Excel Report");
+        chooser.setTitle(I18nService.get(lang, "export.chooser.title.report_excel"));
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        String prefix = I18nService.get(lang, "export.filename.prefix.report");
         chooser.setInitialFileName(prefix + currentReport.getRunId() + ".xlsx");
         File file = chooser.showSaveDialog(window);
         if (file != null) {

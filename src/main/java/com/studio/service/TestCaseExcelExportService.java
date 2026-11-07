@@ -102,8 +102,8 @@ public final class TestCaseExcelExportService {
         List<SuiteContainer> suites = new ArrayList<>();
         suites.add(new SuiteContainer(suite, groupName != null && !groupName.isBlank() ? groupName : "Project", suiteDir));
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
-        String scopeTitle = effective.isEnglish() ? "TEST SUITE: " + sName : "BỘ KIỂM THỬ: " + sName;
-        String scopeDesc = effective.isEnglish() ? "Detailed test cases specification for suite " + sName : "Kịch bản kiểm thử chi tiết thuộc bộ " + sName;
+        String scopeTitle = I18nService.get(effective, "export.common.scope.suite", sName);
+        String scopeDesc = I18nService.get(effective, "export.common.scope.suite_desc", sName);
         exportSuites(scopeTitle, scopeDesc, suites, outputPath, effective);
     }
 
@@ -119,8 +119,8 @@ public final class TestCaseExcelExportService {
         List<SuiteContainer> suites = new ArrayList<>();
         String rootName = groupDir.getFileName() != null ? groupDir.getFileName().toString() : "Group";
         collectSuitesInDir(groupDir, rootName, store, suites);
-        String scopeTitle = effective.isEnglish() ? "TEST GROUP: " + rootName : "NHÓM KIỂM THỬ: " + rootName;
-        String scopeDesc = effective.isEnglish() ? "All test cases belonging to group " + rootName : "Toàn bộ kịch bản kiểm thử thuộc nhóm " + rootName;
+        String scopeTitle = I18nService.get(effective, "export.common.scope.group", rootName);
+        String scopeDesc = I18nService.get(effective, "export.common.scope.group_desc", rootName);
         exportSuites(scopeTitle, scopeDesc, suites, outputPath, effective);
     }
 
@@ -172,19 +172,19 @@ public final class TestCaseExcelExportService {
             Styles styles = Styles.create(wb);
 
             // Sheet 1: Tổng quan / Overview
-            String summarySheetName = effective.isEnglish() ? "Overview" : "Tổng quan";
+            String summarySheetName = I18nService.get(effective, "export.tc.sheet.overview");
             Sheet summary = wb.createSheet(summarySheetName);
             createSummarySheet(summary, scopeTitle, scopeDescription, suites, allCases, styles, effective);
             tintSheet(summary, IndexedColors.DARK_BLUE);
 
             // Sheet 2: Danh sách Test Cases / Test Cases
-            String casesSheetName = effective.isEnglish() ? "Test Cases" : "Danh sách Test Cases";
+            String casesSheetName = I18nService.get(effective, "export.tc.sheet.cases");
             Sheet casesSheet = wb.createSheet(casesSheetName);
             createCasesSheet(casesSheet, allCases, styles, effective);
             tintSheet(casesSheet, IndexedColors.DARK_TEAL);
 
             // Sheet 3: Chi tiết các bước / Step Details
-            String stepsSheetName = effective.isEnglish() ? "Step Details" : "Chi tiết các bước";
+            String stepsSheetName = I18nService.get(effective, "export.tc.sheet.steps");
             Sheet stepsSheet = wb.createSheet(stepsSheetName);
             createStepsSheet(stepsSheet, allCases, styles, effective);
             tintSheet(stepsSheet, IndexedColors.GREY_50_PERCENT);
@@ -209,8 +209,8 @@ public final class TestCaseExcelExportService {
         row.status = tc.getStatus() != null && !tc.getStatus().isBlank() ? tc.getStatus() : "Draft";
         row.priority = "P2 (Medium)";
         row.preconditions = tc.getStartUrl() != null && !tc.getStartUrl().isBlank()
-                ? "URL khởi đầu: " + tc.getStartUrl()
-                : "Môi trường kiểm thử sẵn sàng, trình duyệt Chromium";
+                ? I18nService.get(lang, "export.tc.preconditions.url", tc.getStartUrl())
+                : I18nService.get(lang, "export.tc.preconditions.default");
         row.scriptFile = tc.getScriptFile() != null ? tc.getScriptFile() : "";
         row.description = tc.getDescription() != null ? tc.getDescription() : "";
 
@@ -231,10 +231,10 @@ public final class TestCaseExcelExportService {
                 sb.append(stepIdx).append(". ").append(desc).append("\n");
 
                 if (st.getTestData() != null && !st.getTestData().isBlank()) {
-                    dataSb.append("• Bước ").append(stepIdx).append(": ").append(st.getTestData()).append("\n");
+                    dataSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getTestData())).append("\n");
                 }
                 if (st.getExpectedResult() != null && !st.getExpectedResult().isBlank()) {
-                    expSb.append("• Bước ").append(stepIdx).append(": ").append(st.getExpectedResult()).append("\n");
+                    expSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getExpectedResult())).append("\n");
                 }
                 stepIdx++;
             }
@@ -247,7 +247,7 @@ public final class TestCaseExcelExportService {
 
         // Fallback: extract steps from comments in script file if testSteps is empty
         if (row.stepsSummary == null || row.stepsSummary.isBlank()) {
-            row.stepsSummary = extractStepsFromScript(suiteDir, row.scriptFile, tc.getName());
+            row.stepsSummary = extractStepsFromScript(suiteDir, row.scriptFile, tc.getName(), lang);
         }
 
         // Format Assertions into Expected Results
@@ -275,21 +275,18 @@ public final class TestCaseExcelExportService {
         }
 
         if (row.expectedResults == null || row.expectedResults.isBlank()) {
-            row.expectedResults = (lang != null && lang.isEnglish())
-                    ? "• Automated test script executes successfully without unhandled exceptions."
-                    : "• Kịch bản kiểm thử tự động thực thi thành công không phát sinh lỗi ngoại lệ.";
+            row.expectedResults = I18nService.get(lang, "export.common.default_expected");
         }
         if (row.testDataSummary == null || row.testDataSummary.isBlank()) {
-            row.testDataSummary = (lang != null && lang.isEnglish())
-                    ? "Use system default test data"
-                    : "Sử dụng dữ liệu mặc định của hệ thống";
+            row.testDataSummary = I18nService.get(lang, "export.common.default_data");
         }
 
         return row;
     }
 
-    private static String extractStepsFromScript(Path suiteDir, String scriptFile, String caseName) {
-        if (suiteDir == null) return "1. Thực thi kịch bản tự động hóa Playwright";
+    private static String extractStepsFromScript(Path suiteDir, String scriptFile, String caseName, ExportLanguage lang) {
+        String fallback = I18nService.get(lang, "export.tc.steps.fallback_execute");
+        if (suiteDir == null) return fallback;
         Path file = null;
         if (scriptFile != null && !scriptFile.isBlank()) {
             file = suiteDir.resolve(scriptFile);
@@ -297,7 +294,7 @@ public final class TestCaseExcelExportService {
             file = suiteDir.resolve(caseName + ".java");
         }
         if (file == null || !Files.isRegularFile(file)) {
-            return "1. Thực thi kịch bản tự động hóa Playwright";
+            return fallback;
         }
         try {
             List<String> lines = Files.readAllLines(file);
@@ -324,20 +321,19 @@ public final class TestCaseExcelExportService {
                 return sb.toString().trim();
             }
         } catch (Exception ignored) {}
-        return "1. Điều hướng và thực thi kịch bản tự động hóa Playwright";
+        return I18nService.get(lang, "export.tc.steps.fallback_nav");
     }
 
     private static void createSummarySheet(Sheet sheet, String scopeTitle, String scopeDescription,
                                            List<SuiteContainer> suites, List<TestCaseRowData> cases, Styles styles,
                                            ExportLanguage lang) {
-        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(false);
 
         // Title Header
         Row titleRow = sheet.createRow(0);
         titleRow.setHeightInPoints(34);
         Cell titleA = titleRow.createCell(0);
-        titleA.setCellValue(en ? "TEST CASE SPECIFICATION DOCUMENT" : "TÀI LIỆU KỊCH BẢN KIỂM THỬ (TEST CASE SPECIFICATION)");
+        titleA.setCellValue(I18nService.get(lang, "export.tc.overview.title"));
         titleA.setCellStyle(styles.title);
         Cell titleB = titleRow.createCell(1);
         titleB.setCellStyle(styles.title);
@@ -347,16 +343,16 @@ public final class TestCaseExcelExportService {
         Row subRow = sheet.createRow(1);
         subRow.setHeightInPoints(22);
         Cell subA = subRow.createCell(0);
-        subA.setCellValue(scopeTitle + "  ·  Playwright Automation Studio");
+        subA.setCellValue(I18nService.get(lang, "export.tc.overview.subtitle_bar", scopeTitle));
         subA.setCellStyle(styles.subtitleBar);
         sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 3));
 
         int r = 3;
-        r = summaryPair(sheet, r, en ? "Scope" : "Phạm vi kiểm thử", scopeTitle, styles);
-        r = summaryPair(sheet, r, en ? "Description" : "Mô tả", scopeDescription, styles);
-        r = summaryPair(sheet, r, en ? "Export Timestamp" : "Thời điểm xuất", DISPLAY_DT.format(LocalDateTime.now()), styles);
-        r = summaryPair(sheet, r, en ? "Document Standard" : "Tiêu chuẩn tài liệu", "ISTQB & IEEE 829 Test Case Specification Standard", styles);
-        r = summaryPair(sheet, r, en ? "Generated By" : "Công cụ sinh", en ? "Playwright Automation Studio (GUI Automation)" : "Playwright Automation Studio (Tự động hóa GUI)", styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.scope"), scopeTitle, styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.description"), scopeDescription, styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_date"), DISPLAY_DT.format(LocalDateTime.now()), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.standard"), I18nService.get(lang, "export.tc.overview.standard_value"), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_by"), I18nService.get(lang, "export.tc.overview.generated_by_value"), styles);
 
         r++; // blank row
 
@@ -364,7 +360,7 @@ public final class TestCaseExcelExportService {
         Row statHeader = sheet.createRow(r++);
         statHeader.setHeightInPoints(22);
         Cell statHCell = statHeader.createCell(0);
-        statHCell.setCellValue(en ? "TEST SUITE METRICS & STATISTICS" : "THỐNG KÊ KỊCH BẢN KIỂM THỬ");
+        statHCell.setCellValue(I18nService.get(lang, "export.tc.overview.stats"));
         statHCell.setCellStyle(styles.section);
         sheet.addMergedRegion(new CellRangeAddress(r - 1, r - 1, 0, 3));
 
@@ -373,11 +369,11 @@ public final class TestCaseExcelExportService {
         long draftCount = cases.stream().filter(c -> "Draft".equalsIgnoreCase(c.status)).count();
         long totalSteps = cases.stream().mapToLong(c -> c.steps.size()).sum();
 
-        r = summaryPair(sheet, r, en ? "Total Suites in Scope" : "Tổng số Suite trong phạm vi", String.valueOf(suites.size()), styles);
-        r = summaryPair(sheet, r, en ? "Total Test Cases" : "Tổng số Test Cases", String.valueOf(totalCases), styles);
-        r = summaryPair(sheet, r, en ? "Ready Test Cases" : "Test Cases Sẵn sàng (Ready)", String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, en ? "Draft Test Cases" : "Test Cases Bản nháp (Draft)", String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, en ? "Total Action Steps" : "Tổng số bước thao tác (Steps)", String.valueOf(totalSteps), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_suites"), String.valueOf(suites.size()), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_cases"), String.valueOf(totalCases), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.ready_cases"), String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.draft_cases"), String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_steps"), String.valueOf(totalSteps), styles);
 
         sheet.setColumnWidth(0, 30 * 256);
         sheet.setColumnWidth(1, 45 * 256);
@@ -410,7 +406,6 @@ public final class TestCaseExcelExportService {
     }
 
     private static void createCasesSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles, ExportLanguage lang) {
-        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(true);
         sheet.createFreezePane(0, 1);
 
@@ -418,14 +413,19 @@ public final class TestCaseExcelExportService {
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = en ? new String[]{
-                "#", "TC ID", "Test Case Name", "Group / Module", "Test Suite",
-                "Priority", "Status", "Preconditions", "Execution Steps Summary",
-                "Test Data", "Expected Results", "Script File / Notes"
-        } : new String[]{
-                "STT", "Mã Test Case", "Tên Test Case", "Nhóm / Module", "Bộ Test (Suite)",
-                "Độ ưu tiên", "Trạng thái", "Điều kiện tiên quyết", "Các bước thực hiện",
-                "Dữ liệu kiểm thử", "Kết quả mong đợi", "Mã kịch bản / Ghi chú"
+        String[] headers = new String[]{
+                I18nService.get(lang, "export.tc.table.num"),
+                I18nService.get(lang, "export.tc.table.id"),
+                I18nService.get(lang, "export.tc.table.name"),
+                I18nService.get(lang, "export.tc.table.group"),
+                I18nService.get(lang, "export.tc.table.suite"),
+                I18nService.get(lang, "export.tc.table.priority"),
+                I18nService.get(lang, "export.tc.table.status"),
+                I18nService.get(lang, "export.tc.table.preconditions"),
+                I18nService.get(lang, "export.tc.table.steps_summary"),
+                I18nService.get(lang, "export.tc.table.test_data"),
+                I18nService.get(lang, "export.tc.table.expected"),
+                I18nService.get(lang, "export.tc.table.script_notes")
         };
 
         for (int i = 0; i < headers.length; i++) {
@@ -511,19 +511,22 @@ public final class TestCaseExcelExportService {
     }
 
     private static void createStepsSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles, ExportLanguage lang) {
-        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(true);
         sheet.createFreezePane(0, 1);
 
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = en ? new String[]{
-                "#", "TC ID", "Test Case Name", "Step #", "Action",
-                "Target Element", "Test Data", "Step Description", "Expected Result"
-        } : new String[]{
-                "STT", "Mã Test Case", "Tên Test Case", "Bước #", "Hành động (Action)",
-                "Đối tượng (Target / Element)", "Dữ liệu kiểm thử", "Mô tả bước", "Kết quả mong đợi"
+        String[] headers = new String[]{
+                I18nService.get(lang, "export.tc.table.num"),
+                I18nService.get(lang, "export.tc.table.id"),
+                I18nService.get(lang, "export.tc.table.name"),
+                I18nService.get(lang, "export.tc.steps.step_num"),
+                I18nService.get(lang, "export.tc.steps.action"),
+                I18nService.get(lang, "export.tc.steps.target"),
+                I18nService.get(lang, "export.tc.steps.data"),
+                I18nService.get(lang, "export.tc.steps.desc"),
+                I18nService.get(lang, "export.tc.steps.expected")
         };
 
         for (int i = 0; i < headers.length; i++) {

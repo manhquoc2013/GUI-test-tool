@@ -36,12 +36,9 @@ public class HtmlReportService {
 
     public static String generateHtml(RunReport report, ExportLanguage lang) {
         ExportLanguage effectiveLang = lang != null ? lang : ExportLanguage.VIETNAMESE;
-        boolean isVi = effectiveLang.isVietnamese();
 
         if (report == null) {
-            return isVi
-                    ? "<html><body><h1>Không có dữ liệu báo cáo</h1></body></html>"
-                    : "<html><body><h1>No report data available</h1></body></html>";
+            return "<html><body><h1>" + I18nService.get(effectiveLang, "export.html.no_data") + "</h1></body></html>";
         }
 
         int total = report.getTotal();
@@ -54,8 +51,7 @@ public class HtmlReportService {
         sb.append("<!DOCTYPE html>\n<html lang=\"").append(effectiveLang.getCode()).append("\">\n<head>\n");
         sb.append("<meta charset=\"UTF-8\">\n");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-        sb.append("<title>").append(isVi ? "Báo cáo kiểm thử — " : "Test Execution Report — ")
-          .append(escapeHtml(report.getRunId())).append("</title>\n");
+        sb.append("<title>").append(I18nService.get(effectiveLang, "export.html.report_title", escapeHtml(report.getRunId()))).append("</title>\n");
         sb.append("<style>\n");
         sb.append("""
             :root {
@@ -241,18 +237,18 @@ public class HtmlReportService {
         sb.append("<header>\n<div>\n");
         sb.append("<h1>🎭 Playwright Automation Studio</h1>\n");
         sb.append("<div class=\"meta-tags\">\n");
-        sb.append("<span class=\"tag\">").append(isVi ? "Đợt chạy: " : "Run ID: ")
+        sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.run_id")).append(" ")
           .append("<strong>").append(escapeHtml(report.getRunId())).append("</strong></span>\n");
-        sb.append("<span class=\"tag\">").append(isVi ? "Phạm vi: " : "Scope: ")
+        sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.scope")).append(" ")
           .append(escapeHtml(report.getScope())).append(" (").append(escapeHtml(report.getScopeName())).append(")</span>\n");
-        sb.append("<span class=\"tag\">").append(isVi ? "Trình duyệt: " : "Browser: ")
+        sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.browser")).append(" ")
           .append(escapeHtml(report.getBrowser())).append(" (").append(report.isHeadless() ? "Headless" : "Headed").append(")</span>\n");
         if (report.getStartedAt() != null) {
-            sb.append("<span class=\"tag\">").append(isVi ? "Bắt đầu: " : "Started: ")
+            sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.started")).append(" ")
               .append(escapeHtml(report.getStartedAt())).append("</span>\n");
         }
         if (report.getFinishedAt() != null) {
-            sb.append("<span class=\"tag\">").append(isVi ? "Kết thúc: " : "Finished: ")
+            sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.finished")).append(" ")
               .append(escapeHtml(report.getFinishedAt())).append("</span>\n");
         }
         sb.append("</div>\n</div>\n</header>\n");
@@ -260,15 +256,15 @@ public class HtmlReportService {
         // Stats Cards
         sb.append("<div class=\"stats-grid\">\n");
         sb.append("<div class=\"stat-card\"><div class=\"stat-value\">").append(total)
-          .append("</div><div class=\"stat-label\">").append(isVi ? "Tổng số Cases" : "Total Cases").append("</div></div>\n");
+          .append("</div><div class=\"stat-label\">").append(I18nService.get(effectiveLang, "export.html.total")).append("</div></div>\n");
         sb.append("<div class=\"stat-card pass\"><div class=\"stat-value\">").append(passed)
-          .append("</div><div class=\"stat-label\">").append(isVi ? "Đạt (Passed)" : "Passed").append("</div></div>\n");
+          .append("</div><div class=\"stat-label\">").append(I18nService.get(effectiveLang, "export.html.passed")).append("</div></div>\n");
         sb.append("<div class=\"stat-card fail\"><div class=\"stat-value\">").append(failed)
-          .append("</div><div class=\"stat-label\">").append(isVi ? "Thất bại (Failed)" : "Failed").append("</div></div>\n");
+          .append("</div><div class=\"stat-label\">").append(I18nService.get(effectiveLang, "export.html.failed")).append("</div></div>\n");
         sb.append("<div class=\"stat-card skip\"><div class=\"stat-value\">").append(skipped)
-          .append("</div><div class=\"stat-label\">").append(isVi ? "Bỏ qua (Skipped)" : "Skipped").append("</div></div>\n");
+          .append("</div><div class=\"stat-label\">").append(I18nService.get(effectiveLang, "export.html.skipped")).append("</div></div>\n");
         sb.append("<div class=\"stat-card rate\"><div class=\"stat-value\">").append(passRate)
-          .append("%</div><div class=\"stat-label\">").append(isVi ? "Tỷ lệ Đạt" : "Pass Rate").append("</div></div>\n");
+          .append("%</div><div class=\"stat-label\">").append(I18nService.get(effectiveLang, "export.html.pass_rate")).append("</div></div>\n");
         sb.append("</div>\n");
 
         // Progress Bar
@@ -286,16 +282,16 @@ public class HtmlReportService {
         // Filter buttons
         sb.append("<div class=\"filter-bar\">\n");
         sb.append("<span style=\"font-size:13px; color:var(--text-muted); margin-right:4px;\">")
-          .append(isVi ? "Bộ lọc:" : "Filter:").append("</span>\n");
+          .append(I18nService.get(effectiveLang, "export.html.filter")).append("</span>\n");
         sb.append("<button class=\"btn-filter active\" onclick=\"filterCases('all', this)\">")
-          .append(isVi ? "Tất cả (" : "All (").append(total).append(")</button>\n");
+          .append(I18nService.get(effectiveLang, "export.html.filter_all")).append(" (").append(total).append(")</button>\n");
         sb.append("<button class=\"btn-filter\" onclick=\"filterCases('passed', this)\">")
-          .append(isVi ? "Đạt (" : "Passed (").append(passed).append(")</button>\n");
+          .append(I18nService.get(effectiveLang, "export.html.filter_passed")).append(" (").append(passed).append(")</button>\n");
         sb.append("<button class=\"btn-filter\" onclick=\"filterCases('failed', this)\">")
-          .append(isVi ? "Thất bại (" : "Failed (").append(failed).append(")</button>\n");
+          .append(I18nService.get(effectiveLang, "export.html.filter_failed")).append(" (").append(failed).append(")</button>\n");
         if (skipped > 0) {
             sb.append("<button class=\"btn-filter\" onclick=\"filterCases('skipped', this)\">")
-              .append(isVi ? "Bỏ qua (" : "Skipped (").append(skipped).append(")</button>\n");
+              .append(I18nService.get(effectiveLang, "export.html.filter_skipped")).append(" (").append(skipped).append(")</button>\n");
         }
         sb.append("</div>\n");
 
@@ -331,12 +327,12 @@ public class HtmlReportService {
             // Failure reason / Skip reason / log
             if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
                 sb.append("<div style=\"color:var(--fail); font-weight:600; margin-bottom:8px;\">")
-                  .append(isVi ? "❌ Lỗi: " : "❌ Failure: ")
+                  .append(I18nService.get(effectiveLang, "export.html.failure")).append(" ")
                   .append(escapeHtml(cr.getFailureReason())).append("</div>\n");
             }
             if (cr.getSkipReason() != null && !cr.getSkipReason().isBlank()) {
                 sb.append("<div style=\"color:var(--skip); font-weight:600; margin-bottom:8px;\">")
-                  .append(isVi ? "⏭️ Lý do bỏ qua: " : "⏭️ Skip Reason: ")
+                  .append(I18nService.get(effectiveLang, "export.html.skip_reason")).append(" ")
                   .append(escapeHtml(cr.getSkipReason())).append("</div>\n");
             }
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
@@ -347,13 +343,13 @@ public class HtmlReportService {
             List<AssertResult> asserts = cr.getAssertResults();
             if (asserts != null && !asserts.isEmpty()) {
                 sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--text-main);\">")
-                  .append(isVi ? "☑️ Kiểm tra Assertions (" : "☑️ Assertions (")
-                  .append(asserts.size()).append("):</h4>\n");
-                if (isVi) {
-                    sb.append("<table><thead><tr><th>#</th><th>Loại kiểm tra</th><th>Chi tiết</th><th>Kết quả</th><th>Thông báo</th></tr></thead><tbody>\n");
-                } else {
-                    sb.append("<table><thead><tr><th>#</th><th>Assertion Type</th><th>Detail</th><th>Status</th><th>Message</th></tr></thead><tbody>\n");
-                }
+                  .append(I18nService.get(effectiveLang, "export.html.assertions_title", asserts.size())).append("</h4>\n");
+                sb.append("<table><thead><tr><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.asserts_col_num")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.asserts_col_type")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.asserts_col_detail")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.asserts_col_result")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.asserts_col_msg")).append("</th></tr></thead><tbody>\n");
                 int idx = 1;
                 for (AssertResult ar : asserts) {
                     String aStatus = ar.getStatus() != null ? ar.getStatus().toUpperCase() : "SKIPPED";
@@ -379,13 +375,14 @@ public class HtmlReportService {
             List<HealedStepMeta> healed = cr.getHealedSteps();
             if (healed != null && !healed.isEmpty()) {
                 sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--primary);\">")
-                  .append(isVi ? "✨ Tự động sửa lỗi (Self-Healing) (" : "✨ Self-Healing Operations (")
-                  .append(healed.size()).append(isVi ? " bước):</h4>\n" : " steps):</h4>\n");
-                if (isVi) {
-                    sb.append("<table><thead><tr><th>Hành động</th><th>Selector ban đầu</th><th>Selector đã sửa</th><th>Phương thức</th><th>Độ tin cậy</th><th>Thời gian</th></tr></thead><tbody>\n");
-                } else {
-                    sb.append("<table><thead><tr><th>Action</th><th>Original Selector</th><th>Repaired Selector</th><th>Method</th><th>Confidence</th><th>Timestamp</th></tr></thead><tbody>\n");
-                }
+                  .append(I18nService.get(effectiveLang, "export.html.healing_title", healed.size())).append("</h4>\n");
+                sb.append("<table><thead><tr><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_action")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_orig")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_repaired")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_method")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_confidence")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.healing_col_time")).append("</th></tr></thead><tbody>\n");
                 for (HealedStepMeta hm : healed) {
                     sb.append("<tr>");
                     sb.append("<td><code>").append(escapeHtml(hm.getActionDescription())).append("</code></td>");
@@ -409,12 +406,12 @@ public class HtmlReportService {
                         String b64 = Base64.getEncoder().encodeToString(bytes);
                         sb.append("<div class=\"evidence-box\">\n");
                         sb.append("<div class=\"evidence-title\">")
-                          .append(isVi ? "📸 Bằng chứng ảnh chụp màn hình (Screenshot):" : "📸 Evidence Screenshot:")
+                          .append(I18nService.get(effectiveLang, "export.html.evidence_title"))
                           .append("</div>\n");
                         sb.append("<img src=\"data:image/png;base64,").append(b64)
                           .append("\" alt=\"Evidence for ").append(escapeHtml(cr.getTestCaseName()))
                           .append("\" class=\"screenshot-img\" onclick=\"window.open(this.src)\" title=\"")
-                          .append(isVi ? "Click để phóng to ảnh" : "Click to view full image").append("\"/>\n");
+                          .append(I18nService.get(effectiveLang, "export.html.click_to_view")).append("\"/>\n");
                         sb.append("</div>\n");
                     } catch (Exception ignored) {
                     }
@@ -427,8 +424,7 @@ public class HtmlReportService {
 
         // Footer
         sb.append("<footer>")
-          .append(isVi ? "Báo cáo được xuất tự động bởi Playwright Automation Studio"
-                       : "Report automatically generated by Playwright Automation Studio")
+          .append(I18nService.get(effectiveLang, "export.html.footer"))
           .append("</footer>\n");
 
         // JavaScript for accordion & filtering

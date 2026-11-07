@@ -1,6 +1,7 @@
 package com.studio.controller;
 
 import com.studio.model.*;
+import com.studio.service.I18nService;
 import com.studio.service.RunProgressService;
 import com.studio.service.StatusBarService;
 import com.studio.service.TestCaseExcelExportService;
@@ -2000,8 +2001,8 @@ public class ExplorerPageController {
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất Test Cases (Suite) ra Excel chuẩn QA" : "📤 Export QA Test Cases (Suite) to Excel");
-        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_" : "Test_Cases_";
+        chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_suite"));
+        String filePrefix = I18nService.get(lang, "export.filename.prefix.tc");
         chooser.setInitialFileName(filePrefix + ref.name + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
         File file = chooser.showSaveDialog(window);
@@ -2030,9 +2031,9 @@ public class ExplorerPageController {
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất toàn bộ Test Cases (Nhóm) ra Excel chuẩn QA" : "📤 Export QA Test Cases (Group) to Excel");
+        chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_group"));
         String gName = (ref.name != null && !ref.name.isBlank() ? ref.name : "Group");
-        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_Nhom_" : "Test_Cases_Group_";
+        String filePrefix = I18nService.get(lang, "export.filename.prefix.group");
         chooser.setInitialFileName(filePrefix + gName + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
         File file = chooser.showSaveDialog(window);

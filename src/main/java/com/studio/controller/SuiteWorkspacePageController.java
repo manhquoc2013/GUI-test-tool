@@ -1,6 +1,7 @@
 package com.studio.controller;
 
 import com.studio.model.*;
+import com.studio.service.I18nService;
 import com.studio.service.RunProgressService;
 import com.studio.service.StatusBarService;
 import com.studio.service.TestCaseExcelExportService;
@@ -1033,10 +1034,10 @@ public class SuiteWorkspacePageController {
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất Test Cases ra Excel chuẩn QA" : "📤 Export QA Test Cases to Excel");
+        chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_excel"));
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
         String safeName = sName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_" : "Test_Cases_";
+        String filePrefix = I18nService.get(lang, "export.filename.prefix.tc");
         chooser.setInitialFileName(filePrefix + safeName + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
         File file = chooser.showSaveDialog(window);
