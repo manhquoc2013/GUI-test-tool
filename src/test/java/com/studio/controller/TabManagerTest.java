@@ -19,7 +19,8 @@ class TabManagerTest {
     @BeforeAll
     static void initJavaFX() throws InterruptedException {
         try {
-            Platform.startup(() -> {});
+            Platform.startup(() -> {
+            });
         } catch (IllegalStateException ignored) {
             // Platform already initialized
         }

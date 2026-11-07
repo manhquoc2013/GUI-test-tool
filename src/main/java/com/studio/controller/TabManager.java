@@ -1,16 +1,13 @@
 package com.studio.controller;
 
 import com.studio.util.UiMotion;
-import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 
 import java.util.ArrayList;
@@ -20,8 +17,10 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Manages the Multi-Tab Document Bar (VS Code / IntelliJ style) in the main shell.
- * Allows multiple Suites, Explorer, Reports, and AI Assistant to be open concurrently.
+ * Manages the Multi-Tab Document Bar (VS Code / IntelliJ style) in the main
+ * shell.
+ * Allows multiple Suites, Explorer, Reports, and AI Assistant to be open
+ * concurrently.
  */
 public class TabManager {
 
@@ -42,7 +41,7 @@ public class TabManager {
         private Button closeButton;
 
         public StudioTab(String id, String title, String icon, Node content,
-                         boolean closable, Runnable onClose, Object controller) {
+                boolean closable, Runnable onClose, Object controller) {
             this.id = id;
             this.title = title;
             this.icon = icon != null ? icon : "";
@@ -93,7 +92,7 @@ public class TabManager {
     }
 
     public void openTab(String id, String title, String icon, Node content,
-                        boolean closable, Runnable onClose, Object controller) {
+            boolean closable, Runnable onClose, Object controller) {
         if (tabs.containsKey(id)) {
             // Already open, select it
             StudioTab existing = tabs.get(id);
@@ -156,7 +155,8 @@ public class TabManager {
     }
 
     public void selectTab(String id) {
-        if (!tabs.containsKey(id)) return;
+        if (!tabs.containsKey(id))
+            return;
         activeTabId = id;
 
         for (Map.Entry<String, StudioTab> entry : tabs.entrySet()) {
@@ -185,7 +185,8 @@ public class TabManager {
     }
 
     public void closeTab(String id) {
-        if (!tabs.containsKey(id)) return;
+        if (!tabs.containsKey(id))
+            return;
 
         StudioTab tab = tabs.get(id);
         if (tab.onClose != null) {
