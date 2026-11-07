@@ -204,7 +204,7 @@ public class AiTestGeneratorService {
                         List<Assertion> asserts = new ArrayList<>();
                         for (JsonNode aNode : assertsNode) {
                             Assertion a = new Assertion();
-                            a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
+                            a.setType(aNode.path("type").asText("PAGE_HAS_TEXT"));
                             a.setValue(aNode.path("value").asText(""));
                             a.setLocator(aNode.path("locator").asText(""));
                             a.setAttribute(aNode.path("attribute").asText(""));
