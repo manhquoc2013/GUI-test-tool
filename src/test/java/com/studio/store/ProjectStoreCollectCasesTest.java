@@ -172,6 +172,25 @@ class ProjectStoreCollectCasesTest {
         assertEquals("TEXT_VISIBLE", migrated.getCases().get(0).getAssertions().get(0).getType());
     }
 
+    @Test
+    void createCaseWithSpacesAndKeywordsGeneratesCompilableClassStub() throws Exception {
+        Path newSuiteDir = tempDir.resolve("StubSuite");
+        Files.createDirectories(newSuiteDir);
+        TestSuite suite = new TestSuite("StubSuite", "test");
+        suite.setStatus("ACTIVE");
+        Files.writeString(newSuiteDir.resolve("suite.json"), "{\"name\":\"StubSuite\",\"cases\":[]}");
+
+        TestCase tc1 = store.createCase(newSuiteDir, "case 2", "test case with space");
+        String content1 = Files.readString(newSuiteDir.resolve("case 2.java"));
+        assertTrue(content1.contains("public class case_2 {"), content1);
+        assertFalse(content1.contains("public class case 2"), content1);
+
+        TestCase tc2 = store.createCase(newSuiteDir, "case", "test case with keyword");
+        String content2 = Files.readString(newSuiteDir.resolve("case.java"));
+        assertTrue(content2.contains("public class C_case {"), content2);
+        assertFalse(content2.contains("public class case {"), content2);
+    }
+
     private static void deleteRecursive(Path dir) throws Exception {
         if (dir == null || !Files.exists(dir)) return;
         try (var walk = Files.walk(dir)) {

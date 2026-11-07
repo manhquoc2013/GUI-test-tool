@@ -1,6 +1,7 @@
 package com.studio.store;
 
 import com.studio.model.*;
+import com.studio.service.ScriptHarnessTransformer;
 import com.studio.util.EntityTime;
 import com.studio.util.StudioPaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -230,9 +231,10 @@ public class ProjectStore {
         backfillSuiteTimestamps(suite);
         mapper.writeValue(suiteJson.toFile(), suite);
 
+        String safeClass = ScriptHarnessTransformer.sanitizeClassName(name);
         String stub = String.format(
                 "package com.test;\n\nimport com.microsoft.playwright.*;\n\npublic class %s {\n    public static void main(String[] args) {\n        // Test case: %s\n    }\n}\n",
-                name, name);
+                safeClass, name);
         Files.writeString(suiteDir.resolve(name + ".java"), stub);
 
         return tc;

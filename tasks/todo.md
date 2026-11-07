@@ -9,3 +9,9 @@
 - [x] Task 7: Implement Auto-Scan URL in `AiAssistantPageController` and `AiCasePromptDialog` when prompt or suite has HTTP/HTTPS link <!-- id: 17 -->
 - [x] Task 8: Upgrade `SYSTEM_PROMPT` in `AiTestGeneratorService` to enforce mandatory login/authentication handling before inner business flows <!-- id: 18 -->
 - [x] Task 9: Add `extractFirstUrl` unit tests and verify suite (139/139 tests pass) <!-- id: 19 -->
+- [x] Task 10: Sanitize Java class identifier in `ProjectStore.createCase` for spaces & keywords <!-- id: 20 -->
+- [x] Task 11: Fix class replacement regex and add auto dialog handling in `ScriptHarnessTransformer` <!-- id: 21 -->
+- [x] Task 12: Upgrade `case 2.java` and populate `testSteps` & `testDataSets` in `data/project/test 1/test 1/suite.json` <!-- id: 22 -->
+- [x] Task 13: Add unit tests for spaced/invalid class name handling in `ScriptHarnessTransformerTest` and `ProjectStoreTest` <!-- id: 23 -->
+- [x] Task 14: Run full verification (`mvn clean test`) and update `tasks/learnings.md` <!-- id: 24 -->
+

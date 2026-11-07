@@ -18,7 +18,7 @@ public class ScriptHarnessTransformer {
         String code = originalCode != null ? originalCode : "";
 
         String className = sanitizeClassName(harnessClassName);
-        code = code.replaceAll("public\\s+class\\s+\\w+", "public class " + className);
+        code = code.replaceAll("(?:public\\s+)?class\\s+[^{\\s]+(?:\\s+[^{\\s]+)*(?=\\s*\\{)", "public class " + className);
 
         // try (Playwright p = Playwright.create()) {  →  {
         code = code.replaceAll(
@@ -63,7 +63,7 @@ public class ScriptHarnessTransformer {
         return transform(originalCode, sharedContext, screenshotPath, null);
     }
 
-    static String sanitizeClassName(String name) {
+    public static String sanitizeClassName(String name) {
         if (name == null || name.isBlank()) {
             return "HarnessRun";
         }
@@ -71,7 +71,7 @@ public class ScriptHarnessTransformer {
         if (safe.isEmpty()) {
             return "HarnessRun";
         }
-        if (!Character.isJavaIdentifierStart(safe.charAt(0))) {
+        if (!Character.isJavaIdentifierStart(safe.charAt(0)) || javax.lang.model.SourceVersion.isKeyword(safe)) {
             safe = "C_" + safe;
         }
         return safe;
@@ -111,6 +111,7 @@ public class ScriptHarnessTransformer {
         String ss = escapeForJava(screenshotPath);
         return header
                 + "\n        try {\n"
+                + "            try { com.studio.runtime.StudioRuntime.page().onDialog(dialog -> { try { dialog.accept(); } catch (Exception ignored) {} }); } catch (Exception ignored) {}\n"
                 + indentBody(innerBody)
                 + "\n        } finally {\n"
                 + "            try { com.studio.runtime.StudioRuntime.page().screenshot("

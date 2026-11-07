@@ -46,6 +46,45 @@ class ScriptHarnessTransformerTest {
     void sanitizeClassNameReplacesHyphens() {
         assertEquals("tc_74692232_Run", ScriptHarnessTransformer.sanitizeClassName("tc-74692232_Run"));
         assertEquals("C_123", ScriptHarnessTransformer.sanitizeClassName("123"));
+        assertEquals("case_2", ScriptHarnessTransformer.sanitizeClassName("case 2"));
+        assertEquals("C_case", ScriptHarnessTransformer.sanitizeClassName("case"));
+        assertEquals("C_default", ScriptHarnessTransformer.sanitizeClassName("default"));
+    }
+
+    @Test
+    void transformsClassWithSpacesOrKeywordsIntoValidHarnessClass() {
+        String spacedClassCode = """
+                package com.test;
+                import com.microsoft.playwright.*;
+                public class case 2 {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                        page.navigate("https://example.com");
+                    }
+                }
+                """;
+
+        String out = ScriptHarnessTransformer.transform(spacedClassCode, false, "/tmp/shot", "tc_case2_Run");
+        assertTrue(out.contains("public class tc_case2_Run {"), out);
+        assertFalse(out.contains("public class case 2"), out);
+        assertFalse(out.contains("Run 2"), out);
+        assertTrue(out.contains("com.studio.runtime.StudioRuntime.page().onDialog"), out);
+    }
+
+    @Test
+    void transformsClassWithoutPublicModifier() {
+        String noPublicCode = """
+                package com.test;
+                import com.microsoft.playwright.*;
+                class UnadornedClass {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                    }
+                }
+                """;
+
+        String out = ScriptHarnessTransformer.transform(noPublicCode, false, "/tmp/shot", "tc_fixed_Run");
+        assertTrue(out.contains("public class tc_fixed_Run {"), out);
     }
 
     @Test

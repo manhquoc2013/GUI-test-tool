@@ -140,4 +140,16 @@
 5. **Pre-Execution Script Linting & Auto-Fixing**:
    - `AiTestGeneratorService.validateAndFixScript` kiểm tra tính hợp lệ cú pháp Java, tự động bọc class/method nếu thiếu, loại bỏ các lệnh tạo browser bị cấm (`Playwright.create()`, `page.close()`), bảo đảm 100% script sinh ra đều sẵn sàng biên dịch và chạy được ngay.
 
+## Framework Harmonization Learnings (Testsigma, Midscene, Skyvern, Automa)
+1. **Java Identifier & Class Name Sanitization (`ProjectStore` + `ScriptHarnessTransformer`)**:
+   - Tên test case người dùng đặt tự do thường chứa khoảng trắng hoặc từ khóa Java (`"case 2"`, `"default"`, `"test login"`).
+   - Khi tạo stub mã nguồn và khi biên dịch harness runtime, bắt buộc phải lọc bỏ ký tự đặc biệt, kiểm tra `SourceVersion.isKeyword(...)` và tự động tiền tố `"C_"` hoặc `"case_2"` để bảo đảm mã nguồn luôn hợp lệ với trình biên dịch `javac`.
+2. **Dialog Auto-Acceptance & Non-Blocking Resilience (Skyvern-inspired)**:
+   - Các ứng dụng web hiện đại thường kích hoạt `window.alert()`, `confirm()` khi người dùng để trống thông tin hoặc gặp lỗi validation.
+   - Nếu không đăng ký listener `onDialog`, Playwright sẽ bị đóng băng (blocking) khi dialog xuất hiện.
+   - Việc tiêm tự động listener `StudioRuntime.page().onDialog(d -> d.accept())` vào đầu khối `try { ... }` của harness giúp kịch bản kiểm thử âm tính (Negative Testing) diễn ra mượt mà, không gây timeout 30s.
+3. **Dual Representation & Data-Driven Parameterization (Testsigma-inspired)**:
+   - Một kịch bản kiểm thử hoàn chỉnh cần song hành: (1) Khai báo các bước NLP rõ ràng cho Manual QA; (2) Ma trận tham số dữ liệu (`testDataSets`) bao quát Happy Path, Validation Failure, và Boundary Values; (3) Mã nguồn Playwright thực thi với cơ chế tự phục hồi selector.
+
+
 
