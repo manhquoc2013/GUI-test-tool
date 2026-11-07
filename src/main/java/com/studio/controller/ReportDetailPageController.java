@@ -356,7 +356,13 @@ public class ReportDetailPageController {
         backBtn.setOnAction(e -> goBack());
         if (deleteReportBtn != null) {
             deleteReportBtn.setOnAction(e -> deleteCurrentReport());
+            com.studio.util.UiIcons.setGraphic(deleteReportBtn, com.studio.util.UiIcons.TRASH, 12, "#f7768e");
         }
+        if (exportHtmlBtn != null) {
+            com.studio.util.UiIcons.setGraphic(exportHtmlBtn, com.studio.util.UiIcons.GLOBE, 12);
+        }
+        com.studio.util.UiIcons.setGraphic(exportBtn, com.studio.util.UiIcons.SAVE, 12);
+        com.studio.util.UiIcons.setGraphic(backBtn, com.studio.util.UiIcons.BACK, 12);
         viewScreenshotBtn.setOnAction(e -> viewScreenshot());
     }
 

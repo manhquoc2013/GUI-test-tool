@@ -47,6 +47,7 @@ public class MainShellController implements Initializable {
     @FXML private Button navExplorerBtn;
     @FXML private Button navReportsBtn;
     @FXML private Button navAiBtn;
+    @FXML private Button themeToggleBtn;
     @FXML private Button settingsBtn;
     @FXML private Label activeSuiteLabel;
     @FXML private Label sidebarSuiteSectionLabel;
@@ -107,6 +108,41 @@ public class MainShellController implements Initializable {
         }
         RunCancelService.addListener(this::updateStopRunButton);
         updateStopRunButton();
+
+        // Setup SVG icons on main shell buttons
+        com.studio.util.UiIcons.setGraphic(toggleSidebarBtn, com.studio.util.UiIcons.MENU, 14);
+        toggleSidebarBtn.setText("");
+        com.studio.util.UiIcons.setGraphic(navExplorerBtn, com.studio.util.UiIcons.FOLDER, 13);
+        com.studio.util.UiIcons.setGraphic(navReportsBtn, com.studio.util.UiIcons.FILE, 13);
+        if (navAiBtn != null) {
+            com.studio.util.UiIcons.setGraphic(navAiBtn, com.studio.util.UiIcons.AI_SPARKLES, 13);
+        }
+        if (clearActiveSuiteBtn != null) {
+            com.studio.util.UiIcons.setGraphic(clearActiveSuiteBtn, com.studio.util.UiIcons.CLOSE, 10);
+            clearActiveSuiteBtn.setText("");
+        }
+        if (helpCloseBtn != null) {
+            com.studio.util.UiIcons.setGraphic(helpCloseBtn, com.studio.util.UiIcons.CLOSE, 12);
+            helpCloseBtn.setText("");
+        }
+        com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 13);
+        com.studio.util.UiIcons.setGraphic(helpBtn, com.studio.util.UiIcons.HELP, 13);
+        com.studio.util.UiIcons.setGraphic(runAllBtn, com.studio.util.UiIcons.RUN_ALL, 14, "#ffffff");
+        updateThemeButtonUI();
+        com.studio.service.ThemeService.addListener(theme -> updateThemeButtonUI());
+    }
+
+    @FXML
+    public void toggleTheme() {
+        com.studio.service.ThemeService.toggleTheme();
+    }
+
+    private void updateThemeButtonUI() {
+        if (themeToggleBtn == null) return;
+        boolean isDark = com.studio.service.ThemeService.isDark();
+        themeToggleBtn.setText(isDark ? "Sáng" : "Tối");
+        themeToggleBtn.setTooltip(new Tooltip(isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"));
+        com.studio.util.UiIcons.setGraphic(themeToggleBtn, isDark ? com.studio.util.UiIcons.SUN : com.studio.util.UiIcons.MOON, 13);
     }
 
     private void wireActiveSuiteShortcut() {
@@ -418,15 +454,15 @@ public class MainShellController implements Initializable {
                 sidebar.setMaxWidth(SIDEBAR_COLLAPSED);
             }
             Insets iconGutter = new Insets(0, 6, 0, 6);
-            navExplorerBtn.setText("K");
-            navReportsBtn.setText("B");
+            navExplorerBtn.setText("");
+            navReportsBtn.setText("");
             if (navAiBtn != null) {
-                navAiBtn.setText("AI");
+                navAiBtn.setText("");
                 installTip(navAiBtn, "Trợ lý AI");
                 VBox.setMargin(navAiBtn, iconGutter);
                 navAiBtn.setAlignment(Pos.CENTER);
             }
-            runAllBtn.setText("▶");
+            runAllBtn.setText("");
             installTip(navExplorerBtn, "Khám phá");
             installTip(navReportsBtn, "Báo cáo");
             installTip(runAllBtn, "Chạy tất cả");
@@ -441,7 +477,7 @@ public class MainShellController implements Initializable {
             String suiteTip = (activeSuiteName != null && !activeSuiteName.isBlank())
                     ? "Mở lại Workspace: " + activeSuiteName
                     : "Chưa mở suite nào";
-            sidebarActiveSuite.setText(activeSuiteName != null && !activeSuiteName.isBlank() ? "📋" : "⭕");
+            sidebarActiveSuite.setText(activeSuiteName != null && !activeSuiteName.isBlank() ? "●" : "○");
             installTip(sidebarActiveSuite, suiteTip);
             // Symmetric gutters so emoji icons sit in the visual center of the 56px rail
             VBox.setMargin(navExplorerBtn, iconGutter);
@@ -667,10 +703,10 @@ public class MainShellController implements Initializable {
             setBreadcrumb("Dự án / Trợ lý AI");
             setActiveNavButton(navAiBtn);
         } else if (id.startsWith("SUITE:")) {
-            setBreadcrumb("Dự án > 📋 " + tab.getTitle());
+            setBreadcrumb("Dự án > Suite: " + tab.getTitle());
             setActiveNavButton(null);
         } else if (id.startsWith("REPORT:")) {
-            setBreadcrumb("Dự án > 📊 Báo cáo > " + tab.getTitle());
+            setBreadcrumb("Dự án > Báo cáo > " + tab.getTitle());
             setActiveNavButton(navReportsBtn);
         } else {
             setBreadcrumb("Dự án > " + tab.getTitle());

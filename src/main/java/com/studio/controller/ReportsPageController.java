@@ -53,6 +53,7 @@ public class ReportsPageController {
     @FXML private ComboBox<String> scopeFilter;
     @FXML private ComboBox<String> resultFilter;
     @FXML private ComboBox<String> suiteFilter;
+    @FXML private Button refreshBtn;
 
     private final ReportStore reportStore = new ReportStore();
 
@@ -61,6 +62,9 @@ public class ReportsPageController {
 
     @FXML
     public void initialize() {
+        if (refreshBtn != null) {
+            com.studio.util.UiIcons.setGraphic(refreshBtn, com.studio.util.UiIcons.REFRESH, 12);
+        }
         setupColumns();
         setupFilters();
         refresh();
@@ -87,12 +91,12 @@ public class ReportsPageController {
 
         scopeCol.setCellValueFactory(cell -> {
             String scope = cell.getValue().getScope();
-            String labeled = switch (scope != null ? scope : "") {
-                case "ALL", "TẤT CẢ" -> "🌐 " + scope;
-                case "GROUP", "NHÓM" -> "📁 " + scope;
-                case "SUITE" -> "📋 " + scope;
-                case "CASE" -> "🎯 " + scope;
-                default -> scope != null ? "📐 " + scope : "";
+            String labeled = switch (scope != null ? scope.toUpperCase() : "") {
+                case "ALL", "TẤT CẢ" -> "Toàn bộ";
+                case "GROUP", "NHÓM" -> "Nhóm";
+                case "SUITE" -> "Suite";
+                case "CASE" -> "Case";
+                default -> scope != null ? scope : "";
             };
             return new javafx.beans.property.SimpleStringProperty(labeled);
         });
@@ -102,7 +106,7 @@ public class ReportsPageController {
 
         resultCol.setCellValueFactory(cell -> {
             RunReport r = cell.getValue();
-            String s = String.format("✅ %d  ❌ %d  ⏭️ %d",
+            String s = String.format("%d Đạt  •  %d Lỗi  •  %d Bỏ qua",
                     r.getPassed(), r.getFailed(), r.getSkipped());
             return new javafx.beans.property.SimpleStringProperty(s);
         });

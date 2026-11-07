@@ -119,9 +119,17 @@ public class TabManager {
         row.getStyleClass().add("tab-item");
         row.setPadding(new Insets(5, 12, 5, 12));
 
-        Label iconLbl = new Label(tab.icon != null ? tab.icon : "");
+        Label iconLbl = new Label();
         iconLbl.getStyleClass().add("tab-icon");
-        if (tab.icon == null || tab.icon.isBlank()) {
+        if (tab.id.startsWith("PAGE_EXPLORER")) {
+            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FOLDER, 12);
+        } else if (tab.id.startsWith("PAGE_REPORTS") || tab.id.startsWith("REPORT:")) {
+            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FILE, 12);
+        } else if (tab.id.startsWith("PAGE_AI")) {
+            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.AI_SPARKLES, 12);
+        } else if (tab.id.startsWith("SUITE:")) {
+            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FILE, 12);
+        } else {
             iconLbl.setVisible(false);
             iconLbl.setManaged(false);
         }
@@ -139,8 +147,9 @@ public class TabManager {
         row.getChildren().addAll(iconLbl, textLbl, dotLbl);
 
         if (tab.closable) {
-            Button closeBtn = new Button("✕");
+            Button closeBtn = new Button();
             closeBtn.getStyleClass().add("tab-close-btn");
+            com.studio.util.UiIcons.setGraphic(closeBtn, com.studio.util.UiIcons.CLOSE, 9);
             closeBtn.setTooltip(new Tooltip("Đóng tab"));
             closeBtn.setOnAction(e -> {
                 closeTab(tab.id);

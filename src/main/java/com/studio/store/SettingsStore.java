@@ -2,6 +2,8 @@ package com.studio.store;
 
 import com.studio.model.AiConfig;
 import com.studio.util.StudioPaths;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
@@ -15,11 +17,13 @@ public class SettingsStore {
             .enable(SerializationFeature.INDENT_OUTPUT);
     private static final String SETTINGS_JSON = "settings.json";
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Settings {
         private String browser = "CHROMIUM";
         private boolean headlessDefault = false;
         private boolean shareContextDefault = true;
         private boolean stopOnFirstFailureDefault = false;
+        private String theme = "dark";
         private AiConfig aiConfig = new AiConfig();
 
         public Settings() {
@@ -57,6 +61,19 @@ public class SettingsStore {
             this.stopOnFirstFailureDefault = stopOnFirstFailureDefault;
         }
 
+        public String getTheme() {
+            return theme != null ? theme : "dark";
+        }
+
+        public void setTheme(String theme) {
+            this.theme = "light".equalsIgnoreCase(theme) ? "light" : "dark";
+        }
+
+        @JsonIgnore
+        public boolean isDarkTheme() {
+            return !"light".equalsIgnoreCase(theme);
+        }
+
         public AiConfig getAiConfig() {
             if (aiConfig == null) {
                 aiConfig = new AiConfig();
@@ -80,6 +97,7 @@ public class SettingsStore {
             defaults.setHeadlessDefault(false);
             defaults.setShareContextDefault(true);
             defaults.setStopOnFirstFailureDefault(false);
+            defaults.setTheme("dark");
             return defaults;
         }
         return mapper.readValue(settingsFile.toFile(), Settings.class);

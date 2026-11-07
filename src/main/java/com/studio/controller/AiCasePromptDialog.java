@@ -53,13 +53,14 @@ public class AiCasePromptDialog {
         }
 
         Dialog<Boolean> dialog = new Dialog<>();
-        dialog.setTitle("✨ AI Hỗ trợ Case: " + activeCase.getName());
+        dialog.setTitle("AI Hỗ trợ Case: " + activeCase.getName());
         dialog.setHeaderText("Sinh hoặc tối ưu hóa kịch bản Playwright & Assertions từ yêu cầu");
 
         DialogPane pane = dialog.getDialogPane();
         pane.getButtonTypes().addAll(ButtonType.CLOSE);
         Button closeButton = (Button) pane.lookupButton(ButtonType.CLOSE);
         closeButton.setText("Đóng");
+        closeButton.setMinWidth(80);
 
         VBox content = new VBox(12);
         content.setPadding(new Insets(16));
@@ -69,16 +70,16 @@ public class AiCasePromptDialog {
         // Case Info header
         HBox infoBox = new HBox(16);
         infoBox.setAlignment(Pos.CENTER_LEFT);
-        infoBox.setStyle("-fx-background-color: #3b3d57; -fx-padding: 10px 14px; -fx-background-radius: 8px;");
+        infoBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 10px 14px; -fx-background-radius: 8px; -fx-border-color: #3b3d57; -fx-border-radius: 8px;");
 
-        Label caseNameLbl = new Label("🎯 Case: " + activeCase.getName());
+        Label caseNameLbl = new Label("Case: " + activeCase.getName());
         caseNameLbl.setStyle("-fx-font-weight: bold;");
 
-        Label caseUrlLbl = new Label("🔗 " + (activeCase.getStartUrl().isBlank() ? "(Chưa có URL)" : activeCase.getStartUrl()));
-        caseUrlLbl.setStyle("-fx-text-fill: #9aa5ce;");
+        Label caseUrlLbl = new Label((activeCase.getStartUrl().isBlank() ? "(Chưa có URL)" : activeCase.getStartUrl()));
+        caseUrlLbl.setStyle("-fx-text-fill: -color-subtext;");
         HBox.setHgrow(caseUrlLbl, Priority.ALWAYS);
 
-        Label assertsCountLbl = new Label("☑️ " + activeCase.getAssertions().size() + " asserts");
+        Label assertsCountLbl = new Label(activeCase.getAssertions().size() + " asserts");
         infoBox.getChildren().addAll(caseNameLbl, caseUrlLbl, assertsCountLbl);
 
         // Prompt input area
@@ -94,16 +95,19 @@ public class AiCasePromptDialog {
         HBox quickActions = new HBox(8);
         quickActions.setAlignment(Pos.CENTER_LEFT);
 
-        Button chipFull = new Button("🚀 Sinh kịch bản đầy đủ");
+        Button chipFull = new Button("Sinh kịch bản đầy đủ");
         chipFull.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipFull, com.studio.util.UiIcons.PLAY, 11);
         chipFull.setOnAction(e -> promptArea.setText("Sinh toàn bộ các thao tác Playwright cần thiết để thực thi kịch bản này trên URL " + activeCase.getStartUrl() + ", kèm các Assertions kiểm tra kết quả mong đợi."));
 
-        Button chipAsserts = new Button("☑️ Bổ sung Assertions");
+        Button chipAsserts = new Button("Bổ sung Assertions");
         chipAsserts.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipAsserts, com.studio.util.UiIcons.CHECK, 11);
         chipAsserts.setOnAction(e -> promptArea.setText("Dựa trên kịch bản hiện tại, bổ sung các Assertions chặt chẽ (kiểm tra trạng thái hiển thị của các phần tử chính, text thông báo, URL chuyển hướng)."));
 
-        Button chipEdge = new Button("🛡️ Thêm test biên / ngoại lệ");
+        Button chipEdge = new Button("Thêm test biên / ngoại lệ");
         chipEdge.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipEdge, com.studio.util.UiIcons.SETTINGS, 11);
         chipEdge.setOnAction(e -> promptArea.setText("Tạo kịch bản kiểm thử trường hợp dữ liệu sai hoặc để trống các trường bắt buộc, xác minh thông báo lỗi hiển thị đúng."));
 
         quickActions.getChildren().addAll(new Label("Gợi ý:"), chipFull, chipAsserts, chipEdge);
@@ -112,8 +116,9 @@ public class AiCasePromptDialog {
         List<DocumentParserService.ParsedDocument> attachedDocs = new ArrayList<>();
         FlowPane chipsContainer = new FlowPane(6, 6);
 
-        Button attachBtn = new Button("📎 Đính kèm tài liệu / Ảnh UI");
+        Button attachBtn = new Button("Đính kèm tài liệu / Ảnh UI");
         attachBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(attachBtn, com.studio.util.UiIcons.CLIP, 12);
 
         attachBtn.setOnAction(e -> {
             FileChooser chooser = new FileChooser();
@@ -142,8 +147,9 @@ public class AiCasePromptDialog {
         attachRow.setAlignment(Pos.CENTER_LEFT);
 
         // Action generate button & progress indicator
-        Button generateBtn = new Button("✨ Tạo kịch bản với AI (" + aiConfig.getEffectiveModel() + ")");
+        Button generateBtn = new Button("Tạo kịch bản với AI (" + aiConfig.getEffectiveModel() + ")");
         generateBtn.getStyleClass().add("toolbar-btn-run");
+        com.studio.util.UiIcons.setGraphic(generateBtn, com.studio.util.UiIcons.AI_SPARKLES, 13);
 
         ProgressIndicator progress = new ProgressIndicator();
         progress.setPrefSize(22, 22);
@@ -166,18 +172,19 @@ public class AiCasePromptDialog {
         codePreview.setWrapText(false);
         codePreview.getStyleClass().add("code-editor");
 
-        Tab codeTab = new Tab("📝 Kịch bản Playwright", codePreview);
+        Tab codeTab = new Tab("Kịch bản Playwright", codePreview);
         codeTab.setClosable(false);
 
         ListView<String> assertsPreview = new ListView<>();
-        Tab assertTab = new Tab("☑️ Danh sách Assertions (0)", assertsPreview);
+        Tab assertTab = new Tab("Danh sách Assertions (0)", assertsPreview);
         assertTab.setClosable(false);
 
         previewTabs.getTabs().addAll(codeTab, assertTab);
 
         // Apply Button
-        Button applyBtn = new Button("⚡ Áp dụng vào Case này");
+        Button applyBtn = new Button("Áp dụng vào Case này");
         applyBtn.getStyleClass().add("toolbar-btn-save");
+        com.studio.util.UiIcons.setGraphic(applyBtn, com.studio.util.UiIcons.CHECK, 13);
         applyBtn.setDisable(true);
 
         final AiGeneratedCase[] lastGenerated = new AiGeneratedCase[1];
@@ -192,7 +199,7 @@ public class AiCasePromptDialog {
             generateBtn.setDisable(true);
             progress.setVisible(true);
             progress.setManaged(true);
-            statusLbl.setText("🤖 AI đang phân tích và viết code Playwright...");
+            statusLbl.setText("AI đang phân tích và viết code Playwright...");
             applyBtn.setDisable(true);
 
             Thread thread = new Thread(() -> {
@@ -220,14 +227,14 @@ public class AiCasePromptDialog {
                                 String val = a.getValue() != null && !a.getValue().isBlank() ? " | value: " + a.getValue() : "";
                                 assertsPreview.getItems().add(a.getType() + loc + val);
                             }
-                            assertTab.setText("☑️ Danh sách Assertions (" + generated.getAssertions().size() + ")");
+                            assertTab.setText("Danh sách Assertions (" + generated.getAssertions().size() + ")");
 
-                            statusLbl.setText("✅ " + result.getSummary());
+                            statusLbl.setText(result.getSummary());
                             statusLbl.setStyle("-fx-text-fill: #a6e3a1;");
                             applyBtn.setDisable(false);
-                            ToastService.success("✨ Đã sinh kịch bản thành công! Hãy xem trước và bấm Áp dụng.");
+                            ToastService.success("Đã sinh kịch bản thành công! Hãy xem trước và bấm Áp dụng.");
                         } else {
-                            statusLbl.setText("⚠️ AI không thể tạo cấu trúc test case: " + result.getSummary());
+                            statusLbl.setText("AI không thể tạo cấu trúc test case: " + result.getSummary());
                             statusLbl.setStyle("-fx-text-fill: #f9e2af;");
                         }
                     });
@@ -236,7 +243,7 @@ public class AiCasePromptDialog {
                         generateBtn.setDisable(false);
                         progress.setVisible(false);
                         progress.setManaged(false);
-                        statusLbl.setText("❌ Lỗi: " + ex.getMessage());
+                        statusLbl.setText("Lỗi: " + ex.getMessage());
                         statusLbl.setStyle("-fx-text-fill: #f38ba8;");
                         ToastService.error("Lỗi AI: " + ex.getMessage());
                     });
@@ -287,7 +294,7 @@ public class AiCasePromptDialog {
         chip.setAlignment(Pos.CENTER_LEFT);
         chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
 
-        Label label = new Label((doc.isImage() ? "🖼️ " : "📄 ") + doc.getFileName());
+        Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
         label.setStyle("-fx-font-size: 11px;");
 
         Button removeBtn = new Button("✕");

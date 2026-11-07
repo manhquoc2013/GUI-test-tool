@@ -39,3 +39,24 @@
 4. **Explorer Tree Inline Hover Actions**:
    - Cung cấp các nút thao tác nhanh `[▶]`, `[+]`, `[✏]`, `[📋]` hiển thị tự động khi rê chuột (`hover`) vào từng nút trong cây thư mục (Group, Suite, Case) giúp giảm đáng kể số lần nhấp chuột so với việc phải mở context menu chuột phải hoặc chuyển sang panel xem trước.
    - Sử dụng các filter chip trạng thái (`[Tất cả]`, `[🟢 Hoạt động]`, `[📝 Nháp]`, `[⚪ Ngừng]`) kết hợp ô tìm kiếm tức thì mang lại tốc độ lọc và tìm kiếm test case cực kỳ nhanh chóng.
+
+## Dual Dark/Light Theme & Vector SVG Icon Architecture
+1. **Vector SVG Icon Engine (`UiIcons.java`)**:
+   - Khắc phục triệt để lỗi tofu box (`[]`) trên Windows do emoji và Variation Selector `\uFE0F` gây ra trong JavaFX DirectWrite.
+   - Sử dụng `javafx.scene.shape.SVGPath` với tọa độ chuẩn 24x24 (Lucide / VS Code Codicons) giúp icon sắc nét ở mọi độ phân giải (100%, 125%, 150%, 200% High-DPI).
+   - Màu sắc icon tự động thích ứng với màu chữ của theme (`ui-svg-icon`) hoặc nhận mã màu nhấn trực tiếp (`#f7768e` cho Record, `#9ece6a` cho Run, `#bb9af7` cho AI).
+
+2. **Dual Dark & Light Theme System (`ThemeService.java`, `studio-light.css`)**:
+   - `studio.css` đóng vai trò theme tối chủ đạo (Tokyo Night tinh chỉnh).
+   - `studio-light.css` cung cấp theme sáng (GitHub/VS Code Light) với độ tương phản cao đạt chuẩn WCAG AAA.
+   - Chuyển đổi theme tức thì không cần khởi động lại ứng dụng thông qua nút gạt `Sáng / Tối` trên header bar.
+   - Trạng thái theme được lưu bền vững vào `settings.json` thông qua `SettingsStore.Settings` (kèm annotation `@JsonIgnoreProperties(ignoreUnknown = true)` và `@JsonIgnore` trên helper getter để tránh lỗi deserialize của Jackson).
+
+3. **Workspace Toolbar Ergonomic Grouping**:
+   - Thay thế việc nhồi nhét 12 nút bấm vào 1 hàng co rúm bằng cấu trúc phân nhóm rõ ràng (Execution Group, Authoring Group, View/Options Group).
+   - Ô nhập URL có độ rộng co giãn hợp lý (`prefWidth="260"`, `minWidth="160"`, `maxWidth="340"`), kết hợp spacer `HBox.hgrow="ALWAYS"` giúp các nút chức năng luôn giữ nguyên kích thước và hiển thị đầy đủ nhãn chữ không bị co cụm thành `Ghi ...`, `Chạy ...`.
+   - Thiết lập quy tắc CSS `-fx-min-width: -fx-pref-width;` cho mọi nút trên toolbar trong cả `studio.css` và `studio-light.css` nhằm ngăn chặn vĩnh viễn hành vi co ngắn text thành `...` của JavaFX.
+
+4. **Unicode Variation Selector (\uFE0F) & Windows Font Fallback**:
+   - Các emoji ký hiệu như `✖️` (`\u2716\uFE0F`), `⚠️` (`\u26A0\uFE0F`), `⏭️` (`\u23ED\uFE0F`) chứa ký tự tàng hình Variation Selector-16 (`\uFE0F`) thường xuyên bị Windows font fallback biến thành ô vuông `[]` (tofu box).
+   - Loại bỏ hoàn toàn các emoji này trên toàn bộ hệ thống (Dialog buttons, Toast alerts, Breadcrumbs, Table cells, Tree actions) và thay bằng `UiIcons` vector SVG cùng typography chuẩn giúp giao diện sạch, chuyên nghiệp và không bao giờ lỗi font.

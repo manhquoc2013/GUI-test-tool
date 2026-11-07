@@ -1,29 +1,33 @@
-# Implementation Plan: Modern Pro IDE UI/UX Redesign
+# Implementation Plan: Layout Redesign, Dual Dark/Light Theme & Vector Icons
 
 ## Slices of Delivery
 
-- [ ] **Slice 1: Multi-Tab Document Bar System**
-  - Tạo `TabManager.java` quản lý các tab tài liệu (Explorer, Suites, Reports, AI).
-  - Cập nhật `main_shell.fxml` và `MainShellController.java` để hiển thị thanh Tab Bar (VS Code / IntelliJ style) với icon, title, close button `✕` và dirty indicator.
-  - Tích hợp breadcrumb động (`Dự án > Nhóm > Suite > Case`) trên Header Bar.
+- [ ] **Slice 1: Vector SVG Icon System (`UiIcons.java`)**
+  - Implement SVG path definitions for standard IDE actions: Record, Run, Run All, Save, AI Sparkles, Split View, Settings, Help, Sun, Moon, Plus, Trash, Edit, Copy, Close, Refresh, Eye, Terminal, Globe, Filter.
+  - Implement factory helpers to set `SVGPath` graphics on JavaFX buttons with responsive sizing and CSS class styling.
+  - Unit test icon creation and path parsing.
 
-- [ ] **Slice 2: Tree Optimization with Inline Hover Actions & Instant Filters**
-  - Cập nhật `explorer_page.fxml` bổ sung thanh tìm kiếm nhanh và các chip lọc trạng thái (`Tất cả`, `Hoạt động`, `Nháp`, `Ngừng`).
-  - Nâng cấp `ExplorerPageController.java` với `TreeCell` tùy biến có nút thao tác nhanh khi di chuột (`[▶️]`, `[+ Case]`, `[✏️]`, `[📋]`).
+- [ ] **Slice 2: Dual Dark & Light Theme Architecture**
+  - Update `SettingsStore.Settings` to persist user theme preference (`"dark"` or `"light"`).
+  - Create `src/main/resources/css/studio-light.css` with full light theme palette (slate/blue, WCAG AAA contrast).
+  - Implement `ThemeService.java` to toggle theme dynamically across `Scene` and dialog panes.
+  - Add theme toggle button (`themeToggleBtn`) to `main_shell.fxml` and connect in `MainShellController.java`.
 
-- [ ] **Slice 3: Workspace Action Bar & Side-by-Side Code/Asserts View**
-  - Thiết kế lại `suite_workspace_page.fxml`:
-    - Gom Action Bar tập trung: URL + Nút Mở Browser + Record + Run + AI + Save.
-    - Bố cục SplitPane linh hoạt: Code Editor bên trái, Assertions Checklist bên phải (hoặc chuyển đổi Tabbed/Side-by-side).
-  - Cập nhật `SuiteWorkspacePageController.java` để điều khiển giao diện mới.
+- [ ] **Slice 3: Workspace Action Bar & Layout Overhaul**
+  - Refactor `suite_workspace_page.fxml` toolbar into clear functional groups:
+    - Target URL bar (bounded width, no crowding)
+    - Execution group (Record, Run Case, Run Suite) with real SVG icons + clean text
+    - Authoring group (Save, AI) with real SVG icons + clean text
+    - View/Options group (Split, Terminal, Options checkboxes)
+  - Adjust padding, margins, and CSS classes in `studio.css` and `studio-light.css` to eliminate text clipping/truncation.
+  - Wire `SuiteWorkspacePageController.java` to attach SVG icons dynamically or via FXML.
 
-- [ ] **Slice 4: Modern Pro IDE Design Tokens & Visual Polish**
-  - Cập nhật `studio.css`:
-    - Tab bar styling (active tab highlight, tab hover, close button styling).
-    - Tree cell inline action styling (hiện mượt mà khi hover).
-    - Unified button groups, input fields, badges, và status indicators.
-    - Chuẩn hóa typography, contrast (>= 4.5:1), touch targets (>= 44px).
+- [ ] **Slice 4: Dialogs & Sub-components Polish**
+  - Clean up `AiCasePromptDialog.java`: replace remaining broken emojis with SVG icons / clean text, fix truncated buttons.
+  - Clean up `AiSettingsDialog.java`: attach SVG icons for visibility toggle, connection test, model refresh.
+  - Polish `ExplorerPageController.java` and `MainShellController.java` button graphics.
 
-- [ ] **Slice 5: Verification & Full Suite Run**
-  - Chạy toàn bộ test suites Maven (`mvn test`).
-  - Cập nhật tài liệu `README.md` & `tasks/learnings.md`.
+- [ ] **Slice 5: Verification & Regression Testing**
+  - Run full test suite (`mvn test -o`).
+  - Verify zero console CSS warnings and zero truncation.
+  - Update `tasks/learnings.md`.

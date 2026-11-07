@@ -13,6 +13,7 @@ import com.studio.util.DialogTheme;
 import com.studio.util.EntityTime;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
+import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
 import com.studio.util.StudioPaths;
 import javafx.collections.FXCollections;
@@ -227,11 +228,11 @@ public class ExplorerPageController {
                 private final HBox row = new HBox(6);
                 private final Label nameLabel = new Label();
                 private final HBox actionsBox = new HBox(3);
-                private final Button runBtn = new Button("▶");
-                private final Button openBtn = new Button("Mở");
-                private final Button addBtn = new Button("+");
-                private final Button editBtn = new Button("Sửa");
-                private final Button copyBtn = new Button("Chép");
+                private final Button runBtn = new Button();
+                private final Button openBtn = new Button();
+                private final Button addBtn = new Button();
+                private final Button editBtn = new Button();
+                private final Button copyBtn = new Button();
                 private final Label statusLabel = new Label();
 
                 {
@@ -245,6 +246,12 @@ public class ExplorerPageController {
                     actionsBox.getStyleClass().add("tree-cell-actions");
                     actionsBox.setVisible(false);
                     actionsBox.setManaged(false);
+
+                    UiIcons.setGraphic(runBtn, UiIcons.PLAY, 10, "#9ece6a");
+                    UiIcons.setGraphic(openBtn, UiIcons.SPLIT, 10);
+                    UiIcons.setGraphic(addBtn, UiIcons.PLUS, 10);
+                    UiIcons.setGraphic(editBtn, UiIcons.EDIT, 10);
+                    UiIcons.setGraphic(copyBtn, UiIcons.COPY, 10);
 
                     for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn)) {
                         btn.getStyleClass().add("tree-action-btn");
@@ -913,6 +920,16 @@ public class ExplorerPageController {
         copyBtn.setOnAction(e -> copyItem());
         openWorkspaceBtn.setOnAction(e -> openWorkspace());
         runNodeBtn.setOnAction(e -> runNode());
+
+        UiIcons.setGraphic(addGroupBtn, UiIcons.PLUS, 12);
+        UiIcons.setGraphic(addSuiteBtn, UiIcons.PLUS, 12);
+        if (addCaseBtn != null) {
+            UiIcons.setGraphic(addCaseBtn, UiIcons.PLUS, 12);
+        }
+        UiIcons.setGraphic(copyBtn, UiIcons.COPY, 12);
+        UiIcons.setGraphic(openWorkspaceBtn, UiIcons.SPLIT, 12);
+        UiIcons.setGraphic(runNodeBtn, UiIcons.PLAY, 12);
+
         syncCreateToolbar(true, true, false);
         copyBtn.setVisible(false);
         copyBtn.setManaged(false);

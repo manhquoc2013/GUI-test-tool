@@ -28,6 +28,7 @@
             <Button fx:id="stopRunBtn" text="Dừng" styleClass="header-stop-btn" onAction="#stopRun"
                     visible="false" managed="false"/>
             <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
+            <Button fx:id="themeToggleBtn" text="Sáng" styleClass="header-help-btn" onAction="#toggleTheme"/>
             <Button fx:id="settingsBtn" text="Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
             <Button fx:id="helpBtn" text="Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
         </HBox>

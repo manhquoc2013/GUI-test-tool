@@ -78,6 +78,13 @@ public class AiAssistantPageController implements Initializable {
         refreshModelIndicator();
         reloadTargets();
 
+        if (settingsBtn != null) com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 12);
+        if (clearChatBtn != null) com.studio.util.UiIcons.setGraphic(clearChatBtn, com.studio.util.UiIcons.TRASH, 12);
+        if (sendBtn != null) com.studio.util.UiIcons.setGraphic(sendBtn, com.studio.util.UiIcons.PLAY, 12);
+        if (attachFileBtn != null) com.studio.util.UiIcons.setGraphic(attachFileBtn, com.studio.util.UiIcons.PLUS, 12);
+        if (applyToSuiteBtn != null) com.studio.util.UiIcons.setGraphic(applyToSuiteBtn, com.studio.util.UiIcons.CHECK, 12);
+        if (refreshTargetsBtn != null) com.studio.util.UiIcons.setGraphic(refreshTargetsBtn, com.studio.util.UiIcons.REFRESH, 12);
+
         targetGroupCombo.setOnAction(e -> onGroupSelected());
 
         // Setup case list cell factory

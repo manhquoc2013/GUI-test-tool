@@ -14,6 +14,7 @@ import com.studio.util.DialogTheme;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
 import com.studio.util.StudioPaths;
+import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
@@ -216,16 +217,49 @@ public class SuiteWorkspacePageController {
             AssertTypeDisplay.wireFilterCombo(assertTypeFilter);
             assertTypeFilter.setValue(StatusDisplay.ALL_LABEL);
             assertTypeFilter.setOnAction(e -> refreshAssertsList());
-            if (backBtn != null) backBtn.setOnAction(e -> goBack());
-            addCaseBtn.setOnAction(e -> addNewCase());
-            if (recordBtn != null) recordBtn.setOnAction(e -> startRecord());
-            if (runCaseBtn != null) runCaseBtn.setOnAction(e -> runCase());
-            runSuiteBtn.setOnAction(e -> runSuite());
-            if (saveBtn != null) saveBtn.setOnAction(e -> saveCode());
-            if (toggleSplitBtn != null) toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
-            clearTerminalBtn.setOnAction(e -> clearTerminal());
-            hideTerminalBtn.setOnAction(e -> hideTerminal());
-            addAssertBtn.setOnAction(e -> openAssertBuilder());
+            if (backBtn != null) {
+                backBtn.setOnAction(e -> goBack());
+                UiIcons.setGraphic(backBtn, UiIcons.BACK, 12);
+            }
+            if (addCaseBtn != null) {
+                addCaseBtn.setOnAction(e -> addNewCase());
+                UiIcons.setGraphic(addCaseBtn, UiIcons.PLUS, 12);
+            }
+            if (recordBtn != null) {
+                recordBtn.setOnAction(e -> startRecord());
+                UiIcons.setGraphic(recordBtn, UiIcons.RECORD, 12, "#f7768e");
+            }
+            if (runCaseBtn != null) {
+                runCaseBtn.setOnAction(e -> runCase());
+                UiIcons.setGraphic(runCaseBtn, UiIcons.PLAY, 12, "#9ece6a");
+            }
+            if (runSuiteBtn != null) {
+                runSuiteBtn.setOnAction(e -> runSuite());
+                UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
+            }
+            if (aiAssistBtn != null) {
+                UiIcons.setGraphic(aiAssistBtn, UiIcons.AI_SPARKLES, 12, "#bb9af7");
+            }
+            if (saveBtn != null) {
+                saveBtn.setOnAction(e -> saveCode());
+                UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, "#7aa2f7");
+            }
+            if (toggleSplitBtn != null) {
+                toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
+                UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
+            }
+            if (clearTerminalBtn != null) {
+                clearTerminalBtn.setOnAction(e -> clearTerminal());
+                UiIcons.setGraphic(clearTerminalBtn, UiIcons.TRASH, 12);
+            }
+            if (hideTerminalBtn != null) {
+                hideTerminalBtn.setOnAction(e -> hideTerminal());
+                UiIcons.setGraphic(hideTerminalBtn, UiIcons.CLOSE, 12);
+            }
+            if (addAssertBtn != null) {
+                addAssertBtn.setOnAction(e -> openAssertBuilder());
+                UiIcons.setGraphic(addAssertBtn, UiIcons.PLUS, 12);
+            }
             setupAssertListCells();
             if (codeEditor != null) {
                 codeEditor.setEditable(true);
@@ -296,7 +330,7 @@ public class SuiteWorkspacePageController {
                 private final HBox row = new HBox(8);
                 private final Label nameLabel = new Label();
                 private final Label statusLabel = new Label();
-                private final Button runBtn = new Button("▶");
+                private final Button runBtn = new Button();
 
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
@@ -307,6 +341,7 @@ public class SuiteWorkspacePageController {
                     statusLabel.getStyleClass().add("case-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
                     runBtn.getStyleClass().add("case-row-run-btn");
+                    UiIcons.setGraphic(runBtn, UiIcons.PLAY, 10, "#9ece6a");
                     runBtn.setTooltip(new Tooltip("Chạy case này"));
                     runBtn.setFocusTraversable(false);
                     // Consume press so ListView does not change selection; run immediately
@@ -590,6 +625,7 @@ public class SuiteWorkspacePageController {
         if (caseSelected) {
             // Selection drives label/action: run only the selected case
             runSuiteBtn.setText("Chạy case");
+            UiIcons.setGraphic(runSuiteBtn, UiIcons.PLAY, 12, "#9ece6a");
             runSuiteBtn.setOnAction(e -> runCase());
             runSuiteBtn.setDisable(!suiteActive || !caseRunnable || BusyButtons.isBusy());
             String tip;
@@ -604,6 +640,7 @@ public class SuiteWorkspacePageController {
         } else {
             // No case selected → run entire suite
             runSuiteBtn.setText("Chạy suite");
+            UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
             runSuiteBtn.setOnAction(e -> runSuite());
             runSuiteBtn.setDisable(!suiteActive);
             runSuiteBtn.setTooltip(new Tooltip(
@@ -677,6 +714,7 @@ public class SuiteWorkspacePageController {
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setText("Chia đôi");
                 toggleSplitBtn.setTooltip(new Tooltip("Thu gọn Asserts để mở rộng Code"));
+                UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
             }
         } else {
             workspaceSplitPane.setDividerPositions(1.0);
@@ -687,6 +725,7 @@ public class SuiteWorkspacePageController {
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setText("Toàn màn hình");
                 toggleSplitBtn.setTooltip(new Tooltip("Hiện Asserts song song với Code"));
+                UiIcons.setGraphic(toggleSplitBtn, UiIcons.FULLSCREEN, 12);
             }
         }
     }
@@ -1308,6 +1347,7 @@ public class SuiteWorkspacePageController {
         boolean canSave = selectedCase != null;
         saveBtn.setDisable(!canSave);
         saveBtn.setText(dirty ? "Lưu code *" : "Lưu code");
+        UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, dirty ? "#e0af68" : "#7aa2f7");
         if (codeTab != null) {
             codeTab.setText(dirty ? "Code *" : "Code");
         }

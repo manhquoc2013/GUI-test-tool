@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.service.ToastService;
 import com.studio.util.DialogTheme;
+import com.studio.util.UiIcons;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -35,7 +36,7 @@ public class EvidenceViewerDialog {
         }
 
         Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle("📸 Bằng chứng ảnh chụp — " + (title != null ? title : imagePath.getFileName()));
+        dialog.setTitle("Bằng chứng ảnh chụp — " + (title != null ? title : imagePath.getFileName()));
         dialog.setHeaderText("Xem bằng chứng ảnh chụp màn hình thực thi (Evidence)");
 
         DialogPane pane = dialog.getDialogPane();
@@ -52,21 +53,23 @@ public class EvidenceViewerDialog {
         HBox topRow = new HBox(10);
         topRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label pathLabel = new Label("📁 " + imagePath.toAbsolutePath().normalize());
+        Label pathLabel = new Label(imagePath.toAbsolutePath().normalize().toString());
         pathLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
         HBox.setHgrow(pathLabel, Priority.ALWAYS);
 
-        Button copyPathBtn = new Button("📋 Chép đường dẫn");
+        Button copyPathBtn = new Button("Chép đường dẫn");
         copyPathBtn.getStyleClass().add("btn-secondary");
+        UiIcons.setGraphic(copyPathBtn, UiIcons.COPY, 12);
         copyPathBtn.setOnAction(e -> {
             ClipboardContent cc = new ClipboardContent();
             cc.putString(imagePath.toAbsolutePath().normalize().toString());
             Clipboard.getSystemClipboard().setContent(cc);
-            ToastService.info("📋 Đã chép đường dẫn ảnh vào Clipboard!");
+            ToastService.info("Đã chép đường dẫn ảnh vào Clipboard!");
         });
 
-        Button openDesktopBtn = new Button("📂 Mở trên máy tính");
+        Button openDesktopBtn = new Button("Mở trên máy tính");
         openDesktopBtn.getStyleClass().add("btn-secondary");
+        UiIcons.setGraphic(openDesktopBtn, UiIcons.FOLDER, 12);
         openDesktopBtn.setOnAction(e -> {
             try {
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {

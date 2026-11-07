@@ -107,6 +107,9 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         addBtn.setOnAction(e -> addAssert());
         saveBtn.setOnAction(e -> save());
         if (closeBtn != null) closeBtn.setOnAction(e -> closeDialog());
+        com.studio.util.UiIcons.setGraphic(addBtn, com.studio.util.UiIcons.PLUS, 12);
+        com.studio.util.UiIcons.setGraphic(saveBtn, com.studio.util.UiIcons.SAVE, 12);
+        if (closeBtn != null) com.studio.util.UiIcons.setGraphic(closeBtn, com.studio.util.UiIcons.CLOSE, 12);
         setupListDragDrop();
         if (assertSearchField != null) {
             assertSearchField.textProperty().addListener((obs, o, n) -> refreshList());
@@ -347,7 +350,10 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         if (timeoutSpinner != null && timeoutSpinner.getValueFactory() != null) {
             timeoutSpinner.getValueFactory().setValue(a.getTimeoutMs() > 0 ? a.getTimeoutMs() : 30000);
         }
-        if (addBtn != null) addBtn.setText("Cập nhật");
+        if (addBtn != null) {
+            addBtn.setText("Cập nhật");
+            com.studio.util.UiIcons.setGraphic(addBtn, com.studio.util.UiIcons.SAVE, 12);
+        }
         suppressListSelect = true;
         assertListView.getSelectionModel().select(index);
         suppressListSelect = false;
@@ -572,6 +578,9 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         if (typeCombo != null) typeCombo.setValue("TEXT_VISIBLE");
         if (statusCombo != null) statusCombo.setValue("ACTIVE");
         if (timeoutSpinner != null) timeoutSpinner.getValueFactory().setValue(30000);
-        if (addBtn != null) addBtn.setText("Thêm");
+        if (addBtn != null) {
+            addBtn.setText("Thêm");
+            com.studio.util.UiIcons.setGraphic(addBtn, com.studio.util.UiIcons.PLUS, 12);
+        }
     }
 }

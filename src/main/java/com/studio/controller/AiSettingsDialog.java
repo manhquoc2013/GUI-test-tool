@@ -121,16 +121,17 @@ public class AiSettingsDialog {
 
         keyField.textProperty().bindBidirectional(plainKeyField.textProperty());
 
-        Button toggleShowBtn = new Button("Hiện");
+        Button toggleShowBtn = new Button();
         toggleShowBtn.getStyleClass().add("icon-btn");
         toggleShowBtn.setTooltip(new Tooltip("Hiện / Ẩn API Key"));
+        com.studio.util.UiIcons.setGraphic(toggleShowBtn, com.studio.util.UiIcons.EYE, 13);
         toggleShowBtn.setOnAction(e -> {
             boolean showing = plainKeyField.isVisible();
             plainKeyField.setVisible(!showing);
             plainKeyField.setManaged(!showing);
             keyField.setVisible(showing);
             keyField.setManaged(showing);
-            toggleShowBtn.setText(showing ? "Hiện" : "Ẩn");
+            com.studio.util.UiIcons.setGraphic(toggleShowBtn, showing ? com.studio.util.UiIcons.EYE : com.studio.util.UiIcons.EYE_OFF, 13);
         });
 
         HBox keyBox = new HBox(6, keyField, plainKeyField, toggleShowBtn);
@@ -200,6 +201,7 @@ public class AiSettingsDialog {
 
         Button fetchModelsBtn = new Button("Lấy từ URL");
         fetchModelsBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(fetchModelsBtn, com.studio.util.UiIcons.REFRESH, 12);
         fetchModelsBtn.setTooltip(new Tooltip("Gửi yêu cầu tới endpoint /models của Base URL để lấy danh sách model thực tế"));
 
         HBox modelBox = new HBox(6, modelCombo, fetchModelsBtn);
@@ -236,6 +238,7 @@ public class AiSettingsDialog {
 
         Button testConnBtn = new Button("Kiểm tra kết nối");
         testConnBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(testConnBtn, com.studio.util.UiIcons.CHECK, 12);
 
         Label testStatusLabel = new Label("");
         testStatusLabel.setWrapText(true);

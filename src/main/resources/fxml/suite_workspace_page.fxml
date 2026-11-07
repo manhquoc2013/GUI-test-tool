@@ -20,29 +20,40 @@
 
     <!-- Unified Consolidated Action Bar -->
     <HBox styleClass="workspace-action-bar" spacing="10" alignment="CENTER_LEFT">
-        <padding><Insets top="8" right="12" bottom="8" left="12"/></padding>
+        <padding><Insets top="6" right="12" bottom="6" left="12"/></padding>
         <Button text="Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
         <Label fx:id="breadcrumbLabel" text="Suite: " styleClass="breadcrumb"/>
         <Label fx:id="selectedCaseHint" text="Chọn một case bên trái" styleClass="workspace-case-badge"/>
 
-        <HBox HBox.hgrow="ALWAYS" alignment="CENTER_LEFT" spacing="8">
+        <HBox alignment="CENTER_LEFT" spacing="6" styleClass="workspace-url-box">
             <Label text="URL:" styleClass="field-label-sm"/>
             <TextField fx:id="startUrlField" promptText="https://example.com — dùng khi ghi hình / chạy"
-                       HBox.hgrow="ALWAYS" styleClass="url-field"/>
+                       prefWidth="260" minWidth="160" maxWidth="340" styleClass="url-field"/>
         </HBox>
 
-        <HBox spacing="6" alignment="CENTER_RIGHT" styleClass="workspace-btn-group">
+        <Region HBox.hgrow="ALWAYS"/>
+
+        <!-- Group 1: Execution (Record & Run) -->
+        <HBox spacing="6" alignment="CENTER_LEFT" styleClass="workspace-btn-group">
             <Button text="Ghi hình" fx:id="recordBtn" onAction="#startRecord" styleClass="toolbar-btn-record"/>
             <Button text="Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
             <Button text="Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
-            <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
-            <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
-            <Button text="Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>
         </HBox>
 
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
-        <HBox spacing="8" alignment="CENTER_RIGHT">
+
+        <!-- Group 2: Authoring (Save & AI) -->
+        <HBox spacing="6" alignment="CENTER_LEFT" styleClass="workspace-btn-group">
+            <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
+            <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
+        </HBox>
+
+        <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
+
+        <!-- Group 3: View & Execution Options -->
+        <HBox spacing="8" alignment="CENTER_LEFT" styleClass="workspace-options-group">
+            <Button text="Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>
             <CheckBox fx:id="stopOnFirstFailureCheck" text="Dừng khi lỗi" styleClass="workspace-check"/>
             <CheckBox fx:id="shareContextCheck" text="Chung context" selected="true" styleClass="workspace-check"/>
         </HBox>

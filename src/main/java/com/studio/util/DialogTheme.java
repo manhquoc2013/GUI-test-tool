@@ -45,6 +45,7 @@ public final class DialogTheme {
         if (!pane.getStylesheets().contains(css)) {
             pane.getStylesheets().add(css);
         }
+        com.studio.service.ThemeService.applyThemeToDialog(dialog);
         pane.getStyleClass().add("studio-dialog");
         dialog.setGraphic(null);
         pane.setGraphic(null);
@@ -385,30 +386,37 @@ public final class DialogTheme {
     private static void styleButtons(DialogPane pane) {
         Button ok = (Button) pane.lookupButton(ButtonType.OK);
         if (ok != null) {
-            ok.setText("✅ OK");
+            ok.setText("OK");
+            UiIcons.setGraphic(ok, UiIcons.CHECK, 13);
             ok.getStyleClass().add("btn-primary");
             ButtonBar.setButtonData(ok, ButtonBar.ButtonData.OK_DONE);
         }
         Button cancel = (Button) pane.lookupButton(ButtonType.CANCEL);
         if (cancel != null) {
-            cancel.setText("❌ Hủy");
+            cancel.setText("Hủy");
             cancel.getStyleClass().add("btn-secondary");
         }
         Button apply = (Button) pane.lookupButton(ButtonType.APPLY);
-        if (apply != null) apply.setText("✅ Áp dụng");
+        if (apply != null) {
+            apply.setText("Áp dụng");
+            UiIcons.setGraphic(apply, UiIcons.CHECK, 13);
+        }
         Button yes = (Button) pane.lookupButton(ButtonType.YES);
         if (yes != null) {
-            yes.setText("✅ Có");
+            yes.setText("Có");
+            UiIcons.setGraphic(yes, UiIcons.CHECK, 13);
             yes.getStyleClass().add("btn-primary");
         }
         Button no = (Button) pane.lookupButton(ButtonType.NO);
         if (no != null) {
-            no.setText("❌ Không");
+            no.setText("Không");
             no.getStyleClass().add("btn-secondary");
         }
         Button close = (Button) pane.lookupButton(ButtonType.CLOSE);
         if (close != null) {
-            close.setText("✖️ Đóng");
+            close.setText("Đóng");
+            close.setMinWidth(80);
+            UiIcons.setGraphic(close, UiIcons.CLOSE, 12);
             close.getStyleClass().add("btn-secondary");
         }
     }

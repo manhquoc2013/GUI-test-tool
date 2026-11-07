@@ -1915,57 +1915,102 @@
     -fx-text-fill: #9aa5ce;
 }
 .workspace-btn-group {
-    -fx-padding: 0 4;
+    -fx-spacing: 6;
+}
+.workspace-action-bar .button {
+    -fx-min-width: -fx-pref-width;
+}
+.workspace-btn-group .button {
+    -fx-min-width: -fx-pref-width;
+    -fx-pref-width: -1;
+    -fx-font-size: 12px;
+    -fx-padding: 5 10;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
 }
 .toolbar-btn-record {
-    -fx-background-color: #f7768e;
-    -fx-text-fill: #ffffff;
+    -fx-background-color: #2b1f28;
+    -fx-text-fill: #f7768e;
+    -fx-border-color: #632e3a;
     -fx-font-weight: bold;
-    -fx-cursor: hand;
-    -fx-padding: 6 12;
-    -fx-background-radius: 6;
 }
 .toolbar-btn-record:hover {
-    -fx-background-color: #db4b4b;
+    -fx-background-color: #f7768e;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #f7768e;
 }
 .toolbar-btn-run-case {
-    -fx-background-color: #9ece6a;
-    -fx-text-fill: #1a1b26;
-    -fx-cursor: hand;
-    -fx-padding: 6 12;
-    -fx-background-radius: 6;
+    -fx-background-color: #1e2c26;
+    -fx-text-fill: #9ece6a;
+    -fx-border-color: #38593a;
+    -fx-font-weight: bold;
 }
 .toolbar-btn-run-case:hover {
+    -fx-background-color: #9ece6a;
+    -fx-text-fill: #1a1b26;
+    -fx-border-color: #9ece6a;
+}
+.toolbar-btn-run {
+    -fx-background-color: #1a2f2b;
+    -fx-text-fill: #73daca;
+    -fx-border-color: #2d5e54;
+    -fx-font-weight: bold;
+}
+.toolbar-btn-run:hover {
     -fx-background-color: #73daca;
+    -fx-text-fill: #1a1b26;
+    -fx-border-color: #73daca;
 }
 .btn-ai-assist {
-    -fx-background-color: #bb9af7;
-    -fx-text-fill: #1a1b26;
+    -fx-background-color: #26213b;
+    -fx-text-fill: #bb9af7;
+    -fx-border-color: #4a3e6d;
     -fx-font-weight: bold;
-    -fx-cursor: hand;
-    -fx-padding: 6 12;
-    -fx-background-radius: 6;
 }
 .btn-ai-assist:hover {
-    -fx-background-color: #9d7cd8;
-    -fx-text-fill: #ffffff;
+    -fx-background-color: #bb9af7;
+    -fx-text-fill: #1a1b26;
+    -fx-border-color: #bb9af7;
+}
+.toolbar-btn-save {
+    -fx-background-color: #1f273d;
+    -fx-text-fill: #7aa2f7;
+    -fx-border-color: #33486e;
+    -fx-font-weight: bold;
+}
+.toolbar-btn-save:hover {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #1a1b26;
+    -fx-border-color: #7aa2f7;
 }
 .btn-layout-toggle {
     -fx-background-color: #24283b;
     -fx-text-fill: #c0caf5;
     -fx-cursor: hand;
-    -fx-padding: 6 10;
+    -fx-padding: 5 10;
     -fx-background-radius: 6;
     -fx-border-color: #3b3d57;
     -fx-border-radius: 6;
     -fx-border-width: 1;
+    -fx-font-size: 12px;
 }
 .btn-layout-toggle:hover {
     -fx-background-color: #3b4261;
+    -fx-text-fill: #ffffff;
 }
 .workspace-check {
     -fx-text-fill: #c0caf5;
     -fx-font-size: 11px;
+}
+
+/* === VECTOR SVG ICONS === */
+.ui-svg-icon {
+    -fx-fill: #c0caf5;
+}
+.button:hover .ui-svg-icon {
+    -fx-fill: #ffffff;
 }
 
 /* --- Workspace Side-by-Side Split View --- */
