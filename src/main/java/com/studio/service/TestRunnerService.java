@@ -1,9 +1,11 @@
 package com.studio.service;
 
 import com.studio.model.*;
+import com.studio.runtime.OptimizedSelfHealingExecutor;
 import com.studio.runtime.StudioRuntime;
 import com.studio.store.ProjectStore;
 import com.studio.store.ReportStore;
+import com.studio.store.SettingsStore;
 import com.studio.util.StudioPaths;
 
 import java.net.URL;
@@ -32,11 +34,20 @@ public class TestRunnerService {
 
     private final ProjectStore projectStore;
     private final ReportStore reportStore;
+    private final SettingsStore settingsStore;
+    private final OpenAiClient openAiClient;
     private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore) {
+        this(projectStore, reportStore, new SettingsStore(), new OpenAiClient());
+    }
+
+    public TestRunnerService(ProjectStore projectStore, ReportStore reportStore,
+                             SettingsStore settingsStore, OpenAiClient openAiClient) {
         this.projectStore = projectStore;
         this.reportStore = reportStore;
+        this.settingsStore = settingsStore != null ? settingsStore : new SettingsStore();
+        this.openAiClient = openAiClient != null ? openAiClient : new OpenAiClient();
     }
 
     /**
@@ -281,15 +292,31 @@ public class TestRunnerService {
                 try {
                     System.setProperty("studio.assertResults", assertResultsFile.toString());
 
+                    AiConfig aiConfig = null;
+                    try {
+                        aiConfig = settingsStore.load().getAiConfig();
+                    } catch (Exception ignored) {}
+
                     if (!useShared) {
                         // Per-case: start own browser session
                         SharedBrowserSession perCaseSession = new SharedBrowserSession();
                         perCaseSession.start(headless, browserId);
                         RunCancelService.attachSession(perCaseSession);
                         StudioRuntime.set(perCaseSession.page(), perCaseSession.context());
+                        OptimizedSelfHealingExecutor executor = new OptimizedSelfHealingExecutor(
+                                perCaseSession.page(), openAiClient, aiConfig, projectStore,
+                                suiteDir, suite, runningCase);
+                        StudioRuntime.setExecutor(executor);
                         try {
                             runHarnessClass(harnessDir, harnessClass);
                         } finally {
+                            List<HealedStepMeta> healed = StudioRuntime.getHealedSteps();
+                            if (healed != null && !healed.isEmpty()) {
+                                cr.setHealedSteps(new ArrayList<>(healed));
+                                for (HealedStepMeta h : healed) {
+                                    terminal("  ✨ [Auto-Healed via " + h.getMethod() + "] '" + h.getOriginalSelector() + "' ➔ '" + h.getRepairedSelector() + "'", terminalOutput);
+                                }
+                            }
                             StudioRuntime.clear();
                             RunCancelService.clearSession(perCaseSession);
                             perCaseSession.close();
@@ -298,10 +325,22 @@ public class TestRunnerService {
                         // Shared: use the existing session's page
                         RunCancelService.attachSession(session);
                         StudioRuntime.set(session.page(), session.context());
+                        OptimizedSelfHealingExecutor executor = new OptimizedSelfHealingExecutor(
+                                session.page(), openAiClient, aiConfig, projectStore,
+                                suiteDir, suite, runningCase);
+                        StudioRuntime.setExecutor(executor);
                         try {
                             runHarnessClass(harnessDir, harnessClass);
                         } finally {
-                            // Don't clear StudioRuntime for shared — next case needs it
+                            List<HealedStepMeta> healed = StudioRuntime.getHealedSteps();
+                            if (healed != null && !healed.isEmpty()) {
+                                cr.setHealedSteps(new ArrayList<>(healed));
+                                for (HealedStepMeta h : healed) {
+                                    terminal("  ✨ [Auto-Healed via " + h.getMethod() + "] '" + h.getOriginalSelector() + "' ➔ '" + h.getRepairedSelector() + "'", terminalOutput);
+                                }
+                            }
+                            // Don't clear page/context for shared, but clear executor
+                            StudioRuntime.setExecutor(null);
                         }
                     }
 

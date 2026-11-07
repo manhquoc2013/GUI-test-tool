@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,22 @@ class HtmlReportServiceTest {
         String readBack = Files.readString(targetFile);
         assertTrue(readBack.contains("<!DOCTYPE html>"));
         assertTrue(readBack.contains("TC01_Login_Success"));
+    }
+
+    @Test
+    void testGenerateHtmlRendersSelfHealingSection() {
+        HealedStepMeta step = new HealedStepMeta(
+                "tc-1", "CLICK_LOGIN", "#btn-login-old", "button:has-text('Login')", "HEURISTIC", 0.95, "2026-11-07 12:00:01"
+        );
+        report.getCases().get(0).setHealedSteps(List.of(step));
+
+        String html = HtmlReportService.generateHtml(report);
+        assertTrue(html.contains("Auto-Healed (1)"), "Header badge for self healing");
+        assertTrue(html.contains("Tự động sửa lỗi (Self-Healing)"), "Self healing section title");
+        assertTrue(html.contains("#btn-login-old"), "Old selector rendered");
+        assertTrue(html.contains("button:has-text"), "New selector rendered");
+        assertTrue(html.contains("HEURISTIC"), "Healing method rendered");
+        assertTrue(html.contains("95%"), "Confidence rendered");
     }
 }
 

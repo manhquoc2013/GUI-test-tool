@@ -1,19 +1,24 @@
-# Implementation Plan: System Data Cleanup & Settings Protection
+# Implementation Plan: Multi-Tier Self-Healing Engine
 
-## Phase 1: Settings Dual-Persistence & Backup
-- Add `system_settings` table to `DatabaseManager.java`.
-- Enhance `SettingsStore.java` with H2 mirror persistence, fallback loading, and Export/Import methods.
-- Write unit tests in `SettingsStoreTest.java`.
+## Phase 1: Models & Core Runtime Engine
+- Create `HealedStepMeta.java` in `com.studio.model`.
+- Add `healedSteps` property to `CaseResult.java`.
+- Create `EnhancedDomExtractor.java` in `com.studio.runtime`.
+- Create `HeuristicHealer.java` in `com.studio.runtime`.
+- Create `OptimizedSelfHealingExecutor.java` in `com.studio.runtime`.
+- Enhance `StudioRuntime.java` with executor holder, `healLocator()`, and audit collection methods.
+- Write unit tests for `HeuristicHealer` and `OptimizedSelfHealingExecutor`.
 
-## Phase 2: Data Cleanup Engine
-- Create `DataCleanupService.java` handling multi-target deletions, report retention limits, work directory purging, and byte counting.
-- Write unit tests in `DataCleanupServiceTest.java`.
+## Phase 2: Harness & Assert Generation Integration
+- Update `ScriptHarnessTransformer.java` to support healing wrapper (`StudioRuntime.healLocator(...)` or direct healing transformation).
+- Update `AssertCodeGenerator.java` to route element locators through `StudioRuntime.healLocator(...)`.
+- Write unit tests for `ScriptHarnessTransformer` and `AssertCodeGenerator` healing behavior.
 
-## Phase 3: Cleanup Modal Dialog & Shell Integration
-- Create `DataCleanupDialog.java` with safety banner, backup/restore buttons, target checkboxes, retention picker, and confirmation workflow.
-- Update `main_shell.fxml` with "Dọn dẹp" button in header bar.
-- Update `MainShellController.java` to launch `DataCleanupDialog`.
+## Phase 3: Runner & Report Audit Trail Integration
+- Update `TestRunnerService.java` to initialize `OptimizedSelfHealingExecutor` with `SettingsStore` / `OpenAiClient` and inject into `StudioRuntime`.
+- Collect healed steps into `CaseResult` at end of case execution.
+- Update `HtmlReportService.java` to render `[Auto-Healed]` badges and audit details table.
 
 ## Phase 4: Full Verification & Learnings
-- Run all tests with `mvn test -o`.
-- Document learnings in `tasks/learnings.md`.
+- Run full regression tests (`mvn test`).
+- Record learnings in `tasks/learnings.md`.

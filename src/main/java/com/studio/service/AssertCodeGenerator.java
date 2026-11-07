@@ -174,7 +174,7 @@ public class AssertCodeGenerator {
 
             case "ELEMENT_VISIBLE", "ELEMENT_EXISTS":
                 return String.format(
-                    "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
+                    "            com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_VISIBLE\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), timeout);
 
             case "ELEMENT_HIDDEN", "ELEMENT_NOT_VISIBLE":
@@ -184,57 +184,57 @@ public class AssertCodeGenerator {
 
             case "ELEMENT_ENABLED":
                 return String.format(
-                    "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isEnabled()) throw new AssertionError(\"Element not enabled: %s\");\n",
+                    "            if (!com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_ENABLED\").isEnabled()) throw new AssertionError(\"Element not enabled: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "ELEMENT_DISABLED":
                 return String.format(
-                    "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isDisabled()) throw new AssertionError(\"Element not disabled: %s\");\n",
+                    "            if (!com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_DISABLED\").isDisabled()) throw new AssertionError(\"Element not disabled: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "ELEMENT_EDITABLE":
                 return String.format(
-                    "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isEditable()) throw new AssertionError(\"Element not editable: %s\");\n",
+                    "            if (!com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_EDITABLE\").isEditable()) throw new AssertionError(\"Element not editable: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "ELEMENT_CHECKED", "CHECKBOX_CHECKED":
                 return String.format(
-                    "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isChecked()) throw new AssertionError(\"Element not checked: %s\");\n",
+                    "            if (!com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_CHECKED\").isChecked()) throw new AssertionError(\"Element not checked: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "ELEMENT_UNCHECKED":
                 return String.format(
-                    "            if (com.studio.runtime.StudioRuntime.page().locator(\"%s\").isChecked()) throw new AssertionError(\"Element is checked: %s\");\n",
+                    "            if (com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_UNCHECKED\").isChecked()) throw new AssertionError(\"Element is checked: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "ELEMENT_COUNT":
                 return String.format(
-                    "            int __count = com.studio.runtime.StudioRuntime.page().locator(\"%s\").count(); if (!(%s)) throw new AssertionError(\"Element count for '%s': expected %s, actual: \" + __count);\n",
+                    "            int __count = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_COUNT\").count(); if (!(%s)) throw new AssertionError(\"Element count for '%s': expected %s, actual: \" + __count);\n",
                     StringEscapeUtil.escapeJava(locator), buildCountCondition(value), StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
 
             case "ELEMENT_HAS_TEXT", "ELEMENT_TEXT_CONTAINS":
                 return String.format(
-                    "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText(\"%s\")).first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
+                    "            com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_TEXT\").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText(\"%s\")).first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), timeout);
 
             case "ELEMENT_HAS_VALUE":
                 return String.format(
-                    "            String __val = com.studio.runtime.StudioRuntime.page().locator(\"%s\").inputValue(); if (!\"%s\".equals(__val)) throw new AssertionError(\"Expected value: %s, actual: \" + __val);\n",
+                    "            String __val = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_VALUE\").inputValue(); if (!\"%s\".equals(__val)) throw new AssertionError(\"Expected value: %s, actual: \" + __val);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
             case "ATTRIBUTE_EQUALS", "ELEMENT_HAS_ATTRIBUTE":
                 return String.format(
-                    "            String __attr = com.studio.runtime.StudioRuntime.page().locator(\"%s\").getAttribute(\"%s\"); if (!\"%s\".equals(__attr)) throw new AssertionError(\"Attribute %s expected: %s, actual: \" + __attr);\n",
+                    "            String __attr = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_ATTRIBUTE\").getAttribute(\"%s\"); if (!\"%s\".equals(__attr)) throw new AssertionError(\"Attribute %s expected: %s, actual: \" + __attr);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(a.getExpectedValue()), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(a.getExpectedValue()));
 
             case "CSS_CONTAINS":
                 return String.format(
-                    "            Object __css = com.studio.runtime.StudioRuntime.page().locator(\"%s\").evaluate(\"el => window.getComputedStyle(el).%s\"); if (__css == null || !__css.toString().contains(\"%s\")) throw new AssertionError(\"CSS %s does not contain: %s\");\n",
+                    "            Object __css = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_CSS\").evaluate(\"el => window.getComputedStyle(el).%s\"); if (__css == null || !__css.toString().contains(\"%s\")) throw new AssertionError(\"CSS %s does not contain: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(value));
 
             case "LINK_HREF_CONTAINS":
                 return String.format(
-                    "            String __href = com.studio.runtime.StudioRuntime.page().locator(\"%s\").getAttribute(\"href\"); if (__href == null || !__href.contains(\"%s\")) throw new AssertionError(\"Link href does not contain: %s\");\n",
+                    "            String __href = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_HREF\").getAttribute(\"href\"); if (__href == null || !__href.contains(\"%s\")) throw new AssertionError(\"Link href does not contain: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
             // ─── C. Media ────────────────────────────────────────────────────
@@ -304,32 +304,32 @@ public class AssertCodeGenerator {
 
             case "INPUT_VALUE_EQUALS":
                 return String.format(
-                    "            String __inputVal = com.studio.runtime.StudioRuntime.page().locator(\"%s\").inputValue(); if (!\"%s\".equals(__inputVal)) throw new AssertionError(\"Input value expected: %s, actual: \" + __inputVal);\n",
+                    "            String __inputVal = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_INPUT_EQUALS\").inputValue(); if (!\"%s\".equals(__inputVal)) throw new AssertionError(\"Input value expected: %s, actual: \" + __inputVal);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
             case "INPUT_VALUE_CONTAINS":
                 return String.format(
-                    "            String __inputVal = com.studio.runtime.StudioRuntime.page().locator(\"%s\").inputValue(); if (!__inputVal.contains(\"%s\")) throw new AssertionError(\"Input does not contain: %s, actual: \" + __inputVal);\n",
+                    "            String __inputVal = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_INPUT_CONTAINS\").inputValue(); if (!__inputVal.contains(\"%s\")) throw new AssertionError(\"Input does not contain: %s, actual: \" + __inputVal);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
             case "PLACEHOLDER_EQUALS":
                 return String.format(
-                    "            String __ph = com.studio.runtime.StudioRuntime.page().locator(\"%s\").getAttribute(\"placeholder\"); if (!\"%s\".equals(__ph)) throw new AssertionError(\"Placeholder expected: %s, actual: \" + __ph);\n",
+                    "            String __ph = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_PLACEHOLDER\").getAttribute(\"placeholder\"); if (!\"%s\".equals(__ph)) throw new AssertionError(\"Placeholder expected: %s, actual: \" + __ph);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
             case "SELECT_HAS_OPTION":
                 return String.format(
-                    "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").selectOption(\"%s\");\n",
+                    "            com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_SELECT\").selectOption(\"%s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
 
             case "FORM_VALID":
                 return String.format(
-                    "            Object __valid = com.studio.runtime.StudioRuntime.page().locator(\"%s\").evaluate(\"el => el.checkValidity()\"); if (!Boolean.TRUE.equals(__valid)) throw new AssertionError(\"Form is invalid: %s\");\n",
+                    "            Object __valid = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_FORM_VALID\").evaluate(\"el => el.checkValidity()\"); if (!Boolean.TRUE.equals(__valid)) throw new AssertionError(\"Form is invalid: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             case "FORM_INVALID":
                 return String.format(
-                    "            Object __valid = com.studio.runtime.StudioRuntime.page().locator(\"%s\").evaluate(\"el => el.checkValidity()\"); if (Boolean.TRUE.equals(__valid)) throw new AssertionError(\"Form is unexpectedly valid: %s\");\n",
+                    "            Object __valid = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_FORM_INVALID\").evaluate(\"el => el.checkValidity()\"); if (Boolean.TRUE.equals(__valid)) throw new AssertionError(\"Form is unexpectedly valid: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
             // ─── G. Storage / Network ────────────────────────────────────────
@@ -356,7 +356,7 @@ public class AssertCodeGenerator {
 
             case "CUSTOM":
                 return String.format(
-                    "            // CUSTOM assert with locator: %s\n            com.studio.runtime.StudioRuntime.page().locator(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
+                    "            // CUSTOM assert with locator: %s\n            com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_CUSTOM\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator), timeout);
 
             case "CUSTOM_JS", "CUSTOM_JS_TRUE":

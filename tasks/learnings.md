@@ -113,3 +113,15 @@
    - Cung cấp banner thông tin bảo đảm an toàn cấu hình hệ thống với nút Sao lưu / Phục hồi trực tiếp.
    - Hiển thị dung lượng ước tính của từng mục dữ liệu có thể dọn dẹp và yêu cầu hộp thoại xác nhận trước khi thực thi.
    - Thực thi tác vụ dọn dẹp trên luồng nền (`Task<CleanupResult>`) kèm thanh chỉ báo tiến trình để không làm đông cứng giao diện JavaFX.
+
+## Multi-Tier Autonomous Self-Healing Engine
+1. **Multi-Tier Resilience (Midscene + Skyvern + Testsigma Architecture)**:
+   - **Tier 0 (Smart Wait Buffer)**: Chờ 350-400ms để triệt tiêu hiệu ứng UI animation/hydration trước khi kết luận selector bị hỏng.
+   - **Tier 1 (LocateCache)**: Lưu đệm selector đã sửa thành công trong cùng phiên chạy; nếu cùng một selector bị hỏng ở các bước tiếp theo hoặc vòng lặp, hệ thống sử dụng lại kết quả cache trong <1ms.
+   - **Tier 2 (Fast Heuristic Repair)**: Khắc phục >80% lỗi selector do dynamic ID (`#btn-18291` ➔ `[id^='btn']`), CSS hash (`.btn__3x9a` ➔ `.btn`), hoặc text change (`text='Submit'` ➔ `button:has-text('Submit')`, `[role='button']:has-text(...)`, `[data-testid=...]`) ngay trong DOM trình duyệt với độ trễ <30ms và zero chi phí AI.
+   - **Tier 3 (Multimodal VLM Recovery)**: Chỉ khi Heuristic thất bại mới kích hoạt VLM qua `OpenAiClient` với ảnh JPEG nén và cây DOM đã qua bóc tách chuyên sâu (`EnhancedDomExtractor`) xuyên thấu Shadow DOM và lọc bỏ phần tử vô hình/che khuất.
+   - **Tier 4 (Sandbox Verification)**: Chỉ chấp nhận selector thay thế khi thỏa mãn nghiêm ngặt `count() == 1 && isVisible() && isEnabled()`.
+2. **Persistent Auto-Mutation & Audit Trail**:
+   - Tự động thay thế selector cũ bằng selector mới trong mã nguồn file script `.java` và `suite.json` (cho assertions), giúp các lượt chạy sau không cần tốn thời gian sửa lỗi lại.
+   - Lưu vết chi tiết từng bước được phục hồi (`HealedStepMeta`) vào `CaseResult`, xuất bảng thống kê Self-Healing và huy hiệu `[Auto-Healed]` trong báo cáo HTML.
+

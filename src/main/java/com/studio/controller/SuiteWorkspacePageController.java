@@ -254,7 +254,7 @@ public class SuiteWorkspacePageController {
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
                 UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
-                com.studio.util.UiTooltips.install(toggleSplitBtn, splitLayoutActive ? "Thu gọn Asserts để mở rộng Code" : "Hiện Asserts song song với Code");
+                com.studio.util.UiTooltips.install(toggleSplitBtn, isSplitLayout ? "Thu gọn Asserts để mở rộng Code" : "Hiện Asserts song song với Code");
             }
             if (clearTerminalBtn != null) {
                 clearTerminalBtn.setOnAction(e -> clearTerminal());

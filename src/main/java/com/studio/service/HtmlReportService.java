@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 
 import java.io.IOException;
@@ -281,6 +282,10 @@ public class HtmlReportService {
             sb.append("<div class=\"case-header\" onclick=\"toggleCaseBody(this)\">\n");
             sb.append("<div class=\"case-title-row\">\n");
             sb.append("<span class=\"badge ").append(badgeClass).append("\">").append(status).append("</span>\n");
+            if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
+                sb.append("<span class=\"badge\" style=\"background:#0284c7; color:#fff;\">✨ Auto-Healed (")
+                  .append(cr.getHealedSteps().size()).append(")</span>\n");
+            }
             sb.append("<span class=\"case-name\">").append(escapeHtml(cr.getTestCaseName())).append("</span>\n");
             if (cr.getSuiteName() != null && !cr.getSuiteName().isBlank()) {
                 sb.append("<span class=\"case-suite\">📁 ").append(escapeHtml(cr.getSuiteName())).append("</span>\n");
@@ -326,6 +331,25 @@ public class HtmlReportService {
                     sb.append("<td><span class=\"badge ").append(aBadge).append("\">").append(aStatus).append("</span></td>");
                     String msg = (ar.getMessage() != null && !ar.getMessage().isBlank()) ? ar.getMessage() : "";
                     sb.append("<td>").append(escapeHtml(msg)).append("</td>");
+                    sb.append("</tr>\n");
+                }
+                sb.append("</tbody></table>\n");
+            }
+
+            // Self-Healing Audit Table
+            List<HealedStepMeta> healed = cr.getHealedSteps();
+            if (healed != null && !healed.isEmpty()) {
+                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--primary);\">✨ Tự động sửa lỗi (Self-Healing) (")
+                  .append(healed.size()).append(" bước):</h4>\n");
+                sb.append("<table><thead><tr><th>Hành động</th><th>Selector ban đầu</th><th>Selector đã sửa</th><th>Phương thức</th><th>Độ tin cậy</th><th>Thời gian</th></tr></thead><tbody>\n");
+                for (HealedStepMeta hm : healed) {
+                    sb.append("<tr>");
+                    sb.append("<td><code>").append(escapeHtml(hm.getActionDescription())).append("</code></td>");
+                    sb.append("<td><code style=\"color:var(--fail); text-decoration:line-through;\">").append(escapeHtml(hm.getOriginalSelector())).append("</code></td>");
+                    sb.append("<td><code style=\"color:var(--pass); font-weight:bold;\">").append(escapeHtml(hm.getRepairedSelector())).append("</code></td>");
+                    sb.append("<td><span class=\"badge passed\">").append(escapeHtml(hm.getMethod())).append("</span></td>");
+                    sb.append("<td>").append(String.format("%.0f%%", hm.getConfidence() * 100)).append("</td>");
+                    sb.append("<td>").append(escapeHtml(hm.getTimestamp())).append("</td>");
                     sb.append("</tr>\n");
                 }
                 sb.append("</tbody></table>\n");

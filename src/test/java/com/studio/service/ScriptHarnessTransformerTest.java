@@ -47,4 +47,21 @@ class ScriptHarnessTransformerTest {
         assertEquals("tc_74692232_Run", ScriptHarnessTransformer.sanitizeClassName("tc-74692232_Run"));
         assertEquals("C_123", ScriptHarnessTransformer.sanitizeClassName("123"));
     }
+
+    @Test
+    void transformsLocatorCallsToSelfHealingLocator() {
+        String script = """
+                public class Example {
+                  public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    page.locator("button#submit-btn").click();
+                    page.locator("input[name='user']").fill("admin");
+                  }
+                }
+                """;
+
+        String out = ScriptHarnessTransformer.transform(script, false, "/tmp/shot", "tc_heal_Run");
+        assertTrue(out.contains("StudioRuntime.healLocator(\"button#submit-btn\").click()"), out);
+        assertTrue(out.contains("StudioRuntime.healLocator(\"input[name='user']\").fill(\"admin\")"), out);
+    }
 }

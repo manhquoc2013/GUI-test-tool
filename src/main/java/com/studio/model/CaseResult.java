@@ -26,6 +26,7 @@ public class CaseResult {
     private int exitCode;
     private String screenshotPath;
     private List<AssertResult> assertResults = new ArrayList<>();
+    private List<HealedStepMeta> healedSteps = new ArrayList<>();
 
     public CaseResult() {
     }
@@ -167,5 +168,13 @@ public class CaseResult {
 
     public void setAssertResults(List<AssertResult> assertResults) {
         this.assertResults = assertResults;
+    }
+
+    public List<HealedStepMeta> getHealedSteps() {
+        return healedSteps != null ? healedSteps : new ArrayList<>();
+    }
+
+    public void setHealedSteps(List<HealedStepMeta> healedSteps) {
+        this.healedSteps = healedSteps != null ? healedSteps : new ArrayList<>();
     }
 }

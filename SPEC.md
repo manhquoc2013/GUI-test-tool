@@ -1,61 +1,47 @@
-# Technical Specification: System Data Cleanup & Persistent Settings Protection
+# Technical Specification: Multi-Tier Self-Healing Engine for Playwright Automation Studio
 
 ## 1. Objective
-Provide a robust Data Maintenance & System Cleanup feature in Playwright Automation Studio:
-1. **Multi-Target Cleanup**:
-   - Clean Execution Reports & Screenshots (`data/reports/`, H2 `run_reports`), with option to preserve the latest N (e.g. 5 or 10) reports.
-   - Clean AI Chat History (purges `.ai_chat.json` files across all suites and H2 `ai_chat_messages`).
-   - Clean Temporary Work Directory & Test Harnesses (`work/`).
-2. **Absolute System Settings Protection & Dual-Persistence**:
-   - Protect `SettingsStore.Settings` (theme, browser defaults, timeouts, OpenAI API keys, endpoints, parameters) from ever being touched during cleanups.
-   - **Dual-Persistence**: Automatically persist settings to both `data/config/settings.json` and H2 table `system_settings` to guard against file deletion or disk corruption.
-   - **Backup & Restore**: Provide 1-click **Export Settings** to JSON file and **Import Settings** from JSON file.
-3. **Ergonomic Modal UI (`DataCleanupDialog.java`)**:
-   - Accessible via "Dọn dẹp" on the main application header.
-   - Granular checkboxes, report retention picker (Delete all vs. Keep 5 vs. Keep 10), live disk usage estimation, and confirmation prompt.
+Implement an autonomous, multi-tier Self-Healing Engine integrated directly into Playwright Automation Studio's runtime and runner:
+1. **Multi-Tier Resilience & Healing Architecture**:
+   - **Tier 0**: Smart wait & element stability checks (400ms buffer, scroll into view).
+   - **Tier 1**: In-memory `LocateCache` for zero-overhead repeat step healing across tests.
+   - **Tier 2**: Zero-cost Rule-Based `HeuristicHealer` (<30ms, dynamic ID cleanup, text/role/aria-label conversion).
+   - **Tier 3**: Multimodal AI / VLM healing via Studio's existing `OpenAiClient` + `EnhancedDomExtractor` (with Shadow DOM, IFrame, and visibility checks).
+   - **Tier 4**: Multi-criteria Sandbox Verification (`count() == 1 && isVisible() && isEnabled()`).
+2. **Persistent Auto-Mutation & Audit Trail**:
+   - Updates `case.json` automatically upon validated healing via `ProjectStore`.
+   - Records detailed audit metadata (`HealedStepMeta`) on `CaseResult` and displays `[Auto-Healed]` badges in HTML/Report views.
+3. **Seamless Runner & Harness Integration**:
+   - `StudioRuntime` provides thread-safe access to the healing executor.
+   - `ScriptHarnessTransformer` and `AssertCodeGenerator` generate self-healing wrapped calls for locator interactions and element assertions.
 
-## 2. Architecture & Components
+## 2. Components
 
-### 2.1 Database Schema Addition (`DatabaseManager.java`)
-- New table:
-  ```sql
-  CREATE TABLE IF NOT EXISTS system_settings (
-      key VARCHAR(100) PRIMARY KEY,
-      value CLOB NOT NULL,
-      updated_at BIGINT NOT NULL
-  );
-  ```
+### 2.1 Models (`com.studio.model.HealedStepMeta`)
+- Records:
+  - `testCaseId`: String
+  - `actionDescription`: String
+  - `originalSelector`: String
+  - `repairedSelector`: String
+  - `method`: String ("HEURISTIC" | "VLM" | "LOCATE_CACHE")
+  - `timestamp`: String
 
-### 2.2 Dual-Persistence & Backup in `SettingsStore.java`
-- `save(Settings s)`: Writes to disk `data/config/settings.json` AND merges into H2 table `system_settings`.
-- `load()`: Reads from `settings.json`; if missing or unreadable, falls back to H2 `system_settings`; if both missing, seeds defaults and saves to both.
-- `exportSettings(Path targetFile)`: Exports current settings to chosen file.
-- `importSettings(Path sourceFile)`: Validates and imports settings from file, saving to both disk and H2.
+### 2.2 Runtime Engine (`com.studio.runtime`)
+- `EnhancedDomExtractor`: Evaluates JS to gather interactive elements with Shadow DOM traversal, visibility checks, and dynamic ID filtering.
+- `HeuristicHealer`: Fast rule-based repair analyzing failed selectors (id suffix, text, name, aria-label).
+- `OptimizedSelfHealingExecutor`: Orchestrates Tiers 0-4, verifies candidates, records audit trail, and persists changes.
+- `StudioRuntime`: Adds ThreadLocal holder for `OptimizedSelfHealingExecutor` and step audit records.
 
-### 2.3 Cleanup Service (`com.studio.service.DataCleanupService`)
-- Options class: `CleanupOptions`:
-  - `cleanReports`: boolean
-  - `keepRecentReports`: int (0 for all, 5, 10, etc.)
-  - `cleanAiChat`: boolean
-  - `cleanWorkDir`: boolean
-  - `preserveSettings`: boolean (always true)
-- Result class: `CleanupResult`:
-  - `deletedReportsCount`: int
-  - `deletedChatCount`: int
-  - `deletedWorkFilesCount`: int
-  - `freedBytes`: long
-  - `settingsPreserved`: boolean
-- Methods:
-  - `calculateDiskUsage()`: Measures size and counts before cleanup.
-  - `executeCleanup(CleanupOptions options)`: Executes cleanup, purges database rows, recalculates stats.
+### 2.3 Transformers & Generators
+- `ScriptHarnessTransformer`: Wraps locator actions or provides `StudioRuntime.healLocator(...)` proxy helper.
+- `AssertCodeGenerator`: Embeds healing lookup in element assertion generation.
 
-### 2.4 Cleanup Modal Dialog (`com.studio.controller.DataCleanupDialog`)
-- Shows system settings safety guarantee with Export/Import buttons.
-- Checkboxes for Reports, AI Chat, Work dir.
-- ComboBox for report retention: "Xóa tất cả báo cáo", "Giữ lại 5 báo cáo mới nhất", "Giữ lại 10 báo cáo mới nhất".
-- "Dọn dẹp ngay" action button with confirmation and summary toast.
+### 2.4 Test Runner & Reporting
+- `TestRunnerService`: Instantiates executor with active `OpenAiClient` + `AiConfig` and attaches to `StudioRuntime`. Collects `healedSteps` into `CaseResult`.
+- `HtmlReportService`: Renders auto-healed badges and table in execution reports.
 
 ## 3. Testing Strategy
-- Unit tests for `SettingsStore` dual-persistence (fallback from H2 if file deleted, export/import).
-- Unit tests for `DataCleanupService` (retention of N recent reports, work dir cleanup, chat deletion, settings immutability).
-- Full regression verification (`mvn test -o`).
+- Unit tests for `HeuristicHealer` (regex, ID patterns, text matching).
+- Unit tests for `OptimizedSelfHealingExecutor` (cache hit, heuristic repair, candidate validation).
+- Unit tests for `ScriptHarnessTransformer` and `AssertCodeGenerator` with healing.
+- Full regression verification (`mvn test`).

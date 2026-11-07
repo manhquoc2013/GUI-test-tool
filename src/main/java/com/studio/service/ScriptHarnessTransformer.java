@@ -50,6 +50,11 @@ public class ScriptHarnessTransformer {
                 "(?m)^\\s*(?:\\w+\\.)?(?:browser|playwright|context|page)\\.close\\(\\)\\s*;\\s*$",
                 "// close handled by StudioRuntime");
 
+        // Self-Healing: wrap page.locator("...") with StudioRuntime.healLocator("...")
+        code = code.replaceAll(
+                "(?m)(\\b(?:page|p)\\b)\\.locator\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)",
+                "com.studio.runtime.StudioRuntime.healLocator($2)");
+
         return wrapMainBodyWithScreenshot(code, screenshotPath);
     }
 
