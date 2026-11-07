@@ -153,6 +153,10 @@ public class LiveDomScanner {
         urlDomCache.clear();
     }
 
+    public void evictExpired() {
+        urlDomCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+
     public void invalidateCache(String url) {
         if (url != null) {
             urlDomCache.remove(url.trim());

@@ -159,4 +159,22 @@ public class DatabaseManager {
             throw new RuntimeException("Không thể khởi tạo cơ sở dữ liệu nhúng H2: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Compacts H2 memory buffers and flushes unwritten blocks to disk to release RAM.
+     */
+    public synchronized void compactAndReleaseMemory() {
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("CHECKPOINT DEFRAG");
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Performs a graceful database shutdown, defragmenting and releasing all file locks and OS buffers.
+     */
+    public synchronized void shutdown() {
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("SHUTDOWN COMPACT");
+        } catch (Exception ignored) {}
+    }
 }

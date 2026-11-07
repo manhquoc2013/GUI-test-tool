@@ -24,16 +24,27 @@ import java.util.List;
 public class OpenAiClient {
 
     private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+    private static volatile HttpClient SHARED_HTTP_CLIENT;
+
+    private static HttpClient getSharedHttpClient() {
+        if (SHARED_HTTP_CLIENT == null) {
+            synchronized (OpenAiClient.class) {
+                if (SHARED_HTTP_CLIENT == null) {
+                    SHARED_HTTP_CLIENT = HttpClient.newBuilder()
+                            .connectTimeout(Duration.ofSeconds(15))
+                            .followRedirects(HttpClient.Redirect.NORMAL)
+                            .build();
+                }
+            }
+        }
+        return SHARED_HTTP_CLIENT;
+    }
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
 
     public OpenAiClient() {
-        this(HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build(),
-                DEFAULT_MAPPER);
+        this(getSharedHttpClient(), DEFAULT_MAPPER);
     }
 
     public OpenAiClient(HttpClient httpClient, ObjectMapper mapper) {

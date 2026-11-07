@@ -193,6 +193,7 @@ public final class TestCaseExcelExportService {
                 wb.write(fos);
             }
         }
+        ResourceReleaseService.releaseAfterExport();
     }
 
     private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName, Path suiteDir) {

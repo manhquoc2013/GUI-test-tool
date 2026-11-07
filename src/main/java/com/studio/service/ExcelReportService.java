@@ -100,6 +100,7 @@ public class ExcelReportService {
                 wb.write(fos);
             }
         }
+        ResourceReleaseService.releaseAfterExport();
     }
 
     private static void createSummarySheet(Sheet sheet, RunReport report, Styles styles, ExportLanguage lang) {

@@ -80,13 +80,15 @@ public final class ThemeService {
             applyCurrentTheme(primaryScene);
         }
         // Save preference asynchronously
-        new Thread(() -> {
+        Thread t = new Thread(() -> {
             try {
                 SettingsStore.Settings s = settingsStore.load();
                 s.setTheme(currentTheme);
                 settingsStore.save(s);
             } catch (IOException ignored) {}
-        }, "Save-Theme-Worker").start();
+        }, "Save-Theme-Worker");
+        t.setDaemon(true);
+        t.start();
 
         // Notify UI listeners
         notifyListeners();

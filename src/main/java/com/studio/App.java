@@ -38,11 +38,31 @@ public class App extends Application {
 
         primaryStage.setTitle("Playwright Automation Studio");
         primaryStage.setScene(scene);
+
+        // When window is minimized, release idle caches and compact memory back to OS
+        primaryStage.iconifiedProperty().addListener((obs, wasMinimized, isNowMinimized) -> {
+            if (Boolean.TRUE.equals(isNowMinimized)) {
+                com.studio.service.ResourceReleaseService.releaseIdleResources();
+            }
+        });
+
+        // Graceful resource release on close window
+        primaryStage.setOnCloseRequest(e -> {
+            com.studio.service.ResourceReleaseService.releaseAllOnShutdown();
+        });
+
+        // Register JVM shutdown hook as ultimate safety guard
+        Runtime.getRuntime().addShutdownHook(new Thread(
+                com.studio.service.ResourceReleaseService::releaseAllOnShutdown,
+                "Studio-OS-Resource-Cleanup"
+        ));
+
         primaryStage.show();
     }
 
     @Override
     public void stop() {
+        com.studio.service.ResourceReleaseService.releaseAllOnShutdown();
     }
 
     public static void main(String[] args) {

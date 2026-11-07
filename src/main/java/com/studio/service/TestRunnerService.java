@@ -451,6 +451,10 @@ public class TestRunnerService {
                 session.close();
             }
             RunCancelService.endRun();
+            // Clean up temporary compiled harness directory to release disk and file handles
+            deleteQuietly(StudioPaths.getHarnessDir().resolve(runId));
+            // Reclaim resources and return unused memory to OS
+            ResourceReleaseService.releaseAfterTestRun();
         }
 
         // Final counts

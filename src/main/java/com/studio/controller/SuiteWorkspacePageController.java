@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.*;
 import com.studio.service.I18nService;
+import com.studio.service.ResourceReleaseService;
 import com.studio.service.RunProgressService;
 import com.studio.service.StatusBarService;
 import com.studio.service.TestCaseExcelExportService;
@@ -95,6 +96,22 @@ public class SuiteWorkspacePageController {
     private boolean suppressUrlTracking;
     /** Case name for context menu (right-click); does not change ListView selection. */
     private String contextCaseName;
+
+    private static final java.util.concurrent.atomic.AtomicReference<Process> activeCodegenProcess = new java.util.concurrent.atomic.AtomicReference<>();
+
+    static {
+        ResourceReleaseService.registerCleanupTask("codegen-abort", SuiteWorkspacePageController::abortActiveCodegen);
+    }
+
+    public static void abortActiveCodegen() {
+        Process p = activeCodegenProcess.getAndSet(null);
+        if (p != null && p.isAlive()) {
+            try {
+                p.toHandle().descendants().forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly();
+            } catch (Exception ignored) {}
+        }
+    }
 
     public void loadSuite(TestSuite suite, Path suitePath) {
         loadSuite(suite, suitePath, null, false);
@@ -1114,6 +1131,7 @@ public class SuiteWorkspacePageController {
         }
 
         Process process = pb.start();
+        activeCodegenProcess.set(process);
 
         Thread outputThread = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(
@@ -1130,9 +1148,13 @@ public class SuiteWorkspacePageController {
         outputThread.setDaemon(true);
         outputThread.start();
 
-        int exitCode = process.waitFor();
-        outputThread.join(5000);
-        return exitCode;
+        try {
+            int exitCode = process.waitFor();
+            outputThread.join(5000);
+            return exitCode;
+        } finally {
+            activeCodegenProcess.compareAndSet(process, null);
+        }
     }
 
 
