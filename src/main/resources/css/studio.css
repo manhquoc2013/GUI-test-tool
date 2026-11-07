@@ -1,4 +1,11 @@
 /* === ROOT & BASE === */
+.root {
+    -color-surface: #24283b;
+    -color-surface-hover: #3b3d57;
+    -color-subtext: #9aa5ce;
+    -color-primary: #7aa2f7;
+    -color-primary-dim: #22325b;
+}
 /*
  * Icon size scale (same role → same size):
  *   action-ui 13px | action-row 14px | status 12px | chrome-icon 15px | nav-collapsed 16px
@@ -1688,7 +1695,7 @@
 .ai-prompt-input {
     -fx-background-color: #16161e;
     -fx-text-fill: #c0caf5;
-    -fx-font-family: inherit;
+    -fx-font-family: "Segoe UI", sans-serif;
     -fx-font-size: 13px;
     -fx-background-radius: 6;
     -fx-border-color: #3b3d57;

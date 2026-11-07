@@ -69,13 +69,13 @@ public class AiCasePromptDialog {
         // Case Info header
         HBox infoBox = new HBox(16);
         infoBox.setAlignment(Pos.CENTER_LEFT);
-        infoBox.setStyle("-fx-background-color: -color-surface-hover; -fx-padding: 10px 14px; -fx-background-radius: 8px;");
+        infoBox.setStyle("-fx-background-color: #3b3d57; -fx-padding: 10px 14px; -fx-background-radius: 8px;");
 
         Label caseNameLbl = new Label("🎯 Case: " + activeCase.getName());
         caseNameLbl.setStyle("-fx-font-weight: bold;");
 
         Label caseUrlLbl = new Label("🔗 " + (activeCase.getStartUrl().isBlank() ? "(Chưa có URL)" : activeCase.getStartUrl()));
-        caseUrlLbl.setStyle("-fx-text-fill: -color-subtext;");
+        caseUrlLbl.setStyle("-fx-text-fill: #9aa5ce;");
         HBox.setHgrow(caseUrlLbl, Priority.ALWAYS);
 
         Label assertsCountLbl = new Label("☑️ " + activeCase.getAssertions().size() + " asserts");
@@ -285,13 +285,13 @@ public class AiCasePromptDialog {
                                 List<DocumentParserService.ParsedDocument> docList) {
         HBox chip = new HBox(4);
         chip.setAlignment(Pos.CENTER_LEFT);
-        chip.setStyle("-fx-background-color: -color-surface; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: -color-surface-hover; -fx-border-radius: 12px;");
+        chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
 
         Label label = new Label((doc.isImage() ? "🖼️ " : "📄 ") + doc.getFileName());
         label.setStyle("-fx-font-size: 11px;");
 
         Button removeBtn = new Button("✕");
-        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: -color-subtext; -fx-cursor: hand; -fx-font-size: 10px;");
+        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: #9aa5ce; -fx-cursor: hand; -fx-font-size: 10px;");
         removeBtn.setOnAction(e -> {
             container.getChildren().remove(chip);
             docList.remove(doc);

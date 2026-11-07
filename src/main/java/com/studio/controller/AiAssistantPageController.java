@@ -221,13 +221,13 @@ public class AiAssistantPageController implements Initializable {
     private void addFileChip(DocumentParserService.ParsedDocument doc) {
         HBox chip = new HBox(6);
         chip.setAlignment(Pos.CENTER_LEFT);
-        chip.setStyle("-fx-background-color: -color-surface; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: -color-surface-hover; -fx-border-radius: 12px;");
+        chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
 
         Label label = new Label((doc.isImage() ? "🖼️ " : "📄 ") + doc.getFileName());
         label.setStyle("-fx-font-size: 11px;");
 
         Button removeBtn = new Button("✕");
-        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: -color-subtext; -fx-cursor: hand; -fx-font-size: 10px;");
+        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: #9aa5ce; -fx-cursor: hand; -fx-font-size: 10px;");
         removeBtn.setOnAction(e -> {
             attachedChipsPane.getChildren().remove(chip);
             attachedDocuments.remove(doc);
@@ -400,7 +400,7 @@ public class AiAssistantPageController implements Initializable {
 
         String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
         Label headerLabel = new Label(("user".equals(role) ? "👤 Bạn" : "🤖 Trợ lý AI") + "  •  " + time);
-        headerLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
+        headerLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
 
         Label contentLabel = new Label(text);
         contentLabel.setWrapText(true);
@@ -410,10 +410,10 @@ public class AiAssistantPageController implements Initializable {
         HBox wrapper = new HBox(bubble);
         if ("user".equals(role)) {
             wrapper.setAlignment(Pos.CENTER_RIGHT);
-            bubble.setStyle("-fx-background-color: -color-primary-dim; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 2px 12px;");
+            bubble.setStyle("-fx-background-color: #22325b; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 2px 12px;");
         } else {
             wrapper.setAlignment(Pos.CENTER_LEFT);
-            bubble.setStyle("-fx-background-color: -color-surface; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 12px 2px; -fx-border-color: -color-surface-hover; -fx-border-radius: 12px 12px 12px 2px;");
+            bubble.setStyle("-fx-background-color: #24283b; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 12px 2px; -fx-border-color: #3b3d57; -fx-border-radius: 12px 12px 12px 2px;");
         }
 
         chatMessagesBox.getChildren().add(wrapper);

@@ -89,7 +89,7 @@ public class AiSettingsDialog {
         Label envHint = new Label(aiConfig.getEffectiveApiKey().isEmpty()
                 ? "⚠️ Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY)."
                 : "💡 Đang khả dụng: " + (aiConfig.getApiKey().isEmpty() ? "biến môi trường OPENAI_API_KEY" : "API Key trực tiếp"));
-        envHint.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
+        envHint.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
 
         VBox keyCol = new VBox(4, keyBox, envHint);
 
@@ -104,7 +104,7 @@ public class AiSettingsDialog {
         urlField.setPromptText("https://api.openai.com/v1");
 
         Label urlHint = new Label("💡 Hỗ trợ OpenAI, Azure OpenAI, OpenRouter (https://openrouter.ai/api/v1), LocalAI, Ollama");
-        urlHint.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
+        urlHint.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
         VBox urlCol = new VBox(4, urlField, urlHint);
 
         grid.add(urlLabel, 0, row);
@@ -159,7 +159,7 @@ public class AiSettingsDialog {
         testConnBtn.setOnAction(e -> {
             testConnBtn.setDisable(true);
             testStatusLabel.setText("⏳ Đang kiểm tra kết nối...");
-            testStatusLabel.setStyle("-fx-text-fill: -color-subtext;");
+            testStatusLabel.setStyle("-fx-text-fill: #9aa5ce;");
 
             AiConfig probeConfig = new AiConfig();
             probeConfig.setApiKey(keyField.getText());

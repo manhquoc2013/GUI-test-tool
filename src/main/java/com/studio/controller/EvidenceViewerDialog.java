@@ -53,7 +53,7 @@ public class EvidenceViewerDialog {
         topRow.setAlignment(Pos.CENTER_LEFT);
 
         Label pathLabel = new Label("📁 " + imagePath.toAbsolutePath().normalize());
-        pathLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
+        pathLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
         HBox.setHgrow(pathLabel, Priority.ALWAYS);
 
         Button copyPathBtn = new Button("📋 Chép đường dẫn");
