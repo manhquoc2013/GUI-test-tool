@@ -65,7 +65,7 @@ public class SettingsDualPersistenceTest {
         store.save(s);
 
         Path exportFile = tempDir.resolve("backup_settings.json");
-        store.exportSettings(exportFile);
+        store.exportSettings(exportFile, false);
         assertTrue(Files.exists(exportFile));
 
         // Mutate current

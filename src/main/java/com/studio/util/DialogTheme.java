@@ -404,9 +404,14 @@ public final class DialogTheme {
     private static void styleButtons(DialogPane pane) {
         Button ok = (Button) pane.lookupButton(ButtonType.OK);
         if (ok != null) {
-            ok.setText("OK");
+            String currentText = ok.getText();
+            if (currentText == null || currentText.isBlank() || "OK".equalsIgnoreCase(currentText.trim())) {
+                ok.setText("OK");
+            }
             UiIcons.setGraphic(ok, UiIcons.CHECK, 13);
-            ok.getStyleClass().add("btn-primary");
+            if (!ok.getStyleClass().contains("btn-primary")) {
+                ok.getStyleClass().add("btn-primary");
+            }
             ButtonBar.setButtonData(ok, ButtonBar.ButtonData.OK_DONE);
         }
         Button cancel = (Button) pane.lookupButton(ButtonType.CANCEL);

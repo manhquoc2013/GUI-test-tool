@@ -48,9 +48,21 @@ public class AiCasePromptDialog {
 
         if (!aiConfig.hasApiKey()) {
             ToastService.warn("⚠️ Chưa có API Key. Vui lòng mở Cài đặt OpenAI để điền API Key.");
-            AiSettingsDialog.show(settingsStore);
-            return;
+            boolean updated = AiSettingsDialog.show(settingsStore);
+            if (!updated) {
+                return;
+            }
+            try {
+                settings = settingsStore.load();
+                aiConfig = settings.getAiConfig();
+            } catch (IOException e) {
+                return;
+            }
+            if (!aiConfig.hasApiKey()) {
+                return;
+            }
         }
+        final AiConfig effectiveAiConfig = aiConfig;
 
         Dialog<Boolean> dialog = new Dialog<>();
         dialog.setTitle("AI Hỗ trợ Case: " + activeCase.getName());
@@ -221,7 +233,7 @@ public class AiCasePromptDialog {
                 try {
                     AiTestGeneratorService generator = new AiTestGeneratorService();
                     AiTestGeneratorService.GenerationResult result = generator.generateOrUpdateSingleCase(
-                            aiConfig, prompt, attachedDocs, activeCase, currentScript
+                            effectiveAiConfig, prompt, attachedDocs, activeCase, currentScript
                     );
 
                     Platform.runLater(() -> {

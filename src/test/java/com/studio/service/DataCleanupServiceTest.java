@@ -67,7 +67,7 @@ public class DataCleanupServiceTest {
     }
 
     @Test
-    public void testCleanAiChatAndWorkDir() throws IOException {
+    public void testCleanAiChatAndWorkDir(@TempDir Path tempDir) throws IOException {
         // 1. Setup mock chat file
         Path projDir = StudioPaths.getProjectDir().resolve("TestGroup").resolve("SuiteTest");
         Files.createDirectories(projDir);
@@ -80,8 +80,8 @@ public class DataCleanupServiceTest {
         Path tempFile = workDir.resolve("TempClass.java");
         Files.writeString(tempFile, "// temp code", StandardCharsets.UTF_8);
 
-        // 3. Setup settings
-        SettingsStore settingsStore = new SettingsStore();
+        // 3. Setup settings in temp dir to avoid polluting actual user settings
+        SettingsStore settingsStore = new SettingsStore(tempDir);
         SettingsStore.Settings s = new SettingsStore.Settings();
         s.setBrowser("EDGE");
         settingsStore.save(s);

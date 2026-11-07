@@ -920,7 +920,8 @@ public class TestRunnerService {
     }
 
     private void terminal(String msg, Consumer<String> output) {
-        if (output != null) output.accept(msg);
-        System.out.println("[Runner] " + msg);
+        String sanitized = com.studio.util.SecuritySanitizer.sanitize(msg);
+        if (output != null) output.accept(sanitized);
+        System.out.println("[Runner] " + sanitized);
     }
 }

@@ -1,6 +1,6 @@
-# Tasks: Code Review Enhancements & Unused Cleanup
+# Tasks: API Key Security Implementation
 
-- [x] Task 1: Optimize `LiveDomScanner.java` with smart streaming/WebSocket timeout and graceful recovery <!-- id: 7 -->
-- [x] Task 2: Auto-prefill Suite/Case URL in `AiAssistantPageController.java` `scanLiveDom()` dialog <!-- id: 8 -->
-- [x] Task 3: Audit and clean up unused imports and variables across all modified and related classes <!-- id: 9 -->
-- [x] Task 4: Run full verification suite (`mvn test`) and commit atomically <!-- id: 10 -->
+- [ ] Task 1: Implement `ApiKeyCipher` (AES-256-GCM + PBKDF2 device-bound key) and `ApiKeyCipherTest` <!-- id: 1 -->
+- [ ] Task 2: Enhance `SettingsStore` with transparent encryption at rest, masked export, and safe import <!-- id: 2 -->
+- [ ] Task 3: Implement `SecuritySanitizer` and integrate into `TestRunnerService` & `OpenAiClient` <!-- id: 3 -->
+- [ ] Task 4: Run full verification suite (`mvn clean test`) and finalize documentation <!-- id: 4 -->

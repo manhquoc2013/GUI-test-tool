@@ -424,8 +424,18 @@ public class AiAssistantPageController implements Initializable {
 
         if (!aiConfig.hasApiKey()) {
             ToastService.warn("⚠️ Chưa có OpenAI API Key. Vui lòng mở Cài đặt OpenAI để điền API Key.");
-            openSettings();
-            return;
+            boolean updated = AiSettingsDialog.show(settingsStore, "AI");
+            if (updated) {
+                refreshModelIndicator();
+                updateTokenUsageDisplay();
+                try {
+                    settings = settingsStore.load();
+                    aiConfig = settings.getAiConfig();
+                } catch (Exception ignored) {}
+            }
+            if (!aiConfig.hasApiKey()) {
+                return;
+            }
         }
 
         // Create User Message
@@ -460,11 +470,12 @@ public class AiAssistantPageController implements Initializable {
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
         String domContext = liveDomJson;
+        final AiConfig effectiveAiConfig = aiConfig;
 
         Thread thread = new Thread(() -> {
             try {
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        aiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages(),
+                        effectiveAiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status))
                 );
 

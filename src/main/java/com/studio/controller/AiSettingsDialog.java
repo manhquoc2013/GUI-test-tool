@@ -272,10 +272,13 @@ public class AiSettingsDialog {
 
         Label envHint = new Label(aiConfig.getEffectiveApiKey().isEmpty()
                 ? "Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY)."
-                : "Đang khả dụng: " + (aiConfig.getApiKey().isEmpty() ? "biến môi trường OPENAI_API_KEY" : "API Key trực tiếp"));
+                : "Đang khả dụng: " + (aiConfig.getApiKey().isEmpty() ? "biến môi trường OPENAI_API_KEY" : "API Key trực tiếp (" + com.studio.util.ApiKeyCipher.mask(aiConfig.getApiKey()) + ")"));
         envHint.getStyleClass().add("settings-hint-label");
 
-        VBox keyCol = new VBox(4, keyBox, envHint);
+        Label securityBadge = new Label("🔒 Mã hóa AES-256-GCM bảo vệ an toàn theo phần cứng thiết bị.");
+        securityBadge.setStyle("-fx-font-size: 11px; -fx-text-fill: #10b981;");
+
+        VBox keyCol = new VBox(4, keyBox, envHint, securityBadge);
         aiGrid.add(keyLabel, 0, aiRow);
         aiGrid.add(keyCol, 1, aiRow);
         aiRow++;
@@ -481,33 +484,47 @@ public class AiSettingsDialog {
 
         dialog.setResultConverter(btn -> {
             if (btn == ButtonType.OK) {
-                // Save General Settings
-                finalSettings.setBrowser(browserCombo.getValue());
-                finalSettings.setHeadlessDefault(headlessCheck.isSelected());
-                finalSettings.setShareContextDefault(shareCheck.isSelected());
-                finalSettings.setStopOnFirstFailureDefault(stopCheck.isSelected());
-                String selectedTheme = "Sáng (Clean Light)".equals(themeCombo.getValue()) ? "light" : "dark";
-                finalSettings.setTheme(selectedTheme);
-
-                // Save AI Settings
-                AiConfig cfg = finalSettings.getAiConfig();
-                cfg.setApiKey(keyField.getText().trim());
-                cfg.setBaseUrl(urlField.getText().trim());
-                String enteredModel = modelCombo.getEditor().getText() != null && !modelCombo.getEditor().getText().isBlank()
-                        ? modelCombo.getEditor().getText().trim()
-                        : (modelCombo.getValue() != null ? modelCombo.getValue().trim() : "gpt-4o");
-                cfg.setModel(enteredModel);
-                cfg.setTemperature(tempSlider.getValue());
-                cfg.setMaxTokens(maxTokensSpinner.getValue());
-
                 try {
+                    // Save General Settings
+                    if (browserCombo.getValue() != null && !browserCombo.getValue().isBlank()) {
+                        finalSettings.setBrowser(browserCombo.getValue().trim());
+                    }
+                    finalSettings.setHeadlessDefault(headlessCheck.isSelected());
+                    finalSettings.setShareContextDefault(shareCheck.isSelected());
+                    finalSettings.setStopOnFirstFailureDefault(stopCheck.isSelected());
+                    String selectedTheme = "Sáng (Clean Light)".equals(themeCombo.getValue()) ? "light" : "dark";
+                    finalSettings.setTheme(selectedTheme);
+
+                    // Save AI Settings
+                    AiConfig cfg = finalSettings.getAiConfig();
+                    String key = keyField.getText() != null ? keyField.getText().trim() : "";
+                    if (key.isEmpty() && plainKeyField.getText() != null) {
+                        key = plainKeyField.getText().trim();
+                    }
+                    cfg.setApiKey(key);
+
+                    String url = urlField.getText() != null ? urlField.getText().trim() : "";
+                    cfg.setBaseUrl(url);
+
+                    String enteredModel = modelCombo.getEditor() != null && modelCombo.getEditor().getText() != null && !modelCombo.getEditor().getText().isBlank()
+                            ? modelCombo.getEditor().getText().trim()
+                            : (modelCombo.getValue() != null ? modelCombo.getValue().trim() : "gpt-4o");
+                    cfg.setModel(enteredModel);
+                    cfg.setTemperature(tempSlider.getValue());
+
+                    try {
+                        maxTokensSpinner.commitValue();
+                    } catch (Exception ignored) {}
+                    Integer tokens = maxTokensSpinner.getValue();
+                    cfg.setMaxTokens(tokens != null && tokens > 0 ? tokens : 4096);
+
                     store.save(finalSettings);
                     if (!selectedTheme.equalsIgnoreCase(ThemeService.getCurrentTheme())) {
                         ThemeService.setTheme(selectedTheme);
                     }
                     ToastService.success("💾 Đã lưu toàn bộ cấu hình hệ thống & AI!");
                     return true;
-                } catch (IOException ex) {
+                } catch (Exception ex) {
                     ToastService.error("⚠️ Không thể lưu cấu hình: " + ex.getMessage());
                     return false;
                 }

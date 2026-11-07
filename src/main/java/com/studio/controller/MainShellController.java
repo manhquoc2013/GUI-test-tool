@@ -609,7 +609,10 @@ public class MainShellController implements Initializable {
 
     @FXML
     public void openSettings() {
-        AiSettingsDialog.show(new SettingsStore(), "GENERAL");
+        boolean updated = AiSettingsDialog.show(new SettingsStore(), "GENERAL");
+        if (updated) {
+            refreshBrowserLabel();
+        }
     }
 
     @FXML

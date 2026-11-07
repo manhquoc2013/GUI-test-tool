@@ -126,7 +126,7 @@ public class SettingsStore {
         if (fromDb != null) {
             // Restore disk file from database mirror
             try {
-                Files.createDirectories(StudioPaths.getConfigDir());
+                Files.createDirectories(configDir);
                 mapper.writeValue(settingsFile.toFile(), fromDb);
             } catch (Exception ignored) {}
             return fromDb;

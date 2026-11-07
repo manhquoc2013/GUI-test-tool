@@ -51,6 +51,13 @@ public final class RunTargetResolve {
         if (suite != null && !isDefaultBrowser(suite.getBrowser())) {
             return normalizeBrowserId(suite.getBrowser());
         }
+        try {
+            String defaultBrowser = new SettingsStore().load().getBrowser();
+            if (defaultBrowser != null && !defaultBrowser.isBlank()) {
+                return normalizeBrowserId(defaultBrowser);
+            }
+        } catch (Exception ignored) {
+        }
         return DEFAULT_BROWSER;
     }
 

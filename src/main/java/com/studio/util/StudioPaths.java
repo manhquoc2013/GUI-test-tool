@@ -40,10 +40,12 @@ public class StudioPaths {
                     }
                 } else {
                     Path parent = codeSource.getParent();
-                    if (parent != null && "app".equalsIgnoreCase(name(parent))
+                    if (parent != null && "target".equalsIgnoreCase(name(parent))) {
+                        // JAR inside target/ (e.g. target/playwright-studio.jar) -> fall through to user.dir
+                    } else if (parent != null && "app".equalsIgnoreCase(name(parent))
                             && parent.getParent() != null) {
                         APP_HOME = parent.getParent();
-                    } else {
+                    } else if (parent != null) {
                         APP_HOME = parent;
                     }
                 }

@@ -140,11 +140,13 @@ public class OpenAiClient {
                 return new ConnectionTestResult(false, latency, "Xác thực thất bại (HTTP 401): API Key không chính xác.");
             } else {
                 String errorMsg = extractErrorMessage(response.body());
-                return new ConnectionTestResult(false, latency, "Lỗi từ server (" + response.statusCode() + "): " + errorMsg);
+                String safeMsg = com.studio.util.SecuritySanitizer.sanitize("Lỗi từ server (" + response.statusCode() + "): " + errorMsg, apiKey);
+                return new ConnectionTestResult(false, latency, safeMsg);
             }
         } catch (Exception e) {
             long latency = System.currentTimeMillis() - start;
-            return new ConnectionTestResult(false, latency, "Không thể kết nối đến " + baseUrl + ": " + e.getMessage());
+            String safeMsg = com.studio.util.SecuritySanitizer.sanitize("Không thể kết nối đến " + baseUrl + ": " + e.getMessage(), apiKey);
+            return new ConnectionTestResult(false, latency, safeMsg);
         }
     }
 
