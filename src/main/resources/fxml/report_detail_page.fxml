@@ -73,7 +73,7 @@
                             <TableColumn text="#" fx:id="assertIndexCol" prefWidth="36"/>
                             <TableColumn text="🏷️ Loại kiểm tra" fx:id="assertTypeCol" prefWidth="160"/>
                             <TableColumn text="📄 Chi tiết" fx:id="assertDetailCol" prefWidth="160"/>
-                            <TableColumn text="⚙️ Cấu hình" fx:id="assertConfigCol" prefWidth="110"/>
+                            <TableColumn text="⚙ Cấu hình" fx:id="assertConfigCol" prefWidth="110"/>
                             <TableColumn text="📊 Kết quả" fx:id="assertResultCol" prefWidth="110"/>
                             <TableColumn text="💬 Thông báo" fx:id="assertMessageCol" prefWidth="180"/>
                         </columns>

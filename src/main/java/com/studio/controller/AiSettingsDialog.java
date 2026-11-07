@@ -28,7 +28,7 @@ public class AiSettingsDialog {
 
     public static void show(SettingsStore settingsStore) {
         Dialog<Boolean> dialog = new Dialog<>();
-        dialog.setTitle("⚙️ Cài đặt OpenAI Assistant");
+        dialog.setTitle("⚙ Cài đặt OpenAI Assistant");
         dialog.setHeaderText("Cấu hình mô hình AI và kết nối OpenAI / Compatible Endpoint");
 
         DialogPane pane = dialog.getDialogPane();

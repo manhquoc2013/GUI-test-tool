@@ -116,7 +116,7 @@ public class SuiteWorkspacePageController {
         if (relPath.startsWith("/") || relPath.startsWith("\\")) {
             relPath = relPath.substring(1);
         }
-        breadcrumbLabel.setText("🧭 Khám phá / " + relPath.replace('\\', '/'));
+        breadcrumbLabel.setText("📂 Khám phá / " + relPath.replace('\\', '/'));
         MainShellController shell = MainShellController.getInstance();
         if (shell != null) {
             String name = this.suite != null && this.suite.getName() != null
@@ -297,7 +297,7 @@ public class SuiteWorkspacePageController {
                 private final HBox row = new HBox(8);
                 private final Label nameLabel = new Label();
                 private final Label statusLabel = new Label();
-                private final Button runBtn = new Button("▶️");
+                private final Button runBtn = new Button("▶");
 
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
@@ -489,7 +489,7 @@ public class SuiteWorkspacePageController {
                 menu.getItems().add(recordItem);
                 if (StatusDisplay.canRunCase(suiteStatus(),
                         tc != null ? tc.getStatus() : null)) {
-                    MenuItem runItem = menuItem("▶️ Chạy Case này", () -> {
+                    MenuItem runItem = menuItem("▶ Chạy Case này", () -> {
                         ensureCaseSelectedForAction(selected);
                         runCase();
                     });
@@ -590,7 +590,7 @@ public class SuiteWorkspacePageController {
         runSuiteBtn.setManaged(show);
         if (caseSelected) {
             // Selection drives label/action: run only the selected case
-            runSuiteBtn.setText("▶️ Chạy case");
+            runSuiteBtn.setText("▶ Chạy case");
             runSuiteBtn.setOnAction(e -> runCase());
             runSuiteBtn.setDisable(!suiteActive || !caseRunnable || BusyButtons.isBusy());
             String tip;
@@ -604,7 +604,7 @@ public class SuiteWorkspacePageController {
             runSuiteBtn.setTooltip(new Tooltip(tip));
         } else {
             // No case selected → run entire suite
-            runSuiteBtn.setText("▶️ Chạy suite");
+            runSuiteBtn.setText("▶ Chạy suite");
             runSuiteBtn.setOnAction(e -> runSuite());
             runSuiteBtn.setDisable(!suiteActive);
             runSuiteBtn.setTooltip(new Tooltip(

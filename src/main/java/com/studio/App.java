@@ -19,7 +19,7 @@ public class App extends Application {
         Scene scene = new Scene(root, 1200, 800);
         scene.getStylesheets().add(getClass().getResource("/css/studio.css").toExternalForm());
 
-        primaryStage.setTitle("🦾 Playwright Automation Studio");
+        primaryStage.setTitle("🎭 Playwright Automation Studio");
         primaryStage.setScene(scene);
         primaryStage.show();
     }

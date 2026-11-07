@@ -221,7 +221,7 @@ public class HtmlReportService {
 
         // Header
         sb.append("<header>\n<div>\n");
-        sb.append("<h1>🦾 Playwright Automation Studio</h1>\n");
+        sb.append("<h1>🎭 Playwright Automation Studio</h1>\n");
         sb.append("<div class=\"meta-tags\">\n");
         sb.append("<span class=\"tag\">Đợt chạy: <strong>").append(escapeHtml(report.getRunId())).append("</strong></span>\n");
         sb.append("<span class=\"tag\">Phạm vi: ").append(escapeHtml(report.getScope())).append(" (").append(escapeHtml(report.getScopeName())).append(")</span>\n");

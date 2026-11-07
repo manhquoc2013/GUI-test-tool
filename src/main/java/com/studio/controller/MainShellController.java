@@ -170,7 +170,7 @@ public class MainShellController implements Initializable {
         if (helpContent == null) return;
         VBox body = helpContent;
 
-        body.getChildren().add(section("🦾 Giới thiệu"));
+        body.getChildren().add(section("🎭 Giới thiệu"));
         body.getChildren().add(bodyText(
                 "Playwright Automation Studio giúp bạn tạo và chạy test tự động cho web "
                         + "mà không cần viết code thủ công. Ứng dụng dùng Playwright để "
@@ -178,17 +178,17 @@ public class MainShellController implements Initializable {
 
         body.getChildren().add(section("📌 Thanh bên & thanh trên"));
         body.getChildren().add(bodyText(
-                "🧭 Khám phá — quản lý cây dự án (Nhóm → Suite → Case)\n"
+                "📂 Khám phá — quản lý cây dự án (Nhóm → Suite → Case)\n"
                         + "📊 Báo cáo — xem lịch sử các lần chạy test\n"
                         + "🤖 Trợ lý AI — chat phân tích spec/ảnh và sinh test cases tự động bằng OpenAI\n"
-                        + "▶️ Chạy tất cả — chạy toàn bộ project\n"
+                        + "▶ Chạy tất cả — chạy toàn bộ project\n"
                         + "📌 Suite đang mở — nhớ suite Workspace gần nhất; click mở lại, ✕ để bỏ\n"
                         + "⏹ Dừng — hiện trên thanh trên khi đang chạy; hủy ngay lượt chạy\n"
-                        + "⚙️ Cài đặt — cấu hình OpenAI API key, endpoint và mô hình\n"
+                        + "⚙ Cài đặt — cấu hình OpenAI API key, endpoint và mô hình\n"
                         + "❓ Trợ giúp — mở/đóng ngăn hướng dẫn này\n"
                         + "☰ — thu gọn / mở rộng thanh bên"));
 
-        body.getChildren().add(section("🧭 Explorer — Quản lý dự án"));
+        body.getChildren().add(section("📂 Explorer — Quản lý dự án"));
         body.getChildren().add(bodyText(
                 "Cây 3 cấp: Nhóm (📁) → Suite (📋) → Case (🧪)\n\n"
                         + "• Click chọn → xem thông tin bên phải\n"
@@ -221,13 +221,13 @@ public class MainShellController implements Initializable {
                         + "⚠️ Cần Node.js + Playwright CLI. "
                         + "Portable bundle đã tích hợp sẵn."));
 
-        body.getChildren().add(section("▶️ Chạy test"));
+        body.getChildren().add(section("▶ Chạy test"));
         body.getChildren().add(bodyText(
                 "4 phạm vi chạy:\n"
-                        + "  • Tất cả — sidebar ▶️ Chạy tất cả\n"
+                        + "  • Tất cả — sidebar ▶ Chạy tất cả\n"
                         + "  • Nhóm — chuột phải vào Nhóm\n"
-                        + "  • Suite — nút ▶️ Chạy Suite\n"
-                        + "  • Case — nút ▶️ bên cạnh tên case\n\n"
+                        + "  • Suite — nút ▶ Chạy Suite\n"
+                        + "  • Case — nút ▶ bên cạnh tên case\n\n"
                         + "Tùy chọn:\n"
                         + "  • ☐ Dừng khi lỗi đầu tiên\n"
                         + "  • ☐ Chung trình duyệt (cookie/session dùng chung)\n\n"
@@ -375,7 +375,7 @@ public class MainShellController implements Initializable {
                 sidebar.setMinWidth(SIDEBAR_EXPANDED);
                 sidebar.setMaxWidth(SIDEBAR_EXPANDED);
             }
-            navExplorerBtn.setText("🧭 Khám phá");
+            navExplorerBtn.setText("📂 Khám phá");
             navReportsBtn.setText("📊 Báo cáo");
             if (navAiBtn != null) {
                 navAiBtn.setText("🤖 Trợ lý AI");
@@ -383,7 +383,7 @@ public class MainShellController implements Initializable {
                 VBox.setMargin(navAiBtn, Insets.EMPTY);
                 navAiBtn.setAlignment(Pos.CENTER_LEFT);
             }
-            runAllBtn.setText("▶️ Chạy tất cả");
+            runAllBtn.setText("▶ Chạy tất cả");
             clearTooltip(navExplorerBtn);
             clearTooltip(navReportsBtn);
             clearTooltip(runAllBtn);
@@ -418,7 +418,7 @@ public class MainShellController implements Initializable {
                 sidebar.setMaxWidth(SIDEBAR_COLLAPSED);
             }
             Insets iconGutter = new Insets(0, 6, 0, 6);
-            navExplorerBtn.setText("🧭");
+            navExplorerBtn.setText("📂");
             navReportsBtn.setText("📊");
             if (navAiBtn != null) {
                 navAiBtn.setText("🤖");
@@ -426,7 +426,7 @@ public class MainShellController implements Initializable {
                 VBox.setMargin(navAiBtn, iconGutter);
                 navAiBtn.setAlignment(Pos.CENTER);
             }
-            runAllBtn.setText("▶️");
+            runAllBtn.setText("▶");
             installTip(navExplorerBtn, "Khám phá");
             installTip(navReportsBtn, "Báo cáo");
             installTip(runAllBtn, "Chạy tất cả");
@@ -658,7 +658,7 @@ public class MainShellController implements Initializable {
         if (tab == null) return;
         String id = tab.getId();
         if ("PAGE_EXPLORER".equals(id)) {
-            setBreadcrumb("Dự án > 🧭 Khám phá");
+            setBreadcrumb("Dự án > 📂 Khám phá");
             setActiveNavButton(navExplorerBtn);
         } else if ("PAGE_REPORTS".equals(id)) {
             setBreadcrumb("Dự án > 📊 Báo cáo");

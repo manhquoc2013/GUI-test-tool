@@ -25,6 +25,6 @@ public final class StatusBarService {
     }
 
     public static void ready() {
-        set("🟢 Sẵn sàng");
+        set("● Sẵn sàng");
     }
 }

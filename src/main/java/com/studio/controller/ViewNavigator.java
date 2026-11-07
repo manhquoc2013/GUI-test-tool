@@ -75,7 +75,7 @@ public class ViewNavigator {
             if (tabManager != null) {
                 String tabId = "PAGE_" + page.name();
                 String icon = switch (page) {
-                    case EXPLORER -> "🧭";
+                    case EXPLORER -> "📂";
                     case REPORTS -> "📊";
                     case AI_ASSISTANT -> "🤖";
                     default -> "📄";

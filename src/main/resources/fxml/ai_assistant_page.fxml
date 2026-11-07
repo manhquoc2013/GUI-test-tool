@@ -30,7 +30,7 @@
         <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle"/>
         <HBox HBox.hgrow="ALWAYS"/>
         <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge"/>
-        <Button text="⚙️ Cài đặt OpenAI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary"/>
+        <Button text="⚙ Cài đặt OpenAI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary"/>
         <Button text="🧹 Xóa đoạn chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary"/>
     </HBox>
 

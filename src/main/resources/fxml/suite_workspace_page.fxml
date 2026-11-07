@@ -34,8 +34,8 @@
 
         <HBox spacing="6" alignment="CENTER_RIGHT" styleClass="workspace-btn-group">
             <Button text="🔴 Ghi hình" fx:id="recordBtn" onAction="#startRecord" styleClass="toolbar-btn-record"/>
-            <Button text="▶️ Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
-            <Button text="▶️ Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
+            <Button text="▶ Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
+            <Button text="▶ Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
             <Button text="✨ AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
             <Button text="💾 Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
             <Button text="◫ Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>

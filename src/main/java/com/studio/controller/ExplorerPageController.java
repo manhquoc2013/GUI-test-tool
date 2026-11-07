@@ -491,7 +491,7 @@ public class ExplorerPageController {
                         menuItem("📁 Nhóm mới", this::addGroup),
                         menuItem("📋 Suite mới", this::addSuite),
                         new SeparatorMenuItem(),
-                        runMenuItem("▶️ Chạy tất cả", this::runSelected)
+                        runMenuItem("▶ Chạy tất cả", this::runSelected)
                 );
                 return;
             }
@@ -507,12 +507,12 @@ public class ExplorerPageController {
                                 menuItem(StudioIcons.EDIT + " Sửa", this::editSelectedEntity),
                                 menuItem("🗑️ Xóa", this::deleteItem),
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶️ Chạy nhóm", this::runSelected)
+                                runMenuItem("▶ Chạy nhóm", this::runSelected)
                         );
                     } else {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶️ Chạy tất cả", this::runSelected)
+                                runMenuItem("▶ Chạy tất cả", this::runSelected)
                         );
                     }
                 }
@@ -545,7 +545,7 @@ public class ExplorerPageController {
                     if (StatusDisplay.isActive(ref.status)) {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶️ Chạy suite", this::runSelected)
+                                runMenuItem("▶ Chạy suite", this::runSelected)
                         );
                     }
                 }
@@ -563,7 +563,7 @@ public class ExplorerPageController {
                     if (StatusDisplay.canRunCase(suiteSt, ref.status)) {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶️ Chạy case", this::runSelected)
+                                runMenuItem("▶ Chạy case", this::runSelected)
                         );
                     }
                 }
@@ -681,16 +681,16 @@ public class ExplorerPageController {
             canRunNode = false;
         } else if (isGroup) {
             canRunNode = true;
-            runNodeBtn.setText("▶️ Chạy nhóm");
+            runNodeBtn.setText("▶ Chạy nhóm");
         } else if (isSuite) {
             canRunNode = StatusDisplay.isActive(ref.status);
-            runNodeBtn.setText("▶️ Chạy Suite");
+            runNodeBtn.setText("▶ Chạy Suite");
         } else if (isCase) {
             TreeItem<Object> parent = item.getParent();
             NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
             canRunNode = StatusDisplay.canRunCase(
                     suiteRef != null ? suiteRef.status : null, ref.status);
-            runNodeBtn.setText("▶️ Chạy Case");
+            runNodeBtn.setText("▶ Chạy Case");
         }
         runNodeBtn.setVisible(canRunNode);
         if (runNodeBtn != null) {
@@ -1244,8 +1244,8 @@ public class ExplorerPageController {
             return true;
         }
         String key = StatusDisplay.normalize(ref.status);
-        if ("Đang hoạt động".equals(filter) || filter.contains("Đang hoạt động")
-                || "Active".equals(filter) || filter.startsWith("🟢")) {
+        if ("Đang hoạt động".equals(filter) || filter.contains("Đang hoạt động") || filter.contains("Hoạt động")
+                || "Active".equals(filter) || filter.startsWith("🟢") || filter.startsWith("●")) {
             return "ACTIVE".equals(key) || "READY".equals(key);
         }
         if ("Bản nháp".equals(filter) || filter.contains("Bản nháp")
