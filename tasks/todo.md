@@ -14,4 +14,9 @@
 - [x] Task 12: Upgrade `case 2.java` and populate `testSteps` & `testDataSets` in `data/project/test 1/test 1/suite.json` <!-- id: 22 -->
 - [x] Task 13: Add unit tests for spaced/invalid class name handling in `ScriptHarnessTransformerTest` and `ProjectStoreTest` <!-- id: 23 -->
 - [x] Task 14: Run full verification (`mvn clean test`) and update `tasks/learnings.md` <!-- id: 24 -->
+- [x] Task 15: Create `com.studio.model.AiSkill` with Vietnamese names, Fabric prompts & heuristic detection <!-- id: 25 -->
+- [x] Task 16: Integrate `AiSkill` into `AiTestGeneratorService` (Skill Routing & multi-mode responses) <!-- id: 26 -->
+- [x] Task 17: Update `ai_assistant_page.fxml` and `AiAssistantPageController` with Skill dropdown & slash commands <!-- id: 27 -->
+- [x] Task 18: Add CSS styles for Skill selector in `studio.css` and `studio-light.css` <!-- id: 28 -->
+- [x] Task 19: Write unit tests in `AiSkillTest` and verify entire test suite (`mvn clean test`) <!-- id: 29 -->
 

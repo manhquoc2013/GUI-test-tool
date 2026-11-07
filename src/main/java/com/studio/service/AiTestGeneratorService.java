@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studio.model.AiConfig;
 import com.studio.model.AiGeneratedCase;
+import com.studio.model.AiSkill;
 import com.studio.model.Assertion;
 import com.studio.model.TestCase;
 import com.studio.model.TestDataItem;
@@ -232,17 +233,39 @@ public class AiTestGeneratorService {
                                              String domJson,
                                              List<com.studio.model.AiChatMessage> history,
                                              java.util.function.Consumer<String> progressListener) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, domJson, history, progressListener, AiSkill.AUTO);
+    }
+
+    /**
+     * Generate test cases with Live DOM context injection, live progress reporting, and specialized AiSkill routing.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history,
+                                             java.util.function.Consumer<String> progressListener,
+                                             AiSkill selectedSkill) throws IOException, InterruptedException {
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
         if (progressListener != null) {
             progressListener.accept("Đang tối ưu ngữ cảnh & lịch sử hội thoại...");
         }
 
+        AiSkill effectiveSkill = (selectedSkill == null || selectedSkill == AiSkill.AUTO)
+                ? AiSkill.detectSkill(userPrompt, domJson != null && !domJson.isBlank(), attachments != null && !attachments.isEmpty())
+                : selectedSkill;
+
+        String effectivePrompt = AiSkill.stripSlashCommand(userPrompt);
+        String systemPrompt = (effectiveSkill.getSystemPrompt() != null)
+                ? effectiveSkill.getSystemPrompt()
+                : SYSTEM_PROMPT;
+
         String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
 
         List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
-                SYSTEM_PROMPT,
+                systemPrompt,
                 history,
-                userPrompt,
+                effectivePrompt,
                 attachments,
                 contextInfo,
                 formattedDom,
@@ -251,16 +274,16 @@ public class AiTestGeneratorService {
         );
 
         if (progressListener != null) {
-            progressListener.accept("Đang gửi yêu cầu và nhận luồng dữ liệu từ " + config.getEffectiveModel() + "...");
+            progressListener.accept("Đang gửi yêu cầu [" + effectiveSkill.getDisplayName() + "] tới " + config.getEffectiveModel() + "...");
         }
 
         String reply = openAiClient.chatCompletion(config, messages);
 
         if (progressListener != null) {
-            progressListener.accept("Đang xử lý cấu trúc phản hồi và trích xuất kịch bản kiểm thử...");
+            progressListener.accept("Đang xử lý cấu trúc phản hồi...");
         }
 
-        return parseResponse(reply);
+        return parseResponse(reply, effectiveSkill);
     }
 
     /**
@@ -302,108 +325,157 @@ public class AiTestGeneratorService {
      * Parse OpenAI JSON output into GenerationResult with steps, test data, and validated scripts.
      */
     public GenerationResult parseResponse(String rawResponse) {
+        return parseResponse(rawResponse, AiSkill.PLAYWRIGHT_E2E);
+    }
+
+    /**
+     * Parse AI output into GenerationResult according to the activated skill mode.
+     */
+    public GenerationResult parseResponse(String rawResponse, AiSkill skill) {
         if (rawResponse == null || rawResponse.isBlank()) {
             return new GenerationResult("Không nhận được phản hồi từ AI.", List.of(), "");
         }
 
+        // For non-E2E skills (Exhaustive Unit Test, RCA, Security Fuzzing), AI outputs Markdown matrices & code
+        if (skill != null && skill != AiSkill.PLAYWRIGHT_E2E && skill != AiSkill.AUTO) {
+            String jsonCandidate = extractJsonBlock(rawResponse);
+            if (jsonCandidate.startsWith("{") && jsonCandidate.contains("\"cases\"")) {
+                try {
+                    return parseJsonCases(jsonCandidate, rawResponse);
+                } catch (Exception ignored) {}
+            }
+            List<AiGeneratedCase> cases = extractCasesFromMarkdown(rawResponse);
+            return new GenerationResult(rawResponse.trim(), cases, rawResponse);
+        }
+
+        // Default: Playwright E2E JSON extraction
         String jsonText = extractJsonBlock(rawResponse);
         try {
-            JsonNode root = mapper.readTree(jsonText);
-            String summary = root.path("summary").asText("Đã tạo test case thành công");
-            List<AiGeneratedCase> cases = new ArrayList<>();
-
-            JsonNode casesArray = root.path("cases");
-            if (casesArray.isArray()) {
-                for (JsonNode cNode : casesArray) {
-                    AiGeneratedCase ac = new AiGeneratedCase();
-                    String rawName = cNode.path("name").asText("GeneratedCase");
-                    String safeName = sanitizeCaseName(rawName);
-                    ac.setName(safeName);
-                    ac.setDescription(cNode.path("description").asText(""));
-                    String startUrl = cNode.path("startUrl").asText("");
-                    ac.setStartUrl(startUrl);
-
-                    // Preconditions
-                    JsonNode preNode = cNode.path("preconditions");
-                    if (preNode.isArray()) {
-                        List<String> pres = new ArrayList<>();
-                        for (JsonNode p : preNode) {
-                            if (p.isTextual() && !p.asText().isBlank()) {
-                                pres.add(p.asText().trim());
-                            }
-                        }
-                        ac.setPreconditions(pres);
-                    }
-
-                    // Test Steps (NLP steps)
-                    JsonNode stepsNode = cNode.path("testSteps");
-                    if (stepsNode.isArray()) {
-                        List<TestStep> steps = new ArrayList<>();
-                        int idx = 1;
-                        for (JsonNode sNode : stepsNode) {
-                            int stepNum = sNode.path("stepNumber").asInt(idx);
-                            String action = sNode.path("action").asText("ACTION");
-                            String target = sNode.path("target").asText("");
-                            String testData = sNode.path("testData").asText("");
-                            String desc = sNode.path("description").asText("");
-                            String expected = sNode.path("expectedResult").asText("");
-                            steps.add(new TestStep(stepNum, action, target, testData, desc, expected));
-                            idx++;
-                        }
-                        ac.setTestSteps(steps);
-                    }
-
-                    // Test Data Sets
-                    JsonNode dataSetsNode = cNode.path("testDataSets");
-                    if (dataSetsNode.isArray()) {
-                        List<TestDataItem> dataItems = new ArrayList<>();
-                        for (JsonNode dNode : dataSetsNode) {
-                            String scenario = dNode.path("scenario").asText("Scenario");
-                            String expectedOutcome = dNode.path("expectedOutcome").asText("SUCCESS");
-                            Map<String, String> params = new LinkedHashMap<>();
-                            JsonNode paramsNode = dNode.path("parameters");
-                            if (paramsNode.isObject()) {
-                                Iterator<Map.Entry<String, JsonNode>> fields = paramsNode.fields();
-                                while (fields.hasNext()) {
-                                    Map.Entry<String, JsonNode> field = fields.next();
-                                    params.put(field.getKey(), field.getValue().asText(""));
-                                }
-                            }
-                            dataItems.add(new TestDataItem(scenario, params, expectedOutcome));
-                        }
-                        ac.setTestDataSets(dataItems);
-                    }
-
-                    // Validate & Auto-fix script code
-                    String rawScript = cNode.path("scriptCode").asText("");
-                    String validatedScript = validateAndFixScript(rawScript, safeName, startUrl);
-                    ac.setScriptCode(validatedScript);
-
-                    // Assertions
-                    JsonNode assertsNode = cNode.path("assertions");
-                    if (assertsNode.isArray()) {
-                        List<Assertion> asserts = new ArrayList<>();
-                        for (JsonNode aNode : assertsNode) {
-                            Assertion a = new Assertion();
-                            a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
-                            a.setValue(aNode.path("value").asText(""));
-                            a.setLocator(aNode.path("locator").asText(""));
-                            a.setAttribute(aNode.path("attribute").asText(""));
-                            a.setExpectedValue(aNode.path("expectedValue").asText(""));
-                            a.setStatus(aNode.path("status").asText("ACTIVE"));
-                            a.setExact(aNode.path("exact").asBoolean(false));
-                            asserts.add(a);
-                        }
-                        ac.setAssertions(asserts);
-                    }
-                    cases.add(ac);
-                }
-            }
-
-            return new GenerationResult(summary, cases, rawResponse);
+            return parseJsonCases(jsonText, rawResponse);
         } catch (Exception e) {
+            List<AiGeneratedCase> cases = extractCasesFromMarkdown(rawResponse);
+            if (!cases.isEmpty() || rawResponse.contains("##")) {
+                return new GenerationResult(rawResponse.trim(), cases, rawResponse);
+            }
             return new GenerationResult("Lỗi khi phân tích JSON phản hồi từ AI: " + e.getMessage(), List.of(), rawResponse);
         }
+    }
+
+    public static List<AiGeneratedCase> extractCasesFromMarkdown(String text) {
+        List<AiGeneratedCase> list = new ArrayList<>();
+        if (text == null || text.isBlank()) return list;
+
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("```(?:java|csharp|python|rust|typescript|javascript)?\\s*\\n(.*?)```", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        int idx = 1;
+        while (matcher.find()) {
+            String code = matcher.group(1).trim();
+            if (code.length() > 30) {
+                AiGeneratedCase c = new AiGeneratedCase();
+                c.setName("Generated_Test_" + idx);
+                c.setDescription("Đoạn mã kiểm thử trích xuất từ phản hồi của AI");
+                c.setScriptCode(code);
+                list.add(c);
+                idx++;
+            }
+        }
+        return list;
+    }
+
+    private GenerationResult parseJsonCases(String jsonText, String rawResponse) throws Exception {
+        JsonNode root = mapper.readTree(jsonText);
+        String summary = root.path("summary").asText("Đã tạo test case thành công");
+        List<AiGeneratedCase> cases = new ArrayList<>();
+
+        JsonNode casesArray = root.path("cases");
+        if (casesArray.isArray()) {
+            for (JsonNode cNode : casesArray) {
+                AiGeneratedCase ac = new AiGeneratedCase();
+                String rawName = cNode.path("name").asText("GeneratedCase");
+                String safeName = sanitizeCaseName(rawName);
+                ac.setName(safeName);
+                ac.setDescription(cNode.path("description").asText(""));
+                String startUrl = cNode.path("startUrl").asText("");
+                ac.setStartUrl(startUrl);
+
+                // Preconditions
+                JsonNode preNode = cNode.path("preconditions");
+                if (preNode.isArray()) {
+                    List<String> pres = new ArrayList<>();
+                    for (JsonNode p : preNode) {
+                        if (p.isTextual() && !p.asText().isBlank()) {
+                            pres.add(p.asText().trim());
+                        }
+                    }
+                    ac.setPreconditions(pres);
+                }
+
+                // Test Steps (NLP steps)
+                JsonNode stepsNode = cNode.path("testSteps");
+                if (stepsNode.isArray()) {
+                    List<TestStep> steps = new ArrayList<>();
+                    int idx = 1;
+                    for (JsonNode sNode : stepsNode) {
+                        int stepNum = sNode.path("stepNumber").asInt(idx);
+                        String action = sNode.path("action").asText("ACTION");
+                        String target = sNode.path("target").asText("");
+                        String testData = sNode.path("testData").asText("");
+                        String desc = sNode.path("description").asText("");
+                        String expected = sNode.path("expectedResult").asText("");
+                        steps.add(new TestStep(stepNum, action, target, testData, desc, expected));
+                        idx++;
+                    }
+                    ac.setTestSteps(steps);
+                }
+
+                // Test Data Sets
+                JsonNode dataSetsNode = cNode.path("testDataSets");
+                if (dataSetsNode.isArray()) {
+                    List<TestDataItem> dataItems = new ArrayList<>();
+                    for (JsonNode dNode : dataSetsNode) {
+                        String scenario = dNode.path("scenario").asText("Scenario");
+                        String expectedOutcome = dNode.path("expectedOutcome").asText("SUCCESS");
+                        Map<String, String> params = new LinkedHashMap<>();
+                        JsonNode paramsNode = dNode.path("parameters");
+                        if (paramsNode.isObject()) {
+                            Iterator<Map.Entry<String, JsonNode>> fields = paramsNode.fields();
+                            while (fields.hasNext()) {
+                                Map.Entry<String, JsonNode> field = fields.next();
+                                params.put(field.getKey(), field.getValue().asText(""));
+                            }
+                        }
+                        dataItems.add(new TestDataItem(scenario, params, expectedOutcome));
+                    }
+                    ac.setTestDataSets(dataItems);
+                }
+
+                // Validate & Auto-fix script code
+                String rawScript = cNode.path("scriptCode").asText("");
+                String validatedScript = validateAndFixScript(rawScript, safeName, startUrl);
+                ac.setScriptCode(validatedScript);
+
+                // Assertions
+                JsonNode assertsNode = cNode.path("assertions");
+                if (assertsNode.isArray()) {
+                    List<Assertion> asserts = new ArrayList<>();
+                    for (JsonNode aNode : assertsNode) {
+                        Assertion a = new Assertion();
+                        a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
+                        a.setValue(aNode.path("value").asText(""));
+                        a.setLocator(aNode.path("locator").asText(""));
+                        a.setAttribute(aNode.path("attribute").asText(""));
+                        a.setExpectedValue(aNode.path("expectedValue").asText(""));
+                        a.setStatus(aNode.path("status").asText("ACTIVE"));
+                        a.setExact(aNode.path("exact").asBoolean(false));
+                        asserts.add(a);
+                    }
+                    ac.setAssertions(asserts);
+                }
+                cases.add(ac);
+            }
+        }
+
+        return new GenerationResult(summary, cases, rawResponse);
     }
 
     /**

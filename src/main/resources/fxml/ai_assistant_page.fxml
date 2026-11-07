@@ -43,12 +43,14 @@
             <!-- Target Selection Row -->
             <VBox spacing="6" styleClass="ai-target-box">
                 <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
-                <Label text="Đích đến cho Test Cases được sinh:" styleClass="field-label-small"/>
                 <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Nhóm:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                    <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="130" minWidth="110"/>
-                    <Label text="Suite:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                    <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="150" minWidth="120" HBox.hgrow="ALWAYS"/>
+                    <Label text="Chế độ Kỹ năng AI:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                    <ComboBox fx:id="skillComboBox" promptText="Chọn kỹ năng AI..." HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                </HBox>
+                <HBox spacing="8" alignment="CENTER_LEFT">
+                    <Label text="Đích lưu:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                    <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="120" minWidth="90"/>
+                    <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="140" minWidth="110" HBox.hgrow="ALWAYS"/>
                     <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary" minWidth="-Infinity"/>
                 </HBox>
             </VBox>
@@ -69,9 +71,10 @@
             <!-- Quick Suggestions -->
             <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-quick-suggestions">
                 <Label text="Gợi ý:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                <Button text="Test Đăng nhập" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-                <Button text="Test Giỏ hàng" onAction="#applyQuickCart" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-                <Button text="Phân tích tài liệu" onAction="#applyQuickDoc" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="⚡ Test Case Biên" onAction="#applyQuickBva" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="🎭 Playwright E2E" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="🔍 RCA Sửa Lỗi" onAction="#applyQuickRca" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="🛡️ Fuzzing Bảo Mật" onAction="#applyQuickSecurity" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
             </HBox>
 
             <!-- Input Box -->

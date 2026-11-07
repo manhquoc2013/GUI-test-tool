@@ -57,6 +57,7 @@ public class AiAssistantPageController implements Initializable {
     @FXML private ComboBox<String> targetGroupCombo;
     @FXML private ComboBox<String> targetSuiteCombo;
     @FXML private Button refreshTargetsBtn;
+    @FXML private ComboBox<com.studio.model.AiSkill> skillComboBox;
     @FXML private ScrollPane chatScroll;
     @FXML private VBox chatMessagesBox;
     @FXML private VBox attachedFilesBox;
@@ -135,6 +136,34 @@ public class AiAssistantPageController implements Initializable {
 
         targetGroupCombo.setOnAction(e -> onGroupSelected());
         targetSuiteCombo.setOnAction(e -> loadChatHistoryForSuite());
+
+        if (skillComboBox != null) {
+            skillComboBox.getItems().setAll(com.studio.model.AiSkill.values());
+            skillComboBox.setValue(com.studio.model.AiSkill.AUTO);
+            skillComboBox.setCellFactory(lv -> new ListCell<>() {
+                @Override
+                protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                    } else {
+                        setText(item.getDisplayName());
+                    }
+                }
+            });
+            skillComboBox.setButtonCell(new ListCell<>() {
+                @Override
+                protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                    } else {
+                        setText(item.getDisplayName());
+                    }
+                }
+            });
+            UiTooltips.install(skillComboBox, "Chọn kỹ năng chuyên sâu của AI hoặc để Tự động nhận diện");
+        }
 
         // Setup case list cell factory
         generatedCasesListView.setCellFactory(lv -> new ListCell<>() {
@@ -392,18 +421,54 @@ public class AiAssistantPageController implements Initializable {
     }
 
     @FXML
+    public void applyQuickBva() {
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.EXHAUSTIVE_UNIT_TEST);
+        }
+        promptInputArea.setText("Phân tích luồng điều kiện (Control Flow), xác định tập giá trị biên (BVA) và sinh mã nguồn Unit Test có tham số hóa cho đoạn logic sau:\n\n");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
+    }
+
+    @FXML
     public void applyQuickLogin() {
-        promptInputArea.setText("Viết kịch bản kiểm thử cho trang đăng nhập: Nhập email hợp lệ và mật khẩu, bấm nút Đăng nhập, xác minh người dùng được chuyển hướng vào Dashboard và hiển thị lời chào.");
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
+        }
+        promptInputArea.setText("Viết kịch bản Playwright E2E cho trang đăng nhập: Nhập email hợp lệ và mật khẩu, bấm nút Đăng nhập, xác minh người dùng được chuyển hướng vào Dashboard và hiển thị lời chào.");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
+    }
+
+    @FXML
+    public void applyQuickRca() {
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.FAILURE_RCA);
+        }
+        promptInputArea.setText("Phân tích nguyên nhân gốc rễ (RCA) và đưa ra mã sửa lỗi drop-in cho log lỗi kiểm thử sau:\n\n");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
+    }
+
+    @FXML
+    public void applyQuickSecurity() {
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.SECURITY_FUZZING);
+        }
+        promptInputArea.setText("Sinh ma trận vector kiểm thử bảo mật & fuzzing dữ liệu đầu vào (XSS, SQLi, Buffer Overflow, Unicode injection) cho form sau:\n\n");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
     @FXML
     public void applyQuickCart() {
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
+        }
         promptInputArea.setText("Viết kịch bản kiểm thử quy trình mua hàng: Thêm sản phẩm vào giỏ, kiểm tra số lượng và tổng tiền cập nhật chính xác, tiến hành thanh toán.");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
     @FXML
     public void applyQuickDoc() {
         promptInputArea.setText("Phân tích kỹ các yêu cầu trong tài liệu đính kèm và sinh bộ Test Cases bao quát các trường hợp chính (Happy path, Negative path, và Edge cases) kèm đầy đủ Assertions kiểm thử.");
+        promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
     @FXML
@@ -413,6 +478,20 @@ public class AiAssistantPageController implements Initializable {
             ToastService.warn("⚠️ Vui lòng nhập nội dung yêu cầu hoặc đính kèm tài liệu.");
             return;
         }
+
+        // Auto-detect or override skill from slash command if user typed it
+        com.studio.model.AiSkill chosenSkill = (skillComboBox != null && skillComboBox.getValue() != null)
+                ? skillComboBox.getValue()
+                : com.studio.model.AiSkill.AUTO;
+
+        com.studio.model.AiSkill slashSkill = com.studio.model.AiSkill.fromSlashCommand(prompt);
+        if (slashSkill != null) {
+            chosenSkill = slashSkill;
+            if (skillComboBox != null) {
+                skillComboBox.setValue(slashSkill);
+            }
+        }
+        final com.studio.model.AiSkill activeSkill = chosenSkill;
 
         SettingsStore.Settings settings;
         try {
@@ -439,7 +518,11 @@ public class AiAssistantPageController implements Initializable {
         }
 
         // Create User Message
-        StringBuilder userChatText = new StringBuilder(prompt);
+        StringBuilder userChatText = new StringBuilder();
+        if (activeSkill != com.studio.model.AiSkill.AUTO) {
+            userChatText.append("[").append(activeSkill.getDisplayName()).append("]\n");
+        }
+        userChatText.append(prompt);
         List<String> fileNames = new ArrayList<>();
         if (!attachedDocuments.isEmpty()) {
             userChatText.append("\n\nĐã đính kèm: ");
@@ -465,7 +548,7 @@ public class AiAssistantPageController implements Initializable {
         sendBtn.setText("Đang sinh kịch bản...");
         generationProgress.setVisible(true);
         generationProgress.setManaged(true);
-        showThinkingBubble(aiConfig.getEffectiveModel());
+        showThinkingBubble(aiConfig.getEffectiveModel() + " — " + activeSkill.getDisplayName());
 
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
@@ -509,7 +592,8 @@ public class AiAssistantPageController implements Initializable {
 
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
                         effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext, currentSession.getMessages(),
-                        status -> Platform.runLater(() -> updateThinkingStatus(status))
+                        status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                        activeSkill
                 );
 
                 Platform.runLater(() -> {
