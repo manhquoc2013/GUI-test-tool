@@ -13,7 +13,6 @@ import com.studio.util.BusyButtons;
 import com.studio.util.DialogTheme;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
-import com.studio.util.StudioIcons;
 import com.studio.util.StudioPaths;
 import com.studio.util.UiMotion;
 import javafx.application.Platform;
@@ -116,7 +115,7 @@ public class SuiteWorkspacePageController {
         if (relPath.startsWith("/") || relPath.startsWith("\\")) {
             relPath = relPath.substring(1);
         }
-        breadcrumbLabel.setText("📂 Khám phá / " + relPath.replace('\\', '/'));
+        breadcrumbLabel.setText("Khám phá / " + relPath.replace('\\', '/'));
         MainShellController shell = MainShellController.getInstance();
         if (shell != null) {
             String name = this.suite != null && this.suite.getName() != null
@@ -340,7 +339,7 @@ public class SuiteWorkspacePageController {
                     }
                     TestCase tc = findCaseByName(name);
                     boolean showRun = false;
-                    nameLabel.setText(StudioIcons.CASE + " " + name);
+                    nameLabel.setText(name);
                     String suiteName = suite != null ? suite.getName() : null;
                     String overlay = tc != null
                             ? RunProgressService.overlayForCase(tc.getId(), suiteName, name)
@@ -481,7 +480,7 @@ public class SuiteWorkspacePageController {
             String selected = resolveCaseMenuTarget();
             if (selected != null) {
                 TestCase tc = findCaseByName(selected);
-                MenuItem recordItem = menuItem("🔴 Ghi hình lại Case", () -> {
+                MenuItem recordItem = menuItem("Ghi hình lại Case", () -> {
                     ensureCaseSelectedForAction(selected);
                     startRecord();
                 });
@@ -489,7 +488,7 @@ public class SuiteWorkspacePageController {
                 menu.getItems().add(recordItem);
                 if (StatusDisplay.canRunCase(suiteStatus(),
                         tc != null ? tc.getStatus() : null)) {
-                    MenuItem runItem = menuItem("▶ Chạy Case này", () -> {
+                    MenuItem runItem = menuItem("Chạy Case này", () -> {
                         ensureCaseSelectedForAction(selected);
                         runCase();
                     });
@@ -498,17 +497,17 @@ public class SuiteWorkspacePageController {
                 }
                 menu.getItems().addAll(
                         new SeparatorMenuItem(),
-                        menuItem(StudioIcons.ASSERT + " Sửa Asserts", () -> {
+                        menuItem("Sửa Asserts", () -> {
                             ensureCaseSelectedForAction(selected);
                             openAssertBuilder();
                         }),
-                        menuItem("💾 Lưu code", () -> {
+                        menuItem("Lưu code", () -> {
                             ensureCaseSelectedForAction(selected);
                             saveCode();
                         })
                 );
             } else {
-                menu.getItems().add(menuItem(StudioIcons.CASE + " Case mới", this::addNewCase));
+                menu.getItems().add(menuItem("Case mới", this::addNewCase));
             }
         });
         return menu;
@@ -590,7 +589,7 @@ public class SuiteWorkspacePageController {
         runSuiteBtn.setManaged(show);
         if (caseSelected) {
             // Selection drives label/action: run only the selected case
-            runSuiteBtn.setText("▶ Chạy case");
+            runSuiteBtn.setText("Chạy case");
             runSuiteBtn.setOnAction(e -> runCase());
             runSuiteBtn.setDisable(!suiteActive || !caseRunnable || BusyButtons.isBusy());
             String tip;
@@ -604,22 +603,22 @@ public class SuiteWorkspacePageController {
             runSuiteBtn.setTooltip(new Tooltip(tip));
         } else {
             // No case selected → run entire suite
-            runSuiteBtn.setText("▶ Chạy suite");
+            runSuiteBtn.setText("Chạy suite");
             runSuiteBtn.setOnAction(e -> runSuite());
             runSuiteBtn.setDisable(!suiteActive);
             runSuiteBtn.setTooltip(new Tooltip(
                     suiteActive
                             ? "Chạy toàn bộ case trong suite"
-                            : "Chỉ hiện khi suite Đang hoạt động (🟢) — đổi ở Thông tin Suite"));
+                            : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite"));
         }
     }
 
     private void updateSelectedCaseHint() {
         if (selectedCaseHint == null) return;
         if (selectedCase == null) {
-            selectedCaseHint.setText("👆 Chọn một case để ghi hình / chạy / sửa code");
+            selectedCaseHint.setText("Chọn một case để ghi hình / chạy / sửa code");
         } else {
-            selectedCaseHint.setText(StudioIcons.CASE + " Case: " + selectedCase.getName());
+            selectedCaseHint.setText("Case: " + selectedCase.getName());
         }
         updateCaseActionButtons();
     }
@@ -676,7 +675,7 @@ public class SuiteWorkspacePageController {
                 assertsPanel.setManaged(true);
             }
             if (toggleSplitBtn != null) {
-                toggleSplitBtn.setText("◫ Chia đôi");
+                toggleSplitBtn.setText("Chia đôi");
                 toggleSplitBtn.setTooltip(new Tooltip("Thu gọn Asserts để mở rộng Code"));
             }
         } else {
@@ -686,7 +685,7 @@ public class SuiteWorkspacePageController {
                 assertsPanel.setManaged(false);
             }
             if (toggleSplitBtn != null) {
-                toggleSplitBtn.setText("🗖 Toàn màn hình");
+                toggleSplitBtn.setText("Toàn màn hình");
                 toggleSplitBtn.setTooltip(new Tooltip("Hiện Asserts song song với Code"));
             }
         }
@@ -1265,9 +1264,9 @@ public class SuiteWorkspacePageController {
                 + (selectedCase != null ? " — " + selectedCase.getName() : ""));
         alert.setContentText("Lưu trước khi tiếp tục, bỏ thay đổi, hoặc ở lại chỉnh sửa?");
 
-        ButtonType save = new ButtonType("💾 Lưu", ButtonBar.ButtonData.YES);
-        ButtonType discard = new ButtonType("🗑️ Bỏ thay đổi", ButtonBar.ButtonData.NO);
-        ButtonType stay = new ButtonType("❌ Ở lại", ButtonBar.ButtonData.CANCEL_CLOSE);
+        ButtonType save = new ButtonType("Lưu", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Bỏ thay đổi", ButtonBar.ButtonData.NO);
+        ButtonType stay = new ButtonType("Ở lại", ButtonBar.ButtonData.CANCEL_CLOSE);
         alert.getButtonTypes().setAll(save, discard, stay);
 
         Optional<ButtonType> result = alert.showAndWait();
@@ -1308,9 +1307,9 @@ public class SuiteWorkspacePageController {
         boolean dirty = isCodeDirty();
         boolean canSave = selectedCase != null;
         saveBtn.setDisable(!canSave);
-        saveBtn.setText(dirty ? "💾 Lưu code *" : "💾 Lưu code");
+        saveBtn.setText(dirty ? "Lưu code *" : "Lưu code");
         if (codeTab != null) {
-            codeTab.setText(dirty ? "📝 Code *" : "📝 Code");
+            codeTab.setText(dirty ? "Code *" : "Code");
         }
         if (codeDirtyLabel != null) {
             codeDirtyLabel.setVisible(dirty);
@@ -1495,7 +1494,7 @@ public class SuiteWorkspacePageController {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         DialogTheme.apply(confirm);
         confirm.setTitle("Xóa assertion");
-        confirm.setHeaderText("🗑️ Xóa assertion?");
+        confirm.setHeaderText("Xóa assertion?");
         confirm.setContentText(formatAssertLine(assertion));
         if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
             return;

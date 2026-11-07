@@ -9,7 +9,7 @@ import javafx.scene.control.TableCell;
  */
 public final class StatusDisplay {
 
-    public static final String ALL_LABEL = StudioIcons.SUITE + " Tất cả";
+    public static final String ALL_LABEL = "Tất cả";
 
     private static final String[] ALL_STYLE_CLASSES = {
             "status-active", "status-draft", "status-inactive", "status-ready",

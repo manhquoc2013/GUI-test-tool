@@ -13,7 +13,6 @@ import com.studio.util.DialogTheme;
 import com.studio.util.EntityTime;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
-import com.studio.util.StudioIcons;
 import com.studio.util.UiMotion;
 import com.studio.util.StudioPaths;
 import javafx.collections.FXCollections;
@@ -169,7 +168,7 @@ public class ExplorerPageController {
     private void buildTree(TestGroup group) {
         nodeRefs.clear();
         // Hidden synthetic root — children appear as top-level; preview uses root when nothing selected
-        TreeItem<Object> rootItem = new TreeItem<>("📦 Dự án");
+        TreeItem<Object> rootItem = new TreeItem<>("Dự án");
         setNodeRef(rootItem, new NodeRef("group", "Dự án", null,
                 null, null, null, rootProjectDir.toString()));
         projectTree.setRoot(rootItem);
@@ -188,7 +187,7 @@ public class ExplorerPageController {
                     continue;
                 }
                 Path childDir = groupDir.resolve(child.getName());
-                TreeItem<Object> item = new TreeItem<>("📁 " + child.getName());
+                TreeItem<Object> item = new TreeItem<>(child.getName());
                 setNodeRef(item, new NodeRef("group", child.getName(), null,
                         group.getName(), null, null, childDir.toString()));
                 buildChildren(item, child, childDir);
@@ -200,12 +199,12 @@ public class ExplorerPageController {
             for (TestSuite suite : group.getSuites()) {
                 Path suiteDir = groupDir.resolve(suite.getName());
                 String suitePath = Files.isDirectory(suiteDir) ? suiteDir.toString() : "";
-                TreeItem<Object> item = new TreeItem<>("📋 " + suite.getName());
+                TreeItem<Object> item = new TreeItem<>(suite.getName());
                 setNodeRef(item, new NodeRef("suite", suite.getName(),
                         suite.getStatus(), group.getName(), suitePath, null, suitePath));
                 if (suite.getCases() != null) {
                     for (TestCase tc : suite.getCases()) {
-                        TreeItem<Object> caseItem = new TreeItem<>(StudioIcons.CASE + " " + tc.getName());
+                        TreeItem<Object> caseItem = new TreeItem<>(tc.getName());
                         setNodeRef(caseItem, new NodeRef("case", tc.getName(),
                                 tc.getStatus(), suite.getName(), suitePath, tc.getId(), suitePath));
                         item.getChildren().add(caseItem);
@@ -229,10 +228,10 @@ public class ExplorerPageController {
                 private final Label nameLabel = new Label();
                 private final HBox actionsBox = new HBox(3);
                 private final Button runBtn = new Button("▶");
-                private final Button openBtn = new Button("📂");
+                private final Button openBtn = new Button("Mở");
                 private final Button addBtn = new Button("+");
-                private final Button editBtn = new Button("✏");
-                private final Button copyBtn = new Button("📋");
+                private final Button editBtn = new Button("Sửa");
+                private final Button copyBtn = new Button("Chép");
                 private final Label statusLabel = new Label();
 
                 {
@@ -488,74 +487,74 @@ public class ExplorerPageController {
             NodeRef ref = selected != null ? getNodeRef(selected) : null;
             if (ref == null) {
                 menu.getItems().addAll(
-                        menuItem("📁 Nhóm mới", this::addGroup),
-                        menuItem("📋 Suite mới", this::addSuite),
+                        menuItem("Nhóm mới", this::addGroup),
+                        menuItem("Suite mới", this::addSuite),
                         new SeparatorMenuItem(),
-                        runMenuItem("▶ Chạy tất cả", this::runSelected)
+                        runMenuItem("Chạy tất cả", this::runSelected)
                 );
                 return;
             }
             switch (ref.type) {
                 case "group" -> {
                     menu.getItems().addAll(
-                            menuItem("📁 Nhóm mới", this::addGroup),
-                            menuItem("📋 Suite mới", this::addSuite)
+                            menuItem("Nhóm mới", this::addGroup),
+                            menuItem("Suite mới", this::addSuite)
                     );
                     if (!isRootItem(selected)) {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                menuItem(StudioIcons.EDIT + " Sửa", this::editSelectedEntity),
-                                menuItem("🗑️ Xóa", this::deleteItem),
+                                menuItem("Sửa", this::editSelectedEntity),
+                                menuItem("Xóa", this::deleteItem),
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶ Chạy nhóm", this::runSelected)
+                                runMenuItem("Chạy nhóm", this::runSelected)
                         );
                     } else {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶ Chạy tất cả", this::runSelected)
+                                runMenuItem("Chạy tất cả", this::runSelected)
                         );
                     }
                 }
                 case "suite" -> {
                     menu.getItems().addAll(
-                            menuItem(StudioIcons.CASE + " Case mới", this::addCase),
-                            workspaceMenuItem("📂 Mở Workspace", this::openWorkspace),
+                            menuItem("Case mới", this::addCase),
+                            workspaceMenuItem("Mở Workspace", this::openWorkspace),
                             new SeparatorMenuItem()
                     );
                     String suiteKey = StatusDisplay.normalize(ref.status);
                     if ("DRAFT".equals(suiteKey) || suiteKey.isEmpty()) {
                         menu.getItems().add(menuItem(
-                                "🚀 Publish",
+                                "Kích hoạt (Publish)",
                                 () -> changeSuiteStatus("ACTIVE")));
                     } else if ("ACTIVE".equals(suiteKey)) {
                         menu.getItems().add(menuItem(
-                                "⏸️ Vô hiệu hóa",
+                                "Vô hiệu hóa",
                                 () -> changeSuiteStatus("INACTIVE")));
                     } else if ("INACTIVE".equals(suiteKey)) {
                         menu.getItems().add(menuItem(
-                                "📝 Đưa về Bản nháp",
+                                "Đưa về Bản nháp",
                                 () -> changeSuiteStatus("DRAFT")));
                     }
                     menu.getItems().addAll(
                             new SeparatorMenuItem(),
-                            menuItem(StudioIcons.EDIT + " Sửa", this::editSelectedEntity),
-                            menuItem("📄 Sao chép", this::copyItem),
-                            menuItem("🗑️ Xóa", this::deleteItem)
+                            menuItem("Sửa", this::editSelectedEntity),
+                            menuItem("Sao chép", this::copyItem),
+                            menuItem("Xóa", this::deleteItem)
                         );
                     if (StatusDisplay.isActive(ref.status)) {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
-                                runMenuItem("▶ Chạy suite", this::runSelected)
+                                runMenuItem("Chạy suite", this::runSelected)
                         );
                     }
                 }
                 case "case" -> {
                     menu.getItems().addAll(
-                            workspaceMenuItem("📂 Mở Workspace", this::openWorkspace),
+                            workspaceMenuItem("Mở Workspace", this::openWorkspace),
                             new SeparatorMenuItem(),
-                            menuItem(StudioIcons.EDIT + " Sửa", this::editSelectedEntity),
-                            menuItem("📄 Sao chép", this::copyItem),
-                            menuItem("🗑️ Xóa", this::deleteItem)
+                            menuItem("Sửa", this::editSelectedEntity),
+                            menuItem("Sao chép", this::copyItem),
+                            menuItem("Xóa", this::deleteItem)
                     );
                     TreeItem<Object> parent = selected.getParent();
                     NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
@@ -633,13 +632,13 @@ public class ExplorerPageController {
             previewStatus.setManaged(false);
             if (isRootItem(item)) {
                 previewName.setText("Dự án");
-                previewType.setText("📦 Gốc dự án");
+                previewType.setText("Gốc dự án");
                 previewDesc.setText("Tổng quan toàn bộ Nhóm / Suite / Case trong dự án. "
                         + "Dùng sidebar «Chạy tất cả» hoặc chuột phải vùng trống trên cây. "
                         + "Thêm Nhóm / Suite từ toolbar.");
             } else {
                 previewName.setText(ref.name);
-                previewType.setText("📁 Nhóm");
+                previewType.setText("Nhóm");
                 previewDesc.setText("");
                 loadGroupPreviewView(ref);
             }
@@ -653,7 +652,7 @@ public class ExplorerPageController {
                     groupCount, suiteCount, caseCount));
         } else if ("suite".equals(ref.type)) {
             previewName.setText(ref.name);
-            previewType.setText("📋 Suite");
+            previewType.setText("Suite");
             previewStatus.setVisible(false);
             previewStatus.setManaged(false);
             previewDesc.setText("");
@@ -662,7 +661,7 @@ public class ExplorerPageController {
             loadSuitePreviewView(ref);
         } else if ("case".equals(ref.type)) {
             previewName.setText(ref.name);
-            previewType.setText(StudioIcons.CASE + " Case");
+            previewType.setText("Case");
             previewStatus.setVisible(false);
             previewStatus.setManaged(false);
             previewDesc.setText("");
@@ -681,16 +680,16 @@ public class ExplorerPageController {
             canRunNode = false;
         } else if (isGroup) {
             canRunNode = true;
-            runNodeBtn.setText("▶ Chạy nhóm");
+            runNodeBtn.setText("Chạy nhóm");
         } else if (isSuite) {
             canRunNode = StatusDisplay.isActive(ref.status);
-            runNodeBtn.setText("▶ Chạy Suite");
+            runNodeBtn.setText("Chạy Suite");
         } else if (isCase) {
             TreeItem<Object> parent = item.getParent();
             NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
             canRunNode = StatusDisplay.canRunCase(
                     suiteRef != null ? suiteRef.status : null, ref.status);
-            runNodeBtn.setText("▶ Chạy Case");
+            runNodeBtn.setText("Chạy Case");
         }
         runNodeBtn.setVisible(canRunNode);
         if (runNodeBtn != null) {

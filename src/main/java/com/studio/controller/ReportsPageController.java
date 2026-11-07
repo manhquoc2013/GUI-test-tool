@@ -195,13 +195,13 @@ public class ReportsPageController {
             @Override
             public String toString(String s) {
                 if (s == null || StatusDisplay.isAll(s)) {
-                    return "📋 Mọi phạm vi";
+                    return "Mọi phạm vi";
                 }
                 return switch (s) {
-                    case "ALL" -> "🌐 Toàn dự án";
-                    case "GROUP" -> "📁 Nhóm";
-                    case "SUITE" -> "📋 Suite";
-                    case "CASE" -> "🎯 Case";
+                    case "ALL" -> "Toàn dự án";
+                    case "GROUP" -> "Nhóm";
+                    case "SUITE" -> "Suite";
+                    case "CASE" -> "Case";
                     default -> s;
                 };
             }
@@ -221,9 +221,9 @@ public class ReportsPageController {
         // Result filter
         resultFilter.setItems(FXCollections.observableArrayList(
                 StatusDisplay.ALL_LABEL,
-                StatusDisplay.label("PASSED"),
-                StatusDisplay.label("FAILED"),
-                StatusDisplay.label("SKIPPED")
+                "Đạt",
+                "Thất bại",
+                "Bỏ qua"
         ));
         resultFilter.setValue(StatusDisplay.ALL_LABEL);
         resultFilter.setOnAction(e -> applyFilters());
@@ -292,7 +292,7 @@ public class ReportsPageController {
         ObservableList<String> suiteNames = FXCollections.observableArrayList();
         suiteNames.add(StatusDisplay.ALL_LABEL);
         for (String name : uniqueNames) {
-            suiteNames.add("📁 " + name);
+            suiteNames.add(name);
         }
         suiteFilter.setItems(suiteNames);
         if (previous != null && suiteNames.contains(previous)) {

@@ -4,7 +4,6 @@ import com.studio.util.BrowserDetector;
 import com.studio.util.DialogTheme;
 import com.studio.util.RunTargetResolve;
 import com.studio.util.StatusDisplay;
-import com.studio.util.StudioIcons;
 import com.studio.service.ToastService;
 import javafx.geometry.Insets;
 import javafx.scene.control.ButtonBar;
@@ -56,18 +55,18 @@ public final class EntityFormDialog {
         String header = isRootProjectLabel(parentLabel)
                 ? "Tạo nhóm mới"
                 : "Tạo nhóm mới trong: " + parentLabel;
-        return show("📁 Nhóm mới", header, Kind.GROUP, null, null, false);
+        return show("Nhóm mới", header, Kind.GROUP, null, null, false);
     }
 
     public static Optional<Result> showCreateSuite(String parentLabel) {
         String header = isRootProjectLabel(parentLabel)
                 ? "Tạo suite mới"
                 : "Tạo suite mới trong nhóm: " + parentLabel;
-        return show("📋 Suite mới", header, Kind.SUITE, "DRAFT", null, false);
+        return show("Suite mới", header, Kind.SUITE, "DRAFT", null, false);
     }
 
     public static Optional<Result> showCreateCase(String suiteLabel) {
-        return show(StudioIcons.CASE + " Case mới",
+        return show("Case mới",
                 "Tạo case mới trong suite: " + suiteLabel,
                 Kind.CASE,
                 "Draft",
@@ -76,15 +75,15 @@ public final class EntityFormDialog {
     }
 
     public static Optional<Result> showEditGroup(Result seed) {
-        return show(StudioIcons.EDIT + " Sửa nhóm", "Cập nhật thông tin nhóm", Kind.GROUP, null, seed, true);
+        return show("Sửa nhóm", "Cập nhật thông tin nhóm", Kind.GROUP, null, seed, true);
     }
 
     public static Optional<Result> showEditSuite(Result seed) {
-        return show(StudioIcons.EDIT + " Sửa suite", "Cập nhật thông tin suite", Kind.SUITE, "DRAFT", seed, true);
+        return show("Sửa suite", "Cập nhật thông tin suite", Kind.SUITE, "DRAFT", seed, true);
     }
 
     public static Optional<Result> showEditCase(Result seed) {
-        return show(StudioIcons.EDIT + " Sửa case", "Cập nhật thông tin case", Kind.CASE, "Draft", seed, true);
+        return show("Sửa case", "Cập nhật thông tin case", Kind.CASE, "Draft", seed, true);
     }
 
     private static boolean isRootProjectLabel(String label) {
@@ -106,11 +105,11 @@ public final class EntityFormDialog {
         dialog.setGraphic(null);
         dialog.getDialogPane().setGraphic(null);
 
-        ButtonType okType = new ButtonType(editing ? "💾 Lưu" : "✅ Tạo", ButtonBar.ButtonData.OK_DONE);
+        ButtonType okType = new ButtonType(editing ? "Lưu" : "Tạo", ButtonBar.ButtonData.OK_DONE);
         ButtonType saveRecordType = kind == Kind.CASE
-                ? new ButtonType("🔴 Lưu và ghi", ButtonBar.ButtonData.APPLY)
+                ? new ButtonType("Lưu và ghi", ButtonBar.ButtonData.APPLY)
                 : null;
-        ButtonType cancelType = new ButtonType("❌ Hủy", ButtonBar.ButtonData.CANCEL_CLOSE);
+        ButtonType cancelType = new ButtonType("Hủy", ButtonBar.ButtonData.CANCEL_CLOSE);
         if (saveRecordType != null) {
             dialog.getDialogPane().getButtonTypes().setAll(okType, saveRecordType, cancelType);
         } else {
@@ -141,7 +140,7 @@ public final class EntityFormDialog {
         browserCombo.setMaxWidth(Double.MAX_VALUE);
         fillBrowserCombo(browserCombo);
         browserCombo.setValue(RunTargetResolve.BROWSER_DEFAULT_LABEL);
-        CheckBox headlessCheck = new CheckBox("🙈 Ẩn trình duyệt");
+        CheckBox headlessCheck = new CheckBox("Ẩn trình duyệt");
 
         if (kind == Kind.CASE) {
             statusCombo.getItems().addAll("Draft", "Ready", "Inactive");

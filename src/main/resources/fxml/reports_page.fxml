@@ -16,26 +16,26 @@
       fx:controller="com.studio.controller.ReportsPageController"
       styleClass="reports-page">
     <ToolBar styleClass="page-toolbar">
-        <Label text="📊 Báo cáo" styleClass="page-title"/>
+        <Label text="Báo cáo" styleClass="page-title"/>
         <Separator/>
-        <Label text="📐 Phạm vi" styleClass="toolbar-label"/>
-        <ComboBox fx:id="scopeFilter" prefWidth="110" onAction="#onFilterChanged"/>
-        <Label text="📊 Kết quả" styleClass="toolbar-label"/>
-        <ComboBox fx:id="resultFilter" prefWidth="110" onAction="#onFilterChanged"/>
-        <Label text="📋 Suite" styleClass="toolbar-label"/>
-        <ComboBox fx:id="suiteFilter" prefWidth="150" onAction="#onFilterChanged"/>
+        <Label text="Phạm vi" styleClass="toolbar-label"/>
+        <ComboBox fx:id="scopeFilter" prefWidth="120" onAction="#onFilterChanged"/>
+        <Label text="Kết quả" styleClass="toolbar-label"/>
+        <ComboBox fx:id="resultFilter" prefWidth="120" onAction="#onFilterChanged"/>
+        <Label text="Suite" styleClass="toolbar-label"/>
+        <ComboBox fx:id="suiteFilter" prefWidth="160" onAction="#onFilterChanged"/>
         <HBox HBox.hgrow="ALWAYS"/>
-        <Button text="🔄 Làm mới" onAction="#refresh" styleClass="toolbar-btn"/>
+        <Button text="Làm mới" onAction="#refresh" styleClass="toolbar-btn"/>
     </ToolBar>
     <TableView fx:id="reportsTable" VBox.vgrow="ALWAYS" styleClass="reports-table">
         <columns>
-            <TableColumn text="🆔 Mã chạy" fx:id="runIdCol" prefWidth="130"/>
-            <TableColumn text="📐 Phạm vi" fx:id="scopeCol" prefWidth="90"/>
-            <TableColumn text="🎯 Mục tiêu" fx:id="targetCol" prefWidth="180"/>
-            <TableColumn text="📊 Kết quả" fx:id="resultCol" prefWidth="140"/>
-            <TableColumn text="⏱️ Thời gian" fx:id="durationCol" prefWidth="80"/>
-            <TableColumn text="🌐 Browser" fx:id="browserCol" prefWidth="100"/>
-            <TableColumn text="🕒 Bắt đầu" fx:id="startedCol" prefWidth="140"/>
+            <TableColumn text="Mã chạy" fx:id="runIdCol" prefWidth="130"/>
+            <TableColumn text="Phạm vi" fx:id="scopeCol" prefWidth="90"/>
+            <TableColumn text="Mục tiêu" fx:id="targetCol" prefWidth="180"/>
+            <TableColumn text="Kết quả" fx:id="resultCol" prefWidth="140"/>
+            <TableColumn text="Thời gian" fx:id="durationCol" prefWidth="90"/>
+            <TableColumn text="Trình duyệt" fx:id="browserCol" prefWidth="100"/>
+            <TableColumn text="Bắt đầu" fx:id="startedCol" prefWidth="140"/>
             <TableColumn text="Thao tác" fx:id="actionsCol" prefWidth="290"/>
         </columns>
     </TableView>

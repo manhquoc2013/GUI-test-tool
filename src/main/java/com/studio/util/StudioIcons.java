@@ -31,15 +31,15 @@ public final class StudioIcons {
     public static final String SEARCH = "🔍";
     public static final String FILTER = "🔍";
 
-    // Status — semantic icons (not plain color squares)
+    // Status indicators (clean standard bullet for dark-theme contrast)
     public static final String STATUS_ACTIVE = "●";
-    public static final String STATUS_READY = "🚀";
-    public static final String STATUS_DRAFT = "📝";
-    public static final String STATUS_INACTIVE = "⏸";
-    public static final String STATUS_PASSED = "✅";
-    public static final String STATUS_FAILED = "❌";
-    public static final String STATUS_SKIPPED = "⏭";
-    public static final String STATUS_ERROR = "💥";
-    public static final String STATUS_PENDING = "⏳";
-    public static final String STATUS_RUNNING = "🔄";
+    public static final String STATUS_READY = "●";
+    public static final String STATUS_DRAFT = "●";
+    public static final String STATUS_INACTIVE = "●";
+    public static final String STATUS_PASSED = "●";
+    public static final String STATUS_FAILED = "●";
+    public static final String STATUS_SKIPPED = "●";
+    public static final String STATUS_ERROR = "●";
+    public static final String STATUS_PENDING = "●";
+    public static final String STATUS_RUNNING = "●";
 }

@@ -131,6 +131,44 @@ public class OpenAiClient {
     }
 
     /**
+     * Fetch list of available model IDs from the endpoint /models.
+     */
+    public List<String> fetchModels(AiConfig config) throws IOException, InterruptedException {
+        String apiKey = config.getEffectiveApiKey();
+        String baseUrl = config.getEffectiveBaseUrl();
+        String targetUrl = baseUrl + "/models";
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(targetUrl))
+                .header("User-Agent", "PlaywrightAutomationStudio/1.0")
+                .timeout(Duration.ofSeconds(10))
+                .GET();
+        if (!apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+
+        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 200) {
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode data = root.get("data");
+            List<String> models = new ArrayList<>();
+            if (data != null && data.isArray()) {
+                for (JsonNode node : data) {
+                    JsonNode id = node.get("id");
+                    if (id != null && !id.asText().isBlank()) {
+                        models.add(id.asText());
+                    }
+                }
+            }
+            java.util.Collections.sort(models);
+            return models;
+        } else {
+            String errorMsg = extractErrorMessage(response.body());
+            throw new IOException("HTTP " + response.statusCode() + ": " + errorMsg);
+        }
+    }
+
+    /**
      * Call OpenAI Chat Completion API.
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages) throws IOException, InterruptedException {

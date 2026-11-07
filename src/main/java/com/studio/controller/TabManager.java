@@ -119,8 +119,12 @@ public class TabManager {
         row.getStyleClass().add("tab-item");
         row.setPadding(new Insets(5, 12, 5, 12));
 
-        Label iconLbl = new Label(tab.icon);
+        Label iconLbl = new Label(tab.icon != null ? tab.icon : "");
         iconLbl.getStyleClass().add("tab-icon");
+        if (tab.icon == null || tab.icon.isBlank()) {
+            iconLbl.setVisible(false);
+            iconLbl.setManaged(false);
+        }
 
         Label textLbl = new Label(tab.title);
         textLbl.getStyleClass().add("tab-title");

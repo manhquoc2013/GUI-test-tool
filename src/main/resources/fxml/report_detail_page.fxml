@@ -24,25 +24,25 @@
         <padding><Insets top="8" right="12" bottom="8" left="12"/></padding>
 
         <HBox spacing="16" alignment="CENTER_LEFT" styleClass="report-summary-bar field-row">
-            <Label fx:id="summaryLabel" text="📊 Tổng quan: " styleClass="report-summary-label"/>
+            <Label fx:id="summaryLabel" text="Tổng quan: " styleClass="report-summary-label"/>
             <HBox HBox.hgrow="ALWAYS"/>
-            <ComboBox fx:id="caseFilter" prefWidth="160" promptText="📋 Tất cả" onAction="#onCaseFilterChanged"/>
-            <Button text="🌐 Xuất HTML" fx:id="exportHtmlBtn" onAction="#exportHtml" styleClass="btn-secondary"/>
-            <Button text="📤 Xuất Excel" fx:id="exportBtn" onAction="#exportExcel" styleClass="btn-primary"/>
-            <Button text="🗑️ Xóa báo cáo" fx:id="deleteReportBtn" onAction="#deleteCurrentReport"
+            <ComboBox fx:id="caseFilter" prefWidth="160" promptText="Tất cả" onAction="#onCaseFilterChanged"/>
+            <Button text="Xuất HTML" fx:id="exportHtmlBtn" onAction="#exportHtml" styleClass="btn-secondary"/>
+            <Button text="Xuất Excel" fx:id="exportBtn" onAction="#exportExcel" styleClass="btn-primary"/>
+            <Button text="Xóa báo cáo" fx:id="deleteReportBtn" onAction="#deleteCurrentReport"
                     styleClass="toolbar-btn-danger"/>
-            <Button text="◀️ Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
+            <Button text="Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
         </HBox>
 
         <TableView fx:id="casesTable" VBox.vgrow="ALWAYS" styleClass="cases-table">
             <columns>
                 <TableColumn text="#" fx:id="caseIndexCol" prefWidth="35"/>
-                <TableColumn text="🎯 Tên Case" fx:id="caseNameCol" prefWidth="150"/>
-                <TableColumn text="📋 Suite" fx:id="caseSuiteCol" prefWidth="120"/>
-                <TableColumn text="📊 Trạng thái" fx:id="caseStatusCol" prefWidth="120"/>
-                <TableColumn text="⏱️ Thời gian" fx:id="caseDurationCol" prefWidth="80"/>
-                <TableColumn text="📸 Bằng chứng" fx:id="caseEvidenceCol" prefWidth="120"/>
-                <TableColumn text="💬 Lý do" fx:id="caseReasonCol" prefWidth="200"/>
+                <TableColumn text="Tên Case" fx:id="caseNameCol" prefWidth="150"/>
+                <TableColumn text="Suite" fx:id="caseSuiteCol" prefWidth="120"/>
+                <TableColumn text="Trạng thái" fx:id="caseStatusCol" prefWidth="120"/>
+                <TableColumn text="Thời gian" fx:id="caseDurationCol" prefWidth="90"/>
+                <TableColumn text="Bằng chứng" fx:id="caseEvidenceCol" prefWidth="120"/>
+                <TableColumn text="Lý do" fx:id="caseReasonCol" prefWidth="200"/>
             </columns>
         </TableView>
     </VBox>
@@ -57,7 +57,7 @@
                 <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
                 <Label fx:id="detailCaseTitle" text="Chi tiết case" styleClass="case-detail-sidebar-title"
                        HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button fx:id="closeDetailBtn" text="✖️" styleClass="icon-btn"
+                <Button fx:id="closeDetailBtn" text="✕" styleClass="icon-btn"
                         onAction="#closeDetailSidebar" focusTraversable="false"/>
             </HBox>
             <Separator/>
@@ -66,33 +66,33 @@
                 <VBox fx:id="detailBody" spacing="12" styleClass="case-detail-sidebar-body"
                       maxWidth="Infinity">
                     <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
-                    <Label text="☑️ Kết quả Assert" styleClass="section-header"/>
+                    <Label text="Kết quả Assert" styleClass="section-header"/>
                     <TableView fx:id="assertsTable" prefHeight="200" maxWidth="Infinity"
                                styleClass="asserts-detail-table">
                         <columns>
                             <TableColumn text="#" fx:id="assertIndexCol" prefWidth="36"/>
-                            <TableColumn text="🏷️ Loại kiểm tra" fx:id="assertTypeCol" prefWidth="160"/>
-                            <TableColumn text="📄 Chi tiết" fx:id="assertDetailCol" prefWidth="160"/>
-                            <TableColumn text="⚙ Cấu hình" fx:id="assertConfigCol" prefWidth="110"/>
-                            <TableColumn text="📊 Kết quả" fx:id="assertResultCol" prefWidth="110"/>
-                            <TableColumn text="💬 Thông báo" fx:id="assertMessageCol" prefWidth="180"/>
+                            <TableColumn text="Loại kiểm tra" fx:id="assertTypeCol" prefWidth="160"/>
+                            <TableColumn text="Chi tiết" fx:id="assertDetailCol" prefWidth="160"/>
+                            <TableColumn text="Cấu hình" fx:id="assertConfigCol" prefWidth="110"/>
+                            <TableColumn text="Kết quả" fx:id="assertResultCol" prefWidth="110"/>
+                            <TableColumn text="Thông báo" fx:id="assertMessageCol" prefWidth="180"/>
                         </columns>
                     </TableView>
                     <HBox spacing="8" alignment="CENTER_LEFT" maxWidth="Infinity">
-                        <Label fx:id="screenshotLabel" text="📸 Ảnh chụp:" visible="false"
+                        <Label fx:id="screenshotLabel" text="Ảnh chụp:" visible="false"
                                wrapText="false" maxWidth="Infinity" HBox.hgrow="ALWAYS"
                                styleClass="screenshot-path-label"/>
-                        <Button fx:id="viewScreenshotBtn" text="🖼️ Mở" onAction="#viewScreenshot"
+                        <Button fx:id="viewScreenshotBtn" text="Mở" onAction="#viewScreenshot"
                                 visible="false" minWidth="64" styleClass="btn-sm"/>
                     </HBox>
                     <StackPane styleClass="screenshot-preview-frame" maxWidth="Infinity">
                         <ImageView fx:id="screenshotView" preserveRatio="true" smooth="true"
                                    visible="false"/>
                     </StackPane>
-                    <Label text="📝 Ghi chú" styleClass="section-header"/>
+                    <Label text="Ghi chú" styleClass="section-header"/>
                     <TextArea fx:id="logExcerpt" styleClass="log-excerpt" editable="false" prefHeight="110"
                               maxWidth="Infinity" wrapText="true"
-                              promptText="📝 Chọn case để xem chi tiết"/>
+                              promptText="Chọn case để xem chi tiết"/>
                 </VBox>
             </ScrollPane>
         </VBox>

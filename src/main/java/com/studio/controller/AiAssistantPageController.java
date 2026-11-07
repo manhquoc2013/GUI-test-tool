@@ -89,7 +89,7 @@ public class AiAssistantPageController implements Initializable {
                     setText(null);
                     setGraphic(null);
                 } else {
-                    setText("🎯 " + item.getName() + " (" + item.getAssertions().size() + " asserts)");
+                    setText(item.getName() + " (" + item.getAssertions().size() + " asserts)");
                 }
             }
         });
@@ -223,7 +223,7 @@ public class AiAssistantPageController implements Initializable {
         chip.setAlignment(Pos.CENTER_LEFT);
         chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
 
-        Label label = new Label((doc.isImage() ? "🖼️ " : "📄 ") + doc.getFileName());
+        Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
         label.setStyle("-fx-font-size: 11px;");
 
         Button removeBtn = new Button("✕");
@@ -278,7 +278,7 @@ public class AiAssistantPageController implements Initializable {
         // Add user bubble in chat
         StringBuilder userChatText = new StringBuilder(prompt);
         if (!attachedDocuments.isEmpty()) {
-            userChatText.append("\n\n📎 Đã đính kèm: ");
+            userChatText.append("\n\nĐã đính kèm: ");
             for (var d : attachedDocuments) {
                 userChatText.append(d.getFileName()).append(" ");
             }
@@ -344,12 +344,12 @@ public class AiAssistantPageController implements Initializable {
             previewCaseUrlLabel.setText("");
             previewScriptEditor.clear();
             previewAssertsListView.getItems().clear();
-            previewAssertsTab.setText("☑️ Assertions (0)");
+            previewAssertsTab.setText("Assertions (0)");
             return;
         }
 
-        previewCaseNameLabel.setText("🎯 " + c.getName());
-        previewCaseUrlLabel.setText("🔗 " + (c.getStartUrl().isBlank() ? "(Chưa có URL)" : c.getStartUrl()));
+        previewCaseNameLabel.setText(c.getName());
+        previewCaseUrlLabel.setText(c.getStartUrl().isBlank() ? "" : "URL: " + c.getStartUrl());
         previewScriptEditor.setText(c.getScriptCode());
 
         previewAssertsListView.getItems().clear();
@@ -358,7 +358,7 @@ public class AiAssistantPageController implements Initializable {
             String val = a.getValue() != null && !a.getValue().isBlank() ? " | " + a.getValue() : "";
             previewAssertsListView.getItems().add(a.getType() + loc + val);
         }
-        previewAssertsTab.setText("☑️ Assertions (" + c.getAssertions().size() + ")");
+        previewAssertsTab.setText("Assertions (" + c.getAssertions().size() + ")");
     }
 
     @FXML
@@ -399,7 +399,7 @@ public class AiAssistantPageController implements Initializable {
         bubble.setMaxWidth(500);
 
         String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-        Label headerLabel = new Label(("user".equals(role) ? "👤 Bạn" : "🤖 Trợ lý AI") + "  •  " + time);
+        Label headerLabel = new Label(("user".equals(role) ? "Bạn" : "Trợ lý AI") + "  •  " + time);
         headerLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
 
         Label contentLabel = new Label(text);

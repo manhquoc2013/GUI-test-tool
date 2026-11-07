@@ -21,30 +21,30 @@
     <!-- Unified Consolidated Action Bar -->
     <HBox styleClass="workspace-action-bar" spacing="10" alignment="CENTER_LEFT">
         <padding><Insets top="8" right="12" bottom="8" left="12"/></padding>
-        <Button text="◀️ Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
+        <Button text="Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
         <Label fx:id="breadcrumbLabel" text="Suite: " styleClass="breadcrumb"/>
-        <Label fx:id="selectedCaseHint" text="👆 Chọn một case bên trái" styleClass="workspace-case-badge"/>
+        <Label fx:id="selectedCaseHint" text="Chọn một case bên trái" styleClass="workspace-case-badge"/>
 
         <HBox HBox.hgrow="ALWAYS" alignment="CENTER_LEFT" spacing="8">
-            <Label text="🌐 URL:" styleClass="field-label-sm"/>
+            <Label text="URL:" styleClass="field-label-sm"/>
             <TextField fx:id="startUrlField" promptText="https://example.com — dùng khi ghi hình / chạy"
                        HBox.hgrow="ALWAYS" styleClass="url-field"/>
         </HBox>
 
         <HBox spacing="6" alignment="CENTER_RIGHT" styleClass="workspace-btn-group">
-            <Button text="🔴 Ghi hình" fx:id="recordBtn" onAction="#startRecord" styleClass="toolbar-btn-record"/>
-            <Button text="▶ Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
-            <Button text="▶ Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
-            <Button text="✨ AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
-            <Button text="💾 Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
-            <Button text="◫ Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>
+            <Button text="Ghi hình" fx:id="recordBtn" onAction="#startRecord" styleClass="toolbar-btn-record"/>
+            <Button text="Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
+            <Button text="Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
+            <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
+            <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
+            <Button text="Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>
         </HBox>
 
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
         <HBox spacing="8" alignment="CENTER_RIGHT">
-            <CheckBox fx:id="stopOnFirstFailureCheck" text="⏹️ Dừng khi lỗi" styleClass="workspace-check"/>
-            <CheckBox fx:id="shareContextCheck" text="🧩 Chung context" selected="true" styleClass="workspace-check"/>
+            <CheckBox fx:id="stopOnFirstFailureCheck" text="Dừng khi lỗi" styleClass="workspace-check"/>
+            <CheckBox fx:id="shareContextCheck" text="Chung context" selected="true" styleClass="workspace-check"/>
         </HBox>
     </HBox>
 
@@ -53,12 +53,12 @@
         <VBox styleClass="case-list-panel" minWidth="200" prefWidth="260">
             <HBox styleClass="section-header-row" spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="8" right="8" bottom="6" left="8"/></padding>
-                <Label text="🎯 Danh sách Case" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button text="🎯 Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
+                <Label text="Danh sách Case" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <Button text="+ Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
             </HBox>
             <HBox spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="0" right="8" bottom="6" left="8"/></padding>
-                <TextField fx:id="caseSearchField" promptText="🔍 Tìm case…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
+                <TextField fx:id="caseSearchField" promptText="Tìm case…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
             </HBox>
             <ListView fx:id="caseListView" VBox.vgrow="ALWAYS" styleClass="case-list"/>
         </VBox>
@@ -69,7 +69,7 @@
                 <!-- Suite Info Panel (when no case selected) -->
                 <VBox fx:id="suiteInfoPanel" styleClass="suite-info-panel" spacing="14" visible="true" managed="true">
                     <padding><Insets top="24" right="28" bottom="24" left="28"/></padding>
-                    <Label text="📋 Thông tin Suite" styleClass="suite-info-heading"/>
+                    <Label text="Thông tin Suite" styleClass="suite-info-heading"/>
                     <Label fx:id="suiteInfoTitle" text="—" styleClass="suite-info-title"/>
                     <HBox spacing="10" alignment="CENTER_LEFT" styleClass="field-row">
                         <Label text="Trạng thái" styleClass="field-label" minWidth="80"/>
@@ -79,10 +79,10 @@
                     <Label fx:id="suiteInfoStats" styleClass="preview-stats" wrapText="true"/>
                     <Label text="Mô tả" styleClass="field-label"/>
                     <Label fx:id="suiteInfoDesc" styleClass="preview-desc" wrapText="true" text="Chưa có mô tả"/>
-                    <Label text="💡 Chọn một case bên trái để mở Code Editor và Asserts song song, hoặc ấn Ghi hình."
+                    <Label text="Chọn một case bên trái để mở Code Editor và Asserts song song, hoặc ấn Ghi hình."
                            styleClass="toolbar-label" wrapText="true"/>
                     <HBox spacing="8" alignment="CENTER_LEFT">
-                        <Button text="🎯 Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
+                        <Button text="+ Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
                     </HBox>
                 </VBox>
 
@@ -93,7 +93,7 @@
                     <VBox fx:id="codePanel" spacing="0" styleClass="code-panel">
                         <HBox styleClass="editor-header-bar" spacing="8" alignment="CENTER_LEFT">
                             <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
-                            <Label text="📝 Playwright Test Code" styleClass="editor-title-label"/>
+                            <Label text="Playwright Test Code" styleClass="editor-title-label"/>
                             <Label fx:id="codeDirtyLabel" text="● Chưa lưu" styleClass="code-dirty-tag" visible="false" managed="false"/>
                             <HBox HBox.hgrow="ALWAYS"/>
                             <Label fx:id="codeStatsLabel" text="Java Playwright Script" styleClass="editor-stats-label"/>
@@ -107,11 +107,11 @@
                     <VBox fx:id="assertsPanel" spacing="8" styleClass="asserts-panel">
                         <padding><Insets top="8" right="10" bottom="10" left="10"/></padding>
                         <HBox spacing="8" alignment="CENTER_LEFT" styleClass="asserts-header-row">
-                            <Label text="☑️ Danh mục Asserts" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                            <Button text="➕ Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn"/>
+                            <Label text="Danh mục Asserts" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                            <Button text="Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn"/>
                         </HBox>
                         <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
-                            <TextField fx:id="assertSearchField" promptText="🔍 Tìm assert…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
+                            <TextField fx:id="assertSearchField" promptText="Tìm assert…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
                             <ComboBox fx:id="assertTypeFilter" prefWidth="150" promptText="Loại assert"/>
                         </HBox>
                         <ListView fx:id="assertListView" VBox.vgrow="ALWAYS" styleClass="assert-list"/>
@@ -122,10 +122,10 @@
             <!-- Bottom: Terminal Panel -->
             <VBox fx:id="terminalPanel" styleClass="terminal-panel" visible="false" managed="false">
                 <HBox styleClass="terminal-header" spacing="4">
-                    <Label text="⌨️ Terminal" styleClass="terminal-title"/>
+                    <Label text="Terminal" styleClass="terminal-title"/>
                     <HBox HBox.hgrow="ALWAYS"/>
-                    <Button text="🧹 Xóa log" fx:id="clearTerminalBtn" onAction="#clearTerminal" styleClass="terminal-btn"/>
-                    <Button text="🔽 Ẩn" fx:id="hideTerminalBtn" onAction="#hideTerminal" styleClass="terminal-btn"/>
+                    <Button text="Xóa log" fx:id="clearTerminalBtn" onAction="#clearTerminal" styleClass="terminal-btn"/>
+                    <Button text="Ẩn" fx:id="hideTerminalBtn" onAction="#hideTerminal" styleClass="terminal-btn"/>
                 </HBox>
                 <TextArea fx:id="terminalOutput" styleClass="terminal-output" editable="false" wrapText="true"
                           VBox.vgrow="ALWAYS"/>

@@ -19,13 +19,13 @@
       fx:controller="com.studio.controller.ExplorerPageController"
       styleClass="explorer-page">
     <ToolBar styleClass="page-toolbar">
-        <Button text="📁 Nhóm mới" fx:id="addGroupBtn" onAction="#addGroup" styleClass="toolbar-btn-add"/>
-        <Button text="📋 Suite mới" fx:id="addSuiteBtn" onAction="#addSuite" styleClass="toolbar-btn"/>
-        <Button text="🎯 Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
+        <Button text="+ Nhóm mới" fx:id="addGroupBtn" onAction="#addGroup" styleClass="toolbar-btn-add"/>
+        <Button text="+ Suite mới" fx:id="addSuiteBtn" onAction="#addSuite" styleClass="toolbar-btn"/>
+        <Button text="+ Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
         <Separator fx:id="createToolbarSep"/>
-        <Button text="📄 Sao chép" fx:id="copyBtn" onAction="#copyItem" styleClass="toolbar-btn"/>
+        <Button text="Sao chép" fx:id="copyBtn" onAction="#copyItem" styleClass="toolbar-btn"/>
         <HBox HBox.hgrow="ALWAYS"/>
-        <TextField fx:id="searchField" promptText="🔍 Tìm theo tên…" prefWidth="200" styleClass="toolbar-search"/>
+        <TextField fx:id="searchField" promptText="Tìm theo tên…" prefWidth="200" styleClass="toolbar-search"/>
         <Label text="Lọc" styleClass="toolbar-label"/>
         <ComboBox fx:id="statusFilter" prefWidth="180"/>
     </ToolBar>
@@ -33,12 +33,12 @@
         <VBox styleClass="tree-panel">
             <HBox styleClass="tree-header-box" alignment="CENTER_LEFT" spacing="6">
                 <padding><Insets top="6" right="8" bottom="6" left="8"/></padding>
-                <Label text="📁 Cây dự án" styleClass="tree-hint" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <Label text="Cây dự án" styleClass="tree-hint" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                 <HBox fx:id="statusFilterChips" spacing="4" alignment="CENTER_RIGHT" styleClass="filter-chips-box">
                     <Button fx:id="chipAll" text="Tất cả" styleClass="filter-chip, active" onAction="#filterChipAll"/>
-                    <Button fx:id="chipActive" text="● Hoạt động" styleClass="filter-chip" onAction="#filterChipActive"/>
-                    <Button fx:id="chipDraft" text="📝 Nháp" styleClass="filter-chip" onAction="#filterChipDraft"/>
-                    <Button fx:id="chipInactive" text="⚪ Ngừng" styleClass="filter-chip" onAction="#filterChipInactive"/>
+                    <Button fx:id="chipActive" text="Hoạt động" styleClass="filter-chip" onAction="#filterChipActive"/>
+                    <Button fx:id="chipDraft" text="Nháp" styleClass="filter-chip" onAction="#filterChipDraft"/>
+                    <Button fx:id="chipInactive" text="Ngừng" styleClass="filter-chip" onAction="#filterChipInactive"/>
                 </HBox>
             </HBox>
             <TreeView fx:id="projectTree" VBox.vgrow="ALWAYS" styleClass="project-tree"/>
@@ -46,8 +46,8 @@
         <ScrollPane fitToWidth="true" styleClass="preview-scroll">
             <VBox styleClass="preview-panel" spacing="10">
                 <padding><Insets top="14" right="14" bottom="14" left="14"/></padding>
-                <Label text="👁 Xem trước" styleClass="preview-title"/>
-                <Label fx:id="previewName" styleClass="preview-name" text="👆 Chọn một mục"/>
+                <Label text="Xem trước" styleClass="preview-title"/>
+                <Label fx:id="previewName" styleClass="preview-name" text="Chọn một mục"/>
                 <Label fx:id="previewType" styleClass="preview-type"/>
                 <Label fx:id="previewStatus" styleClass="preview-status" visible="false" managed="false"/>
                 <Label fx:id="previewDesc" styleClass="preview-desc" wrapText="true"/>
@@ -65,16 +65,16 @@
                     <Label fx:id="previewUpdatedLabel" styleClass="toolbar-label"/>
                     <HBox spacing="8" alignment="CENTER_RIGHT">
                         <HBox HBox.hgrow="ALWAYS"/>
-                        <Button fx:id="previewEditBtn" text="✏ Sửa" onAction="#editFromPreview" styleClass="btn-secondary"/>
+                        <Button fx:id="previewEditBtn" text="Sửa" onAction="#editFromPreview" styleClass="btn-secondary"/>
                     </HBox>
                 </VBox>
 
                 <VBox VBox.vgrow="ALWAYS"/>
                 <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
                     <HBox HBox.hgrow="ALWAYS"/>
-                    <Button fx:id="openWorkspaceBtn" text="📂 Mở Workspace" onAction="#openWorkspace"
+                    <Button fx:id="openWorkspaceBtn" text="Mở Workspace" onAction="#openWorkspace"
                             styleClass="btn-primary, preview-cta" visible="false"/>
-                    <Button fx:id="runNodeBtn" text="▶ Chạy" onAction="#runNode"
+                    <Button fx:id="runNodeBtn" text="Chạy" onAction="#runNode"
                             styleClass="btn-success, preview-cta, preview-cta-run" visible="false"/>
                 </HBox>
             </VBox>

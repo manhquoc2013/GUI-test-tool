@@ -375,21 +375,21 @@ public class MainShellController implements Initializable {
                 sidebar.setMinWidth(SIDEBAR_EXPANDED);
                 sidebar.setMaxWidth(SIDEBAR_EXPANDED);
             }
-            navExplorerBtn.setText("📂 Khám phá");
-            navReportsBtn.setText("📊 Báo cáo");
+            navExplorerBtn.setText("Khám phá");
+            navReportsBtn.setText("Báo cáo");
             if (navAiBtn != null) {
-                navAiBtn.setText("🤖 Trợ lý AI");
+                navAiBtn.setText("Trợ lý AI");
                 clearTooltip(navAiBtn);
                 VBox.setMargin(navAiBtn, Insets.EMPTY);
                 navAiBtn.setAlignment(Pos.CENTER_LEFT);
             }
-            runAllBtn.setText("▶ Chạy tất cả");
+            runAllBtn.setText("Chạy tất cả");
             clearTooltip(navExplorerBtn);
             clearTooltip(navReportsBtn);
             clearTooltip(runAllBtn);
             clearTooltip(sidebarActiveSuite);
             if (sidebarSuiteSectionLabel != null) {
-                sidebarSuiteSectionLabel.setText("📌 SUITE ĐANG MỞ");
+                sidebarSuiteSectionLabel.setText("SUITE ĐANG MỞ");
                 sidebarSuiteSectionLabel.setVisible(true);
                 sidebarSuiteSectionLabel.setManaged(true);
                 VBox.setMargin(sidebarSuiteSectionLabel, new Insets(10, 0, 4, 14));
@@ -418,10 +418,10 @@ public class MainShellController implements Initializable {
                 sidebar.setMaxWidth(SIDEBAR_COLLAPSED);
             }
             Insets iconGutter = new Insets(0, 6, 0, 6);
-            navExplorerBtn.setText("📂");
-            navReportsBtn.setText("📊");
+            navExplorerBtn.setText("K");
+            navReportsBtn.setText("B");
             if (navAiBtn != null) {
-                navAiBtn.setText("🤖");
+                navAiBtn.setText("AI");
                 installTip(navAiBtn, "Trợ lý AI");
                 VBox.setMargin(navAiBtn, iconGutter);
                 navAiBtn.setAlignment(Pos.CENTER);
@@ -475,13 +475,13 @@ public class MainShellController implements Initializable {
         if (sidebarActiveSuite == null) return;
         boolean hasSuite = activeSuiteName != null && !activeSuiteName.isBlank();
         if (hasSuite) {
-            sidebarActiveSuite.setText("📋 " + activeSuiteName);
+            sidebarActiveSuite.setText(activeSuiteName);
             installTip(sidebarActiveSuite, "Click để mở lại Workspace: " + activeSuiteName);
             if (!sidebarActiveSuite.getStyleClass().contains("has-suite")) {
                 sidebarActiveSuite.getStyleClass().add("has-suite");
             }
         } else {
-            sidebarActiveSuite.setText("⭕ (trống)");
+            sidebarActiveSuite.setText("(trống)");
             installTip(sidebarActiveSuite, "Chưa mở suite nào từ Khám phá");
             sidebarActiveSuite.getStyleClass().remove("has-suite");
         }
@@ -492,7 +492,7 @@ public class MainShellController implements Initializable {
         }
         if (activeSuiteLabel != null) {
             if (hasSuite) {
-                activeSuiteLabel.setText("📋 Suite: " + activeSuiteName);
+                activeSuiteLabel.setText("Suite: " + activeSuiteName);
                 installTip(activeSuiteLabel, "Click để mở lại Workspace");
             } else {
                 activeSuiteLabel.setText("");
@@ -658,13 +658,13 @@ public class MainShellController implements Initializable {
         if (tab == null) return;
         String id = tab.getId();
         if ("PAGE_EXPLORER".equals(id)) {
-            setBreadcrumb("Dự án > 📂 Khám phá");
+            setBreadcrumb("Dự án / Khám phá");
             setActiveNavButton(navExplorerBtn);
         } else if ("PAGE_REPORTS".equals(id)) {
-            setBreadcrumb("Dự án > 📊 Báo cáo");
+            setBreadcrumb("Dự án / Báo cáo");
             setActiveNavButton(navReportsBtn);
         } else if ("PAGE_AI_ASSISTANT".equals(id)) {
-            setBreadcrumb("Dự án > 🤖 Trợ lý AI");
+            setBreadcrumb("Dự án / Trợ lý AI");
             setActiveNavButton(navAiBtn);
         } else if (id.startsWith("SUITE:")) {
             setBreadcrumb("Dự án > 📋 " + tab.getTitle());

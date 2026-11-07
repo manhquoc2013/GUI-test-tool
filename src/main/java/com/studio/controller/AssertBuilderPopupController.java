@@ -8,7 +8,6 @@ import com.studio.store.ProjectStore;
 import com.studio.util.AssertTypeDisplay;
 import com.studio.util.DialogTheme;
 import com.studio.util.StatusDisplay;
-import com.studio.util.StudioIcons;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
@@ -169,7 +168,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
             ListCell<String> cell = new ListCell<>() {
                 private final HBox row = new HBox(8);
                 private final Label infoLabel = new Label();
-                private final Button deleteBtn = new Button(StudioIcons.DELETE + " Xóa");
+                private final Button deleteBtn = new Button("Xóa");
 
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
@@ -320,9 +319,9 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
             this.assertions.addAll(testCase.getAssertions());
         }
         if (titleLabel != null && testCase != null) {
-            titleLabel.setText(StudioIcons.ASSERT + " Assertions cho " + testCase.getName());
+            titleLabel.setText("Assertions cho " + testCase.getName());
         } else if (titleLabel != null && suite != null) {
-            titleLabel.setText(StudioIcons.ASSERT + " Assertions cho " + suite.getName());
+            titleLabel.setText("Assertions cho " + suite.getName());
         }
         clearForm();
         refreshList();
@@ -348,7 +347,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         if (timeoutSpinner != null && timeoutSpinner.getValueFactory() != null) {
             timeoutSpinner.getValueFactory().setValue(a.getTimeoutMs() > 0 ? a.getTimeoutMs() : 30000);
         }
-        if (addBtn != null) addBtn.setText("💾 Cập nhật");
+        if (addBtn != null) addBtn.setText("Cập nhật");
         suppressListSelect = true;
         assertListView.getSelectionModel().select(index);
         suppressListSelect = false;
@@ -465,10 +464,10 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         DialogTheme.apply(confirm);
         confirm.setTitle("Đóng mà không lưu?");
-        confirm.setHeaderText("✖️ Còn thay đổi assertions chưa lưu");
+        confirm.setHeaderText("Còn thay đổi assertions chưa lưu");
         confirm.setContentText("Đóng sẽ mất các thay đổi chưa bấm «Lưu Assertions». Tiếp tục đóng?");
-        ButtonType discard = new ButtonType("✖️ Đóng không lưu", ButtonBar.ButtonData.YES);
-        ButtonType stay = new ButtonType("◀️ Ở lại", ButtonBar.ButtonData.NO);
+        ButtonType discard = new ButtonType("Đóng không lưu", ButtonBar.ButtonData.YES);
+        ButtonType stay = new ButtonType("Ở lại", ButtonBar.ButtonData.NO);
         confirm.getButtonTypes().setAll(discard, stay);
         return confirm.showAndWait().filter(b -> b == discard).isPresent();
     }
@@ -573,6 +572,6 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         if (typeCombo != null) typeCombo.setValue("TEXT_VISIBLE");
         if (statusCombo != null) statusCombo.setValue("ACTIVE");
         if (timeoutSpinner != null) timeoutSpinner.getValueFactory().setValue(30000);
-        if (addBtn != null) addBtn.setText("➕ Thêm");
+        if (addBtn != null) addBtn.setText("Thêm");
     }
 }

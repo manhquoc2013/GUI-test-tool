@@ -74,14 +74,8 @@ public class ViewNavigator {
             }
             if (tabManager != null) {
                 String tabId = "PAGE_" + page.name();
-                String icon = switch (page) {
-                    case EXPLORER -> "📂";
-                    case REPORTS -> "📊";
-                    case AI_ASSISTANT -> "🤖";
-                    default -> "📄";
-                };
                 boolean closable = (page != Page.EXPLORER);
-                tabManager.openTab(tabId, page.title, icon, node, closable, null, controllerCache.get(page));
+                tabManager.openTab(tabId, page.title, "", node, closable, null, controllerCache.get(page));
             } else {
                 showPage(node);
             }
@@ -147,7 +141,7 @@ public class ViewNavigator {
             SuiteWorkspacePageController ctrl = loader.getController();
 
             if (tabManager != null) {
-                tabManager.openTab(tabId, suiteName, "📋", node, true, null, ctrl);
+                tabManager.openTab(tabId, suiteName, "", node, true, null, ctrl);
             } else {
                 showPage(node);
             }
@@ -215,7 +209,7 @@ public class ViewNavigator {
 
             if (tabManager != null) {
                 String title = "Báo cáo " + (runId.length() > 8 ? runId.substring(runId.length() - 8) : runId);
-                tabManager.openTab(tabId, title, "📊", node, true, null, ctrl);
+                tabManager.openTab(tabId, title, "", node, true, null, ctrl);
             } else {
                 showPage(node);
             }

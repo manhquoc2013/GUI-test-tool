@@ -19,42 +19,39 @@
         <HBox styleClass="header-bar" spacing="12" alignment="CENTER_LEFT">
             <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
             <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
-            <HBox alignment="CENTER_LEFT" spacing="6">
-                <Label text="🎭" styleClass="app-title-icon"/>
-                <Label text="Playwright Automation Studio" styleClass="app-title"/>
-            </HBox>
+            <Label text="Playwright Automation Studio" styleClass="app-title"/>
             <Separator orientation="VERTICAL" styleClass="header-separator"/>
             <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
                 <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>
             </HBox>
             <HBox HBox.hgrow="ALWAYS"/>
-            <Button fx:id="stopRunBtn" text="⏹ Dừng" styleClass="header-stop-btn" onAction="#stopRun"
+            <Button fx:id="stopRunBtn" text="Dừng" styleClass="header-stop-btn" onAction="#stopRun"
                     visible="false" managed="false"/>
             <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
-            <Button fx:id="settingsBtn" text="⚙ Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
-            <Button fx:id="helpBtn" text="❓ Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
+            <Button fx:id="settingsBtn" text="Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
+            <Button fx:id="helpBtn" text="Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
         </HBox>
     </top>
     <left>
         <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">
             <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
-            <Button fx:id="navExplorerBtn" text="📂 Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
-            <Button fx:id="navReportsBtn" text="📊 Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
-            <Button fx:id="navAiBtn" text="🤖 Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
+            <Button fx:id="navExplorerBtn" text="Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
+            <Button fx:id="navReportsBtn" text="Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
+            <Button fx:id="navAiBtn" text="Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
             <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
-            <Label fx:id="sidebarSuiteSectionLabel" text="📌 SUITE ĐANG MỞ" styleClass="sidebar-section-label">
+            <Label fx:id="sidebarSuiteSectionLabel" text="SUITE ĐANG MỞ" styleClass="sidebar-section-label">
                 <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>
             </Label>
             <HBox fx:id="sidebarActiveSuiteRow" spacing="4" alignment="CENTER_LEFT">
                 <VBox.margin><Insets left="14" right="10"/></VBox.margin>
-                <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="⭕ (trống)"
+                <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="(trống)"
                        HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                 <Button fx:id="clearActiveSuiteBtn" text="✕" styleClass="sidebar-clear-suite-btn"
                         onAction="#clearActiveSuite" visible="false" managed="false"
                         focusTraversable="false"/>
             </HBox>
             <VBox VBox.vgrow="ALWAYS"/>
-            <Button fx:id="runAllBtn" text="▶ Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
+            <Button fx:id="runAllBtn" text="Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
                 <VBox.margin><Insets left="12" right="12" bottom="8"/></VBox.margin>
             </Button>
         </VBox>
@@ -71,7 +68,7 @@
 
             <StackPane fx:id="shellStack" styleClass="shell-stack" VBox.vgrow="ALWAYS">
                 <StackPane fx:id="contentArea" styleClass="content-area">
-                    <Label text="👆 Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
+                    <Label text="Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
                 </StackPane>
 
                 <!-- Help: overlay + right drawer (hidden by default) -->
@@ -82,9 +79,9 @@
                           StackPane.alignment="CENTER_RIGHT" spacing="0" maxHeight="Infinity">
                         <HBox styleClass="help-drawer-header" spacing="8" alignment="CENTER_LEFT">
                             <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
-                            <Label text="❓ Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
+                            <Label text="Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
                                    maxWidth="Infinity"/>
-                            <Button fx:id="helpCloseBtn" text="✖️" styleClass="icon-btn" onAction="#hideHelp"
+                            <Button fx:id="helpCloseBtn" text="✕" styleClass="icon-btn" onAction="#hideHelp"
                                     focusTraversable="false"/>
                         </HBox>
                         <Separator/>
@@ -107,9 +104,9 @@
     <bottom>
         <HBox styleClass="status-bar" spacing="8">
             <padding><Insets top="4" right="14" bottom="4" left="14"/></padding>
-            <Label fx:id="statusLabel" text="● Sẵn sàng"/>
+            <Label fx:id="statusLabel" text="Sẵn sàng"/>
             <HBox HBox.hgrow="ALWAYS"/>
-            <Label fx:id="browserLabel" text="🌐 Chromium"/>
+            <Label fx:id="browserLabel" text="Chromium"/>
         </HBox>
     </bottom>
 </BorderPane>
