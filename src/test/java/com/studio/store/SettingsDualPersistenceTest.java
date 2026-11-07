@@ -23,8 +23,8 @@ public class SettingsDualPersistenceTest {
     }
 
     @Test
-    public void testDualPersistenceAndDatabaseRecovery() throws IOException {
-        SettingsStore store = new SettingsStore();
+    public void testDualPersistenceAndDatabaseRecovery(@TempDir Path tempDir) throws IOException {
+        SettingsStore store = new SettingsStore(tempDir);
 
         SettingsStore.Settings s = new SettingsStore.Settings();
         s.setBrowser("FIREFOX");
@@ -35,7 +35,7 @@ public class SettingsDualPersistenceTest {
         // Save
         store.save(s);
 
-        Path diskFile = StudioPaths.getConfigDir().resolve("settings.json");
+        Path diskFile = tempDir.resolve("settings.json");
         assertTrue(Files.exists(diskFile), "Disk file must exist");
 
         // Now simulate accidental disk file deletion or corruption
@@ -56,7 +56,7 @@ public class SettingsDualPersistenceTest {
 
     @Test
     public void testExportAndImportSettings(@TempDir Path tempDir) throws IOException {
-        SettingsStore store = new SettingsStore();
+        SettingsStore store = new SettingsStore(tempDir);
 
         SettingsStore.Settings s = new SettingsStore.Settings();
         s.setBrowser("WEBKIT");

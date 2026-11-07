@@ -609,7 +609,7 @@ public class MainShellController implements Initializable {
 
     @FXML
     public void openSettings() {
-        AiSettingsDialog.show(new SettingsStore());
+        AiSettingsDialog.show(new SettingsStore(), "GENERAL");
     }
 
     @FXML

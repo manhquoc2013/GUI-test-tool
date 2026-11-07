@@ -2,21 +2,28 @@ package com.studio.controller;
 
 import com.studio.model.AiConfig;
 import com.studio.service.OpenAiClient;
+import com.studio.service.ThemeService;
 import com.studio.service.ToastService;
 import com.studio.store.SettingsStore;
 import com.studio.util.DialogTheme;
+import com.studio.util.UiIcons;
+import com.studio.util.UiTooltips;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Dialog to configure OpenAI models, API keys, Base URLs, and test connections.
+ * Unified Studio & AI Settings Dialog with tabbed configuration:
+ * Tab 1: General & Browser Execution Settings
+ * Tab 2: AI Assistant & LLM Endpoint Configuration
  */
 public class AiSettingsDialog {
 
@@ -28,9 +35,6 @@ public class AiSettingsDialog {
             "gpt-4-turbo"
     );
 
-    /**
-     * Provide presets tailored to the Base URL provider.
-     */
     public static List<String> getPresetsForBaseUrl(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             return DEFAULT_OPENAI_PRESETS;
@@ -77,10 +81,14 @@ public class AiSettingsDialog {
         return DEFAULT_OPENAI_PRESETS;
     }
 
-    public static void show(SettingsStore settingsStore) {
+    public static boolean show(SettingsStore settingsStore) {
+        return show(settingsStore, "AI");
+    }
+
+    public static boolean show(SettingsStore settingsStore, String initialTab) {
         Dialog<Boolean> dialog = new Dialog<>();
-        dialog.setTitle("Cài đặt OpenAI Assistant");
-        dialog.setHeaderText("Cấu hình mô hình AI và kết nối OpenAI / Compatible Endpoint");
+        dialog.setTitle("Cài đặt Hệ thống & Trợ lý AI");
+        dialog.setHeaderText("Tùy chỉnh cấu hình trình duyệt, môi trường thực thi và kết nối AI");
 
         DialogPane pane = dialog.getDialogPane();
         pane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
@@ -89,28 +97,152 @@ public class AiSettingsDialog {
         Button cancelButton = (Button) pane.lookupButton(ButtonType.CANCEL);
         cancelButton.setText("Hủy");
 
+        SettingsStore store = settingsStore != null ? settingsStore : new SettingsStore();
         SettingsStore.Settings currentSettings;
         try {
-            currentSettings = settingsStore.load();
+            currentSettings = store.load();
         } catch (IOException e) {
             currentSettings = new SettingsStore.Settings();
         }
-        AiConfig aiConfig = currentSettings.getAiConfig();
+        final SettingsStore.Settings finalSettings = currentSettings;
+        AiConfig aiConfig = finalSettings.getAiConfig();
 
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(14);
-        grid.setPadding(new Insets(16, 20, 16, 20));
-        grid.setPrefWidth(540);
+        TabPane tabPane = new TabPane();
+        tabPane.getStyleClass().add("settings-tab-pane");
+        tabPane.setStyle("-fx-tab-min-width: 150px;");
 
-        int row = 0;
+        // ══════════════════════════════════════════════════════════
+        // TAB 1: Cài đặt Chung & Trình duyệt (General Settings)
+        // ══════════════════════════════════════════════════════════
+        GridPane generalGrid = new GridPane();
+        generalGrid.setHgap(12);
+        generalGrid.setVgap(14);
+        generalGrid.setPadding(new Insets(16, 20, 16, 20));
+        generalGrid.setPrefWidth(620);
+
+        int genRow = 0;
+
+        // Default Browser
+        Label browserLabel = new Label("Trình duyệt mặc định:");
+        browserLabel.getStyleClass().add("field-label");
+        ComboBox<String> browserCombo = new ComboBox<>();
+        browserCombo.getItems().addAll("CHROMIUM", "FIREFOX", "WEBKIT", "CHROME", "EDGE");
+        browserCombo.setValue(finalSettings.getBrowser() != null ? finalSettings.getBrowser().toUpperCase() : "CHROMIUM");
+        browserCombo.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(browserCombo, Priority.ALWAYS);
+        generalGrid.add(browserLabel, 0, genRow);
+        generalGrid.add(browserCombo, 1, genRow);
+        genRow++;
+
+        // Headless Checkbox
+        Label headlessLabel = new Label("Chế độ hiển thị:");
+        headlessLabel.getStyleClass().add("field-label");
+        CheckBox headlessCheck = new CheckBox("Chạy trình duyệt ẩn (Headless mode)");
+        headlessCheck.setSelected(finalSettings.isHeadlessDefault());
+        generalGrid.add(headlessLabel, 0, genRow);
+        generalGrid.add(headlessCheck, 1, genRow);
+        genRow++;
+
+        // Share Context Checkbox
+        Label shareLabel = new Label("Phiên làm việc:");
+        shareLabel.getStyleClass().add("field-label");
+        CheckBox shareCheck = new CheckBox("Dùng chung BrowserContext giữa các Test Cases trong Suite");
+        shareCheck.setSelected(finalSettings.isShareContextDefault());
+        generalGrid.add(shareLabel, 0, genRow);
+        generalGrid.add(shareCheck, 1, genRow);
+        genRow++;
+
+        // Stop on first failure
+        Label stopLabel = new Label("Quy tắc dừng:");
+        stopLabel.getStyleClass().add("field-label");
+        CheckBox stopCheck = new CheckBox("Dừng toàn bộ lượt chạy ngay khi gặp lỗi đầu tiên (Fail-Fast)");
+        stopCheck.setSelected(finalSettings.isStopOnFirstFailureDefault());
+        generalGrid.add(stopLabel, 0, genRow);
+        generalGrid.add(stopCheck, 1, genRow);
+        genRow++;
+
+        // Theme
+        Label themeLabel = new Label("Giao diện (Theme):");
+        themeLabel.getStyleClass().add("field-label");
+        ComboBox<String> themeCombo = new ComboBox<>();
+        themeCombo.getItems().addAll("Tối (Tokyo Night)", "Sáng (Clean Light)");
+        themeCombo.setValue(finalSettings.isDarkTheme() ? "Tối (Tokyo Night)" : "Sáng (Clean Light)");
+        themeCombo.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(themeCombo, Priority.ALWAYS);
+        generalGrid.add(themeLabel, 0, genRow);
+        generalGrid.add(themeCombo, 1, genRow);
+        genRow++;
+
+        // Backup / Restore JSON
+        Label backupLabel = new Label("Sao lưu cấu hình:");
+        backupLabel.getStyleClass().add("field-label");
+
+        Button exportBtn = new Button("Xuất file JSON");
+        exportBtn.getStyleClass().add("btn-secondary");
+        UiIcons.setGraphic(exportBtn, UiIcons.COPY, 12);
+        exportBtn.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Xuất cấu hình Studio ra file JSON");
+            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files (*.json)", "*.json"));
+            fc.setInitialFileName("studio-settings-backup.json");
+            File target = fc.showSaveDialog(dialog.getOwner());
+            if (target != null) {
+                try {
+                    store.exportSettings(target.toPath());
+                    ToastService.success("Đã xuất file cấu hình thành công!");
+                } catch (Exception ex) {
+                    ToastService.error("Lỗi xuất file: " + ex.getMessage());
+                }
+            }
+        });
+
+        Button importBtn = new Button("Nhập từ file JSON");
+        importBtn.getStyleClass().add("btn-secondary");
+        UiIcons.setGraphic(importBtn, UiIcons.REFRESH, 12);
+        importBtn.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Nhập cấu hình Studio từ file JSON");
+            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files (*.json)", "*.json"));
+            File src = fc.showOpenDialog(dialog.getOwner());
+            if (src != null) {
+                try {
+                    SettingsStore.Settings imported = store.importSettings(src.toPath());
+                    browserCombo.setValue(imported.getBrowser());
+                    headlessCheck.setSelected(imported.isHeadlessDefault());
+                    shareCheck.setSelected(imported.isShareContextDefault());
+                    stopCheck.setSelected(imported.isStopOnFirstFailureDefault());
+                    themeCombo.setValue(imported.isDarkTheme() ? "Tối (Tokyo Night)" : "Sáng (Clean Light)");
+                    ToastService.success("Đã nhập cấu hình thành công! Hãy bấm 'Lưu cài đặt'.");
+                } catch (Exception ex) {
+                    ToastService.error("Lỗi nhập file: " + ex.getMessage());
+                }
+            }
+        });
+
+        HBox backupBox = new HBox(8, exportBtn, importBtn);
+        generalGrid.add(backupLabel, 0, genRow);
+        generalGrid.add(backupBox, 1, genRow);
+
+        Tab generalTab = new Tab("Chung & Trình duyệt", generalGrid);
+        generalTab.setClosable(false);
+
+        // ══════════════════════════════════════════════════════════
+        // TAB 2: Cấu hình Trợ lý AI (AI & LLM Configuration)
+        // ══════════════════════════════════════════════════════════
+        GridPane aiGrid = new GridPane();
+        aiGrid.setHgap(12);
+        aiGrid.setVgap(14);
+        aiGrid.setPadding(new Insets(16, 20, 16, 20));
+        aiGrid.setPrefWidth(620);
+
+        int aiRow = 0;
 
         // API Key
         Label keyLabel = new Label("API Key:");
         keyLabel.getStyleClass().add("field-label");
         PasswordField keyField = new PasswordField();
         keyField.setText(aiConfig.getApiKey());
-        keyField.setPromptText("sk-proj-... hoặc để trống để dùng biến môi trường OPENAI_API_KEY");
+        keyField.setPromptText("sk-proj-... hoặc để trống để dùng biến môi trường");
         HBox.setHgrow(keyField, Priority.ALWAYS);
 
         TextField plainKeyField = new TextField();
@@ -124,15 +256,15 @@ public class AiSettingsDialog {
 
         Button toggleShowBtn = new Button();
         toggleShowBtn.getStyleClass().add("icon-btn");
-        com.studio.util.UiTooltips.install(toggleShowBtn, "Hiện / Ẩn API Key");
-        com.studio.util.UiIcons.setGraphic(toggleShowBtn, com.studio.util.UiIcons.EYE, 13);
+        UiTooltips.install(toggleShowBtn, "Hiện / Ẩn API Key");
+        UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE, 13);
         toggleShowBtn.setOnAction(e -> {
             boolean showing = plainKeyField.isVisible();
             plainKeyField.setVisible(!showing);
             plainKeyField.setManaged(!showing);
             keyField.setVisible(showing);
             keyField.setManaged(showing);
-            com.studio.util.UiIcons.setGraphic(toggleShowBtn, showing ? com.studio.util.UiIcons.EYE : com.studio.util.UiIcons.EYE_OFF, 13);
+            UiIcons.setGraphic(toggleShowBtn, showing ? UiIcons.EYE : UiIcons.EYE_OFF, 13);
         });
 
         HBox keyBox = new HBox(6, keyField, plainKeyField, toggleShowBtn);
@@ -141,13 +273,12 @@ public class AiSettingsDialog {
         Label envHint = new Label(aiConfig.getEffectiveApiKey().isEmpty()
                 ? "Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY)."
                 : "Đang khả dụng: " + (aiConfig.getApiKey().isEmpty() ? "biến môi trường OPENAI_API_KEY" : "API Key trực tiếp"));
-        envHint.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
+        envHint.getStyleClass().add("settings-hint-label");
 
         VBox keyCol = new VBox(4, keyBox, envHint);
-
-        grid.add(keyLabel, 0, row);
-        grid.add(keyCol, 1, row);
-        row++;
+        aiGrid.add(keyLabel, 0, aiRow);
+        aiGrid.add(keyCol, 1, aiRow);
+        aiRow++;
 
         // Base URL
         Label urlLabel = new Label("Base URL:");
@@ -155,13 +286,13 @@ public class AiSettingsDialog {
         TextField urlField = new TextField(aiConfig.getBaseUrl());
         urlField.setPromptText("https://api.openai.com/v1");
 
-        Label urlHint = new Label("Hỗ trợ OpenAI, Azure OpenAI, OpenRouter (https://openrouter.ai/api/v1), LocalAI, Ollama");
-        urlHint.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
+        Label urlHint = new Label("Hỗ trợ OpenAI, Azure, OpenRouter (https://openrouter.ai/api/v1), Gemini, Ollama");
+        urlHint.getStyleClass().add("settings-hint-label");
         VBox urlCol = new VBox(4, urlField, urlHint);
 
-        grid.add(urlLabel, 0, row);
-        grid.add(urlCol, 1, row);
-        row++;
+        aiGrid.add(urlLabel, 0, aiRow);
+        aiGrid.add(urlCol, 1, aiRow);
+        aiRow++;
 
         // Model
         Label modelLabel = new Label("Model:");
@@ -172,7 +303,6 @@ public class AiSettingsDialog {
         modelCombo.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(modelCombo, Priority.ALWAYS);
 
-        // Populate presets matching initial Base URL
         List<String> initialPresets = new ArrayList<>(getPresetsForBaseUrl(aiConfig.getBaseUrl()));
         if (aiConfig.getModel() != null && !aiConfig.getModel().isBlank() && !initialPresets.contains(aiConfig.getModel())) {
             initialPresets.add(0, aiConfig.getModel());
@@ -181,7 +311,6 @@ public class AiSettingsDialog {
         modelCombo.setValue(aiConfig.getModel());
         modelCombo.getEditor().setText(aiConfig.getModel());
 
-        // Dynamic update presets when Base URL changes
         urlField.textProperty().addListener((obs, oldVal, newVal) -> {
             String currentText = modelCombo.getEditor().getText() != null && !modelCombo.getEditor().getText().isBlank()
                     ? modelCombo.getEditor().getText().trim()
@@ -202,15 +331,15 @@ public class AiSettingsDialog {
 
         Button fetchModelsBtn = new Button("Lấy từ URL");
         fetchModelsBtn.getStyleClass().add("btn-secondary");
-        com.studio.util.UiIcons.setGraphic(fetchModelsBtn, com.studio.util.UiIcons.REFRESH, 12);
-        com.studio.util.UiTooltips.install(fetchModelsBtn, "Gửi yêu cầu tới endpoint /models của Base URL để lấy danh sách model thực tế");
+        UiIcons.setGraphic(fetchModelsBtn, UiIcons.REFRESH, 12);
+        UiTooltips.install(fetchModelsBtn, "Gửi yêu cầu tới endpoint /models của Base URL để lấy danh sách model thực tế");
 
         HBox modelBox = new HBox(6, modelCombo, fetchModelsBtn);
         modelBox.setAlignment(Pos.CENTER_LEFT);
 
-        grid.add(modelLabel, 0, row);
-        grid.add(modelBox, 1, row);
-        row++;
+        aiGrid.add(modelLabel, 0, aiRow);
+        aiGrid.add(modelBox, 1, aiRow);
+        aiRow++;
 
         // Temperature
         Label tempLabel = new Label("Nhiệt độ (0.0 - 1.0):");
@@ -229,9 +358,19 @@ public class AiSettingsDialog {
         tempBox.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(tempSlider, Priority.ALWAYS);
 
-        grid.add(tempLabel, 0, row);
-        grid.add(tempBox, 1, row);
-        row++;
+        aiGrid.add(tempLabel, 0, aiRow);
+        aiGrid.add(tempBox, 1, aiRow);
+        aiRow++;
+
+        // Max Tokens
+        Label maxTokensLabel = new Label("Max Tokens:");
+        maxTokensLabel.getStyleClass().add("field-label");
+        Spinner<Integer> maxTokensSpinner = new Spinner<>(512, 32768, aiConfig.getMaxTokens() > 0 ? aiConfig.getMaxTokens() : 4096, 512);
+        maxTokensSpinner.setEditable(true);
+        HBox.setHgrow(maxTokensSpinner, Priority.ALWAYS);
+        aiGrid.add(maxTokensLabel, 0, aiRow);
+        aiGrid.add(maxTokensSpinner, 1, aiRow);
+        aiRow++;
 
         // Test connection
         Label testLabel = new Label("Kiểm tra:");
@@ -239,24 +378,24 @@ public class AiSettingsDialog {
 
         Button testConnBtn = new Button("Kiểm tra kết nối");
         testConnBtn.getStyleClass().add("btn-secondary");
-        com.studio.util.UiIcons.setGraphic(testConnBtn, com.studio.util.UiIcons.CHECK, 12);
+        UiIcons.setGraphic(testConnBtn, UiIcons.CHECK, 12);
 
         Label testStatusLabel = new Label("");
         testStatusLabel.setWrapText(true);
-        testStatusLabel.setStyle("-fx-font-size: 12px;");
+        testStatusLabel.getStyleClass().add("settings-hint-label");
 
         fetchModelsBtn.setOnAction(e -> {
             fetchModelsBtn.setDisable(true);
             testStatusLabel.setText("Đang tải danh sách model từ Base URL...");
-            testStatusLabel.setStyle("-fx-text-fill: #9aa5ce;");
+            testStatusLabel.getStyleClass().setAll("settings-hint-label");
 
             AiConfig probeConfig = new AiConfig();
             probeConfig.setApiKey(keyField.getText().trim());
             probeConfig.setBaseUrl(urlField.getText().trim());
 
             Thread thread = new Thread(() -> {
-                OpenAiClient client = new OpenAiClient();
                 try {
+                    OpenAiClient client = new OpenAiClient();
                     List<String> models = client.fetchModels(probeConfig);
                     Platform.runLater(() -> {
                         fetchModelsBtn.setDisable(false);
@@ -264,24 +403,26 @@ public class AiSettingsDialog {
                             String current = modelCombo.getEditor().getText();
                             modelCombo.getItems().setAll(models);
                             if (current != null && !current.isBlank()) {
+                                if (!modelCombo.getItems().contains(current)) {
+                                    modelCombo.getItems().add(0, current);
+                                }
                                 modelCombo.setValue(current);
                                 modelCombo.getEditor().setText(current);
                             } else {
                                 modelCombo.setValue(models.get(0));
-                                modelCombo.getEditor().setText(models.get(0));
                             }
-                            testStatusLabel.setText("Đã tìm thấy " + models.size() + " models từ " + probeConfig.getEffectiveBaseUrl());
-                            testStatusLabel.setStyle("-fx-text-fill: #a6e3a1; -fx-font-weight: bold;");
+                            testStatusLabel.setText("Đã nạp " + models.size() + " models từ server!");
+                            testStatusLabel.getStyleClass().setAll("settings-status-success");
                         } else {
-                            testStatusLabel.setText("Endpoint /models không trả về danh sách model.");
-                            testStatusLabel.setStyle("-fx-text-fill: #f9e2af;");
+                            testStatusLabel.setText("Không tìm thấy model nào từ server.");
+                            testStatusLabel.getStyleClass().setAll("settings-status-error");
                         }
                     });
                 } catch (Exception ex) {
                     Platform.runLater(() -> {
                         fetchModelsBtn.setDisable(false);
-                        testStatusLabel.setText("Không thể lấy models: " + ex.getMessage());
-                        testStatusLabel.setStyle("-fx-text-fill: #f38ba8;");
+                        testStatusLabel.setText("Không tải được danh sách: " + ex.getMessage());
+                        testStatusLabel.getStyleClass().setAll("settings-status-error");
                     });
                 }
             }, "OpenAi-FetchModels");
@@ -292,7 +433,7 @@ public class AiSettingsDialog {
         testConnBtn.setOnAction(e -> {
             testConnBtn.setDisable(true);
             testStatusLabel.setText("Đang kiểm tra kết nối...");
-            testStatusLabel.setStyle("-fx-text-fill: #9aa5ce;");
+            testStatusLabel.getStyleClass().setAll("settings-hint-label");
 
             AiConfig probeConfig = new AiConfig();
             probeConfig.setApiKey(keyField.getText().trim());
@@ -309,10 +450,10 @@ public class AiSettingsDialog {
                     testConnBtn.setDisable(false);
                     if (res.isSuccess()) {
                         testStatusLabel.setText(res.getMessage());
-                        testStatusLabel.setStyle("-fx-text-fill: #a6e3a1; -fx-font-weight: bold;");
+                        testStatusLabel.getStyleClass().setAll("settings-status-success");
                     } else {
                         testStatusLabel.setText(res.getMessage());
-                        testStatusLabel.setStyle("-fx-text-fill: #f38ba8;");
+                        testStatusLabel.getStyleClass().setAll("settings-status-error");
                     }
                 });
             }, "OpenAi-TestConnection");
@@ -321,15 +462,34 @@ public class AiSettingsDialog {
         });
 
         VBox testBox = new VBox(6, testConnBtn, testStatusLabel);
-        grid.add(testLabel, 0, row);
-        grid.add(testBox, 1, row);
+        aiGrid.add(testLabel, 0, aiRow);
+        aiGrid.add(testBox, 1, aiRow);
 
-        pane.setContent(grid);
+        Tab aiTab = new Tab("Trợ lý AI & Mô hình", aiGrid);
+        aiTab.setClosable(false);
+
+        tabPane.getTabs().addAll(generalTab, aiTab);
+        if ("GENERAL".equalsIgnoreCase(initialTab)) {
+            tabPane.getSelectionModel().select(generalTab);
+        } else {
+            tabPane.getSelectionModel().select(aiTab);
+        }
+
+        pane.setContent(tabPane);
+        pane.setPrefWidth(660);
         DialogTheme.apply(dialog);
 
-        final SettingsStore.Settings finalSettings = currentSettings;
         dialog.setResultConverter(btn -> {
             if (btn == ButtonType.OK) {
+                // Save General Settings
+                finalSettings.setBrowser(browserCombo.getValue());
+                finalSettings.setHeadlessDefault(headlessCheck.isSelected());
+                finalSettings.setShareContextDefault(shareCheck.isSelected());
+                finalSettings.setStopOnFirstFailureDefault(stopCheck.isSelected());
+                String selectedTheme = "Sáng (Clean Light)".equals(themeCombo.getValue()) ? "light" : "dark";
+                finalSettings.setTheme(selectedTheme);
+
+                // Save AI Settings
                 AiConfig cfg = finalSettings.getAiConfig();
                 cfg.setApiKey(keyField.getText().trim());
                 cfg.setBaseUrl(urlField.getText().trim());
@@ -338,9 +498,14 @@ public class AiSettingsDialog {
                         : (modelCombo.getValue() != null ? modelCombo.getValue().trim() : "gpt-4o");
                 cfg.setModel(enteredModel);
                 cfg.setTemperature(tempSlider.getValue());
+                cfg.setMaxTokens(maxTokensSpinner.getValue());
+
                 try {
-                    settingsStore.save(finalSettings);
-                    ToastService.success("💾 Đã lưu cấu hình OpenAI Assistant!");
+                    store.save(finalSettings);
+                    if (!selectedTheme.equalsIgnoreCase(ThemeService.getCurrentTheme())) {
+                        ThemeService.setTheme(selectedTheme);
+                    }
+                    ToastService.success("💾 Đã lưu toàn bộ cấu hình hệ thống & AI!");
                     return true;
                 } catch (IOException ex) {
                     ToastService.error("⚠️ Không thể lưu cấu hình: " + ex.getMessage());
@@ -350,7 +515,7 @@ public class AiSettingsDialog {
             return false;
         });
 
-        dialog.showAndWait();
+        java.util.Optional<Boolean> result = dialog.showAndWait();
+        return result.orElse(false);
     }
 }
-

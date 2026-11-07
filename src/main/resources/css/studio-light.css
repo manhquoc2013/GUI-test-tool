@@ -876,8 +876,97 @@
     -fx-border-color: #e2e8f0;
 }
 
-.ai-chat-scroll, .ai-chat-scroll > .viewport, .ai-chat-container {
+.ai-chat-scroll {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+.ai-chat-scroll > .viewport {
+    -fx-background: transparent;
     -fx-background-color: #ffffff;
+}
+.ai-chat-container {
+    -fx-background-color: transparent;
+}
+.ai-chat-bubble {
+    -fx-padding: 10px 14px;
+}
+.ai-chat-bubble-user {
+    -fx-background-color: #eff6ff;
+    -fx-background-radius: 12px 12px 2px 12px;
+    -fx-border-color: #bfdbfe;
+    -fx-border-radius: 12px 12px 2px 12px;
+    -fx-border-width: 1px;
+}
+.ai-chat-bubble-assistant {
+    -fx-background-color: #f8fafc;
+    -fx-background-radius: 12px 12px 12px 2px;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 12px 12px 12px 2px;
+    -fx-border-width: 1px;
+}
+.ai-chat-bubble-header {
+    -fx-font-size: 11px;
+    -fx-text-fill: #64748b;
+}
+.ai-chat-bubble-content {
+    -fx-font-size: 13px;
+    -fx-text-fill: #0f172a;
+    -fx-line-spacing: 2px;
+}
+.ai-chat-bubble-user .ai-chat-bubble-content {
+    -fx-text-fill: #1e3a8a;
+}
+.ai-chat-applied-badge {
+    -fx-padding: 4 0 0 0;
+}
+.ai-chat-applied-label {
+    -fx-font-size: 10px;
+    -fx-text-fill: #059669;
+    -fx-font-weight: bold;
+}
+.ai-file-chip {
+    -fx-background-color: #f1f5f9;
+    -fx-padding: 3px 8px;
+    -fx-background-radius: 12px;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 12px;
+    -fx-border-width: 1px;
+}
+.ai-file-chip-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #334155;
+}
+.ai-file-chip-remove {
+    -fx-background-color: transparent;
+    -fx-padding: 0 2px;
+    -fx-text-fill: #64748b;
+    -fx-cursor: hand;
+    -fx-font-size: 10px;
+}
+.ai-file-chip-remove:hover {
+    -fx-text-fill: #ef4444;
+}
+
+.ai-thinking-bubble {
+    -fx-background-color: #f8fafc;
+    -fx-border-color: #93c5fd;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px 12px 12px 2px;
+}
+.ai-thinking-dot {
+    -fx-font-size: 10px;
+    -fx-text-fill: #2563eb;
+}
+.ai-thinking-status-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #1d4ed8;
+    -fx-font-style: italic;
+}
+.ai-thinking-spinner {
+    -fx-progress-color: #2563eb;
 }
 
 .ai-suggestion-btn {
@@ -1263,15 +1352,60 @@
 }
 
 /* === WORKSPACE TABS & TABPANES === */
+.tab-pane .tab-header-area {
+    -fx-background-color: #f1f5f9;
+    -fx-padding: 0 0 2 0;
+}
+
 .tab-pane .tab-header-area .tab-header-background {
-    -fx-background-color: #f8fafc;
-    -fx-border-color: #e2e8f0;
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #cbd5e1;
     -fx-border-width: 0 0 1 0;
 }
 
-.workspace-tabs .tab-header-area {
-    -fx-padding: 0 0 4 0;
+.tab-pane .tab {
+    -fx-background-color: #e2e8f0;
+    -fx-background-insets: 0;
+    -fx-background-radius: 6 6 0 0;
+    -fx-padding: 8 16;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1 1 0 1;
+    -fx-border-radius: 6 6 0 0;
 }
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: #475569;
+    -fx-font-size: 13px;
+}
+
+.tab-pane .tab:hover {
+    -fx-background-color: #cbd5e1;
+}
+
+.tab-pane .tab:hover .tab-label {
+    -fx-text-fill: #0f172a;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #2563eb #cbd5e1 transparent #cbd5e1;
+    -fx-border-width: 2 1 0 1;
+}
+
+.tab-pane .tab:selected .tab-label {
+    -fx-text-fill: #2563eb;
+    -fx-font-weight: bold;
+}
+
+.tab-pane .tab-content-area {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 0 1 1 1;
+    -fx-border-radius: 0 0 8 8;
+    -fx-background-radius: 0 0 8 8;
+}
+
+.workspace-tabs .tab-header-area {
     -fx-padding: 0 0 4 0;
 }
 .workspace-tabs .tab-header-area .tab-header-background {
@@ -1310,6 +1444,22 @@
 .workspace-tabs .tab-content-area {
     -fx-background-color: #ffffff;
     -fx-padding: 0;
+}
+
+.settings-hint-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #64748b;
+}
+
+.settings-status-success {
+    -fx-font-size: 11px;
+    -fx-text-fill: #059669;
+    -fx-font-weight: bold;
+}
+
+.settings-status-error {
+    -fx-font-size: 11px;
+    -fx-text-fill: #dc2626;
 }
 
 /* AI Target Box */

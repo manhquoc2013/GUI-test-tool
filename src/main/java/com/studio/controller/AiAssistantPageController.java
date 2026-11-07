@@ -11,7 +11,12 @@ import com.studio.store.SettingsStore;
 import com.studio.util.DialogTheme;
 import com.studio.util.StudioPaths;
 import com.studio.util.UiIcons;
+import com.studio.util.UiTooltips;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.util.Duration;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
@@ -90,18 +95,43 @@ public class AiAssistantPageController implements Initializable {
     private AiChatSession currentSession = new AiChatSession("global");
     private String liveDomJson = null;
 
+    private HBox thinkingBubbleWrapper = null;
+    private Timeline thinkingTimeline = null;
+    private Label thinkingStatusLabel = null;
+
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         refreshModelIndicator();
         reloadTargets();
 
-        if (settingsBtn != null) UiIcons.setGraphic(settingsBtn, UiIcons.SETTINGS, 12);
-        if (clearChatBtn != null) UiIcons.setGraphic(clearChatBtn, UiIcons.TRASH, 12);
-        if (sendBtn != null) UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
-        if (attachFileBtn != null) UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
-        if (scanDomBtn != null) UiIcons.setGraphic(scanDomBtn, UiIcons.SEARCH, 12);
-        if (applyToSuiteBtn != null) UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
-        if (refreshTargetsBtn != null) UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
+        if (settingsBtn != null) {
+            UiIcons.setGraphic(settingsBtn, UiIcons.SETTINGS, 12);
+            UiTooltips.install(settingsBtn, "Cấu hình OpenAI API & Mô hình AI");
+        }
+        if (clearChatBtn != null) {
+            UiIcons.setGraphic(clearChatBtn, UiIcons.TRASH, 12);
+            UiTooltips.install(clearChatBtn, "Xóa toàn bộ lịch sử chat của Suite này");
+        }
+        if (sendBtn != null) {
+            UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
+            UiTooltips.install(sendBtn, "Gửi yêu cầu sinh test case (Ctrl+Enter / Cmd+Enter)");
+        }
+        if (attachFileBtn != null) {
+            UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
+            UiTooltips.install(attachFileBtn, "Đính kèm tài liệu (.txt, .md, Word, PDF) hoặc ảnh UI (.png, .jpg)");
+        }
+        if (scanDomBtn != null) {
+            UiIcons.setGraphic(scanDomBtn, UiIcons.SEARCH, 12);
+            UiTooltips.install(scanDomBtn, "Quét cấu trúc tương tác DOM từ trang web thực tế");
+        }
+        if (applyToSuiteBtn != null) {
+            UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
+            UiTooltips.install(applyToSuiteBtn, "Nhập các test cases vừa sinh vào Test Suite đã chọn");
+        }
+        if (refreshTargetsBtn != null) {
+            UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
+            UiTooltips.install(refreshTargetsBtn, "Làm mới danh sách Nhóm & Suite");
+        }
 
         targetGroupCombo.setOnAction(e -> onGroupSelected());
         targetSuiteCombo.setOnAction(e -> loadChatHistoryForSuite());
@@ -273,8 +303,11 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void openSettings() {
-        AiSettingsDialog.show(settingsStore);
-        refreshModelIndicator();
+        boolean updated = AiSettingsDialog.show(settingsStore, "AI");
+        if (updated) {
+            refreshModelIndicator();
+            updateTokenUsageDisplay();
+        }
     }
 
     @FXML
@@ -287,6 +320,7 @@ public class AiAssistantPageController implements Initializable {
 
         Optional<ButtonType> result = alert.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
+            removeThinkingBubble();
             Path suiteDir = getSelectedSuiteDir();
             try {
                 chatHistoryStore.clearSession(suiteDir);
@@ -340,13 +374,13 @@ public class AiAssistantPageController implements Initializable {
     private void addFileChip(DocumentParserService.ParsedDocument doc) {
         HBox chip = new HBox(6);
         chip.setAlignment(Pos.CENTER_LEFT);
-        chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
+        chip.getStyleClass().add("ai-file-chip");
 
         Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
-        label.setStyle("-fx-font-size: 11px;");
+        label.getStyleClass().add("ai-file-chip-label");
 
         Button removeBtn = new Button("✕");
-        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: #9aa5ce; -fx-cursor: hand; -fx-font-size: 10px;");
+        removeBtn.getStyleClass().add("ai-file-chip-remove");
         removeBtn.setOnAction(e -> {
             attachedChipsPane.getChildren().remove(chip);
             attachedDocuments.remove(doc);
@@ -418,8 +452,10 @@ public class AiAssistantPageController implements Initializable {
         updateTokenUsageDisplay();
 
         sendBtn.setDisable(true);
+        sendBtn.setText("Đang sinh kịch bản...");
         generationProgress.setVisible(true);
         generationProgress.setManaged(true);
+        showThinkingBubble(aiConfig.getEffectiveModel());
 
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
@@ -428,11 +464,14 @@ public class AiAssistantPageController implements Initializable {
         Thread thread = new Thread(() -> {
             try {
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        aiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages()
+                        aiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages(),
+                        status -> Platform.runLater(() -> updateThinkingStatus(status))
                 );
 
                 Platform.runLater(() -> {
+                    removeThinkingBubble();
                     sendBtn.setDisable(false);
+                    sendBtn.setText("Gửi (Enter)");
                     generationProgress.setVisible(false);
                     generationProgress.setManaged(false);
 
@@ -467,7 +506,9 @@ public class AiAssistantPageController implements Initializable {
                 });
             } catch (Exception ex) {
                 Platform.runLater(() -> {
+                    removeThinkingBubble();
                     sendBtn.setDisable(false);
+                    sendBtn.setText("Gửi (Enter)");
                     generationProgress.setVisible(false);
                     generationProgress.setManaged(false);
 
@@ -483,6 +524,105 @@ public class AiAssistantPageController implements Initializable {
         }, "AiAssistant-Worker");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    private void showThinkingBubble(String modelName) {
+        removeThinkingBubble();
+
+        VBox bubble = new VBox(8);
+        bubble.setMaxWidth(520);
+        bubble.getStyleClass().addAll("ai-chat-bubble", "ai-chat-bubble-assistant", "ai-thinking-bubble");
+
+        // Header: Trợ lý AI • Đang suy nghĩ...
+        HBox header = new HBox(8);
+        header.setAlignment(Pos.CENTER_LEFT);
+        Label headerLabel = new Label("Trợ lý AI  •  Đang suy nghĩ...");
+        headerLabel.getStyleClass().add("ai-chat-bubble-header");
+        HBox.setHgrow(headerLabel, Priority.ALWAYS);
+
+        // Animated dots indicator: ● ● ●
+        HBox dotsBox = new HBox(4);
+        dotsBox.setAlignment(Pos.CENTER_LEFT);
+        Label dot1 = new Label("●");
+        Label dot2 = new Label("●");
+        Label dot3 = new Label("●");
+        dot1.getStyleClass().add("ai-thinking-dot");
+        dot2.getStyleClass().add("ai-thinking-dot");
+        dot3.getStyleClass().add("ai-thinking-dot");
+        dotsBox.getChildren().addAll(dot1, dot2, dot3);
+
+        header.getChildren().addAll(headerLabel, dotsBox);
+
+        // Body: Spinner + Dynamic Status Label
+        HBox body = new HBox(10);
+        body.setAlignment(Pos.CENTER_LEFT);
+        body.setPadding(new Insets(4, 0, 4, 0));
+
+        ProgressIndicator spinner = new ProgressIndicator();
+        spinner.setPrefSize(18, 18);
+        spinner.setMaxSize(18, 18);
+        spinner.setMinSize(18, 18);
+        spinner.getStyleClass().add("ai-thinking-spinner");
+
+        thinkingStatusLabel = new Label("Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...");
+        thinkingStatusLabel.getStyleClass().add("ai-thinking-status-text");
+        HBox.setHgrow(thinkingStatusLabel, Priority.ALWAYS);
+
+        body.getChildren().addAll(spinner, thinkingStatusLabel);
+        bubble.getChildren().addAll(header, body);
+
+        thinkingBubbleWrapper = new HBox(bubble);
+        thinkingBubbleWrapper.setAlignment(Pos.CENTER_LEFT);
+        chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
+        Platform.runLater(() -> chatScroll.setVvalue(1.0));
+
+        // Animated progression stages
+        String[] stages = new String[]{
+                "Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...",
+                "Đang phân tích yêu cầu kiểm thử & ngữ cảnh tài liệu...",
+                "Đang thiết kế kịch bản Playwright & Assertions kiểm thử...",
+                "Đang tổng hợp các bước thực thi (Test Steps) & Dữ liệu...",
+                "Đang hoàn thiện và định dạng mã nguồn runnable..."
+        };
+
+        final int[] stageIdx = {0};
+        final int[] dotStep = {0};
+
+        thinkingTimeline = new Timeline(new KeyFrame(Duration.millis(500), ev -> {
+            dotStep[0]++;
+            int activeDot = dotStep[0] % 3;
+            dot1.setOpacity(activeDot == 0 ? 1.0 : 0.3);
+            dot2.setOpacity(activeDot == 1 ? 1.0 : 0.3);
+            dot3.setOpacity(activeDot == 2 ? 1.0 : 0.3);
+
+            // Rotate text every ~2.5s (every 5 ticks of 500ms)
+            if (dotStep[0] % 5 == 0 && stageIdx[0] < stages.length - 1) {
+                stageIdx[0]++;
+                if (thinkingStatusLabel != null) {
+                    thinkingStatusLabel.setText(stages[stageIdx[0]]);
+                }
+            }
+        }));
+        thinkingTimeline.setCycleCount(Animation.INDEFINITE);
+        thinkingTimeline.play();
+    }
+
+    private void updateThinkingStatus(String text) {
+        if (thinkingStatusLabel != null && text != null && !text.isBlank()) {
+            thinkingStatusLabel.setText(text);
+        }
+    }
+
+    private void removeThinkingBubble() {
+        if (thinkingTimeline != null) {
+            thinkingTimeline.stop();
+            thinkingTimeline = null;
+        }
+        if (thinkingBubbleWrapper != null) {
+            chatMessagesBox.getChildren().remove(thinkingBubbleWrapper);
+            thinkingBubbleWrapper = null;
+        }
+        thinkingStatusLabel = null;
     }
 
     private void showCaseDetail(AiGeneratedCase c) {
@@ -621,8 +761,10 @@ public class AiAssistantPageController implements Initializable {
         }
 
         Path suiteDir = StudioPaths.getProjectDir().resolve(group).resolve(suite);
-        if (!Files.exists(suiteDir)) {
-            ToastService.error("Không tìm thấy thư mục Suite: " + suiteDir);
+        try {
+            Files.createDirectories(suiteDir);
+        } catch (IOException e) {
+            ToastService.error("Không thể tạo thư mục Suite: " + e.getMessage());
             return;
         }
 
@@ -656,7 +798,11 @@ public class AiAssistantPageController implements Initializable {
             ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.");
 
             // Re-open workspace for this suite
-            ViewNavigator.navigateToWorkspace(group, suite, suiteDir);
+            SuiteWorkspacePageController ctrl = ViewNavigator.navigateToWorkspace(group, suite, suiteDir);
+            if (ctrl != null) {
+                TestSuite reloadedSuite = projectStore.loadAndMigrateSuite(suiteDir);
+                ctrl.loadSuite(reloadedSuite, suiteDir, null);
+            }
         } catch (Exception e) {
             ToastService.error("Lỗi khi nhập test cases vào Suite: " + e.getMessage());
         }
@@ -666,6 +812,8 @@ public class AiAssistantPageController implements Initializable {
         String role = msg.getRole();
         VBox bubble = new VBox(6);
         bubble.setMaxWidth(520);
+        bubble.getStyleClass().add("ai-chat-bubble");
+        bubble.getStyleClass().add("user".equalsIgnoreCase(role) ? "ai-chat-bubble-user" : "ai-chat-bubble-assistant");
 
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(msg.getTimestamp()), ZoneId.systemDefault());
         String formattedTime = time.format(DateTimeFormatter.ofPattern("HH:mm"));
@@ -676,7 +824,7 @@ public class AiAssistantPageController implements Initializable {
 
         String title = ("user".equalsIgnoreCase(role) ? "Bạn" : "Trợ lý AI") + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
         Label headerLabel = new Label(title);
-        headerLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
+        headerLabel.getStyleClass().add("ai-chat-bubble-header");
         HBox.setHgrow(headerLabel, Priority.ALWAYS);
 
         // Copy Button
@@ -701,6 +849,7 @@ public class AiAssistantPageController implements Initializable {
         // Content
         Label contentLabel = new Label(msg.getContent());
         contentLabel.setWrapText(true);
+        contentLabel.getStyleClass().add("ai-chat-bubble-content");
 
         bubble.getChildren().addAll(header, contentLabel);
 
@@ -708,8 +857,9 @@ public class AiAssistantPageController implements Initializable {
         if (msg.isAppliedToSuite()) {
             HBox appliedBadge = new HBox(4);
             appliedBadge.setAlignment(Pos.CENTER_LEFT);
+            appliedBadge.getStyleClass().add("ai-chat-applied-badge");
             Label appliedLbl = new Label("✓ Đã áp dụng vào Suite (Bấm Hoàn tác để khôi phục)");
-            appliedLbl.setStyle("-fx-font-size: 10px; -fx-text-fill: #73daca; -fx-font-weight: bold;");
+            appliedLbl.getStyleClass().add("ai-chat-applied-label");
             appliedBadge.getChildren().add(appliedLbl);
             bubble.getChildren().add(appliedBadge);
         }
@@ -717,10 +867,8 @@ public class AiAssistantPageController implements Initializable {
         HBox wrapper = new HBox(bubble);
         if ("user".equalsIgnoreCase(role)) {
             wrapper.setAlignment(Pos.CENTER_RIGHT);
-            bubble.setStyle("-fx-background-color: #22325b; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 2px 12px;");
         } else {
             wrapper.setAlignment(Pos.CENTER_LEFT);
-            bubble.setStyle("-fx-background-color: #24283b; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 12px 2px; -fx-border-color: #3b3d57; -fx-border-radius: 12px 12px 12px 2px;");
         }
 
         chatMessagesBox.getChildren().add(wrapper);

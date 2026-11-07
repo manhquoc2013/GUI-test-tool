@@ -1694,6 +1694,83 @@
 .ai-chat-container {
     -fx-background-color: transparent;
 }
+.ai-chat-bubble {
+    -fx-padding: 10px 14px;
+}
+.ai-chat-bubble-user {
+    -fx-background-color: #22325b;
+    -fx-background-radius: 12px 12px 2px 12px;
+    -fx-border-color: #2d3f73;
+    -fx-border-radius: 12px 12px 2px 12px;
+    -fx-border-width: 1px;
+}
+.ai-chat-bubble-assistant {
+    -fx-background-color: #24283b;
+    -fx-background-radius: 12px 12px 12px 2px;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 12px 12px 12px 2px;
+    -fx-border-width: 1px;
+}
+.ai-chat-bubble-header {
+    -fx-font-size: 11px;
+    -fx-text-fill: #9aa5ce;
+}
+.ai-chat-bubble-content {
+    -fx-font-size: 13px;
+    -fx-text-fill: #c0caf5;
+    -fx-line-spacing: 2px;
+}
+.ai-chat-bubble-user .ai-chat-bubble-content {
+    -fx-text-fill: #e2e8f0;
+}
+.ai-chat-applied-badge {
+    -fx-padding: 4 0 0 0;
+}
+.ai-chat-applied-label {
+    -fx-font-size: 10px;
+    -fx-text-fill: #73daca;
+    -fx-font-weight: bold;
+}
+.ai-file-chip {
+    -fx-background-color: #24283b;
+    -fx-padding: 3px 8px;
+    -fx-background-radius: 12px;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 12px;
+    -fx-border-width: 1px;
+}
+.ai-file-chip-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #c0caf5;
+}
+.ai-file-chip-remove {
+    -fx-background-color: transparent;
+    -fx-padding: 0 2px;
+    -fx-text-fill: #9aa5ce;
+    -fx-cursor: hand;
+    -fx-font-size: 10px;
+}
+.ai-file-chip-remove:hover {
+    -fx-text-fill: #f7768e;
+}
+.ai-thinking-bubble {
+    -fx-background-color: #1e2030;
+    -fx-border-color: #3d59a1;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px 12px 12px 2px;
+}
+.ai-thinking-dot {
+    -fx-font-size: 10px;
+    -fx-text-fill: #7aa2f7;
+}
+.ai-thinking-status-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #7dcfff;
+    -fx-font-style: italic;
+}
+.ai-thinking-spinner {
+    -fx-progress-color: #7aa2f7;
+}
 .ai-attachments-box {
     -fx-background-color: #1f2335;
     -fx-background-radius: 8;
@@ -2159,5 +2236,22 @@
     -fx-font-size: 11px;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 8, 0.1, 0, 3);
 }
+
+.settings-hint-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #9aa5ce;
+}
+
+.settings-status-success {
+    -fx-font-size: 11px;
+    -fx-text-fill: #73daca;
+    -fx-font-weight: bold;
+}
+
+.settings-status-error {
+    -fx-font-size: 11px;
+    -fx-text-fill: #f7768e;
+}
+
 
 

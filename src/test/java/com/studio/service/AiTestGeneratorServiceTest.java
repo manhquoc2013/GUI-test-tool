@@ -3,6 +3,7 @@ package com.studio.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studio.model.AiConfig;
 import com.studio.model.AiGeneratedCase;
+import com.studio.model.Assertion;
 import com.studio.model.TestCase;
 import com.studio.model.TestSuite;
 import com.studio.store.ProjectStore;
@@ -273,6 +274,32 @@ class AiTestGeneratorServiceTest {
         assertEquals("CLICK", reloadedTc.getTestSteps().get(0).getAction());
         assertEquals(1, reloadedTc.getTestDataSets().size());
         assertEquals("Edge 1", reloadedTc.getTestDataSets().get(0).getScenario());
+    }
+
+    @Test
+    void testApplyCasesToSuiteWhenSuiteJsonDoesNotExist(@TempDir Path tempDir) throws Exception {
+        Path groupDir = tempDir.resolve("TestGroup");
+        Path suiteDir = groupDir.resolve("SuiteTest");
+        Files.createDirectories(suiteDir); // folder exists but NO suite.json
+
+        AiGeneratedCase genCase = new AiGeneratedCase("LoginTest", "Test login flow", "https://app.test");
+        genCase.setScriptCode("package com.test;\npublic class LoginTest { public void run() {} }");
+        Assertion a = new Assertion();
+        a.setType("TITLE_CONTAINS");
+        a.setValue("Dashboard");
+        genCase.setAssertions(List.of(a));
+
+        // Must not throw FileNotFoundException: suite.json
+        List<TestCase> applied = service.applyCasesToSuite(suiteDir, List.of(genCase), projectStore);
+        assertEquals(1, applied.size());
+        assertTrue(Files.exists(suiteDir.resolve("suite.json")), "suite.json should be automatically created");
+        assertTrue(Files.exists(groupDir.resolve("group.json")), "group.json should be automatically created");
+
+        TestSuite reloaded = projectStore.loadAndMigrateSuite(suiteDir);
+        assertEquals(1, reloaded.getCases().size());
+        assertEquals("LoginTest", reloaded.getCases().get(0).getName());
+        assertEquals("https://app.test", reloaded.getCases().get(0).getStartUrl());
+        assertEquals(1, reloaded.getCases().get(0).getAssertions().size());
     }
 }
 

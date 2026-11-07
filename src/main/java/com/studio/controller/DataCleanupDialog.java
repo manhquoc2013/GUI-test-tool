@@ -100,7 +100,7 @@ public class DataCleanupDialog {
 
         // ── 2. Maintenance Targets Section ──
         VBox targetsBox = new VBox(10);
-        targetsBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: #3b3d57; -fx-border-radius: 8;");
+        targetsBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-radius: 8;");
 
         Label targetsTitle = new Label("Chọn dữ liệu cần dọn dẹp:");
         targetsTitle.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");

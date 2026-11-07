@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -147,10 +148,38 @@ public class ThemeServiceTest {
                     ".ai-target-box",
                     ".ai-assistant-page",
                     ".case-detail-drawer",
-                    ".case-detail-scrim"
+                    ".case-detail-scrim",
+                    ".tab-pane .tab:selected .tab-label",
+                    ".settings-hint-label",
+                    ".ai-chat-bubble-user",
+                    ".ai-chat-bubble-assistant"
             };
             for (String sel : requiredSelectors) {
                 assertTrue(css.contains(sel), "studio-light.css must define " + sel + " to prevent dark theme leakage");
+            }
+        }
+    }
+
+    @Test
+    void testCssBracesAreBalanced() throws Exception {
+        for (String path : List.of("/css/studio.css", "/css/studio-light.css")) {
+            try (var is = getClass().getResourceAsStream(path)) {
+                assertNotNull(is, path + " not found");
+                String content = new String(is.readAllBytes());
+                int balance = 0;
+                int line = 1;
+                for (int i = 0; i < content.length(); i++) {
+                    char c = content.charAt(i);
+                    if (c == '\n') {
+                        line++;
+                    } else if (c == '{') {
+                        balance++;
+                    } else if (c == '}') {
+                        balance--;
+                        assertTrue(balance >= 0, "Extra closing brace in " + path + " at line " + line);
+                    }
+                }
+                assertEquals(0, balance, "Unbalanced braces in " + path);
             }
         }
     }

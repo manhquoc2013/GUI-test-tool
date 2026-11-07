@@ -91,7 +91,14 @@ public class SettingsStore {
         }
     }
 
+    private final Path configDir;
+
     public SettingsStore() {
+        this(StudioPaths.getConfigDir());
+    }
+
+    public SettingsStore(Path configDir) {
+        this.configDir = configDir != null ? configDir : StudioPaths.getConfigDir();
     }
 
     /**
@@ -101,7 +108,7 @@ public class SettingsStore {
      * 3. If both missing, initializes defaults and mirrors to both.
      */
     public Settings load() throws IOException {
-        Path settingsFile = StudioPaths.getConfigDir().resolve(SETTINGS_JSON);
+        Path settingsFile = configDir.resolve(SETTINGS_JSON);
 
         // 1. Try reading from disk
         if (Files.exists(settingsFile)) {
@@ -147,8 +154,8 @@ public class SettingsStore {
         if (s == null) return;
 
         // 1. Save to disk
-        Files.createDirectories(StudioPaths.getConfigDir());
-        Path settingsFile = StudioPaths.getConfigDir().resolve(SETTINGS_JSON);
+        Files.createDirectories(configDir);
+        Path settingsFile = configDir.resolve(SETTINGS_JSON);
         mapper.writeValue(settingsFile.toFile(), s);
 
         // 2. Mirror into H2 database

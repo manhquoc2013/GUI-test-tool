@@ -7,12 +7,14 @@ import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
 import com.studio.model.TestCase;
 import com.studio.model.TestDataItem;
+import com.studio.model.TestGroup;
 import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
 import com.studio.service.DocumentParserService.ParsedDocument;
 import com.studio.store.ProjectStore;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -204,7 +206,23 @@ public class AiTestGeneratorService {
                                              String contextInfo,
                                              String domJson,
                                              List<com.studio.model.AiChatMessage> history) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, domJson, history, null);
+    }
+
+    /**
+     * Generate test cases with Live DOM context injection and live progress reporting.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history,
+                                             java.util.function.Consumer<String> progressListener) throws IOException, InterruptedException {
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        if (progressListener != null) {
+            progressListener.accept("Đang tối ưu ngữ cảnh & lịch sử hội thoại...");
+        }
+
         String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
 
         List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
@@ -218,7 +236,16 @@ public class AiTestGeneratorService {
                 AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
         );
 
+        if (progressListener != null) {
+            progressListener.accept("Đang gửi yêu cầu và nhận luồng dữ liệu từ " + config.getEffectiveModel() + "...");
+        }
+
         String reply = openAiClient.chatCompletion(config, messages);
+
+        if (progressListener != null) {
+            progressListener.accept("Đang xử lý cấu trúc phản hồi và trích xuất kịch bản kiểm thử...");
+        }
+
         return parseResponse(reply);
     }
 
@@ -431,6 +458,14 @@ public class AiTestGeneratorService {
         List<TestCase> applied = new ArrayList<>();
         if (suiteDir == null || generatedCases == null || projectStore == null) {
             return applied;
+        }
+
+        Files.createDirectories(suiteDir);
+        if (suiteDir.getParent() != null && !Files.exists(suiteDir.getParent().resolve("group.json"))) {
+            Files.createDirectories(suiteDir.getParent());
+            TestGroup group = new TestGroup(suiteDir.getParent().getFileName().toString(), "");
+            group.setType("group");
+            projectStore.saveGroup(group, suiteDir.getParent());
         }
 
         TestSuite suite = projectStore.loadAndMigrateSuite(suiteDir);

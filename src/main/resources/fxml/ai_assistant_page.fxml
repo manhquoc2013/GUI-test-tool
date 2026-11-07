@@ -26,13 +26,13 @@
     <!-- Top Toolbar -->
     <HBox styleClass="page-toolbar" spacing="10" alignment="CENTER_LEFT">
         <padding><Insets top="8" right="14" bottom="8" left="14"/></padding>
-        <Label text="Trợ lý AI" styleClass="page-title"/>
-        <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle"/>
+        <Label text="Trợ lý AI" styleClass="page-title" minWidth="-Infinity"/>
+        <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
         <HBox HBox.hgrow="ALWAYS"/>
-        <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge"/>
-        <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge"/>
-        <Button text="Cài đặt OpenAI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary"/>
-        <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary"/>
+        <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="-Infinity"/>
+        <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="-Infinity"/>
+        <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
+        <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
     </HBox>
 
     <SplitPane dividerPositions="0.48" VBox.vgrow="ALWAYS" styleClass="ai-split-pane">
@@ -45,11 +45,11 @@
                 <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
                 <Label text="Đích đến cho Test Cases được sinh:" styleClass="field-label-small"/>
                 <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Nhóm:" styleClass="field-label-dim"/>
-                    <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="130"/>
-                    <Label text="Suite:" styleClass="field-label-dim"/>
-                    <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="150" HBox.hgrow="ALWAYS"/>
-                    <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary"/>
+                    <Label text="Nhóm:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                    <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="130" minWidth="110"/>
+                    <Label text="Suite:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                    <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="150" minWidth="120" HBox.hgrow="ALWAYS"/>
+                    <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary" minWidth="-Infinity"/>
                 </HBox>
             </VBox>
 
@@ -68,10 +68,10 @@
 
             <!-- Quick Suggestions -->
             <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-quick-suggestions">
-                <Label text="Gợi ý:" styleClass="field-label-dim"/>
-                <Button text="Test Đăng nhập" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn"/>
-                <Button text="Test Giỏ hàng" onAction="#applyQuickCart" styleClass="ai-suggestion-btn"/>
-                <Button text="Phân tích tài liệu" onAction="#applyQuickDoc" styleClass="ai-suggestion-btn"/>
+                <Label text="Gợi ý:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                <Button text="Test Đăng nhập" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="Test Giỏ hàng" onAction="#applyQuickCart" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                <Button text="Phân tích tài liệu" onAction="#applyQuickDoc" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
             </HBox>
 
             <!-- Input Box -->
@@ -80,12 +80,12 @@
                           promptText="Nhập yêu cầu kiểm thử hoặc kịch bản cần sinh (hoặc đính kèm tài liệu/ảnh UI bên dưới)..."
                           styleClass="ai-prompt-input"/>
                 <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Button text="Đính kèm tài liệu / Ảnh" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary"/>
-                    <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary"/>
-                    <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false"/>
+                    <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
+                    <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary" minWidth="-Infinity"/>
+                    <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
                     <HBox HBox.hgrow="ALWAYS"/>
                     <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
-                    <Button text="Gửi yêu cầu (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run"/>
+                    <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run" minWidth="-Infinity"/>
                 </HBox>
             </VBox>
         </VBox>

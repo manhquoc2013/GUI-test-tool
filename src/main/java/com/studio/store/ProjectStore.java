@@ -114,7 +114,22 @@ public class ProjectStore {
 
     /** Load suite.json and migrate legacy suite-level assertions onto cases. */
     public TestSuite loadAndMigrateSuite(Path suiteDir) throws IOException {
-        TestSuite suite = mapper.readValue(suiteDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
+        Path suiteJsonPath = suiteDir.resolve(SUITE_JSON);
+        if (!Files.exists(suiteJsonPath)) {
+            Files.createDirectories(suiteDir);
+            String name = suiteDir.getFileName().toString();
+            TestSuite suite = new TestSuite(name, "");
+            suite.setStatus("ACTIVE");
+            suite.setBrowser("CHROMIUM");
+            suite.setHeadless(false);
+            suite.setCases(new ArrayList<>());
+            String now = EntityTime.nowIso();
+            suite.setCreatedAt(now);
+            suite.setUpdatedAt(now);
+            saveSuite(suite, suiteDir);
+            return suite;
+        }
+        TestSuite suite = mapper.readValue(suiteJsonPath.toFile(), TestSuite.class);
         boolean changed = suite.migrateLegacyAssertionsToCases();
         if (changed) {
             suite.clearLegacyAssertions();
@@ -123,7 +138,7 @@ public class ProjectStore {
             changed = true;
         }
         if (changed) {
-            mapper.writeValue(suiteDir.resolve(SUITE_JSON).toFile(), suite);
+            mapper.writeValue(suiteJsonPath.toFile(), suite);
         }
         return suite;
     }
@@ -150,6 +165,14 @@ public class ProjectStore {
 
     public TestGroup loadGroup(Path groupDir) throws IOException {
         Path groupJson = groupDir.resolve(GROUP_JSON);
+        if (!Files.exists(groupJson)) {
+            Files.createDirectories(groupDir);
+            String name = groupDir.getFileName().toString();
+            TestGroup group = new TestGroup(name, "");
+            group.setType("group");
+            saveGroup(group, groupDir);
+            return group;
+        }
         return mapper.readValue(groupJson.toFile(), TestGroup.class);
     }
 
