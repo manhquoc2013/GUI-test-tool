@@ -165,3 +165,25 @@
 
 
 
+
+## Multi-Platform Release CI/CD & Resource-Driven i18n Architecture
+
+### 1. Release-Gated CI/CD Workflow (`release-portable.yml`)
+- **Release-Only Execution Gate**:
+  - Không chạy lãng phí trên các commit push nhánh `main` thường xuyên.
+  - Kích hoạt chuẩn xác khi:
+    1. Đẩy Git Tag phiên bản: `git push origin v*`.
+    2. Xuất bản phiên bản chính thức trên GitHub Releases UI (`release: types: [published]`).
+    3. Hoặc kích hoạt thủ công có chủ đích từ tab Actions (`workflow_dispatch` với input `version` tùy chọn).
+- **Matrix Build Strategy**:
+  - Biên dịch song song độc lập trên cả 3 nền tảng: `ubuntu-latest` (Linux x86_64), `macos-latest` (Apple Silicon arm64), và `windows-latest` (Windows x64).
+  - Tự động cài đặt Xvfb (`xvfb-run`) trên Linux để khởi tạo JavaFX Headless Toolkit cho 162 unit tests mà không cần màn hình X11 vật lý.
+- **Unified Release Publishing**:
+  - Chạy toàn bộ 162 unit tests trước khi đóng gói portable app-image (`jpackage`). Nếu bất kỳ test nào fail, pipeline dừng ngay lập tức, ngăn ngừa phát hành phiên bản lỗi.
+  - Job `publish` gom toàn bộ 3 file ZIP portable từ các jobs matrix và tự động upload vào mục Assets của GitHub Release chính thức với `softprops/action-gh-release@v2`.
+
+### 2. Resource-Driven i18n Architecture
+- **Zero-Code Extensibility**:
+  - Danh mục ngôn ngữ được quản lý động qua `languages.json`. Thêm ngôn ngữ mới không cần sửa mã nguồn Java.
+  - Chuỗi bản dịch lưu trữ trong `export_{code}.properties` (chuẩn UTF-8 không cần unicode escape).
+  - `I18nService` tự động fallback về tiếng Việt (mặc định) nếu ngôn ngữ mới chưa hoàn thiện toàn bộ key, đảm bảo an toàn tuyệt đối khi vận hành.
