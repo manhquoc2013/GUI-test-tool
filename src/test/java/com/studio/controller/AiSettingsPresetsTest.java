@@ -46,6 +46,7 @@ class AiSettingsPresetsTest {
     void testGeminiPresets() {
         List<String> presets = AiSettingsDialog.getPresetsForBaseUrl("https://generativelanguage.googleapis.com/v1beta/openai/");
         assertTrue(presets.contains("gemini-2.0-flash"));
+        assertTrue(presets.contains("gemini-3.8-flash"));
     }
 }
 

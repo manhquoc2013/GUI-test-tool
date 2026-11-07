@@ -617,37 +617,17 @@ public class SuiteWorkspacePageController {
     private void updateRunSuiteVisibility() {
         if (runSuiteBtn == null) return;
         boolean suiteActive = StatusDisplay.isActive(suiteStatus()) && !BusyButtons.isBusy();
-        boolean caseSelected = selectedCase != null;
-        boolean caseRunnable = caseSelected && StatusDisplay.isRunnable(selectedCase.getStatus());
-        boolean show = suite != null && (suiteActive || caseSelected);
+        boolean show = suite != null && suiteActive;
         runSuiteBtn.setVisible(show);
         runSuiteBtn.setManaged(show);
-        if (caseSelected) {
-            // Selection drives label/action: run only the selected case
-            runSuiteBtn.setText("Chạy case");
-            UiIcons.setGraphic(runSuiteBtn, UiIcons.PLAY, 12, "#9ece6a");
-            runSuiteBtn.setOnAction(e -> runCase());
-            runSuiteBtn.setDisable(!suiteActive || !caseRunnable || BusyButtons.isBusy());
-            String tip;
-            if (!suiteActive) {
-                tip = "Suite chưa Đang hoạt động — đổi ở Thông tin Suite";
-            } else if (!caseRunnable) {
-                tip = "Case chưa Sẵn sàng — ghi hình trước khi chạy";
-            } else {
-                tip = "Chạy case đang chọn: " + selectedCase.getName();
-            }
-            runSuiteBtn.setTooltip(new Tooltip(tip));
-        } else {
-            // No case selected → run entire suite
-            runSuiteBtn.setText("Chạy suite");
-            UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
-            runSuiteBtn.setOnAction(e -> runSuite());
-            runSuiteBtn.setDisable(!suiteActive);
-            runSuiteBtn.setTooltip(new Tooltip(
-                    suiteActive
-                            ? "Chạy toàn bộ case trong suite"
-                            : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite"));
-        }
+        runSuiteBtn.setText("Chạy suite");
+        UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
+        runSuiteBtn.setOnAction(e -> runSuite());
+        runSuiteBtn.setDisable(!suiteActive || BusyButtons.isBusy());
+        runSuiteBtn.setTooltip(new Tooltip(
+                suiteActive
+                        ? "Chạy toàn bộ case trong suite"
+                        : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite"));
     }
 
     private void updateSelectedCaseHint() {

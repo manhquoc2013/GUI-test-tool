@@ -23,6 +23,8 @@ import java.util.List;
  */
 public class OpenAiClient {
 
+    private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
 
@@ -31,12 +33,12 @@ public class OpenAiClient {
                 .connectTimeout(Duration.ofSeconds(15))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build(),
-             new ObjectMapper());
+             DEFAULT_MAPPER);
     }
 
     public OpenAiClient(HttpClient httpClient, ObjectMapper mapper) {
         this.httpClient = httpClient;
-        this.mapper = mapper;
+        this.mapper = mapper != null ? mapper : DEFAULT_MAPPER;
     }
 
     public static class ChatMessage {
@@ -92,15 +94,31 @@ public class OpenAiClient {
     }
 
     /**
+     * Resolve user-friendly provider name from Base URL.
+     */
+    public static String resolveProviderName(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) return "OpenAI";
+        String lower = baseUrl.toLowerCase();
+        if (lower.contains("googleapis.com") || lower.contains("gemini")) return "Gemini";
+        if (lower.contains("openrouter.ai")) return "OpenRouter";
+        if (lower.contains("deepseek.com")) return "DeepSeek";
+        if (lower.contains("groq.com")) return "Groq";
+        if (lower.contains("ollama") || lower.contains("localhost") || lower.contains("127.0.0.1")) return "Local/Ollama";
+        if (lower.contains("openai.com")) return "OpenAI";
+        return "AI";
+    }
+
+    /**
      * Test connectivity and authentication by pinging the /models endpoint.
      */
     public ConnectionTestResult testConnection(AiConfig config) {
+        String baseUrl = config.getEffectiveBaseUrl();
+        String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
         if (apiKey.isBlank()) {
-            return new ConnectionTestResult(false, 0, "Chưa thiết lập OpenAI API Key.");
+            return new ConnectionTestResult(false, 0, "Chưa thiết lập " + provider + " API Key.");
         }
 
-        String baseUrl = config.getEffectiveBaseUrl();
         String targetUrl = baseUrl + "/models";
 
         long start = System.currentTimeMillis();
@@ -172,12 +190,13 @@ public class OpenAiClient {
      * Call OpenAI Chat Completion API.
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages) throws IOException, InterruptedException {
+        String baseUrl = config.getEffectiveBaseUrl();
+        String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
         if (apiKey.isBlank()) {
-            throw new IOException("Chưa cấu hình OpenAI API Key. Vui lòng mở Cài đặt để điền API Key hoặc thiết lập biến môi trường OPENAI_API_KEY.");
+            throw new IOException("Chưa cấu hình " + provider + " API Key. Vui lòng mở Cài đặt để điền API Key hoặc thiết lập biến môi trường.");
         }
 
-        String baseUrl = config.getEffectiveBaseUrl();
         String targetUrl = baseUrl + "/chat/completions";
 
         ObjectNode root = mapper.createObjectNode();
@@ -222,7 +241,7 @@ public class OpenAiClient {
 
         if (response.statusCode() != 200) {
             String err = extractErrorMessage(response.body());
-            throw new IOException("OpenAI API Lỗi (" + response.statusCode() + "): " + err);
+            throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + err);
         }
 
         JsonNode resJson = mapper.readTree(response.body());
@@ -234,20 +253,30 @@ public class OpenAiClient {
         return "";
     }
 
-    private String extractErrorMessage(String responseBody) {
+    public static String extractErrorMessage(String responseBody) {
         if (responseBody == null || responseBody.isBlank()) {
             return "Không có chi tiết lỗi từ phản hồi.";
         }
         try {
-            JsonNode tree = mapper.readTree(responseBody);
+            JsonNode tree = DEFAULT_MAPPER.readTree(responseBody);
+            // Handle array response (e.g. Google Gemini endpoint: [{ "error": { ... } }])
+            if (tree.isArray() && !tree.isEmpty()) {
+                tree = tree.get(0);
+            }
             JsonNode error = tree.path("error");
             if (!error.isMissingNode()) {
+                if (error.isTextual()) {
+                    return error.asText();
+                }
                 String msg = error.path("message").asText();
                 if (!msg.isBlank()) return msg;
             }
+            String directMsg = tree.path("message").asText();
+            if (!directMsg.isBlank()) return directMsg;
         } catch (Exception ignored) {
         }
-        return responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+        String cleaned = responseBody.replaceAll("\\s+", " ").trim();
+        return cleaned.length() > 200 ? cleaned.substring(0, 200) + "..." : cleaned;
     }
 }
 

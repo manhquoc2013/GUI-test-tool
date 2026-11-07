@@ -66,7 +66,7 @@
             <HBox styleClass="section-header-row" spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="8" right="8" bottom="6" left="8"/></padding>
                 <Label text="Danh sách Case" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button text="+ Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
+                <Button text="Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
             </HBox>
             <HBox spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="0" right="8" bottom="6" left="8"/></padding>
@@ -94,7 +94,7 @@
                     <Label text="Chọn một case bên trái để mở Code Editor và Asserts song song, hoặc ấn Ghi hình."
                            styleClass="toolbar-label" wrapText="true"/>
                     <HBox spacing="8" alignment="CENTER_LEFT">
-                        <Button text="+ Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
+                        <Button text="Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
                     </HBox>
                 </VBox>
 

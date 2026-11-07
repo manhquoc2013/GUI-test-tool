@@ -118,5 +118,35 @@ class AiTestGeneratorServiceTest {
         assertFalse(res.isSuccess());
         assertTrue(res.getMessage().contains("Chưa thiết lập OpenAI API Key"));
     }
+
+    @Test
+    void testExtractErrorMessageStandardAndArray() {
+        // Standard OpenAI error
+        String openAiErr = "{\"error\": {\"message\": \"Incorrect API key provided\"}}";
+        assertEquals("Incorrect API key provided", OpenAiClient.extractErrorMessage(openAiErr));
+
+        // Google Gemini array error format
+        String geminiErr = """
+                [
+                  {
+                    "error": {
+                      "code": 404,
+                      "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features ..."
+                    }
+                  }
+                ]
+                """;
+        assertEquals("This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features ...",
+                OpenAiClient.extractErrorMessage(geminiErr));
+    }
+
+    @Test
+    void testResolveProviderName() {
+        assertEquals("Gemini", OpenAiClient.resolveProviderName("https://generativelanguage.googleapis.com/v1beta/openai/"));
+        assertEquals("DeepSeek", OpenAiClient.resolveProviderName("https://api.deepseek.com"));
+        assertEquals("OpenRouter", OpenAiClient.resolveProviderName("https://openrouter.ai/api/v1"));
+        assertEquals("OpenAI", OpenAiClient.resolveProviderName("https://api.openai.com/v1"));
+        assertEquals("Local/Ollama", OpenAiClient.resolveProviderName("http://localhost:11434/v1"));
+    }
 }
 

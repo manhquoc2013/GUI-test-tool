@@ -118,5 +118,32 @@ public class ThemeServiceTest {
             assertFalse(hasLightCss, "Dialog pane stylesheets should not contain studio-light.css in dark mode");
         });
     }
+
+    @Test
+    void testStudioLightCssContainsAllCriticalSelectors() throws Exception {
+        try (var is = getClass().getResourceAsStream("/css/studio-light.css")) {
+            assertNotNull(is, "studio-light.css not found");
+            String css = new String(is.readAllBytes());
+            String[] requiredSelectors = {
+                    ".project-tree",
+                    ".tree-panel",
+                    ".header-breadcrumb-box",
+                    ".header-help-btn",
+                    ".toolbar-btn",
+                    ".toolbar-search",
+                    ".filter-chip",
+                    ".case-list",
+                    ".reports-table",
+                    ".report-detail-page",
+                    ".workspace-tabs",
+                    ".dialog-pane > .content",
+                    ".ai-target-box",
+                    ".ai-assistant-page"
+            };
+            for (String sel : requiredSelectors) {
+                assertTrue(css.contains(sel), "studio-light.css must define " + sel + " to prevent dark theme leakage");
+            }
+        }
+    }
 }
 

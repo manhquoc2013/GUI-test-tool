@@ -70,7 +70,8 @@ public class AiSettingsDialog {
             return List.of(
                     "gemini-2.0-flash",
                     "gemini-1.5-flash",
-                    "gemini-1.5-pro"
+                    "gemini-1.5-pro",
+                    "gemini-3.8-flash"
             );
         }
         return DEFAULT_OPENAI_PRESETS;

@@ -1949,10 +1949,10 @@
     -fx-spacing: 6;
 }
 .workspace-action-bar .button {
-    -fx-min-width: -fx-pref-width;
+    -fx-min-width: use-pref-size;
 }
 .workspace-btn-group .button {
-    -fx-min-width: -fx-pref-width;
+    -fx-min-width: use-pref-size;
     -fx-pref-width: -1;
     -fx-font-size: 12px;
     -fx-padding: 5 10;
@@ -2088,3 +2088,62 @@
 .asserts-header-row {
     -fx-padding: 2 0;
 }
+
+/* === WORKSPACE TABS & TABPANES === */
+.workspace-tabs .tab-header-area {
+    -fx-padding: 0 0 4 0;
+}
+.workspace-tabs .tab-header-area .tab-header-background {
+    -fx-background-color: #16161e;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 1 0;
+}
+.workspace-tabs .tab {
+    -fx-background-color: #24283b;
+    -fx-background-insets: 0;
+    -fx-background-radius: 6 6 0 0;
+    -fx-padding: 6 14;
+    -fx-border-color: #3b3d57;
+    -fx-border-width: 1 1 0 1;
+    -fx-border-radius: 6 6 0 0;
+}
+.workspace-tabs .tab .tab-label {
+    -fx-text-fill: #a9b1d6;
+    -fx-font-size: 12px;
+}
+.workspace-tabs .tab:hover {
+    -fx-background-color: #2f334d;
+}
+.workspace-tabs .tab:hover .tab-label {
+    -fx-text-fill: #c0caf5;
+}
+.workspace-tabs .tab:selected {
+    -fx-background-color: #1a1b26;
+    -fx-border-color: #7aa2f7 #3b3d57 transparent #3b3d57;
+    -fx-border-width: 2 1 0 1;
+}
+.workspace-tabs .tab:selected .tab-label {
+    -fx-text-fill: #7aa2f7;
+    -fx-font-weight: bold;
+}
+.workspace-tabs .tab-content-area {
+    -fx-background-color: #1a1b26;
+    -fx-padding: 0;
+}
+
+/* AI Target Box */
+.ai-target-box {
+    -fx-background-color: #24283b;
+    -fx-padding: 10 14;
+    -fx-background-radius: 8;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+}
+.ai-target-box .label {
+    -fx-text-fill: #c0caf5;
+}
+.ai-target-box .ai-target-subtext {
+    -fx-text-fill: #7aa2f7;
+}
+

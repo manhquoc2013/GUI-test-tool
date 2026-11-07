@@ -62,21 +62,23 @@ public class AiCasePromptDialog {
         closeButton.setText("Đóng");
         closeButton.setMinWidth(80);
 
-        VBox content = new VBox(12);
-        content.setPadding(new Insets(16));
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(14));
         content.setPrefWidth(680);
-        content.setPrefHeight(600);
+        content.setMaxWidth(720);
+        content.setMinHeight(420);
+        content.setPrefHeight(530);
 
         // Case Info header
         HBox infoBox = new HBox(16);
         infoBox.setAlignment(Pos.CENTER_LEFT);
-        infoBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 10px 14px; -fx-background-radius: 8px; -fx-border-color: #3b3d57; -fx-border-radius: 8px;");
+        infoBox.getStyleClass().add("ai-target-box");
 
         Label caseNameLbl = new Label("Case: " + activeCase.getName());
         caseNameLbl.setStyle("-fx-font-weight: bold;");
 
         Label caseUrlLbl = new Label((activeCase.getStartUrl().isBlank() ? "(Chưa có URL)" : activeCase.getStartUrl()));
-        caseUrlLbl.setStyle("-fx-text-fill: -color-subtext;");
+        caseUrlLbl.getStyleClass().add("ai-target-subtext");
         HBox.setHgrow(caseUrlLbl, Priority.ALWAYS);
 
         Label assertsCountLbl = new Label(activeCase.getAssertions().size() + " asserts");
@@ -149,15 +151,19 @@ public class AiCasePromptDialog {
         // Action generate button & progress indicator
         Button generateBtn = new Button("Tạo kịch bản với AI (" + aiConfig.getEffectiveModel() + ")");
         generateBtn.getStyleClass().add("toolbar-btn-run");
+        generateBtn.setMinWidth(Region.USE_PREF_SIZE);
         com.studio.util.UiIcons.setGraphic(generateBtn, com.studio.util.UiIcons.AI_SPARKLES, 13);
 
         ProgressIndicator progress = new ProgressIndicator();
-        progress.setPrefSize(22, 22);
+        progress.setPrefSize(20, 20);
         progress.setVisible(false);
         progress.setManaged(false);
 
         Label statusLbl = new Label("");
         statusLbl.setStyle("-fx-font-size: 12px;");
+        statusLbl.setWrapText(true);
+        statusLbl.setMaxWidth(380);
+        HBox.setHgrow(statusLbl, Priority.ALWAYS);
 
         HBox genActionRow = new HBox(12, generateBtn, progress, statusLbl);
         genActionRow.setAlignment(Pos.CENTER_LEFT);
@@ -165,6 +171,8 @@ public class AiCasePromptDialog {
         // Result Preview tabpane
         TabPane previewTabs = new TabPane();
         previewTabs.getStyleClass().add("workspace-tabs");
+        previewTabs.setMinHeight(140);
+        previewTabs.setPrefHeight(200);
         VBox.setVgrow(previewTabs, Priority.ALWAYS);
 
         TextArea codePreview = new TextArea();
@@ -243,9 +251,12 @@ public class AiCasePromptDialog {
                         generateBtn.setDisable(false);
                         progress.setVisible(false);
                         progress.setManaged(false);
-                        statusLbl.setText("Lỗi: " + ex.getMessage());
+                        String errMsg = ex.getMessage() != null ? ex.getMessage() : "Lỗi không xác định";
+                        String shortMsg = errMsg.length() > 140 ? errMsg.substring(0, 140) + "..." : errMsg;
+                        statusLbl.setText("Lỗi: " + shortMsg);
+                        statusLbl.setTooltip(new Tooltip(errMsg));
                         statusLbl.setStyle("-fx-text-fill: #f38ba8;");
-                        ToastService.error("Lỗi AI: " + ex.getMessage());
+                        ToastService.error("Lỗi AI: " + errMsg);
                     });
                 }
             }, "Ai-Generate-Case");
@@ -292,13 +303,14 @@ public class AiCasePromptDialog {
                                 List<DocumentParserService.ParsedDocument> docList) {
         HBox chip = new HBox(4);
         chip.setAlignment(Pos.CENTER_LEFT);
-        chip.setStyle("-fx-background-color: #24283b; -fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-color: #3b3d57; -fx-border-radius: 12px;");
+        chip.getStyleClass().add("filter-chip");
+        chip.setStyle("-fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-radius: 12px;");
 
         Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
         label.setStyle("-fx-font-size: 11px;");
 
         Button removeBtn = new Button("✕");
-        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-text-fill: #9aa5ce; -fx-cursor: hand; -fx-font-size: 10px;");
+        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-cursor: hand; -fx-font-size: 10px;");
         removeBtn.setOnAction(e -> {
             container.getChildren().remove(chip);
             docList.remove(doc);

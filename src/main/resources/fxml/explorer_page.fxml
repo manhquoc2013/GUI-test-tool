@@ -19,9 +19,9 @@
       fx:controller="com.studio.controller.ExplorerPageController"
       styleClass="explorer-page">
     <ToolBar styleClass="page-toolbar">
-        <Button text="+ Nhóm mới" fx:id="addGroupBtn" onAction="#addGroup" styleClass="toolbar-btn-add"/>
-        <Button text="+ Suite mới" fx:id="addSuiteBtn" onAction="#addSuite" styleClass="toolbar-btn"/>
-        <Button text="+ Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
+        <Button text="Nhóm mới" fx:id="addGroupBtn" onAction="#addGroup" styleClass="toolbar-btn-add"/>
+        <Button text="Suite mới" fx:id="addSuiteBtn" onAction="#addSuite" styleClass="toolbar-btn"/>
+        <Button text="Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
         <Separator fx:id="createToolbarSep"/>
         <Button text="Sao chép" fx:id="copyBtn" onAction="#copyItem" styleClass="toolbar-btn"/>
         <HBox HBox.hgrow="ALWAYS"/>

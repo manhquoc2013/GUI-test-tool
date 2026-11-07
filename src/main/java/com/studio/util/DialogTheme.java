@@ -47,6 +47,12 @@ public final class DialogTheme {
         }
         com.studio.service.ThemeService.applyThemeToDialog(dialog);
         pane.getStyleClass().add("studio-dialog");
+        pane.sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene != null) {
+                com.studio.service.ThemeService.applyThemeToScene(newScene);
+                com.studio.service.ThemeService.applyThemeToDialog(dialog);
+            }
+        });
         dialog.setGraphic(null);
         pane.setGraphic(null);
 
@@ -71,7 +77,10 @@ public final class DialogTheme {
         pane.getProperties().remove(ENTER_DONE);
         prepareTransparentStage(dialog);
 
-        dialog.setOnShowing(e -> prepareTransparentStage(dialog));
+        dialog.setOnShowing(e -> {
+            prepareTransparentStage(dialog);
+            com.studio.service.ThemeService.applyThemeToDialog(dialog);
+        });
 
         // IMPORTANT: Dialog.DIALOG_SHOWN fires BEFORE HeavyweightDialog.showAndWait()
         // calls scene.setRoot(dialogPane). Installing scrim synchronously here parents
@@ -122,6 +131,8 @@ public final class DialogTheme {
         if (scene == null) {
             return;
         }
+        com.studio.service.ThemeService.applyThemeToScene(scene);
+        com.studio.service.ThemeService.applyThemeToDialog(dialog);
         scene.setFill(Color.TRANSPARENT);
         if (!(scene.getWindow() instanceof Stage stage)) {
             return;
@@ -186,8 +197,6 @@ public final class DialogTheme {
 
         Group shell = new Group(pane);
         shell.getProperties().put(DIALOG_SHELL, Boolean.TRUE);
-        pane.setMaxWidth(Region.USE_PREF_SIZE);
-        pane.setMaxHeight(Region.USE_PREF_SIZE);
 
         StackPane scrim = new StackPane(shell);
         scrim.getStyleClass().add("dialog-scrim");
@@ -199,6 +208,11 @@ public final class DialogTheme {
         StackPane.setAlignment(shell, Pos.CENTER);
         scene.setRoot(scrim);
         scene.setFill(Color.TRANSPARENT);
+
+        pane.maxWidthProperty().bind(javafx.beans.binding.Bindings.createDoubleBinding(
+                () -> Math.max(300.0, scrim.getWidth() - 40.0), scrim.widthProperty()));
+        pane.maxHeightProperty().bind(javafx.beans.binding.Bindings.createDoubleBinding(
+                () -> Math.max(240.0, scrim.getHeight() - 40.0), scrim.heightProperty()));
 
         pane.getProperties().put(SCRIM_NODE, scrim);
         pane.getProperties().put(SHELL_NODE, shell);
@@ -254,6 +268,10 @@ public final class DialogTheme {
     }
 
     private static void detachPaneFromShell(DialogPane pane) {
+        pane.maxWidthProperty().unbind();
+        pane.maxHeightProperty().unbind();
+        pane.setMaxWidth(Region.USE_PREF_SIZE);
+        pane.setMaxHeight(Region.USE_PREF_SIZE);
         pane.getProperties().remove(SCRIM_NODE);
         pane.getProperties().remove(SHELL_NODE);
         if (pane.getParent() instanceof Group group) {
