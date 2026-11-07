@@ -35,9 +35,10 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
 - **4 run scopes** — **Run All** (entire project), **Run Group** (recursive), **Run Suite**, **Run Case**. Each produces a detailed RunReport.
 - **Shared browser context** — Multi-case runs (Suite/Group/All) share a single BrowserContext by default — cookies, localStorage, and sessions persist across cases. Toggle off for isolation.
 - **Soft-assert with pass/fail tracking** — Assertion failures are aggregated per case; every active assert runs to completion. Detailed report shows which assertions passed, failed, or were skipped and why.
-- **Screenshot capture** — Every executed case produces a screenshot (PASSED or FAILED). Viewable inline in the Report Detail view.
-- **Stop-on-first-failure** — Optional flag; when enabled, the runner stops after the first FAILED case, marking remaining cases as SKIPPED.
-- **Excel export** — Three-sheet workbook (Summary, Cases, Asserts) exportable from any report detail.
+- **Instant Post-Run Reporting & Evidence Navigation** — Immediately navigates to the detailed Report & Evidence view upon test execution completion (Run All, Group, Suite, or Case).
+- **Screenshot Evidence & High-Resolution Viewer** — Every executed case produces a screenshot (PASSED or FAILED). Viewable inline, via a dedicated "📸 Bằng chứng" column, or through the interactive full-screen Evidence Viewer modal with zoom and desktop open options.
+- **Standalone HTML Report Export** — Export self-contained single-file HTML reports with embedded Base64 screenshot evidence, interactive pass/fail filters, KPI summary cards, and assertion breakdowns for offline viewing and sharing.
+- **Excel Export** — Three-sheet workbook (Summary, Cases, Asserts) exportable from any report detail or history list.
 - **Toast notification system** — Every user action produces immediate non-blocking feedback (success / info / warn / error).
 - **Cross-platform browser detection** — Automatically detects Playwright-bundled Chromium, Firefox, WebKit, plus system-installed Chrome and Edge channels.
 - **Collapsible sidebar** — Sidebar collapses to a 44px strip for maximum workspace area. Terminal auto-shows on Record/Run.

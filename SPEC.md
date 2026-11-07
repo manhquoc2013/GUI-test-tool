@@ -1,21 +1,14 @@
-# SPEC.md — AI Assistant for Playwright Automation Studio
+# SPEC.md — AI Assistant, Reporting & Evidence System for Playwright Automation Studio
 
 ## 1. Objective
-Tích hợp AI Assistant thông minh sử dụng các model của OpenAI (`gpt-4o`, `gpt-4o-mini`, `o3-mini`, `o1`, hoặc endpoint tương thích OpenAI như Azure OpenAI, OpenRouter, vLLM, Ollama) vào ứng dụng Playwright Automation Studio (JavaFX 26 + Playwright).
-AI Assistant hỗ trợ:
-1. Đọc và phân tích yêu cầu từ người dùng hoặc từ tài liệu đính kèm:
-   - Văn bản thuần túy & Markdown (`.txt`, `.md`, `.json`, `.csv`)
-   - Tài liệu Word (`.docx`)
-   - Tài liệu PDF (`.pdf`)
-   - Hình ảnh / Ảnh chụp màn hình giao diện (Vision - `.png`, `.jpg`, `.jpeg`, `.webp`)
-2. Sinh trọn gói Test Case:
-   - Metadata: Tên case, mô tả, Start URL
-   - Mã kịch bản Playwright Java (`public class ... { public static void main ... }`) tương thích hoàn toàn với `ScriptHarnessTransformer` và `StudioRuntime`
-   - Danh sách Assertions có cấu trúc chuẩn theo 46 types của hệ thống (PAGE_CONTAINS_TEXT, ELEMENT_VISIBLE, INPUT_VALUE_EQUALS, v.v.)
-3. Cập nhật và bổ sung:
-   - Cho phép tạo Suite/Case mới hoặc cập nhật/bổ sung assertions và code vào Case đang chọn.
-4. Quản lý cấu hình linh hoạt:
-   - Cài đặt OpenAI API Key (hỗ trợ fallback biến môi trường `OPENAI_API_KEY`), Base URL (mặc định `https://api.openai.com/v1`), Model name, Temperature, Max tokens, và nút "Kiểm tra kết nối".
+1. **AI Assistant**: Tích hợp trợ lý AI thông minh sử dụng các model OpenAI (`gpt-4o`, `gpt-4o-mini`, `o3-mini`, `o1`, hoặc endpoint tương thích OpenAI) để đọc tài liệu spec (.txt, .md, .docx, .pdf), ảnh UI vision và sinh trọn gói test cases, kịch bản Playwright runnable và Assertions.
+2. **Reporting & Evidence System (Báo cáo & Bằng chứng thực thi)**:
+   - Tự động mở trang **Chi tiết Báo cáo & Bằng chứng (Report Detail)** ngay sau khi hoàn thành chạy test (Run All, Run Group, Run Suite, Run Case).
+   - Hiển thị trực quan bằng chứng ảnh chụp màn hình (Screenshots - PASSED & FAILED) cho từng test case ngay trong bảng và thư viện ảnh.
+   - Hỗ trợ xem chi tiết từng bước kiểm tra (Assertions breakdown), kết quả mong đợi vs thực tế, log lỗi.
+   - Bổ sung tính năng **Xuất báo cáo HTML độc lập (Standalone HTML Test Report)** chứa toàn bộ số liệu thống kê, biểu đồ pass/fail, log thực thi và ảnh bằng chứng Base64 nhúng sẵn để có thể mở offline trên bất kỳ trình duyệt nào.
+   - Giữ nguyên và nâng cấp xuất báo cáo Excel (.xlsx) đa Sheet (Summary, Cases, Asserts).
+   - Tích hợp trình xem bằng chứng Playwright Trace Viewer (`.zip`) cho các trường hợp kiểm tra nâng cao.
 
 ## 2. Architecture & Components
 
@@ -23,49 +16,45 @@ AI Assistant hỗ trợ:
 com.studio/
 ├── model/
 │   ├── AiConfig.java                # Cấu hình OpenAI (apiKey, baseUrl, model, etc.)
-│   └── AiGeneratedCase.java         # DTO kết quả sinh test case từ AI
+│   ├── AiGeneratedCase.java         # DTO kết quả sinh test case từ AI
+│   ├── CaseResult.java              # Kết quả thực thi case, screenshot path, trace path
+│   └── RunReport.java               # Báo cáo tổng thể đợt chạy test
 ├── service/
 │   ├── DocumentParserService.java   # Parser tài liệu (.txt, .md, .docx, .pdf, images)
 │   ├── OpenAiClient.java            # HTTP Client cho OpenAI Chat Completion & Vision
-│   └── AiTestGeneratorService.java  # Logic prompt engineering & chuyển đổi test case/script
-├── store/
-│   └── SettingsStore.java           # Mở rộng Settings để lưu/đọc AiConfig
+│   ├── AiTestGeneratorService.java  # Logic prompt engineering & chuyển đổi test case/script
+│   ├── HtmlReportService.java       # Sinh báo cáo HTML standalone kèm ảnh bằng chứng
+│   ├── ExcelReportService.java      # Xuất báo cáo Excel .xlsx 3 sheets
+│   └── TestRunnerService.java       # Điều phối chạy test, chụp ảnh & ghi trace
 ├── controller/
-│   ├── AiAssistantPageController.java  # Màn hình AI Assistant chuyên dụng
-│   ├── AiCasePromptDialog.java         # Modal nhanh trong Suite Workspace
-│   ├── AiSettingsDialog.java           # Dialog cấu hình OpenAI
-│   ├── MainShellController.java        # Tích hợp Sidebar navigation & Settings button
-│   ├── SuiteWorkspacePageController.java # Nút "✨ AI Hỗ trợ"
-│   └── ViewNavigator.java              # Thêm AI_ASSISTANT Page enum
+│   ├── ReportDetailPageController.java  # Màn hình chi tiết báo cáo & thư viện bằng chứng
+│   ├── ReportsPageController.java       # Danh sách báo cáo lịch sử
+│   ├── SuiteWorkspacePageController.java # Điều hướng tự động sang Report Detail khi chạy xong
+│   ├── ExplorerPageController.java       # Điều hướng tự động sang Report Detail khi chạy xong
+│   ├── EvidenceViewerDialog.java        # Modal phóng to xem ảnh bằng chứng / trace
+│   ├── AiAssistantPageController.java   # Màn hình AI Assistant chuyên dụng
+│   ├── AiCasePromptDialog.java          # Modal AI trong Workspace
+│   └── AiSettingsDialog.java            # Cài đặt OpenAI
 └── resources/
     ├── fxml/
-    │   ├── ai_assistant_page.fxml
-    │   └── ai_settings_dialog.fxml
-    └── css/studio.css                  # Style Catppuccin Mocha cho AI Assistant
+    │   ├── report_detail_page.fxml      # Giao diện báo cáo chi tiết + nút Xuất HTML + Evidence
+    │   └── reports_page.fxml            # Danh sách báo cáo
+    └── css/studio.css                   # Theme Catppuccin Mocha cho Report & Evidence
 ```
 
-## 3. Supported Document Types
-- **Text & Code**: `.txt`, `.md`, `.json`, `.csv`, `.xml`, `.html` (Đọc UTF-8 trực tiếp)
-- **Word (.docx)**: Đọc paragraphs và tables thông qua Apache POI `poi-ooxml` (đã có sẵn trong pom.xml)
-- **PDF (.pdf)**: Đọc văn bản từ các trang qua Apache PDFBox `org.apache.pdfbox:pdfbox:3.0.4`
-- **Hình ảnh / UI Vision**: `.png`, `.jpg`, `.jpeg`, `.webp` (Chuyển đổi sang Base64 Data URL gửi trong tin nhắn multimodal)
-
-## 4. UI / UX Design & Workflows
-- **Màn hình AI Assistant** (`navAiBtn` trên Sidebar):
-  - Khung chat đàm thoại hỏi đáp, nhập prompt yêu cầu
-  - Khu vực đính kèm file (File chips với nút xóa, hỗ trợ chọn nhiều file)
-  - Chọn đích đến: Nhóm (Group) và Suite đích cần nhập test cases
-  - Bảng xem trước (Preview) danh sách Test Cases sinh ra kèm script & assertions
-  - Nút "⚡ Áp dụng vào Suite" (Tạo hoặc cập nhật test cases trực tiếp vào `ProjectStore`)
-- **Suite Workspace Integration**:
-  - Thêm nút "✨ AI Hỗ trợ" trên thanh công cụ của Case Workspace
-  - Mở hộp thoại `AiCasePromptDialog` cho phép nhập yêu cầu nhanh (hoặc đính kèm ảnh/tài liệu) để AI tối ưu hóa, sinh kịch bản Playwright hoặc bổ sung Assertions cho Case hiện hành
-- **Cấu hình OpenAI Settings**:
-  - Hộp thoại trực quan, cho phép kiểm tra API Key với nút "Kiểm tra kết nối" (Ping test)
-
-## 5. Testing & Verification Strategy
-- Unit test cho `DocumentParserService`: Kiểm tra đọc `.txt`, `.docx`, `.pdf`, và mã hóa base64 image.
-- Unit test cho `AiConfig` & `SettingsStore`: Kiểm tra lưu, tải và fallback biến môi trường.
-- Unit test cho `OpenAiClient`: Mock / test serialization, error handling, prompt payload structure.
-- Unit test cho `AiTestGeneratorService`: Kiểm tra parse structured JSON từ AI response thành `TestCase`, `Assertion`, và Playwright Java code.
-- Verification chạy toàn bộ test suite Maven bằng JDK 26.
+## 3. Evidence & Reporting Features
+1. **Tự động điều hướng Báo cáo (Auto-navigate)**:
+   - Khi chạy test tại Workspace (Run Suite, Run Case) hoặc Explorer (Run All, Run Group, Run Suite, Run Case), khi runner hoàn tất thành công hoặc thất bại, hệ thống tự động gọi `ViewNavigator.navigateToReportDetail(report.getRunId())` kèm toast thông báo kết quả.
+2. **Ảnh chụp bằng chứng trực quan (Visual Screenshots)**:
+   - Mỗi test case khi chạy xong đều có ảnh chụp màn hình tương ứng (`<caseName>_PASSED.png` hoặc `<caseName>_FAILED.png`).
+   - Cột "📸 Bằng chứng" hiển thị thumbnail hoặc nút xem nhanh trong bảng `casesTable`.
+   - Click đúp hoặc bấm nút mở cửa sổ xem ảnh phóng to kích thước đầy đủ ([`EvidenceViewerDialog`](file:///d:/Works/Tools/GUI-test-tool/src/main/java/com/studio/controller/EvidenceViewerDialog.java)) hoặc mở trong trình xem ảnh mặc định của hệ điều hành.
+3. **Báo cáo HTML độc lập ([`HtmlReportService`](file:///d:/Works/Tools/GUI-test-tool/src/main/java/com/studio/service/HtmlReportService.java))**:
+   - Xuất file `.html` duy nhất (Single-file HTML Report).
+   - Tích hợp biểu đồ tiến độ / tỷ lệ Passed, Failed, Skipped.
+   - Nhúng trực tiếp ảnh chụp bằng chứng dưới dạng Base64 Data URL, cho phép gửi qua Email, Slack, Teams mà không bị mất hình ảnh.
+   - Bảng phân tích chi tiết từng Assertion (loại kiểm tra, selector/locator, giá trị mong đợi, trạng thái thực tế).
+4. **Báo cáo Excel (.xlsx)**:
+   - Xuất 3 sheet: Summary, Cases, Assertions.
+5. **Playwright Trace Viewer**:
+   - Nếu có trace zip, hỗ trợ nút mở xem Playwright Trace chi tiết (network, DOM, timeline).

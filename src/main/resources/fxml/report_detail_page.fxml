@@ -27,6 +27,7 @@
             <Label fx:id="summaryLabel" text="📊 Tổng quan: " styleClass="report-summary-label"/>
             <HBox HBox.hgrow="ALWAYS"/>
             <ComboBox fx:id="caseFilter" prefWidth="160" promptText="📋 Tất cả" onAction="#onCaseFilterChanged"/>
+            <Button text="🌐 Xuất HTML" fx:id="exportHtmlBtn" onAction="#exportHtml" styleClass="btn-secondary"/>
             <Button text="📤 Xuất Excel" fx:id="exportBtn" onAction="#exportExcel" styleClass="btn-primary"/>
             <Button text="🗑️ Xóa báo cáo" fx:id="deleteReportBtn" onAction="#deleteCurrentReport"
                     styleClass="toolbar-btn-danger"/>
@@ -40,6 +41,7 @@
                 <TableColumn text="📋 Suite" fx:id="caseSuiteCol" prefWidth="120"/>
                 <TableColumn text="📊 Trạng thái" fx:id="caseStatusCol" prefWidth="120"/>
                 <TableColumn text="⏱️ Thời gian" fx:id="caseDurationCol" prefWidth="80"/>
+                <TableColumn text="📸 Bằng chứng" fx:id="caseEvidenceCol" prefWidth="120"/>
                 <TableColumn text="💬 Lý do" fx:id="caseReasonCol" prefWidth="200"/>
             </columns>
         </TableView>

@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
+import com.studio.service.HtmlReportService;
 import com.studio.store.ReportStore;
 import com.studio.service.ToastService;
 import com.studio.util.DialogTheme;
@@ -138,24 +139,28 @@ public class ReportsPageController {
             return new javafx.beans.property.SimpleStringProperty(truncateIso(val));
         });
 
-        // Actions: Open + Excel + Delete
+        // Actions: Open + HTML + Excel + Delete
         actionsCol.setCellValueFactory(cell ->
                 new javafx.beans.property.SimpleStringProperty(""));
         actionsCol.setCellFactory(col -> new TableCell<RunReport, String>() {
             private final Button openBtn = new Button("Mở");
+            private final Button htmlBtn = new Button("HTML");
             private final Button excelBtn = new Button("Excel");
             private final Button deleteBtn = new Button("Xóa");
-            private final HBox row = new HBox(6, openBtn, excelBtn, deleteBtn);
+            private final HBox row = new HBox(6, openBtn, htmlBtn, excelBtn, deleteBtn);
             {
                 openBtn.getStyleClass().add("toolbar-btn");
+                htmlBtn.getStyleClass().add("toolbar-btn");
                 excelBtn.getStyleClass().add("toolbar-btn");
                 deleteBtn.getStyleClass().add("toolbar-btn-danger");
                 openBtn.setTooltip(new Tooltip("Mở báo cáo"));
+                htmlBtn.setTooltip(new Tooltip("Xuất HTML kèm bằng chứng"));
                 excelBtn.setTooltip(new Tooltip("Xuất Excel"));
                 deleteBtn.setTooltip(new Tooltip("Xóa báo cáo và ảnh chụp"));
-                openBtn.setMinWidth(52);
-                excelBtn.setMinWidth(56);
-                deleteBtn.setMinWidth(52);
+                openBtn.setMinWidth(48);
+                htmlBtn.setMinWidth(52);
+                excelBtn.setMinWidth(52);
+                deleteBtn.setMinWidth(48);
                 row.setAlignment(Pos.CENTER);
             }
 
@@ -168,6 +173,7 @@ public class ReportsPageController {
                 }
                 RunReport report = getTableRow().getItem();
                 openBtn.setOnAction(e -> openDetail(report));
+                htmlBtn.setOnAction(e -> exportHtml(report));
                 excelBtn.setOnAction(e -> exportExcel(report));
                 deleteBtn.setOnAction(e -> confirmDelete(report));
                 setGraphic(row);
@@ -375,6 +381,48 @@ public class ReportsPageController {
             ToastService.success("📤 Đã xuất Excel: " + file.getName());
         } catch (Exception e) {
             ToastService.error("❌ Xuất thất bại: " + e.getMessage());
+        }
+    }
+
+    private void exportHtml(RunReport listItem) {
+        if (listItem == null || listItem.getRunId() == null || listItem.getRunId().isBlank()) {
+            ToastService.warn("⚠️ Không có báo cáo để xuất.");
+            return;
+        }
+        String runId = listItem.getRunId();
+        RunReport full;
+        try {
+            full = reportStore.loadReport(runId);
+        } catch (Exception e) {
+            ToastService.error("❌ Không tải được báo cáo: " + e.getMessage());
+            return;
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("🌐 Xuất báo cáo HTML độc lập");
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
+        chooser.setInitialFileName("report_" + runId + ".html");
+        try {
+            var exports = StudioPaths.getExportsDir();
+            Files.createDirectories(exports);
+            chooser.setInitialDirectory(exports.toFile());
+        } catch (Exception ignored) {
+        }
+        File file = chooser.showSaveDialog(reportsTable.getScene().getWindow());
+        if (file == null) {
+            return;
+        }
+        try {
+            HtmlReportService.export(full, file.toPath());
+            ToastService.success("🌐 Đã xuất HTML: " + file.getName());
+            try {
+                if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+                    java.awt.Desktop.getDesktop().browse(file.toURI());
+                }
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
         }
     }
 

@@ -4,6 +4,7 @@ import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
+import com.studio.service.HtmlReportService;
 import com.studio.service.ToastService;
 import com.studio.store.ReportStore;
 import com.studio.util.AssertTypeDisplay;
@@ -51,6 +52,7 @@ public class ReportDetailPageController {
     // --- Header ---
     @FXML private Label summaryLabel;
     @FXML private ComboBox<String> caseFilter;
+    @FXML private Button exportHtmlBtn;
     @FXML private Button exportBtn;
     @FXML private Button deleteReportBtn;
     @FXML private Button backBtn;
@@ -62,6 +64,7 @@ public class ReportDetailPageController {
     @FXML private TableColumn<CaseResult, String> caseSuiteCol;
     @FXML private TableColumn<CaseResult, String> caseStatusCol;
     @FXML private TableColumn<CaseResult, String> caseDurationCol;
+    @FXML private TableColumn<CaseResult, Void> caseEvidenceCol;
     @FXML private TableColumn<CaseResult, String> caseReasonCol;
 
     // --- Asserts detail table ---
@@ -131,6 +134,8 @@ public class ReportDetailPageController {
             screenshotView.fitWidthProperty().bind(detailBody.widthProperty().subtract(32));
             screenshotView.setPreserveRatio(true);
             screenshotView.setSmooth(true);
+            screenshotView.setStyle("-fx-cursor: hand;");
+            screenshotView.setOnMouseClicked(e -> viewScreenshot());
         }
         if (screenshotLabel != null) {
             screenshotLabel.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
@@ -156,6 +161,7 @@ public class ReportDetailPageController {
                 ResponsiveTableColumns.Spec.flex(caseSuiteCol, 1.1, 100),
                 ResponsiveTableColumns.Spec.fixed(caseStatusCol, 120),
                 ResponsiveTableColumns.Spec.fixed(caseDurationCol, 80),
+                ResponsiveTableColumns.Spec.fixed(caseEvidenceCol, 110),
                 ResponsiveTableColumns.Spec.flex(caseReasonCol, 1.6, 120));
 
         caseIndexCol.setCellValueFactory(cell ->
@@ -192,6 +198,46 @@ public class ReportDetailPageController {
             }
             return new javafx.beans.property.SimpleStringProperty(s);
         });
+
+        if (caseEvidenceCol != null) {
+            caseEvidenceCol.setCellFactory(col -> new TableCell<CaseResult, Void>() {
+                private final Button btn = new Button("🖼️ Ảnh chụp");
+                {
+                    btn.getStyleClass().add("btn-sm");
+                    btn.setStyle("-fx-font-size: 11px; -fx-padding: 2px 8px; -fx-cursor: hand;");
+                    btn.setOnAction(e -> {
+                        if (getIndex() >= 0 && getIndex() < getTableView().getItems().size()) {
+                            CaseResult cr = getTableView().getItems().get(getIndex());
+                            Path shot = resolveScreenshotFile(cr.getScreenshotPath());
+                            if (shot != null) {
+                                EvidenceViewerDialog.show(cr.getTestCaseName(), shot);
+                            } else {
+                                ToastService.info("ℹ️ Case này không có ảnh chụp màn hình.");
+                            }
+                        }
+                    });
+                }
+
+                @Override
+                protected void updateItem(Void item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || getIndex() < 0 || getIndex() >= getTableView().getItems().size()) {
+                        setGraphic(null);
+                        setText(null);
+                    } else {
+                        CaseResult cr = getTableView().getItems().get(getIndex());
+                        Path shot = resolveScreenshotFile(cr.getScreenshotPath());
+                        if (shot != null) {
+                            setGraphic(btn);
+                            setText(null);
+                        } else {
+                            setGraphic(null);
+                            setText("—");
+                        }
+                    }
+                }
+            });
+        }
 
         caseReasonCol.setCellValueFactory(cell -> {
             CaseResult cr = cell.getValue();
@@ -570,6 +616,35 @@ public class ReportDetailPageController {
     // --- Actions ---
 
     @FXML
+    private void exportHtml() {
+        if (currentReport == null) {
+            ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("🌐 Xuất báo cáo HTML độc lập");
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
+        chooser.setInitialFileName("report_" + currentReport.getRunId() + ".html");
+        File file = chooser.showSaveDialog(exportHtmlBtn != null && exportHtmlBtn.getScene() != null
+                ? exportHtmlBtn.getScene().getWindow()
+                : (exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null));
+        if (file != null) {
+            try {
+                HtmlReportService.export(currentReport, file.toPath());
+                ToastService.success("🌐 Đã xuất báo cáo HTML: " + file.getName());
+                try {
+                    if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                        Desktop.getDesktop().browse(file.toURI());
+                    }
+                } catch (Exception ignored) {}
+            } catch (Exception e) {
+                ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
+            }
+        }
+    }
+
+    @FXML
     private void exportExcel() {
         if (currentReport == null) {
             ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
@@ -635,16 +710,7 @@ public class ReportDetailPageController {
                     + (selected.getScreenshotPath() != null ? ": " + selected.getScreenshotPath() : ""));
             return;
         }
-        try {
-            File file = resolved.toFile();
-            if (Desktop.isDesktopSupported()) {
-                Desktop.getDesktop().open(file);
-            } else {
-                ToastService.info("📸 Ảnh chụp: " + file.getAbsolutePath());
-            }
-        } catch (Exception e) {
-            ToastService.error("❌ Không thể mở ảnh chụp: " + e.getMessage());
-        }
+        EvidenceViewerDialog.show(selected.getTestCaseName(), resolved);
     }
 
     // --- Helpers ---

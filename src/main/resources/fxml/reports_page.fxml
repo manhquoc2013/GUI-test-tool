@@ -36,7 +36,7 @@
             <TableColumn text="⏱️ Thời gian" fx:id="durationCol" prefWidth="80"/>
             <TableColumn text="🌐 Browser" fx:id="browserCol" prefWidth="100"/>
             <TableColumn text="🕒 Bắt đầu" fx:id="startedCol" prefWidth="140"/>
-            <TableColumn text="Thao tác" fx:id="actionsCol" prefWidth="230"/>
+            <TableColumn text="Thao tác" fx:id="actionsCol" prefWidth="290"/>
         </columns>
     </TableView>
 </VBox>

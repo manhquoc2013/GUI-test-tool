@@ -1041,6 +1041,7 @@ public class SuiteWorkspacePageController {
                             + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
                     ToastService.success("✅ Case hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại");
+                    ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
                     StatusBarService.ready();
@@ -1106,6 +1107,7 @@ public class SuiteWorkspacePageController {
                             + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
                     ToastService.success("✅ Suite hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại");
+                    ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
                     StatusBarService.ready();

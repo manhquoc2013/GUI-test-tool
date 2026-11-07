@@ -1682,6 +1682,7 @@ public class ExplorerPageController {
                     ToastService.success(String.format(
                             "✅ Hoàn tất: %d đạt, %d thất bại, %d bỏ qua",
                             report.getPassed(), report.getFailed(), report.getSkipped()));
+                    ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
                     StatusBarService.ready();
@@ -1726,6 +1727,9 @@ public class ExplorerPageController {
                 report -> {
                     StatusBarService.ready();
                     reloadFromDisk();
+                    if (report != null && report.getTotal() > 0) {
+                        ViewNavigator.navigateToReportDetail(report.getRunId());
+                    }
                 },
                 ex -> {
                     StatusBarService.ready();

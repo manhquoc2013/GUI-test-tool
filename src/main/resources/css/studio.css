@@ -1039,10 +1039,17 @@
 .screenshot-preview-frame {
     -fx-background-color: #0f1017;
     -fx-background-radius: 6;
+    -fx-border-color: #2a2b3d;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
     -fx-padding: 8;
     -fx-alignment: center;
     -fx-min-height: 160;
     -fx-max-width: Infinity;
+    -fx-cursor: hand;
+}
+.screenshot-preview-frame:hover {
+    -fx-border-color: #7aa2f7;
 }
 .log-excerpt {
     -fx-background-color: #0f1017;
