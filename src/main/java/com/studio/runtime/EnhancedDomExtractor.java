@@ -72,6 +72,15 @@ public class EnhancedDomExtractor {
                     }
                 }
 
+                // IFrame / Frame Traversal (same-origin / accessible document)
+                if (tag === 'iframe' || tag === 'frame') {
+                    try {
+                        if (el.contentDocument && el.contentDocument.body) {
+                            inspectNode(el.contentDocument.body);
+                        }
+                    } catch (ignored) {}
+                }
+
                 // Child Elements
                 for (const child of el.children) {
                     inspectNode(child);
@@ -95,3 +104,4 @@ public class EnhancedDomExtractor {
         }
     }
 }
+

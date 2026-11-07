@@ -23,9 +23,10 @@ class HeuristicHealerTest {
     void testTextPatterns() {
         List<String> candidates = HeuristicHealer.generateCandidates("text='Đăng nhập'");
         assertNotNull(candidates);
+        assertTrue(candidates.contains("button:has-text(\"Đăng nhập\")"));
         assertTrue(candidates.contains("button:has-text('Đăng nhập')"));
-        assertTrue(candidates.contains("a:has-text('Đăng nhập')"));
-        assertTrue(candidates.contains("[role='button']:has-text('Đăng nhập')"));
+        assertTrue(candidates.contains("a:has-text(\"Đăng nhập\")"));
+        assertTrue(candidates.contains("[role='button']:has-text(\"Đăng nhập\")"));
     }
 
     @Test
@@ -43,5 +44,14 @@ class HeuristicHealerTest {
         List<String> candidates = HeuristicHealer.generateCandidates(".login-btn__3a8f");
         assertNotNull(candidates);
         assertTrue(candidates.contains(".login-btn"));
+    }
+
+    @Test
+    @DisplayName("Text with single quotes is safely escaped in candidates")
+    void testTextWithSingleQuotes() {
+        List<String> candidates = HeuristicHealer.generateCandidates("text=\"Men's Shoes\"");
+        assertNotNull(candidates);
+        assertTrue(candidates.contains("button:has-text(\"Men's Shoes\")"));
+        assertTrue(candidates.contains("button:has-text('Men\\'s Shoes')"));
     }
 }

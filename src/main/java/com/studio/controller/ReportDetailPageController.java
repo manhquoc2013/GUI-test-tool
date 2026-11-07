@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
 import com.studio.service.HtmlReportService;
@@ -513,7 +514,11 @@ public class ReportDetailPageController {
     private void showCaseDetail(CaseResult cr) {
         if (detailCaseTitle != null) {
             String name = cr.getTestCaseName() != null ? cr.getTestCaseName() : "Case";
-            detailCaseTitle.setText("🎯 " + name);
+            if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
+                detailCaseTitle.setText("🎯 " + name + " [✨ Auto-Healed: " + cr.getHealedSteps().size() + "]");
+            } else {
+                detailCaseTitle.setText("🎯 " + name);
+            }
         }
 
         // Assert results table
@@ -539,6 +544,19 @@ public class ReportDetailPageController {
         } else {
             text = "📝 Không có thông tin chi tiết cho case này.";
         }
+
+        // Self-Healing details
+        List<HealedStepMeta> healed = cr.getHealedSteps();
+        if (healed != null && !healed.isEmpty()) {
+            StringBuilder healedLog = new StringBuilder("\n\n✨ [TỰ ĐỘNG SỬA LỖI - SELF-HEALING]:\n");
+            for (HealedStepMeta hm : healed) {
+                healedLog.append(String.format(" • %s (%s, %.0f%%): '%s' ➔ '%s'\n",
+                        hm.getActionDescription(), hm.getMethod(), hm.getConfidence() * 100,
+                        hm.getOriginalSelector(), hm.getRepairedSelector()));
+            }
+            text = (text != null ? text : "") + healedLog.toString();
+        }
+
         logExcerpt.setText(text != null ? text : "");
 
         // Screenshot path + preview

@@ -65,4 +65,13 @@ class OptimizedSelfHealingExecutorTest {
         );
         assertTrue(actionExecuted.get());
     }
+
+    @Test
+    @DisplayName("resolveLocator returns null safely if page is null")
+    void testResolveLocatorNullPage() {
+        OptimizedSelfHealingExecutor executor = new OptimizedSelfHealingExecutor(
+                null, null, null, null, null, null, null
+        );
+        assertNull(executor.resolveLocator("#btn", "CLICK"));
+    }
 }

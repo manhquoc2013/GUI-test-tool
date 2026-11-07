@@ -18,7 +18,8 @@ public class HeuristicHealer {
 
     private static final Pattern ID_PATTERN = Pattern.compile("#([a-zA-Z0-9_-]+)");
     private static final Pattern ID_ATTR_PATTERN = Pattern.compile("id=['\"]?([^'\"]+)['\"]?");
-    private static final Pattern TEXT_PATTERN = Pattern.compile("(?i)(?:text=[\"']?|:has-text\\([\"']?)([^\"'\\)]+)[\"']?\\)?");
+    private static final Pattern TEXT_PATTERN = Pattern.compile(
+            "(?i)(?:text=\"([^\"]+)\"|text='([^']+)'|text=([^\"'\\s]+)|:has-text\\(\"([^\"]+)\"\\)|:has-text\\('([^']+)'\\)|:has-text\\(([^\\)]+)\\))");
     private static final Pattern NAME_ATTR_PATTERN = Pattern.compile("name=['\"]?([^'\"]+)['\"]?");
     private static final Pattern PLACEHOLDER_ATTR_PATTERN = Pattern.compile("placeholder=['\"]?([^'\"]+)['\"]?");
 
@@ -68,13 +69,18 @@ public class HeuristicHealer {
         // 2. Text / Button conversion
         Matcher textMatcher = TEXT_PATTERN.matcher(sel);
         if (textMatcher.find()) {
-            String text = textMatcher.group(1).trim();
-            if (!text.isEmpty()) {
-                candidates.add(String.format("button:has-text('%s')", text));
-                candidates.add(String.format("a:has-text('%s')", text));
-                candidates.add(String.format("[role='button']:has-text('%s')", text));
-                candidates.add(String.format("text='%s'", text));
-                candidates.add(String.format("text=%s", text));
+            String text = extractMatchedText(textMatcher);
+            if (text != null && !text.isEmpty()) {
+                String safeDouble = text.replace("\"", "\\\"");
+                String safeSingle = text.replace("'", "\\'");
+                candidates.add(String.format("button:has-text(\"%s\")", safeDouble));
+                candidates.add(String.format("a:has-text(\"%s\")", safeDouble));
+                candidates.add(String.format("[role='button']:has-text(\"%s\")", safeDouble));
+                candidates.add(String.format("button:has-text('%s')", safeSingle));
+                candidates.add(String.format("a:has-text('%s')", safeSingle));
+                candidates.add(String.format("text=\"%s\"", safeDouble));
+                candidates.add(String.format("text='%s'", safeSingle));
+                candidates.add(String.format("text=%s", safeDouble));
             }
         }
 
@@ -111,6 +117,16 @@ public class HeuristicHealer {
         return new ArrayList<>(candidates);
     }
 
+    private static String extractMatchedText(Matcher matcher) {
+        for (int i = 1; i <= matcher.groupCount(); i++) {
+            String g = matcher.group(i);
+            if (g != null && !g.isBlank()) {
+                return g.trim();
+            }
+        }
+        return null;
+    }
+
     private static String extractId(String selector) {
         Matcher m1 = ID_PATTERN.matcher(selector);
         if (m1.find()) return m1.group(1);
@@ -119,3 +135,4 @@ public class HeuristicHealer {
         return null;
     }
 }
+

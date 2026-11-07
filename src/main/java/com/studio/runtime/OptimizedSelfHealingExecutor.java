@@ -67,32 +67,56 @@ public class OptimizedSelfHealingExecutor {
 
     /**
      * Resolve a selector with multi-tier self-healing support.
-     * If the selector is healthy, returns immediately.
-     * If not found or hidden, attempts Cache -> Heuristic -> VLM.
+     * Uses a Dynamic Proxy to preserve native Playwright Auto-Waiting.
+     * Only intercepts and triggers healing if an action/assert throws PlaywrightException.
      */
     public Locator resolveLocator(String selector, String actionDescription) {
-        if (selector == null || selector.isBlank()) {
-            return page.locator(selector);
+        if (selector == null || selector.isBlank() || page == null) {
+            return page != null ? page.locator(selector) : null;
         }
 
-        // Tier 1: Check locate cache
-        String activeSelector = LOCATE_CACHE.getOrDefault(selector, selector);
+        String initialSelector = LOCATE_CACHE.getOrDefault(selector, selector);
+        Locator initialLocator = page.locator(initialSelector);
 
-        try {
-            Locator loc = page.locator(activeSelector);
-            if (loc.count() > 0 && loc.first().isVisible()) {
-                return loc;
-            }
-        } catch (Exception ignored) {}
+        return (Locator) java.lang.reflect.Proxy.newProxyInstance(
+                Locator.class.getClassLoader(),
+                new Class<?>[]{Locator.class},
+                new java.lang.reflect.InvocationHandler() {
+                    private String currentActive = initialSelector;
+                    private Locator currentLoc = initialLocator;
 
-        // If not immediately valid, run healing loop
-        String repaired = repairSelector(selector, actionDescription, "Element not found or not visible");
-        if (repaired != null) {
-            return page.locator(repaired);
-        }
+                    @Override
+                    public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
+                        if ("toString".equals(method.getName())) {
+                            return "HealedLocator[" + currentActive + "]";
+                        }
+                        if ("equals".equals(method.getName()) && args != null && args.length == 1) {
+                            return proxy == args[0];
+                        }
+                        if ("hashCode".equals(method.getName())) {
+                            return currentActive.hashCode();
+                        }
 
-        // Fallback to original locator
-        return page.locator(selector);
+                        try {
+                            return method.invoke(currentLoc, args);
+                        } catch (java.lang.reflect.InvocationTargetException ite) {
+                            Throwable cause = ite.getCause();
+                            if (cause instanceof PlaywrightException) {
+                                String repaired = repairSelector(
+                                        currentActive,
+                                        actionDescription != null ? actionDescription : method.getName(),
+                                        cause.getMessage());
+                                if (repaired != null) {
+                                    currentActive = repaired;
+                                    currentLoc = page.locator(repaired);
+                                    return method.invoke(currentLoc, args);
+                                }
+                            }
+                            throw cause != null ? cause : ite;
+                        }
+                    }
+                }
+        );
     }
 
     /**
@@ -244,15 +268,17 @@ public class OptimizedSelfHealingExecutor {
             return;
         }
         try {
-            // 1. Persist mutation into script file
+            // 1. Persist mutation into script file (strictly targeting quoted string literals to protect Java code)
             String scriptFileName = currentCase.getScriptFile() != null && !currentCase.getScriptFile().isBlank()
                     ? currentCase.getScriptFile()
                     : currentCase.getName() + ".java";
             Path scriptPath = suiteDir.resolve(scriptFileName);
             if (Files.exists(scriptPath)) {
                 String content = Files.readString(scriptPath);
-                if (content.contains(oldSelector)) {
-                    Files.writeString(scriptPath, content.replace(oldSelector, newSelector));
+                String quotedOld = "\"" + oldSelector + "\"";
+                String quotedNew = "\"" + newSelector + "\"";
+                if (content.contains(quotedOld)) {
+                    Files.writeString(scriptPath, content.replace(quotedOld, quotedNew));
                     System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
                             scriptFileName, newSelector);
                 }
