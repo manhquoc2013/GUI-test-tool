@@ -237,36 +237,14 @@ public class AiSettingsDialog {
 
         String originalApiKey = aiConfig.getApiKey() != null ? aiConfig.getApiKey().trim() : "";
         final String[] actualKeyHolder = new String[]{ originalApiKey };
-        final boolean[] isShowingPlain = new boolean[]{ false };
 
         TextField keyField = new TextField();
-        // Hiển thị mặc định dạng mask (sk-••••••••XYZW) theo đúng phong cách của label bên dưới
+        // Luôn hiển thị mặc định dạng mask (sk-••••••••XYZW)
         if (!originalApiKey.isEmpty()) {
             keyField.setText(com.studio.util.ApiKeyCipher.mask(originalApiKey));
         }
         keyField.setPromptText("sk-proj-... hoặc để trống để dùng biến môi trường");
         HBox.setHgrow(keyField, Priority.ALWAYS);
-
-        Button toggleShowBtn = new Button();
-        toggleShowBtn.getStyleClass().add("icon-btn");
-        UiTooltips.install(toggleShowBtn, "Hiện đầy đủ API Key");
-        UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE, 13);
-
-        Label envHint = new Label();
-        envHint.getStyleClass().add("settings-hint-label");
-
-        Runnable updateHint = () -> {
-            String current = actualKeyHolder[0];
-            String env = System.getenv("OPENAI_API_KEY");
-            if (current != null && !current.isBlank()) {
-                envHint.setText("Đang khả dụng: API Key trực tiếp (" + com.studio.util.ApiKeyCipher.mask(current) + ")");
-            } else if (env != null && !env.isBlank()) {
-                envHint.setText("Đang khả dụng: biến môi trường OPENAI_API_KEY (" + com.studio.util.ApiKeyCipher.mask(env) + ")");
-            } else {
-                envHint.setText("Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY).");
-            }
-        };
-        updateHint.run();
 
         keyField.textProperty().addListener((obs, oldVal, newVal) -> {
             String trimmed = newVal != null ? newVal.trim() : "";
@@ -279,39 +257,28 @@ public class AiSettingsDialog {
             } else {
                 actualKeyHolder[0] = trimmed;
             }
-            updateHint.run();
         });
 
         keyField.focusedProperty().addListener((obs, oldVal, focused) -> {
-            if (focused && !isShowingPlain[0] && com.studio.util.ApiKeyCipher.isMasked(keyField.getText())) {
-                Platform.runLater(keyField::selectAll);
-            }
-        });
-
-        toggleShowBtn.setOnAction(e -> {
-            isShowingPlain[0] = !isShowingPlain[0];
-            if (isShowingPlain[0]) {
-                keyField.setText(actualKeyHolder[0]);
-                UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE_OFF, 13);
-                UiTooltips.install(toggleShowBtn, "Che mờ API Key");
-            } else {
-                if (actualKeyHolder[0] != null && !actualKeyHolder[0].isBlank()) {
-                    keyField.setText(com.studio.util.ApiKeyCipher.mask(actualKeyHolder[0]));
-                } else {
-                    keyField.setText("");
+            if (focused) {
+                if (com.studio.util.ApiKeyCipher.isMasked(keyField.getText())) {
+                    Platform.runLater(keyField::selectAll);
                 }
-                UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE, 13);
-                UiTooltips.install(toggleShowBtn, "Hiện đầy đủ API Key");
+            } else {
+                // Rời khỏi ô nhập -> tự động chuyển hiển thị sang dạng mask để bảo vệ
+                if (actualKeyHolder[0] != null && !actualKeyHolder[0].isBlank()) {
+                    String masked = com.studio.util.ApiKeyCipher.mask(actualKeyHolder[0]);
+                    if (!keyField.getText().equals(masked)) {
+                        keyField.setText(masked);
+                    }
+                }
             }
         });
-
-        HBox keyBox = new HBox(6, keyField, toggleShowBtn);
-        keyBox.setAlignment(Pos.CENTER_LEFT);
 
         Label securityBadge = new Label("🔒 Mã hóa AES-256-GCM bảo vệ an toàn theo phần cứng thiết bị.");
         securityBadge.setStyle("-fx-font-size: 11px; -fx-text-fill: #10b981;");
 
-        VBox keyCol = new VBox(4, keyBox, envHint, securityBadge);
+        VBox keyCol = new VBox(4, keyField, securityBadge);
         aiGrid.add(keyLabel, 0, aiRow);
         aiGrid.add(keyCol, 1, aiRow);
         aiRow++;
