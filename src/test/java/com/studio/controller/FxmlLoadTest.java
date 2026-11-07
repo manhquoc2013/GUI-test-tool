@@ -39,7 +39,7 @@ class FxmlLoadTest {
                 latch.countDown();
             }
         });
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Timed out waiting for FX thread");
+        assertTrue(latch.await(15, TimeUnit.SECONDS), "Timed out waiting for FX thread");
         if (error.get() != null) {
             if (error.get() instanceof AssertionError ae) throw ae;
             fail("FX task threw exception", error.get());

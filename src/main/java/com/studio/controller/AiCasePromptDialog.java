@@ -61,6 +61,7 @@ public class AiCasePromptDialog {
         Button closeButton = (Button) pane.lookupButton(ButtonType.CLOSE);
         closeButton.setText("Đóng");
         closeButton.setMinWidth(80);
+        com.studio.util.UiTooltips.install(closeButton, "Đóng hộp thoại AI Hỗ trợ");
 
         VBox content = new VBox(10);
         content.setPadding(new Insets(14));
@@ -100,16 +101,19 @@ public class AiCasePromptDialog {
         Button chipFull = new Button("Sinh kịch bản đầy đủ");
         chipFull.getStyleClass().add("btn-secondary");
         com.studio.util.UiIcons.setGraphic(chipFull, com.studio.util.UiIcons.PLAY, 11);
+        com.studio.util.UiTooltips.install(chipFull, "Điền gợi ý: Sinh toàn bộ thao tác Playwright và Assertions kiểm tra");
         chipFull.setOnAction(e -> promptArea.setText("Sinh toàn bộ các thao tác Playwright cần thiết để thực thi kịch bản này trên URL " + activeCase.getStartUrl() + ", kèm các Assertions kiểm tra kết quả mong đợi."));
 
         Button chipAsserts = new Button("Bổ sung Assertions");
         chipAsserts.getStyleClass().add("btn-secondary");
         com.studio.util.UiIcons.setGraphic(chipAsserts, com.studio.util.UiIcons.CHECK, 11);
+        com.studio.util.UiTooltips.install(chipAsserts, "Điền gợi ý: Bổ sung các Assertions kiểm tra chặt chẽ");
         chipAsserts.setOnAction(e -> promptArea.setText("Dựa trên kịch bản hiện tại, bổ sung các Assertions chặt chẽ (kiểm tra trạng thái hiển thị của các phần tử chính, text thông báo, URL chuyển hướng)."));
 
         Button chipEdge = new Button("Thêm test biên / ngoại lệ");
         chipEdge.getStyleClass().add("btn-secondary");
         com.studio.util.UiIcons.setGraphic(chipEdge, com.studio.util.UiIcons.SETTINGS, 11);
+        com.studio.util.UiTooltips.install(chipEdge, "Điền gợi ý: Kiểm thử trường hợp dữ liệu sai hoặc để trống");
         chipEdge.setOnAction(e -> promptArea.setText("Tạo kịch bản kiểm thử trường hợp dữ liệu sai hoặc để trống các trường bắt buộc, xác minh thông báo lỗi hiển thị đúng."));
 
         quickActions.getChildren().addAll(new Label("Gợi ý:"), chipFull, chipAsserts, chipEdge);
@@ -121,6 +125,7 @@ public class AiCasePromptDialog {
         Button attachBtn = new Button("Đính kèm tài liệu / Ảnh UI");
         attachBtn.getStyleClass().add("btn-secondary");
         com.studio.util.UiIcons.setGraphic(attachBtn, com.studio.util.UiIcons.CLIP, 12);
+        com.studio.util.UiTooltips.install(attachBtn, "Đính kèm file tài liệu (txt, md, json, csv, docx, pdf) hoặc ảnh giao diện (png, jpg)");
 
         attachBtn.setOnAction(e -> {
             FileChooser chooser = new FileChooser();
@@ -153,6 +158,7 @@ public class AiCasePromptDialog {
         generateBtn.getStyleClass().add("toolbar-btn-run");
         generateBtn.setMinWidth(Region.USE_PREF_SIZE);
         com.studio.util.UiIcons.setGraphic(generateBtn, com.studio.util.UiIcons.AI_SPARKLES, 13);
+        com.studio.util.UiTooltips.install(generateBtn, "Gửi yêu cầu tới OpenAI để sinh hoặc tinh chỉnh kịch bản");
 
         ProgressIndicator progress = new ProgressIndicator();
         progress.setPrefSize(20, 20);
@@ -193,6 +199,7 @@ public class AiCasePromptDialog {
         Button applyBtn = new Button("Áp dụng vào Case này");
         applyBtn.getStyleClass().add("toolbar-btn-save");
         com.studio.util.UiIcons.setGraphic(applyBtn, com.studio.util.UiIcons.CHECK, 13);
+        com.studio.util.UiTooltips.install(applyBtn, "Lưu kịch bản và Assertions đã sinh vào Case này");
         applyBtn.setDisable(true);
 
         final AiGeneratedCase[] lastGenerated = new AiGeneratedCase[1];
@@ -254,7 +261,7 @@ public class AiCasePromptDialog {
                         String errMsg = ex.getMessage() != null ? ex.getMessage() : "Lỗi không xác định";
                         String shortMsg = errMsg.length() > 140 ? errMsg.substring(0, 140) + "..." : errMsg;
                         statusLbl.setText("Lỗi: " + shortMsg);
-                        statusLbl.setTooltip(new Tooltip(errMsg));
+                        com.studio.util.UiTooltips.install(statusLbl, errMsg);
                         statusLbl.setStyle("-fx-text-fill: #f38ba8;");
                         ToastService.error("Lỗi AI: " + errMsg);
                     });

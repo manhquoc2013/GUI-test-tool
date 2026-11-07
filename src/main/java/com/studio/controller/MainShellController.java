@@ -126,12 +126,25 @@ public class MainShellController implements Initializable {
             com.studio.util.UiIcons.setGraphic(helpCloseBtn, com.studio.util.UiIcons.CLOSE, 12);
             helpCloseBtn.setText("");
         }
+        if (toggleSidebarBtn != null) {
+            com.studio.util.UiTooltips.install(toggleSidebarBtn, "Thu gọn / Mở rộng menu thanh bên (Ctrl+B)");
+        }
         if (cleanupBtn != null) {
             com.studio.util.UiIcons.setGraphic(cleanupBtn, com.studio.util.UiIcons.TRASH, 13);
+            com.studio.util.UiTooltips.install(cleanupBtn, "Dọn dẹp hệ thống & Quản lý dữ liệu lưu trữ");
         }
         com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 13);
+        com.studio.util.UiTooltips.install(settingsBtn, "Cài đặt ứng dụng & Cấu hình OpenAI API");
         com.studio.util.UiIcons.setGraphic(helpBtn, com.studio.util.UiIcons.HELP, 13);
+        com.studio.util.UiTooltips.install(helpBtn, "Trợ giúp & Phím tắt");
         com.studio.util.UiIcons.setGraphic(runAllBtn, com.studio.util.UiIcons.RUN_ALL, 14, "#ffffff");
+        com.studio.util.UiTooltips.install(runAllBtn, "Chạy tất cả các test case trong toàn bộ dự án");
+        if (stopRunBtn != null) {
+            com.studio.util.UiTooltips.install(stopRunBtn, "Dừng kịch bản đang chạy");
+        }
+        if (clearActiveSuiteBtn != null) {
+            com.studio.util.UiTooltips.install(clearActiveSuiteBtn, "Đóng suite đang mở");
+        }
         updateThemeButtonUI();
         com.studio.service.ThemeService.addListener(theme -> updateThemeButtonUI());
     }
@@ -145,7 +158,7 @@ public class MainShellController implements Initializable {
         if (themeToggleBtn == null) return;
         boolean isDark = com.studio.service.ThemeService.isDark();
         themeToggleBtn.setText(isDark ? "Sáng" : "Tối");
-        themeToggleBtn.setTooltip(new Tooltip(isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"));
+        com.studio.util.UiTooltips.install(themeToggleBtn, isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối");
         com.studio.util.UiIcons.setGraphic(themeToggleBtn, isDark ? com.studio.util.UiIcons.SUN : com.studio.util.UiIcons.MOON, 13);
     }
 
@@ -419,14 +432,14 @@ public class MainShellController implements Initializable {
             navReportsBtn.setText("Báo cáo");
             if (navAiBtn != null) {
                 navAiBtn.setText("Trợ lý AI");
-                clearTooltip(navAiBtn);
+                installTip(navAiBtn, "Trợ lý AI — Trò chuyện và phân tích kiểm thử với AI");
                 VBox.setMargin(navAiBtn, Insets.EMPTY);
                 navAiBtn.setAlignment(Pos.CENTER_LEFT);
             }
             runAllBtn.setText("Chạy tất cả");
-            clearTooltip(navExplorerBtn);
-            clearTooltip(navReportsBtn);
-            clearTooltip(runAllBtn);
+            installTip(navExplorerBtn, "Khám phá — Quản lý cây dự án (Nhóm / Suite / Case)");
+            installTip(navReportsBtn, "Báo cáo — Lịch sử và chi tiết các lần chạy");
+            installTip(runAllBtn, "Chạy tất cả các test case trong toàn bộ dự án");
             clearTooltip(sidebarActiveSuite);
             if (sidebarSuiteSectionLabel != null) {
                 sidebarSuiteSectionLabel.setText("SUITE ĐANG MỞ");
@@ -561,32 +574,11 @@ public class MainShellController implements Initializable {
     }
 
     private static void installTip(javafx.scene.Node node, String text) {
-        if (node == null) return;
-        Tooltip tip = new Tooltip(text);
-        tip.setShowDelay(Duration.millis(200));
-        Tooltip.install(node, tip);
-        if (node instanceof Button btn) {
-            btn.setTooltip(tip);
-        } else if (node instanceof Label label) {
-            label.setTooltip(tip);
-        }
+        com.studio.util.UiTooltips.install(node, text);
     }
 
     private static void clearTooltip(javafx.scene.Node node) {
-        if (node == null) return;
-        if (node instanceof Button btn) {
-            Tooltip existing = btn.getTooltip();
-            if (existing != null) {
-                Tooltip.uninstall(node, existing);
-            }
-            btn.setTooltip(null);
-        } else if (node instanceof Label label) {
-            Tooltip existing = label.getTooltip();
-            if (existing != null) {
-                Tooltip.uninstall(node, existing);
-            }
-            label.setTooltip(null);
-        }
+        com.studio.util.UiTooltips.clear(node);
     }
 
     @FXML

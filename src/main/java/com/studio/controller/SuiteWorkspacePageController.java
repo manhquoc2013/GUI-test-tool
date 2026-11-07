@@ -220,45 +220,74 @@ public class SuiteWorkspacePageController {
             if (backBtn != null) {
                 backBtn.setOnAction(e -> goBack());
                 UiIcons.setGraphic(backBtn, UiIcons.BACK, 12);
+                com.studio.util.UiTooltips.install(backBtn, "Quay lại trang Khám phá");
             }
             if (addCaseBtn != null) {
                 addCaseBtn.setOnAction(e -> addNewCase());
                 UiIcons.setGraphic(addCaseBtn, UiIcons.PLUS, 12);
+                com.studio.util.UiTooltips.install(addCaseBtn, "Thêm Case mới vào Suite");
             }
             if (recordBtn != null) {
                 recordBtn.setOnAction(e -> startRecord());
                 UiIcons.setGraphic(recordBtn, UiIcons.RECORD, 12, "#f7768e");
+                com.studio.util.UiTooltips.install(recordBtn, "Ghi hình thao tác trình duyệt qua Playwright Codegen");
             }
             if (runCaseBtn != null) {
                 runCaseBtn.setOnAction(e -> runCase());
                 UiIcons.setGraphic(runCaseBtn, UiIcons.PLAY, 12, "#9ece6a");
+                com.studio.util.UiTooltips.install(runCaseBtn, "Chạy riêng test case đang chọn");
             }
             if (runSuiteBtn != null) {
                 runSuiteBtn.setOnAction(e -> runSuite());
                 UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
+                com.studio.util.UiTooltips.install(runSuiteBtn, "Chạy toàn bộ các test case trong Suite");
             }
             if (aiAssistBtn != null) {
                 UiIcons.setGraphic(aiAssistBtn, UiIcons.AI_SPARKLES, 12, "#bb9af7");
+                com.studio.util.UiTooltips.install(aiAssistBtn, "AI Hỗ trợ — Sinh kịch bản và Assertions tự động");
             }
             if (saveBtn != null) {
                 saveBtn.setOnAction(e -> saveCode());
                 UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, "#7aa2f7");
+                com.studio.util.UiTooltips.install(saveBtn, "Lưu kịch bản Playwright (Ctrl+S)");
             }
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
                 UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
+                com.studio.util.UiTooltips.install(toggleSplitBtn, splitLayoutActive ? "Thu gọn Asserts để mở rộng Code" : "Hiện Asserts song song với Code");
             }
             if (clearTerminalBtn != null) {
                 clearTerminalBtn.setOnAction(e -> clearTerminal());
                 UiIcons.setGraphic(clearTerminalBtn, UiIcons.TRASH, 12);
+                com.studio.util.UiTooltips.install(clearTerminalBtn, "Xóa toàn bộ log terminal");
             }
             if (hideTerminalBtn != null) {
                 hideTerminalBtn.setOnAction(e -> hideTerminal());
                 UiIcons.setGraphic(hideTerminalBtn, UiIcons.CLOSE, 12);
+                com.studio.util.UiTooltips.install(hideTerminalBtn, "Thu gọn panel terminal");
             }
             if (addAssertBtn != null) {
                 addAssertBtn.setOnAction(e -> openAssertBuilder());
                 UiIcons.setGraphic(addAssertBtn, UiIcons.PLUS, 12);
+                com.studio.util.UiTooltips.install(addAssertBtn, "Quản lý danh mục assertions");
+            }
+            if (startUrlField != null) {
+                com.studio.util.UiTooltips.install(startUrlField, "URL trang web bắt đầu dùng khi Ghi hình hoặc Chạy test");
+            }
+            if (stopOnFirstFailureCheck != null) {
+                com.studio.util.UiTooltips.install(stopOnFirstFailureCheck, "Dừng cả Suite ngay khi gặp một case thất bại");
+            }
+            if (shareContextCheck != null) {
+                com.studio.util.UiTooltips.install(shareContextCheck, "Dùng chung BrowserContext giữa các case trong Suite");
+            }
+            if (caseSearchField != null) {
+                com.studio.util.UiTooltips.install(caseSearchField, "Tìm kiếm test case theo tên");
+            }
+            if (assertSearchField != null) {
+                com.studio.util.UiTooltips.install(assertSearchField, "Tìm kiếm assertion theo loại hoặc giá trị");
+            }
+            if (assertTypeFilter != null) {
+                com.studio.util.UiTooltips.install(assertTypeFilter, "Lọc assertions theo loại");
             }
             setupAssertListCells();
             if (codeEditor != null) {
@@ -342,7 +371,7 @@ public class SuiteWorkspacePageController {
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
                     runBtn.getStyleClass().add("case-row-run-btn");
                     UiIcons.setGraphic(runBtn, UiIcons.PLAY, 10, "#9ece6a");
-                    runBtn.setTooltip(new Tooltip("Chạy case này"));
+                    com.studio.util.UiTooltips.install(runBtn, "Chạy case này");
                     runBtn.setFocusTraversable(false);
                     // Consume press so ListView does not change selection; run immediately
                     runBtn.setOnMousePressed(e -> {
@@ -410,7 +439,7 @@ public class SuiteWorkspacePageController {
                     } else {
                         tip = "Chạy case \"" + name + "\"";
                     }
-                    runBtn.setTooltip(new Tooltip(tip));
+                    com.studio.util.UiTooltips.install(runBtn, tip);
                     setText(null);
                     setGraphic(row);
                 }
@@ -624,10 +653,10 @@ public class SuiteWorkspacePageController {
         UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
         runSuiteBtn.setOnAction(e -> runSuite());
         runSuiteBtn.setDisable(!suiteActive || BusyButtons.isBusy());
-        runSuiteBtn.setTooltip(new Tooltip(
+        com.studio.util.UiTooltips.install(runSuiteBtn,
                 suiteActive
                         ? "Chạy toàn bộ case trong suite"
-                        : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite"));
+                        : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite");
     }
 
     private void updateSelectedCaseHint() {
@@ -693,7 +722,7 @@ public class SuiteWorkspacePageController {
             }
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setText("Chia đôi");
-                toggleSplitBtn.setTooltip(new Tooltip("Thu gọn Asserts để mở rộng Code"));
+                com.studio.util.UiTooltips.install(toggleSplitBtn, "Thu gọn Asserts để mở rộng Code");
                 UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
             }
         } else {
@@ -704,7 +733,7 @@ public class SuiteWorkspacePageController {
             }
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setText("Toàn màn hình");
-                toggleSplitBtn.setTooltip(new Tooltip("Hiện Asserts song song với Code"));
+                com.studio.util.UiTooltips.install(toggleSplitBtn, "Hiện Asserts song song với Code");
                 UiIcons.setGraphic(toggleSplitBtn, UiIcons.FULLSCREEN, 12);
             }
         }
@@ -1444,8 +1473,8 @@ public class SuiteWorkspacePageController {
                 deleteBtn.getStyleClass().add("assert-row-delete-btn");
                 editBtn.setFocusTraversable(false);
                 deleteBtn.setFocusTraversable(false);
-                editBtn.setTooltip(new Tooltip("Sửa assertion"));
-                deleteBtn.setTooltip(new Tooltip("Xóa assertion"));
+                com.studio.util.UiTooltips.install(editBtn, "Sửa assertion");
+                com.studio.util.UiTooltips.install(deleteBtn, "Xóa assertion");
                 editBtn.setOnAction(e -> {
                     Assertion a = getItem();
                     if (a != null) editAssert(a);

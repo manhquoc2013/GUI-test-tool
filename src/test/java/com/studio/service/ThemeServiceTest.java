@@ -137,6 +137,13 @@ public class ThemeServiceTest {
                     ".report-detail-page",
                     ".workspace-tabs",
                     ".dialog-pane > .content",
+                    ".dialog-pane .button.btn-secondary",
+                    ".dialog-pane .text-field:focused",
+                    ".preview-form",
+                    ".tool-bar.page-toolbar",
+                    ".assert-builder-popup",
+                    ".split-pane:horizontal > .split-pane-divider",
+                    ".tooltip",
                     ".ai-target-box",
                     ".ai-assistant-page"
             };

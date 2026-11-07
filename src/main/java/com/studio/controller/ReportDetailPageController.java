@@ -547,7 +547,7 @@ public class ReportDetailPageController {
                     ? Path.of(pathText).getFileName().toString()
                     : pathText;
             screenshotLabel.setText("📸 " + fileName);
-            Tooltip.install(screenshotLabel, new Tooltip(pathText));
+            com.studio.util.UiTooltips.install(screenshotLabel, pathText);
             screenshotLabel.setVisible(true);
             viewScreenshotBtn.setVisible(true);
             loadScreenshotPreview(pathText);

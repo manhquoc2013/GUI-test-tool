@@ -150,7 +150,7 @@ public class TabManager {
             Button closeBtn = new Button();
             closeBtn.getStyleClass().add("tab-close-btn");
             com.studio.util.UiIcons.setGraphic(closeBtn, com.studio.util.UiIcons.CLOSE, 9);
-            closeBtn.setTooltip(new Tooltip("Đóng tab"));
+            com.studio.util.UiTooltips.install(closeBtn, "Đóng tab");
             closeBtn.setOnAction(e -> {
                 closeTab(tab.id);
                 e.consume();

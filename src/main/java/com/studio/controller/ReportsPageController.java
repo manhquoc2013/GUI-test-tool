@@ -157,10 +157,10 @@ public class ReportsPageController {
                 htmlBtn.getStyleClass().add("toolbar-btn");
                 excelBtn.getStyleClass().add("toolbar-btn");
                 deleteBtn.getStyleClass().add("toolbar-btn-danger");
-                openBtn.setTooltip(new Tooltip("Mở báo cáo"));
-                htmlBtn.setTooltip(new Tooltip("Xuất HTML kèm bằng chứng"));
-                excelBtn.setTooltip(new Tooltip("Xuất Excel"));
-                deleteBtn.setTooltip(new Tooltip("Xóa báo cáo và ảnh chụp"));
+                com.studio.util.UiTooltips.install(openBtn, "Mở báo cáo");
+                com.studio.util.UiTooltips.install(htmlBtn, "Xuất HTML kèm bằng chứng");
+                com.studio.util.UiTooltips.install(excelBtn, "Xuất Excel");
+                com.studio.util.UiTooltips.install(deleteBtn, "Xóa báo cáo và ảnh chụp");
                 openBtn.setMinWidth(48);
                 htmlBtn.setMinWidth(52);
                 excelBtn.setMinWidth(52);

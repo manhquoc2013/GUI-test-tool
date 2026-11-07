@@ -124,7 +124,7 @@ public class AiSettingsDialog {
 
         Button toggleShowBtn = new Button();
         toggleShowBtn.getStyleClass().add("icon-btn");
-        toggleShowBtn.setTooltip(new Tooltip("Hiện / Ẩn API Key"));
+        com.studio.util.UiTooltips.install(toggleShowBtn, "Hiện / Ẩn API Key");
         com.studio.util.UiIcons.setGraphic(toggleShowBtn, com.studio.util.UiIcons.EYE, 13);
         toggleShowBtn.setOnAction(e -> {
             boolean showing = plainKeyField.isVisible();
@@ -203,7 +203,7 @@ public class AiSettingsDialog {
         Button fetchModelsBtn = new Button("Lấy từ URL");
         fetchModelsBtn.getStyleClass().add("btn-secondary");
         com.studio.util.UiIcons.setGraphic(fetchModelsBtn, com.studio.util.UiIcons.REFRESH, 12);
-        fetchModelsBtn.setTooltip(new Tooltip("Gửi yêu cầu tới endpoint /models của Base URL để lấy danh sách model thực tế"));
+        com.studio.util.UiTooltips.install(fetchModelsBtn, "Gửi yêu cầu tới endpoint /models của Base URL để lấy danh sách model thực tế");
 
         HBox modelBox = new HBox(6, modelCombo, fetchModelsBtn);
         modelBox.setAlignment(Pos.CENTER_LEFT);

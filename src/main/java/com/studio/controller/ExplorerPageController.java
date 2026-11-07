@@ -260,11 +260,11 @@ public class ExplorerPageController {
                         btn.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_CLICKED, javafx.event.Event::consume);
                     }
                     runBtn.getStyleClass().add("tree-action-run");
-                    runBtn.setTooltip(new Tooltip("Chạy ngay"));
-                    openBtn.setTooltip(new Tooltip("Mở trong Workspace"));
-                    addBtn.setTooltip(new Tooltip("Thêm mục mới"));
-                    editBtn.setTooltip(new Tooltip("Chỉnh sửa"));
-                    copyBtn.setTooltip(new Tooltip("Sao chép"));
+                    com.studio.util.UiTooltips.install(runBtn, "Chạy ngay");
+                    com.studio.util.UiTooltips.install(openBtn, "Mở trong Workspace");
+                    com.studio.util.UiTooltips.install(addBtn, "Thêm mục mới");
+                    com.studio.util.UiTooltips.install(editBtn, "Chỉnh sửa");
+                    com.studio.util.UiTooltips.install(copyBtn, "Sao chép");
 
                     actionsBox.getChildren().addAll(runBtn, openBtn, addBtn, editBtn, copyBtn);
 
@@ -339,7 +339,7 @@ public class ExplorerPageController {
 
                         addBtn.setVisible(isGroup || isSuite);
                         addBtn.setManaged(isGroup || isSuite);
-                        addBtn.setTooltip(new Tooltip(isGroup ? "Thêm Suite" : "Thêm Case"));
+                        com.studio.util.UiTooltips.install(addBtn, isGroup ? "Thêm Suite" : "Thêm Case");
                         addBtn.setOnAction(e -> {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
@@ -930,6 +930,21 @@ public class ExplorerPageController {
         UiIcons.setGraphic(openWorkspaceBtn, UiIcons.SPLIT, 12);
         UiIcons.setGraphic(runNodeBtn, UiIcons.PLAY, 12);
 
+        com.studio.util.UiTooltips.install(addGroupBtn, "Tạo nhóm mới");
+        com.studio.util.UiTooltips.install(addSuiteBtn, "Tạo suite mới trong nhóm");
+        if (addCaseBtn != null) {
+            com.studio.util.UiTooltips.install(addCaseBtn, "Tạo test case mới");
+        }
+        com.studio.util.UiTooltips.install(copyBtn, "Sao chép mục đã chọn");
+        com.studio.util.UiTooltips.install(openWorkspaceBtn, "Mở suite trong Workspace để xem code và chạy");
+        com.studio.util.UiTooltips.install(runNodeBtn, "Chạy mục đang chọn");
+        if (previewEditBtn != null) {
+            com.studio.util.UiTooltips.install(previewEditBtn, "Chỉnh sửa thông tin");
+        }
+        if (searchField != null) {
+            com.studio.util.UiTooltips.install(searchField, "Tìm kiếm theo tên nhóm, suite hoặc test case");
+        }
+
         syncCreateToolbar(true, true, false);
         copyBtn.setVisible(false);
         copyBtn.setManaged(false);
@@ -941,6 +956,11 @@ public class ExplorerPageController {
     private void setupStatusFilter() {
         statusFilter.getItems().addAll(filterOptions);
         statusFilter.setValue(StatusDisplay.ALL_LABEL);
+        com.studio.util.UiTooltips.install(statusFilter, "Lọc danh sách cây dự án theo trạng thái");
+        if (chipAll != null) com.studio.util.UiTooltips.install(chipAll, "Hiện tất cả");
+        if (chipActive != null) com.studio.util.UiTooltips.install(chipActive, "Chỉ hiện các mục Đang hoạt động / Ready");
+        if (chipDraft != null) com.studio.util.UiTooltips.install(chipDraft, "Chỉ hiện các mục Nháp / Draft");
+        if (chipInactive != null) com.studio.util.UiTooltips.install(chipInactive, "Chỉ hiện các mục Ngừng / Inactive");
         statusFilter.setOnAction(e -> {
             syncFilterChipsWithCombo(statusFilter.getValue());
             refreshTree();

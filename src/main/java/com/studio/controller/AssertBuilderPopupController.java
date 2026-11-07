@@ -182,7 +182,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                     HBox.setHgrow(infoLabel, Priority.ALWAYS);
                     deleteBtn.getStyleClass().add("assert-row-delete-btn");
                     deleteBtn.setFocusTraversable(false);
-                    deleteBtn.setTooltip(new Tooltip("Xóa assertion này"));
+                    com.studio.util.UiTooltips.install(deleteBtn, "Xóa assertion này");
                     deleteBtn.addEventFilter(MouseEvent.MOUSE_PRESSED, MouseEvent::consume);
                     deleteBtn.setOnAction(e -> {
                         int viewIdx = getIndex();
