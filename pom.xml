@@ -17,6 +17,8 @@
         <pdfbox.version>3.0.4</pdfbox.version>
         <jackson.version>2.18.2</jackson.version>
         <junit.version>5.11.4</junit.version>
+        <!-- JVM flags for the forked test JVM (JDK 26 blocks native access by default) -->
+        <surefire.jvm.options>--enable-native-access=javafx.graphics,ALL-UNNAMED</surefire.jvm.options>
     </properties>
     <dependencies>
         <dependency>
@@ -67,6 +69,27 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-jdk</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[${maven.compiler.release},)</version>
+                                    <message>Build requires JDK ${maven.compiler.release}. Set JAVA_HOME to a JDK ${maven.compiler.release} install (Maven currently runs on an older JDK).</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
@@ -114,12 +137,28 @@
                             <includeScope>runtime</includeScope>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>resolve-javafx-test-module-path</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <includeGroupIds>org.openjfx</includeGroupIds>
+                            <includeScope>test</includeScope>
+                            <outputProperty>javafx.test.module.path</outputProperty>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+                <configuration>
+                    <!-- JavaFX must load as named modules or it logs "Unsupported JavaFX configuration" -->
+                    <argLine>${surefire.jvm.options} --module-path ${javafx.test.module.path} --add-modules javafx.controls,javafx.fxml</argLine>
+                </configuration>
             </plugin>
         </plugins>
     </build>
