@@ -594,6 +594,7 @@ public class TestRunnerService {
 
     /**
      * Load the compiled harness class via URLClassLoader and invoke its main method.
+     * Supports both default-package and packaged classes (e.g. package com.test;).
      */
     private void runHarnessClass(Path classDir, String className) throws Exception {
         URLClassLoader cl = new URLClassLoader(
@@ -602,11 +603,40 @@ public class TestRunnerService {
         );
 
         try {
-            Class<?> cls = cl.loadClass(className);
+            Class<?> cls;
+            try {
+                cls = cl.loadClass(className);
+            } catch (ClassNotFoundException e) {
+                String fqcn = resolveFullyQualifiedClassName(classDir, className);
+                if (fqcn != null) {
+                    cls = cl.loadClass(fqcn);
+                } else {
+                    throw e;
+                }
+            }
             java.lang.reflect.Method main = cls.getMethod("main", String[].class);
             main.invoke(null, (Object) new String[0]);
         } finally {
             cl.close();
+        }
+    }
+
+    private String resolveFullyQualifiedClassName(Path classDir, String simpleClassName) {
+        try (var stream = Files.walk(classDir)) {
+            return stream
+                .filter(p -> p.getFileName().toString().equals(simpleClassName + ".class"))
+                .findFirst()
+                .map(p -> {
+                    Path rel = classDir.relativize(p);
+                    String pathStr = rel.toString();
+                    if (pathStr.endsWith(".class")) {
+                        pathStr = pathStr.substring(0, pathStr.length() - 6);
+                    }
+                    return pathStr.replace('/', '.').replace('\\', '.');
+                })
+                .orElse(null);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

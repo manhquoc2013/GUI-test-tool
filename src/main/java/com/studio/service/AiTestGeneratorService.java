@@ -361,6 +361,7 @@ public class AiTestGeneratorService {
                 package com.test;
 
                 import com.microsoft.playwright.*;
+                import com.microsoft.playwright.options.*;
                 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
                 public class %s {
@@ -387,6 +388,7 @@ public class AiTestGeneratorService {
                 package com.test;
 
                 import com.microsoft.playwright.*;
+                import com.microsoft.playwright.options.*;
                 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
                 public class %s {
@@ -405,7 +407,9 @@ public class AiTestGeneratorService {
 
         // Ensure standard imports
         if (!cleaned.contains("import com.microsoft.playwright.*;")) {
-            cleaned = cleaned.replace("package com.test;\n", "package com.test;\n\nimport com.microsoft.playwright.*;\nimport static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;\n");
+            cleaned = cleaned.replace("package com.test;\n", "package com.test;\n\nimport com.microsoft.playwright.*;\nimport com.microsoft.playwright.options.*;\nimport static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;\n");
+        } else if (!cleaned.contains("import com.microsoft.playwright.options.*;")) {
+            cleaned = cleaned.replace("import com.microsoft.playwright.*;\n", "import com.microsoft.playwright.*;\nimport com.microsoft.playwright.options.*;\n");
         }
 
         return cleaned;

@@ -43,4 +43,31 @@ class TestRunnerScreenshotFinalizeTest {
         assertEquals(raw.toString(), result);
         assertTrue(Files.isRegularFile(raw));
     }
+
+    @Test
+    void testRunHarnessClassResolvesPackagedClass() throws Exception {
+        // Create compiled dummy class in com/test/
+        Path pkgDir = tempDir.resolve("com/test");
+        Files.createDirectories(pkgDir);
+        Path srcFile = tempDir.resolve("PackagedCase_Run.java");
+        Files.writeString(srcFile, """
+            package com.test;
+            public class PackagedCase_Run {
+                public static boolean executed = false;
+                public static void main(String[] args) {
+                    executed = true;
+                }
+            }
+            """);
+
+        javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+        int rc = compiler.run(null, null, null, "-d", tempDir.toString(), srcFile.toString());
+        assertEquals(0, rc, "Compiling dummy packaged class should succeed");
+
+        TestRunnerService runner = new TestRunnerService(new com.studio.store.ProjectStore(), new com.studio.store.ReportStore());
+        Method m = TestRunnerService.class.getDeclaredMethod("runHarnessClass", Path.class, String.class);
+        m.setAccessible(true);
+        // Invoking with unqualified class name should resolve package and execute main
+        assertDoesNotThrow(() -> m.invoke(runner, tempDir, "PackagedCase_Run"));
+    }
 }
