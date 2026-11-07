@@ -385,7 +385,7 @@
 }
 
 /* === PANELS & SPLITTERS === */
-.case-list-panel, .asserts-panel, .preview-panel {
+.case-list-panel, .asserts-panel, .preview-panel, .code-panel, .suite-info-panel, .workspace-page, .explorer-page {
     -fx-background-color: #ffffff;
     -fx-border-color: #e2e8f0;
 }

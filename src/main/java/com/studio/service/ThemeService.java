@@ -4,6 +4,7 @@ import com.studio.store.SettingsStore;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.DialogPane;
 
 import java.io.IOException;
 import java.net.URL;
