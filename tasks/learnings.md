@@ -83,3 +83,17 @@
    - **Sliding Window Context**: Mặc định chỉ giữ 6 lượt (12 tin nhắn) gần nhất làm ngữ cảnh đưa sang model, ngăn chặn tình trạng tràn context window và bùng nổ chi phí token API.
    - **Automatic Pruned Summary**: Khi các lượt chat cũ bị cắt tỉa khỏi sliding window, bộ tối ưu sẽ tự động trích lọc các ý chính của người dùng thành một bản tóm tắt ngắn gọn đưa vào System Context, giữ vững ngữ cảnh dài hạn với chi phí token tối thiểu.
    - **Document & Attachment Compression**: Làm sạch khoảng trắng thừa, xóa các dòng trống liên tiếp (3+ dòng thu về 1), và cắt gọt an toàn các tài liệu dung lượng lớn trước khi gửi sang API.
+
+## Embedded Local Database (H2) Dual-Layer Cache & Acceleration Architecture
+1. **Dual-Layer Read-Through Architecture**:
+   - File trên đĩa (`group.json`, `suite.json`, `report.json`, file `.java`) vẫn giữ vai trò lưu trữ bền vững (Single Source of Truth cho Git và người dùng sửa ngoài).
+   - Cơ sở dữ liệu nhúng H2 (`com.studio.db.DatabaseManager`) đóng vai trò là tầng Read-Through Cache và Search Index tốc độ cao:
+     - Khi ứng dụng khởi động (`App.java`), một daemon thread ngầm `LocalDataIndexService.syncAllFromDisk()` sẽ chỉ mục toàn bộ thư mục dự án và báo cáo vào H2 chỉ trong vài chục mili-giây.
+     - Mọi thao tác ghi mới (thêm test case, lưu script, lưu report, lưu tin nhắn AI) đều được đồng bộ tức thì (Write-Through) xuống database.
+2. **Sub-millisecond Querying & Analytics**:
+   - `ReportStore.listReports()` truy vấn trực tiếp từ bảng `run_reports` trong H2 thay vì phải đệ quy đọc hàng trăm file `report.json` trên ổ cứng.
+   - `ReportDbService.getAnalyticsSummary()` tính toán tổng hợp toàn bộ số liệu thống kê (tổng run, tổng case, passed, failed, skipped, tỉ lệ pass %) chỉ bằng 1 câu lệnh SQL `SELECT ... GROUP BY / SUM` tức thì.
+   - `ProjectDbService.searchCases()` hỗ trợ tìm kiếm full-text trên cả tên, mô tả và nội dung mã nguồn script Playwright mà không cần mở từng file `.java`.
+3. **Pure Java Zero-Dependency Offline Compatibility**:
+   - Sử dụng H2 2.2.224 có sẵn trong local `.m2` repository, tương thích tuyệt đối với JDK 26, chạy 100% offline (`mvn -o`), không cần cài đặt thêm C++ binary driver như SQLite.
+   - Hỗ trợ chế độ in-memory `jdbc:h2:mem:...` phục vụ kiểm thử đơn vị độc lập và chạy nhanh gấp nhiều lần.

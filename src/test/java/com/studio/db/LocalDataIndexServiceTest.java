@@ -30,7 +30,6 @@ public class LocalDataIndexServiceTest {
     public void testProjectIndexingAndFastSearch() {
         // 1. Index Group & Suite
         TestGroup group = new TestGroup("Auth", "Authentication flows");
-        group.setId("grp-auth");
         indexService.indexGroup(group, null);
 
         TestSuite suite = new TestSuite("LoginSuite", "Login tests");
@@ -83,32 +82,30 @@ public class LocalDataIndexServiceTest {
 
     @Test
     public void testReportAnalyticsAggregation() {
-        RunReport r1 = new RunReport("run-1", "AuthSuite", "All", 1000L);
-        r1.setDurationMs(2000L);
-        r1.setTotalCases(10);
-        r1.setPassedCases(10);
-        r1.setFailedCases(0);
-        r1.setSkippedCases(0);
-        r1.setStatus("PASSED");
+        RunReport r1 = new RunReport("run-1", "suite", "path", "AuthSuite", "chromium", true, false, false);
+        r1.setStartedAt("2026-11-07T10:00:00");
+        r1.setTotal(10);
+        r1.setPassed(10);
+        r1.setFailed(0);
+        r1.setSkipped(0);
         indexService.indexReport(r1);
 
-        RunReport r2 = new RunReport("run-2", "CartSuite", "All", 2000L);
-        r2.setDurationMs(4000L);
-        r2.setTotalCases(10);
-        r2.setPassedCases(5);
-        r2.setFailedCases(5);
-        r2.setSkippedCases(0);
-        r2.setStatus("FAILED");
+        RunReport r2 = new RunReport("run-2", "suite", "path", "CartSuite", "chromium", true, false, false);
+        r2.setStartedAt("2026-11-07T11:00:00");
+        r2.setTotal(10);
+        r2.setPassed(5);
+        r2.setFailed(5);
+        r2.setSkipped(0);
         indexService.indexReport(r2);
 
         // Verify fast lookups
         List<RunReport> reports = reportDb.getRecentReports(10);
         assertEquals(2, reports.size());
-        assertEquals("run-2", reports.get(0).getRunId(), "Reports should be ordered by start_time DESC");
+        assertEquals("run-2", reports.get(0).getRunId(), "Reports should be ordered by started_at DESC");
 
         RunReport fetched = reportDb.getReport("run-1");
         assertNotNull(fetched);
-        assertEquals("AuthSuite", fetched.getSuiteName());
+        assertEquals("AuthSuite", fetched.getScopeName());
 
         // Analytics summary
         ReportDbService.AnalyticsSummary summary = reportDb.getAnalyticsSummary();
@@ -117,7 +114,6 @@ public class LocalDataIndexServiceTest {
         assertEquals(15, summary.getTotalPassed());
         assertEquals(5, summary.getTotalFailed());
         assertEquals(75.0, summary.getPassRatePercent());
-        assertEquals(3000L, summary.getAverageDurationMs());
     }
 
     @Test

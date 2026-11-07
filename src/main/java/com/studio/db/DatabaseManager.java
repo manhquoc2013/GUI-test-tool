@@ -71,10 +71,8 @@ public class DatabaseManager {
     public void initializeSchema() {
         String ddl = """
             CREATE TABLE IF NOT EXISTS test_groups (
-                id VARCHAR(255) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
+                name VARCHAR(255) PRIMARY KEY,
                 description TEXT,
-                parent_id VARCHAR(255),
                 path TEXT,
                 updated_at BIGINT
             );
@@ -117,16 +115,16 @@ public class DatabaseManager {
 
             CREATE TABLE IF NOT EXISTS run_reports (
                 run_id VARCHAR(255) PRIMARY KEY,
-                suite_name VARCHAR(255) NOT NULL,
-                run_target VARCHAR(255),
-                start_time BIGINT NOT NULL,
-                duration_ms BIGINT DEFAULT 0,
+                scope VARCHAR(50),
+                scope_name VARCHAR(255),
+                scope_path TEXT,
+                browser VARCHAR(50),
+                started_at VARCHAR(100),
+                finished_at VARCHAR(100),
                 total_cases INT DEFAULT 0,
                 passed_cases INT DEFAULT 0,
                 failed_cases INT DEFAULT 0,
-                skipped_cases INT DEFAULT 0,
-                report_path TEXT,
-                status VARCHAR(50)
+                skipped_cases INT DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS ai_chat_messages (
@@ -144,7 +142,7 @@ public class DatabaseManager {
             CREATE INDEX IF NOT EXISTS idx_tc_suite ON test_cases(group_name, suite_name);
             CREATE INDEX IF NOT EXISTS idx_tc_status ON test_cases(status);
             CREATE INDEX IF NOT EXISTS idx_tc_name ON test_cases(name);
-            CREATE INDEX IF NOT EXISTS idx_reports_start ON run_reports(start_time DESC);
+            CREATE INDEX IF NOT EXISTS idx_reports_start ON run_reports(started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_chat_suite ON ai_chat_messages(suite_key, created_at);
             CREATE INDEX IF NOT EXISTS idx_assertions_case ON test_assertions(case_id);
             """;

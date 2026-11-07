@@ -94,25 +94,22 @@ public class LocalDataIndexService {
     // ── Group Indexing ──
 
     public void indexGroup(TestGroup group, Path groupPath) {
-        if (group == null) return;
-        String sql = "MERGE INTO test_groups (id, name, description, parent_id, path, updated_at) KEY(id) VALUES (?, ?, ?, ?, ?, ?)";
+        if (group == null || group.getName() == null) return;
+        String sql = "MERGE INTO test_groups (name, description, path, updated_at) KEY(name) VALUES (?, ?, ?, ?)";
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, group.getId() != null ? group.getId() : group.getName());
-            ps.setString(2, group.getName());
-            ps.setString(3, group.getDescription());
-            ps.setString(4, group.getParentId());
-            ps.setString(5, groupPath != null ? groupPath.toString() : "");
-            ps.setLong(6, System.currentTimeMillis());
+            ps.setString(1, group.getName());
+            ps.setString(2, group.getDescription());
+            ps.setString(3, groupPath != null ? groupPath.toString() : "");
+            ps.setLong(4, System.currentTimeMillis());
             ps.executeUpdate();
         } catch (SQLException ignored) {}
     }
 
-    public void deleteGroup(String groupId) {
-        if (groupId == null) return;
+    public void deleteGroup(String groupName) {
+        if (groupName == null) return;
         try (Connection conn = dbManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM test_groups WHERE id = ? OR name = ?")) {
-            ps.setString(1, groupId);
-            ps.setString(2, groupId);
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
+            ps.setString(1, groupName);
             ps.executeUpdate();
         } catch (SQLException ignored) {}
     }
@@ -261,22 +258,22 @@ public class LocalDataIndexService {
     public void indexReport(RunReport report) {
         if (report == null || report.getRunId() == null) return;
         String sql = """
-            MERGE INTO run_reports (run_id, suite_name, run_target, start_time, duration_ms,
-                                    total_cases, passed_cases, failed_cases, skipped_cases, report_path, status)
+            MERGE INTO run_reports (run_id, scope, scope_name, scope_path, browser, started_at,
+                                    finished_at, total_cases, passed_cases, failed_cases, skipped_cases)
             KEY(run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, report.getRunId());
-            ps.setString(2, report.getSuiteName() != null ? report.getSuiteName() : "");
-            ps.setString(3, report.getRunTarget());
-            ps.setLong(4, report.getStartTime());
-            ps.setLong(5, report.getDurationMs());
-            ps.setInt(6, report.getTotalCases());
-            ps.setInt(7, report.getPassedCases());
-            ps.setInt(8, report.getFailedCases());
-            ps.setInt(9, report.getSkippedCases());
-            ps.setString(10, report.getReportPath());
-            ps.setString(11, report.getStatus());
+            ps.setString(2, report.getScope() != null ? report.getScope() : "");
+            ps.setString(3, report.getScopeName() != null ? report.getScopeName() : "");
+            ps.setString(4, report.getScopePath() != null ? report.getScopePath() : "");
+            ps.setString(5, report.getBrowser() != null ? report.getBrowser() : "");
+            ps.setString(6, report.getStartedAt() != null ? report.getStartedAt() : "");
+            ps.setString(7, report.getFinishedAt() != null ? report.getFinishedAt() : "");
+            ps.setInt(8, report.getTotal());
+            ps.setInt(9, report.getPassed());
+            ps.setInt(10, report.getFailed());
+            ps.setInt(11, report.getSkipped());
             ps.executeUpdate();
         } catch (SQLException ignored) {}
     }

@@ -41,11 +41,11 @@ public class DatabaseManagerTest {
 
         try (Connection conn = db.getConnection()) {
             try (Statement stmt = conn.createStatement()) {
-                stmt.executeUpdate("INSERT INTO test_groups (id, name, description, updated_at) VALUES ('g1', 'E2E', 'End to End tests', 1000)");
+                stmt.executeUpdate("INSERT INTO test_groups (name, description, updated_at) VALUES ('E2E', 'End to End tests', 1000)");
             }
 
             try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT name, description FROM test_groups WHERE id='g1'")) {
+                 ResultSet rs = stmt.executeQuery("SELECT name, description FROM test_groups WHERE name='E2E'")) {
                 assertTrue(rs.next());
                 assertEquals("E2E", rs.getString("name"));
                 assertEquals("End to End tests", rs.getString("description"));

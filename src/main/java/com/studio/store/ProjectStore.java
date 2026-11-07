@@ -17,6 +17,7 @@ public class ProjectStore {
             .enable(SerializationFeature.INDENT_OUTPUT);
     private static final String GROUP_JSON = "group.json";
     private static final String SUITE_JSON = "suite.json";
+    private final com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
 
     public ProjectStore() {
     }
@@ -98,6 +99,7 @@ public class ProjectStore {
     public void saveGroup(TestGroup group, Path groupDir) throws IOException {
         Files.createDirectories(groupDir);
         mapper.writeValue(groupDir.resolve(GROUP_JSON).toFile(), group);
+        indexService.indexGroup(group, groupDir);
     }
 
     public void saveSuite(TestSuite suite, Path suiteDir) throws IOException {
@@ -106,6 +108,8 @@ public class ProjectStore {
         suite.clearLegacyAssertions();
         backfillSuiteTimestamps(suite);
         mapper.writeValue(suiteDir.resolve(SUITE_JSON).toFile(), suite);
+        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexSuite(suite, suiteDir, groupName);
     }
 
     /** Load suite.json and migrate legacy suite-level assertions onto cases. */
@@ -263,6 +267,7 @@ public class ProjectStore {
                 .forEach(p -> {
                     try { Files.delete(p); } catch (IOException ignored) {}
                 });
+        indexService.deleteGroup(groupDir.getFileName().toString());
     }
 
     public void deleteSuite(Path suiteDir) throws IOException {
@@ -271,6 +276,8 @@ public class ProjectStore {
                 .forEach(p -> {
                     try { Files.delete(p); } catch (IOException ignored) {}
                 });
+        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.deleteSuite(groupName, suiteDir.getFileName().toString());
     }
 
     public void deleteCase(Path suiteDir, String caseId) throws IOException {
@@ -292,6 +299,7 @@ public class ProjectStore {
             Path javaFile = suiteDir.resolve(target.getScriptFile());
             Files.deleteIfExists(javaFile);
         }
+        indexService.deleteCase(caseId);
     }
 
     // ---- rename ----
@@ -541,6 +549,8 @@ public class ProjectStore {
             matched.setStatus("Ready");
         }
         mapper.writeValue(suiteJson.toFile(), suite);
+        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexCase(matched, groupName, suite.getName(), javaCode);
     }
 
     public String readCaseScript(Path suiteDir, String caseId) throws IOException {

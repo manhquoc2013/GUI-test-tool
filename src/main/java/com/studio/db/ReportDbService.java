@@ -58,7 +58,7 @@ public class ReportDbService {
      */
     public List<RunReport> getRecentReports(int limit) {
         List<RunReport> list = new ArrayList<>();
-        String sql = "SELECT * FROM run_reports ORDER BY start_time DESC LIMIT ?";
+        String sql = "SELECT * FROM run_reports ORDER BY started_at DESC LIMIT ?";
 
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, limit > 0 ? limit : 50);
@@ -100,8 +100,7 @@ public class ReportDbService {
                    COALESCE(SUM(total_cases), 0),
                    COALESCE(SUM(passed_cases), 0),
                    COALESCE(SUM(failed_cases), 0),
-                   COALESCE(SUM(skipped_cases), 0),
-                   COALESCE(AVG(duration_ms), 0)
+                   COALESCE(SUM(skipped_cases), 0)
             FROM run_reports
             """;
 
@@ -114,10 +113,9 @@ public class ReportDbService {
                 int passed = rs.getInt(3);
                 int failed = rs.getInt(4);
                 int skipped = rs.getInt(5);
-                long avgDuration = (long) rs.getDouble(6);
 
                 double passRate = cases > 0 ? (passed * 100.0) / cases : 0.0;
-                return new AnalyticsSummary(runs, cases, passed, failed, skipped, Math.round(passRate * 10.0) / 10.0, avgDuration);
+                return new AnalyticsSummary(runs, cases, passed, failed, skipped, Math.round(passRate * 10.0) / 10.0, 0);
             }
         } catch (SQLException ignored) {}
 
@@ -127,16 +125,16 @@ public class ReportDbService {
     private RunReport mapReport(ResultSet rs) throws SQLException {
         RunReport r = new RunReport();
         r.setRunId(rs.getString("run_id"));
-        r.setSuiteName(rs.getString("suite_name"));
-        r.setRunTarget(rs.getString("run_target"));
-        r.setStartTime(rs.getLong("start_time"));
-        r.setDurationMs(rs.getLong("duration_ms"));
-        r.setTotalCases(rs.getInt("total_cases"));
-        r.setPassedCases(rs.getInt("passed_cases"));
-        r.setFailedCases(rs.getInt("failed_cases"));
-        r.setSkippedCases(rs.getInt("skipped_cases"));
-        r.setReportPath(rs.getString("report_path"));
-        r.setStatus(rs.getString("status"));
+        r.setScope(rs.getString("scope"));
+        r.setScopeName(rs.getString("scope_name"));
+        r.setScopePath(rs.getString("scope_path"));
+        r.setBrowser(rs.getString("browser"));
+        r.setStartedAt(rs.getString("started_at"));
+        r.setFinishedAt(rs.getString("finished_at"));
+        r.setTotal(rs.getInt("total_cases"));
+        r.setPassed(rs.getInt("passed_cases"));
+        r.setFailed(rs.getInt("failed_cases"));
+        r.setSkipped(rs.getInt("skipped_cases"));
         return r;
     }
 }

@@ -57,7 +57,7 @@ public class AiChatHistoryStore {
     }
 
     /**
-     * Save chat session to disk.
+     * Save chat session to disk and mirror into H2 database.
      */
     public void saveSession(Path suiteDir, AiChatSession session) throws IOException {
         Path path = resolveHistoryPath(suiteDir);
@@ -65,16 +65,27 @@ public class AiChatHistoryStore {
             Files.createDirectories(path.getParent());
         }
         mapper.writeValue(path.toFile(), session);
+
+        // Write-through to local database index
+        if (session != null && session.getMessages() != null) {
+            String suiteKey = suiteDir != null ? suiteDir.getFileName().toString() : "global";
+            com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
+            for (com.studio.model.AiChatMessage msg : session.getMessages()) {
+                indexService.indexChatMessage(msg, suiteKey);
+            }
+        }
     }
 
     /**
-     * Clear chat session for a suite.
+     * Clear chat session for a suite and purge from H2 database.
      */
     public void clearSession(Path suiteDir) throws IOException {
         Path path = resolveHistoryPath(suiteDir);
         if (Files.exists(path)) {
             Files.delete(path);
         }
+        String suiteKey = suiteDir != null ? suiteDir.getFileName().toString() : "global";
+        new com.studio.db.LocalDataIndexService().clearChatForSuite(suiteKey);
     }
 
     // ── Suite Snapshot & Rollback Engine ──

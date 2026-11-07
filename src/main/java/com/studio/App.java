@@ -13,6 +13,15 @@ public class App extends Application {
     public void start(Stage primaryStage) throws Exception {
         StudioPaths.ensureDirectories();
 
+        // Asynchronously synchronize workspace and reports into embedded H2 database cache
+        Thread syncThread = new Thread(() -> {
+            try {
+                new com.studio.db.LocalDataIndexService().syncAllFromDisk();
+            } catch (Exception ignored) {}
+        }, "H2-Startup-Sync");
+        syncThread.setDaemon(true);
+        syncThread.start();
+
         FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/main_shell.fxml"));
         Parent root = loader.load();
 
