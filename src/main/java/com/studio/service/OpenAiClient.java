@@ -212,3 +212,4 @@ public class OpenAiClient {
         return responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
     }
 }
+

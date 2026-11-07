@@ -178,3 +178,4 @@ public class DocumentParserService {
         return TEXT_EXTENSIONS.contains(e) || IMAGE_EXTENSIONS.contains(e) || "docx".equals(e) || "pdf".equals(e);
     }
 }
+

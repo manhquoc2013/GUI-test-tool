@@ -46,3 +46,4 @@ class AiConfigTest {
         assertEquals(2.0, config.getTemperature());
     }
 }
+

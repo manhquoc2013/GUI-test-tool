@@ -93,3 +93,4 @@ class DocumentParserServiceTest {
         assertTrue(doc.getContent().startsWith("data:image/png;base64,"));
     }
 }
+

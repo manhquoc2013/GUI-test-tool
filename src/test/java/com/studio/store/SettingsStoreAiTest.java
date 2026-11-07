@@ -34,3 +34,4 @@ class SettingsStoreAiTest {
         assertEquals("https://custom.openai.proxy/v1", loaded.getAiConfig().getBaseUrl());
     }
 }
+

@@ -119,3 +119,4 @@ class AiTestGeneratorServiceTest {
         assertTrue(res.getMessage().contains("Chưa thiết lập OpenAI API Key"));
     }
 }
+

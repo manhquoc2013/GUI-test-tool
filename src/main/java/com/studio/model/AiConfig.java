@@ -110,3 +110,4 @@ public class AiConfig {
         return !getEffectiveApiKey().isEmpty();
     }
 }
+

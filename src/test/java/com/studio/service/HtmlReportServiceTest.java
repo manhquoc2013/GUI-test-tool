@@ -81,3 +81,4 @@ class HtmlReportServiceTest {
         assertTrue(readBack.contains("TC01_Login_Success"));
     }
 }
+

@@ -420,3 +420,4 @@ public class AiAssistantPageController implements Initializable {
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
     }
 }
+

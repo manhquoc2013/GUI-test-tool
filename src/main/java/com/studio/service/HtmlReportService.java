@@ -392,3 +392,4 @@ public class HtmlReportService {
                     .replace("'", "&#39;");
     }
 }
+

@@ -72,3 +72,4 @@ public class AiGeneratedCase {
         this.targetCaseId = targetCaseId;
     }
 }
+
