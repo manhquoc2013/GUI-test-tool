@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.ExportLanguage;
 import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 
@@ -18,7 +19,11 @@ import java.util.List;
 public class HtmlReportService {
 
     public static void export(RunReport report, Path targetHtmlFile) throws IOException {
-        String html = generateHtml(report);
+        export(report, targetHtmlFile, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void export(RunReport report, Path targetHtmlFile, ExportLanguage lang) throws IOException {
+        String html = generateHtml(report, lang);
         if (targetHtmlFile.getParent() != null) {
             Files.createDirectories(targetHtmlFile.getParent());
         }
@@ -26,7 +31,18 @@ public class HtmlReportService {
     }
 
     public static String generateHtml(RunReport report) {
-        if (report == null) return "<html><body><h1>Không có dữ liệu báo cáo</h1></body></html>";
+        return generateHtml(report, ExportLanguage.VIETNAMESE);
+    }
+
+    public static String generateHtml(RunReport report, ExportLanguage lang) {
+        ExportLanguage effectiveLang = lang != null ? lang : ExportLanguage.VIETNAMESE;
+        boolean isVi = effectiveLang.isVietnamese();
+
+        if (report == null) {
+            return isVi
+                    ? "<html><body><h1>Không có dữ liệu báo cáo</h1></body></html>"
+                    : "<html><body><h1>No report data available</h1></body></html>";
+        }
 
         int total = report.getTotal();
         int passed = report.getPassed();
@@ -35,10 +51,11 @@ public class HtmlReportService {
         int passRate = total > 0 ? (int) Math.round((double) passed / total * 100) : 0;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("<!DOCTYPE html>\n<html lang=\"vi\">\n<head>\n");
+        sb.append("<!DOCTYPE html>\n<html lang=\"").append(effectiveLang.getCode()).append("\">\n<head>\n");
         sb.append("<meta charset=\"UTF-8\">\n");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-        sb.append("<title>Báo cáo kiểm thử — ").append(escapeHtml(report.getRunId())).append("</title>\n");
+        sb.append("<title>").append(isVi ? "Báo cáo kiểm thử — " : "Test Execution Report — ")
+          .append(escapeHtml(report.getRunId())).append("</title>\n");
         sb.append("<style>\n");
         sb.append("""
             :root {
@@ -224,24 +241,34 @@ public class HtmlReportService {
         sb.append("<header>\n<div>\n");
         sb.append("<h1>🎭 Playwright Automation Studio</h1>\n");
         sb.append("<div class=\"meta-tags\">\n");
-        sb.append("<span class=\"tag\">Đợt chạy: <strong>").append(escapeHtml(report.getRunId())).append("</strong></span>\n");
-        sb.append("<span class=\"tag\">Phạm vi: ").append(escapeHtml(report.getScope())).append(" (").append(escapeHtml(report.getScopeName())).append(")</span>\n");
-        sb.append("<span class=\"tag\">Trình duyệt: ").append(escapeHtml(report.getBrowser())).append(" (").append(report.isHeadless() ? "Headless" : "Headed").append(")</span>\n");
+        sb.append("<span class=\"tag\">").append(isVi ? "Đợt chạy: " : "Run ID: ")
+          .append("<strong>").append(escapeHtml(report.getRunId())).append("</strong></span>\n");
+        sb.append("<span class=\"tag\">").append(isVi ? "Phạm vi: " : "Scope: ")
+          .append(escapeHtml(report.getScope())).append(" (").append(escapeHtml(report.getScopeName())).append(")</span>\n");
+        sb.append("<span class=\"tag\">").append(isVi ? "Trình duyệt: " : "Browser: ")
+          .append(escapeHtml(report.getBrowser())).append(" (").append(report.isHeadless() ? "Headless" : "Headed").append(")</span>\n");
         if (report.getStartedAt() != null) {
-            sb.append("<span class=\"tag\">Bắt đầu: ").append(escapeHtml(report.getStartedAt())).append("</span>\n");
+            sb.append("<span class=\"tag\">").append(isVi ? "Bắt đầu: " : "Started: ")
+              .append(escapeHtml(report.getStartedAt())).append("</span>\n");
         }
         if (report.getFinishedAt() != null) {
-            sb.append("<span class=\"tag\">Kết thúc: ").append(escapeHtml(report.getFinishedAt())).append("</span>\n");
+            sb.append("<span class=\"tag\">").append(isVi ? "Kết thúc: " : "Finished: ")
+              .append(escapeHtml(report.getFinishedAt())).append("</span>\n");
         }
         sb.append("</div>\n</div>\n</header>\n");
 
         // Stats Cards
         sb.append("<div class=\"stats-grid\">\n");
-        sb.append("<div class=\"stat-card\"><div class=\"stat-value\">").append(total).append("</div><div class=\"stat-label\">Tổng số Cases</div></div>\n");
-        sb.append("<div class=\"stat-card pass\"><div class=\"stat-value\">").append(passed).append("</div><div class=\"stat-label\">Đạt (Passed)</div></div>\n");
-        sb.append("<div class=\"stat-card fail\"><div class=\"stat-value\">").append(failed).append("</div><div class=\"stat-label\">Thất bại (Failed)</div></div>\n");
-        sb.append("<div class=\"stat-card skip\"><div class=\"stat-value\">").append(skipped).append("</div><div class=\"stat-label\">Bỏ qua (Skipped)</div></div>\n");
-        sb.append("<div class=\"stat-card rate\"><div class=\"stat-value\">").append(passRate).append("%</div><div class=\"stat-label\">Tỷ lệ Đạt</div></div>\n");
+        sb.append("<div class=\"stat-card\"><div class=\"stat-value\">").append(total)
+          .append("</div><div class=\"stat-label\">").append(isVi ? "Tổng số Cases" : "Total Cases").append("</div></div>\n");
+        sb.append("<div class=\"stat-card pass\"><div class=\"stat-value\">").append(passed)
+          .append("</div><div class=\"stat-label\">").append(isVi ? "Đạt (Passed)" : "Passed").append("</div></div>\n");
+        sb.append("<div class=\"stat-card fail\"><div class=\"stat-value\">").append(failed)
+          .append("</div><div class=\"stat-label\">").append(isVi ? "Thất bại (Failed)" : "Failed").append("</div></div>\n");
+        sb.append("<div class=\"stat-card skip\"><div class=\"stat-value\">").append(skipped)
+          .append("</div><div class=\"stat-label\">").append(isVi ? "Bỏ qua (Skipped)" : "Skipped").append("</div></div>\n");
+        sb.append("<div class=\"stat-card rate\"><div class=\"stat-value\">").append(passRate)
+          .append("%</div><div class=\"stat-label\">").append(isVi ? "Tỷ lệ Đạt" : "Pass Rate").append("</div></div>\n");
         sb.append("</div>\n");
 
         // Progress Bar
@@ -258,12 +285,17 @@ public class HtmlReportService {
 
         // Filter buttons
         sb.append("<div class=\"filter-bar\">\n");
-        sb.append("<span style=\"font-size:13px; color:var(--text-muted); margin-right:4px;\">Bộ lọc:</span>\n");
-        sb.append("<button class=\"btn-filter active\" onclick=\"filterCases('all', this)\">Tất cả (").append(total).append(")</button>\n");
-        sb.append("<button class=\"btn-filter\" onclick=\"filterCases('passed', this)\">Đạt (").append(passed).append(")</button>\n");
-        sb.append("<button class=\"btn-filter\" onclick=\"filterCases('failed', this)\">Thất bại (").append(failed).append(")</button>\n");
+        sb.append("<span style=\"font-size:13px; color:var(--text-muted); margin-right:4px;\">")
+          .append(isVi ? "Bộ lọc:" : "Filter:").append("</span>\n");
+        sb.append("<button class=\"btn-filter active\" onclick=\"filterCases('all', this)\">")
+          .append(isVi ? "Tất cả (" : "All (").append(total).append(")</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCases('passed', this)\">")
+          .append(isVi ? "Đạt (" : "Passed (").append(passed).append(")</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCases('failed', this)\">")
+          .append(isVi ? "Thất bại (" : "Failed (").append(failed).append(")</button>\n");
         if (skipped > 0) {
-            sb.append("<button class=\"btn-filter\" onclick=\"filterCases('skipped', this)\">Bỏ qua (").append(skipped).append(")</button>\n");
+            sb.append("<button class=\"btn-filter\" onclick=\"filterCases('skipped', this)\">")
+              .append(isVi ? "Bỏ qua (" : "Skipped (").append(skipped).append(")</button>\n");
         }
         sb.append("</div>\n");
 
@@ -298,11 +330,13 @@ public class HtmlReportService {
 
             // Failure reason / Skip reason / log
             if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
-                sb.append("<div style=\"color:var(--fail); font-weight:600; margin-bottom:8px;\">❌ Lỗi: ")
+                sb.append("<div style=\"color:var(--fail); font-weight:600; margin-bottom:8px;\">")
+                  .append(isVi ? "❌ Lỗi: " : "❌ Failure: ")
                   .append(escapeHtml(cr.getFailureReason())).append("</div>\n");
             }
             if (cr.getSkipReason() != null && !cr.getSkipReason().isBlank()) {
-                sb.append("<div style=\"color:var(--skip); font-weight:600; margin-bottom:8px;\">⏭️ Lý do bỏ qua: ")
+                sb.append("<div style=\"color:var(--skip); font-weight:600; margin-bottom:8px;\">")
+                  .append(isVi ? "⏭️ Lý do bỏ qua: " : "⏭️ Skip Reason: ")
                   .append(escapeHtml(cr.getSkipReason())).append("</div>\n");
             }
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
@@ -312,9 +346,14 @@ public class HtmlReportService {
             // Assertions table
             List<AssertResult> asserts = cr.getAssertResults();
             if (asserts != null && !asserts.isEmpty()) {
-                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--text-main);\">☑️ Kiểm tra Assertions (")
+                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--text-main);\">")
+                  .append(isVi ? "☑️ Kiểm tra Assertions (" : "☑️ Assertions (")
                   .append(asserts.size()).append("):</h4>\n");
-                sb.append("<table><thead><tr><th>#</th><th>Loại kiểm tra</th><th>Chi tiết</th><th>Kết quả</th><th>Thông báo</th></tr></thead><tbody>\n");
+                if (isVi) {
+                    sb.append("<table><thead><tr><th>#</th><th>Loại kiểm tra</th><th>Chi tiết</th><th>Kết quả</th><th>Thông báo</th></tr></thead><tbody>\n");
+                } else {
+                    sb.append("<table><thead><tr><th>#</th><th>Assertion Type</th><th>Detail</th><th>Status</th><th>Message</th></tr></thead><tbody>\n");
+                }
                 int idx = 1;
                 for (AssertResult ar : asserts) {
                     String aStatus = ar.getStatus() != null ? ar.getStatus().toUpperCase() : "SKIPPED";
@@ -339,9 +378,14 @@ public class HtmlReportService {
             // Self-Healing Audit Table
             List<HealedStepMeta> healed = cr.getHealedSteps();
             if (healed != null && !healed.isEmpty()) {
-                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--primary);\">✨ Tự động sửa lỗi (Self-Healing) (")
-                  .append(healed.size()).append(" bước):</h4>\n");
-                sb.append("<table><thead><tr><th>Hành động</th><th>Selector ban đầu</th><th>Selector đã sửa</th><th>Phương thức</th><th>Độ tin cậy</th><th>Thời gian</th></tr></thead><tbody>\n");
+                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--primary);\">")
+                  .append(isVi ? "✨ Tự động sửa lỗi (Self-Healing) (" : "✨ Self-Healing Operations (")
+                  .append(healed.size()).append(isVi ? " bước):</h4>\n" : " steps):</h4>\n");
+                if (isVi) {
+                    sb.append("<table><thead><tr><th>Hành động</th><th>Selector ban đầu</th><th>Selector đã sửa</th><th>Phương thức</th><th>Độ tin cậy</th><th>Thời gian</th></tr></thead><tbody>\n");
+                } else {
+                    sb.append("<table><thead><tr><th>Action</th><th>Original Selector</th><th>Repaired Selector</th><th>Method</th><th>Confidence</th><th>Timestamp</th></tr></thead><tbody>\n");
+                }
                 for (HealedStepMeta hm : healed) {
                     sb.append("<tr>");
                     sb.append("<td><code>").append(escapeHtml(hm.getActionDescription())).append("</code></td>");
@@ -364,10 +408,13 @@ public class HtmlReportService {
                         byte[] bytes = Files.readAllBytes(shotFile);
                         String b64 = Base64.getEncoder().encodeToString(bytes);
                         sb.append("<div class=\"evidence-box\">\n");
-                        sb.append("<div class=\"evidence-title\">📸 Bằng chứng ảnh chụp màn hình (Screenshot):</div>\n");
+                        sb.append("<div class=\"evidence-title\">")
+                          .append(isVi ? "📸 Bằng chứng ảnh chụp màn hình (Screenshot):" : "📸 Evidence Screenshot:")
+                          .append("</div>\n");
                         sb.append("<img src=\"data:image/png;base64,").append(b64)
                           .append("\" alt=\"Evidence for ").append(escapeHtml(cr.getTestCaseName()))
-                          .append("\" class=\"screenshot-img\" onclick=\"window.open(this.src)\" title=\"Click để phóng to ảnh\"/>\n");
+                          .append("\" class=\"screenshot-img\" onclick=\"window.open(this.src)\" title=\"")
+                          .append(isVi ? "Click để phóng to ảnh" : "Click to view full image").append("\"/>\n");
                         sb.append("</div>\n");
                     } catch (Exception ignored) {
                     }
@@ -379,7 +426,10 @@ public class HtmlReportService {
         }
 
         // Footer
-        sb.append("<footer>Báo cáo được xuất tự động bởi Playwright Automation Studio</footer>\n");
+        sb.append("<footer>")
+          .append(isVi ? "Báo cáo được xuất tự động bởi Playwright Automation Studio"
+                       : "Report automatically generated by Playwright Automation Studio")
+          .append("</footer>\n");
 
         // JavaScript for accordion & filtering
         sb.append("<script>\n");

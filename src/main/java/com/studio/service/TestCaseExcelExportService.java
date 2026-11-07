@@ -1,6 +1,7 @@
 package com.studio.service;
 
 import com.studio.model.Assertion;
+import com.studio.model.ExportLanguage;
 import com.studio.model.TestCase;
 import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
@@ -93,20 +94,34 @@ public final class TestCaseExcelExportService {
      * Export all test cases from a single TestSuite.
      */
     public static void exportSuite(TestSuite suite, String groupName, Path suiteDir, Path outputPath) throws Exception {
+        exportSuite(suite, groupName, suiteDir, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void exportSuite(TestSuite suite, String groupName, Path suiteDir, Path outputPath, ExportLanguage lang) throws Exception {
+        ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         List<SuiteContainer> suites = new ArrayList<>();
         suites.add(new SuiteContainer(suite, groupName != null && !groupName.isBlank() ? groupName : "Project", suiteDir));
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
-        exportSuites("BỘ KIỂM THỬ: " + sName, "Kịch bản kiểm thử chi tiết thuộc bộ " + sName, suites, outputPath);
+        String scopeTitle = effective.isEnglish() ? "TEST SUITE: " + sName : "BỘ KIỂM THỬ: " + sName;
+        String scopeDesc = effective.isEnglish() ? "Detailed test cases specification for suite " + sName : "Kịch bản kiểm thử chi tiết thuộc bộ " + sName;
+        exportSuites(scopeTitle, scopeDesc, suites, outputPath, effective);
     }
 
     /**
      * Export all test cases in a group and its nested sub-groups/suites.
      */
     public static void exportGroup(Path groupDir, ProjectStore store, Path outputPath) throws Exception {
+        exportGroup(groupDir, store, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void exportGroup(Path groupDir, ProjectStore store, Path outputPath, ExportLanguage lang) throws Exception {
+        ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         List<SuiteContainer> suites = new ArrayList<>();
         String rootName = groupDir.getFileName() != null ? groupDir.getFileName().toString() : "Group";
         collectSuitesInDir(groupDir, rootName, store, suites);
-        exportSuites("NHÓM KIỂM THỬ: " + rootName, "Toàn bộ kịch bản kiểm thử thuộc nhóm " + rootName, suites, outputPath);
+        String scopeTitle = effective.isEnglish() ? "TEST GROUP: " + rootName : "NHÓM KIỂM THỬ: " + rootName;
+        String scopeDesc = effective.isEnglish() ? "All test cases belonging to group " + rootName : "Toàn bộ kịch bản kiểm thử thuộc nhóm " + rootName;
+        exportSuites(scopeTitle, scopeDesc, suites, outputPath, effective);
     }
 
     private static void collectSuitesInDir(Path dir, String currentGroupPath, ProjectStore store, List<SuiteContainer> result) {
@@ -133,6 +148,11 @@ public final class TestCaseExcelExportService {
      * Core generator that creates the standard 3-sheet Excel workbook.
      */
     public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites, Path outputPath) throws Exception {
+        exportSuites(scopeTitle, scopeDescription, suites, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites, Path outputPath, ExportLanguage lang) throws Exception {
+        ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         if (outputPath.getParent() != null) {
             Files.createDirectories(outputPath.getParent());
         }
@@ -144,26 +164,29 @@ public final class TestCaseExcelExportService {
             TestSuite suite = sc.getSuite();
             if (suite.getCases() == null) continue;
             for (TestCase tc : suite.getCases()) {
-                allCases.add(buildRowData(caseIndex++, tc, sc.getGroupPath(), suite.getName(), sc.getSuiteDir()));
+                allCases.add(buildRowData(caseIndex++, tc, sc.getGroupPath(), suite.getName(), sc.getSuiteDir(), effective));
             }
         }
 
         try (Workbook wb = new XSSFWorkbook()) {
             Styles styles = Styles.create(wb);
 
-            // Sheet 1: Tổng quan (Overview)
-            Sheet summary = wb.createSheet("Tổng quan");
-            createSummarySheet(summary, scopeTitle, scopeDescription, suites, allCases, styles);
+            // Sheet 1: Tổng quan / Overview
+            String summarySheetName = effective.isEnglish() ? "Overview" : "Tổng quan";
+            Sheet summary = wb.createSheet(summarySheetName);
+            createSummarySheet(summary, scopeTitle, scopeDescription, suites, allCases, styles, effective);
             tintSheet(summary, IndexedColors.DARK_BLUE);
 
-            // Sheet 2: Danh sách Test Cases (Test Cases Specification)
-            Sheet casesSheet = wb.createSheet("Danh sách Test Cases");
-            createCasesSheet(casesSheet, allCases, styles);
+            // Sheet 2: Danh sách Test Cases / Test Cases
+            String casesSheetName = effective.isEnglish() ? "Test Cases" : "Danh sách Test Cases";
+            Sheet casesSheet = wb.createSheet(casesSheetName);
+            createCasesSheet(casesSheet, allCases, styles, effective);
             tintSheet(casesSheet, IndexedColors.DARK_TEAL);
 
-            // Sheet 3: Chi tiết các bước (Detailed Test Steps)
-            Sheet stepsSheet = wb.createSheet("Chi tiết các bước");
-            createStepsSheet(stepsSheet, allCases, styles);
+            // Sheet 3: Chi tiết các bước / Step Details
+            String stepsSheetName = effective.isEnglish() ? "Step Details" : "Chi tiết các bước";
+            Sheet stepsSheet = wb.createSheet(stepsSheetName);
+            createStepsSheet(stepsSheet, allCases, styles, effective);
             tintSheet(stepsSheet, IndexedColors.GREY_50_PERCENT);
 
             try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
@@ -173,6 +196,10 @@ public final class TestCaseExcelExportService {
     }
 
     private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName, Path suiteDir) {
+        return buildRowData(index, tc, groupPath, suiteName, suiteDir, ExportLanguage.VIETNAMESE);
+    }
+
+    private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName, Path suiteDir, ExportLanguage lang) {
         TestCaseRowData row = new TestCaseRowData();
         row.index = index;
         row.id = tc.getId() != null && !tc.getId().isBlank() ? tc.getId() : String.format("TC_%03d", index);
@@ -248,10 +275,14 @@ public final class TestCaseExcelExportService {
         }
 
         if (row.expectedResults == null || row.expectedResults.isBlank()) {
-            row.expectedResults = "• Kịch bản kiểm thử tự động thực thi thành công không phát sinh lỗi ngoại lệ.";
+            row.expectedResults = (lang != null && lang.isEnglish())
+                    ? "• Automated test script executes successfully without unhandled exceptions."
+                    : "• Kịch bản kiểm thử tự động thực thi thành công không phát sinh lỗi ngoại lệ.";
         }
         if (row.testDataSummary == null || row.testDataSummary.isBlank()) {
-            row.testDataSummary = "Sử dụng dữ liệu mặc định của hệ thống";
+            row.testDataSummary = (lang != null && lang.isEnglish())
+                    ? "Use system default test data"
+                    : "Sử dụng dữ liệu mặc định của hệ thống";
         }
 
         return row;
@@ -297,14 +328,16 @@ public final class TestCaseExcelExportService {
     }
 
     private static void createSummarySheet(Sheet sheet, String scopeTitle, String scopeDescription,
-                                           List<SuiteContainer> suites, List<TestCaseRowData> cases, Styles styles) {
+                                           List<SuiteContainer> suites, List<TestCaseRowData> cases, Styles styles,
+                                           ExportLanguage lang) {
+        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(false);
 
         // Title Header
         Row titleRow = sheet.createRow(0);
         titleRow.setHeightInPoints(34);
         Cell titleA = titleRow.createCell(0);
-        titleA.setCellValue("TÀI LIỆU KỊCH BẢN KIỂM THỬ (TEST CASE SPECIFICATION)");
+        titleA.setCellValue(en ? "TEST CASE SPECIFICATION DOCUMENT" : "TÀI LIỆU KỊCH BẢN KIỂM THỬ (TEST CASE SPECIFICATION)");
         titleA.setCellStyle(styles.title);
         Cell titleB = titleRow.createCell(1);
         titleB.setCellStyle(styles.title);
@@ -319,11 +352,11 @@ public final class TestCaseExcelExportService {
         sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 3));
 
         int r = 3;
-        r = summaryPair(sheet, r, "Phạm vi kiểm thử", scopeTitle, styles);
-        r = summaryPair(sheet, r, "Mô tả", scopeDescription, styles);
-        r = summaryPair(sheet, r, "Thời điểm xuất", DISPLAY_DT.format(LocalDateTime.now()), styles);
-        r = summaryPair(sheet, r, "Tiêu chuẩn tài liệu", "ISTQB & IEEE 829 Test Case Specification Standard", styles);
-        r = summaryPair(sheet, r, "Công cụ sinh", "Playwright Automation Studio (Tự động hóa GUI)", styles);
+        r = summaryPair(sheet, r, en ? "Scope" : "Phạm vi kiểm thử", scopeTitle, styles);
+        r = summaryPair(sheet, r, en ? "Description" : "Mô tả", scopeDescription, styles);
+        r = summaryPair(sheet, r, en ? "Export Timestamp" : "Thời điểm xuất", DISPLAY_DT.format(LocalDateTime.now()), styles);
+        r = summaryPair(sheet, r, en ? "Document Standard" : "Tiêu chuẩn tài liệu", "ISTQB & IEEE 829 Test Case Specification Standard", styles);
+        r = summaryPair(sheet, r, en ? "Generated By" : "Công cụ sinh", en ? "Playwright Automation Studio (GUI Automation)" : "Playwright Automation Studio (Tự động hóa GUI)", styles);
 
         r++; // blank row
 
@@ -331,7 +364,7 @@ public final class TestCaseExcelExportService {
         Row statHeader = sheet.createRow(r++);
         statHeader.setHeightInPoints(22);
         Cell statHCell = statHeader.createCell(0);
-        statHCell.setCellValue("THỐNG KÊ KỊCH BẢN KIỂM THỬ");
+        statHCell.setCellValue(en ? "TEST SUITE METRICS & STATISTICS" : "THỐNG KÊ KỊCH BẢN KIỂM THỬ");
         statHCell.setCellStyle(styles.section);
         sheet.addMergedRegion(new CellRangeAddress(r - 1, r - 1, 0, 3));
 
@@ -340,11 +373,11 @@ public final class TestCaseExcelExportService {
         long draftCount = cases.stream().filter(c -> "Draft".equalsIgnoreCase(c.status)).count();
         long totalSteps = cases.stream().mapToLong(c -> c.steps.size()).sum();
 
-        r = summaryPair(sheet, r, "Tổng số Suite trong phạm vi", String.valueOf(suites.size()), styles);
-        r = summaryPair(sheet, r, "Tổng số Test Cases", String.valueOf(totalCases), styles);
-        r = summaryPair(sheet, r, "Test Cases Sẵn sàng (Ready)", String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, "Test Cases Bản nháp (Draft)", String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, "Tổng số bước thao tác (Steps)", String.valueOf(totalSteps), styles);
+        r = summaryPair(sheet, r, en ? "Total Suites in Scope" : "Tổng số Suite trong phạm vi", String.valueOf(suites.size()), styles);
+        r = summaryPair(sheet, r, en ? "Total Test Cases" : "Tổng số Test Cases", String.valueOf(totalCases), styles);
+        r = summaryPair(sheet, r, en ? "Ready Test Cases" : "Test Cases Sẵn sàng (Ready)", String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0), styles);
+        r = summaryPair(sheet, r, en ? "Draft Test Cases" : "Test Cases Bản nháp (Draft)", String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0), styles);
+        r = summaryPair(sheet, r, en ? "Total Action Steps" : "Tổng số bước thao tác (Steps)", String.valueOf(totalSteps), styles);
 
         sheet.setColumnWidth(0, 30 * 256);
         sheet.setColumnWidth(1, 45 * 256);
@@ -366,7 +399,8 @@ public final class TestCaseExcelExportService {
         return rowIdx + 1;
     }
 
-    private static void createCasesSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles) {
+    private static void createCasesSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles, ExportLanguage lang) {
+        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(true);
         sheet.createFreezePane(0, 1);
 
@@ -374,7 +408,11 @@ public final class TestCaseExcelExportService {
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = {
+        String[] headers = en ? new String[]{
+                "#", "TC ID", "Test Case Name", "Group / Module", "Test Suite",
+                "Priority", "Status", "Preconditions", "Execution Steps Summary",
+                "Test Data", "Expected Results", "Script File / Notes"
+        } : new String[]{
                 "STT", "Mã Test Case", "Tên Test Case", "Nhóm / Module", "Bộ Test (Suite)",
                 "Độ ưu tiên", "Trạng thái", "Điều kiện tiên quyết", "Các bước thực hiện",
                 "Dữ liệu kiểm thử", "Kết quả mong đợi", "Mã kịch bản / Ghi chú"
@@ -462,14 +500,18 @@ public final class TestCaseExcelExportService {
         }
     }
 
-    private static void createStepsSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles) {
+    private static void createStepsSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles, ExportLanguage lang) {
+        boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(true);
         sheet.createFreezePane(0, 1);
 
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = {
+        String[] headers = en ? new String[]{
+                "#", "TC ID", "Test Case Name", "Step #", "Action",
+                "Target Element", "Test Data", "Step Description", "Expected Result"
+        } : new String[]{
                 "STT", "Mã Test Case", "Tên Test Case", "Bước #", "Hành động (Action)",
                 "Đối tượng (Target / Element)", "Dữ liệu kiểm thử", "Mô tả bước", "Kết quả mong đợi"
         };

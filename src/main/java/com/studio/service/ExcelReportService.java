@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.ExportLanguage;
 import com.studio.model.RunReport;
 import org.apache.poi.common.usermodel.HyperlinkType;
 import org.apache.poi.ss.usermodel.BorderStyle;
@@ -71,22 +72,29 @@ public class ExcelReportService {
     private ExcelReportService() {}
 
     public static void export(RunReport report, Path outputPath) throws Exception {
+        export(report, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void export(RunReport report, Path outputPath, ExportLanguage lang) throws Exception {
         Files.createDirectories(outputPath.getParent());
+
+        ExportLanguage effectiveLang = lang != null ? lang : ExportLanguage.VIETNAMESE;
+        boolean isVi = effectiveLang.isVietnamese();
 
         try (Workbook wb = new XSSFWorkbook()) {
             Styles styles = Styles.create(wb);
             CreationHelper helper = wb.getCreationHelper();
 
-            Sheet summary = wb.createSheet("Summary");
-            createSummarySheet(summary, report, styles);
+            Sheet summary = wb.createSheet(isVi ? "Tổng quan" : "Summary");
+            createSummarySheet(summary, report, styles, effectiveLang);
             tintSheet(summary, IndexedColors.DARK_BLUE);
 
-            Sheet cases = wb.createSheet("Cases");
-            createCasesSheet(cases, report, styles, helper);
+            Sheet cases = wb.createSheet(isVi ? "Danh sách Cases" : "Cases");
+            createCasesSheet(cases, report, styles, helper, effectiveLang);
             tintSheet(cases, IndexedColors.DARK_TEAL);
 
-            Sheet asserts = wb.createSheet("Asserts");
-            createAssertsSheet(asserts, report, styles);
+            Sheet asserts = wb.createSheet(isVi ? "Danh sách Asserts" : "Asserts");
+            createAssertsSheet(asserts, report, styles, effectiveLang);
             tintSheet(asserts, IndexedColors.GREY_50_PERCENT);
 
             try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
@@ -95,13 +103,14 @@ public class ExcelReportService {
         }
     }
 
-    private static void createSummarySheet(Sheet sheet, RunReport report, Styles styles) {
+    private static void createSummarySheet(Sheet sheet, RunReport report, Styles styles, ExportLanguage lang) {
+        boolean isVi = lang != null && lang.isVietnamese();
         sheet.setDisplayGridlines(false);
 
         Row title = sheet.createRow(0);
         title.setHeightInPoints(32);
         Cell titleA = title.createCell(0);
-        titleA.setCellValue("Test Run Report");
+        titleA.setCellValue(isVi ? "Báo Cáo Thực Thi Kiểm Thử" : "Test Run Report");
         titleA.setCellStyle(styles.title);
         Cell titleB = title.createCell(1);
         titleB.setCellStyle(styles.title);
@@ -110,37 +119,37 @@ public class ExcelReportService {
         Row subtitle = sheet.createRow(1);
         subtitle.setHeightInPoints(20);
         Cell subA = subtitle.createCell(0);
-        subA.setCellValue("Run ID  ·  " + nullToEmpty(report.getRunId()));
+        subA.setCellValue((isVi ? "Mã lượt chạy  ·  " : "Run ID  ·  ") + nullToEmpty(report.getRunId()));
         subA.setCellStyle(styles.subtitleBar);
         Cell subB = subtitle.createCell(1);
         subB.setCellStyle(styles.subtitleBar);
         sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 1));
 
         int r = 3;
-        r = summaryPair(sheet, r, "Run ID", nullToEmpty(report.getRunId()), styles);
-        r = summaryPair(sheet, r, "Scope", nullToEmpty(report.getScope()), styles);
-        r = summaryPair(sheet, r, "Target", report.getScopeName() != null ? report.getScopeName() : "ALL", styles);
-        r = summaryPair(sheet, r, "Browser", nullToEmpty(report.getBrowser()), styles);
-        r = summaryPair(sheet, r, "Headless", yesNo(report.isHeadless()), styles);
-        r = summaryPair(sheet, r, "Share Context", yesNo(report.isShareContext()), styles);
-        r = summaryPair(sheet, r, "Stop on First Failure", yesNo(report.isStopOnFirstFailure()), styles);
-        r = summaryPair(sheet, r, "Started", formatDateTime(report.getStartedAt()), styles);
-        r = summaryPair(sheet, r, "Finished", formatDateTime(report.getFinishedAt()), styles);
+        r = summaryPair(sheet, r, isVi ? "Mã lượt chạy" : "Run ID", nullToEmpty(report.getRunId()), styles);
+        r = summaryPair(sheet, r, isVi ? "Phạm vi" : "Scope", nullToEmpty(report.getScope()), styles);
+        r = summaryPair(sheet, r, isVi ? "Mục tiêu" : "Target", report.getScopeName() != null ? report.getScopeName() : (isVi ? "TẤT CẢ" : "ALL"), styles);
+        r = summaryPair(sheet, r, isVi ? "Trình duyệt" : "Browser", nullToEmpty(report.getBrowser()), styles);
+        r = summaryPair(sheet, r, isVi ? "Chế độ ẩn (Headless)" : "Headless", yesNo(report.isHeadless(), isVi), styles);
+        r = summaryPair(sheet, r, isVi ? "Dùng chung ngữ cảnh" : "Share Context", yesNo(report.isShareContext(), isVi), styles);
+        r = summaryPair(sheet, r, isVi ? "Dừng khi gặp lỗi đầu tiên" : "Stop on First Failure", yesNo(report.isStopOnFirstFailure(), isVi), styles);
+        r = summaryPair(sheet, r, isVi ? "Bắt đầu" : "Started", formatDateTime(report.getStartedAt()), styles);
+        r = summaryPair(sheet, r, isVi ? "Kết thúc" : "Finished", formatDateTime(report.getFinishedAt()), styles);
 
         r += 1;
         Row kpiHeader = sheet.createRow(r++);
         kpiHeader.setHeightInPoints(20);
         Cell kpiTitle = kpiHeader.createCell(0);
-        kpiTitle.setCellValue("Results");
+        kpiTitle.setCellValue(isVi ? "Kết Quả Tổng Hợp" : "Results");
         kpiTitle.setCellStyle(styles.section);
         Cell kpiTitleB = kpiHeader.createCell(1);
         kpiTitleB.setCellStyle(styles.section);
         sheet.addMergedRegion(new CellRangeAddress(r - 1, r - 1, 0, 1));
 
-        r = summaryNumber(sheet, r, "Total Cases", report.getTotal(), styles);
-        r = summaryKpi(sheet, r, "Passed", report.getPassed(), "PASSED", styles);
-        r = summaryKpi(sheet, r, "Failed", report.getFailed(), "FAILED", styles);
-        r = summaryKpi(sheet, r, "Skipped", report.getSkipped(), "SKIPPED", styles);
+        r = summaryNumber(sheet, r, isVi ? "Tổng số Test Cases" : "Total Cases", report.getTotal(), styles);
+        r = summaryKpi(sheet, r, isVi ? "Thành công (Passed)" : "Passed", report.getPassed(), "PASSED", styles);
+        r = summaryKpi(sheet, r, isVi ? "Thất bại (Failed)" : "Failed", report.getFailed(), "FAILED", styles);
+        r = summaryKpi(sheet, r, isVi ? "Bỏ qua (Skipped)" : "Skipped", report.getSkipped(), "SKIPPED", styles);
 
         sheet.setColumnWidth(0, 30 * 256);
         sheet.setColumnWidth(1, 52 * 256);
@@ -183,9 +192,13 @@ public class ExcelReportService {
         return rowIdx + 1;
     }
 
-    private static void createCasesSheet(Sheet sheet, RunReport report, Styles styles, CreationHelper helper) {
+    private static void createCasesSheet(Sheet sheet, RunReport report, Styles styles, CreationHelper helper, ExportLanguage lang) {
+        boolean isVi = lang != null && lang.isVietnamese();
         sheet.setDisplayGridlines(false);
-        String[] cols = {"#", "Case Name", "Suite", "Group", "Status",
+        String[] cols = isVi
+                ? new String[]{"STT", "Tên Test Case", "Bộ Suite", "Nhóm (Group)", "Trạng thái",
+                "Lý do bỏ qua", "Thời gian (ms)", "Ảnh chụp màn hình", "Lý do thất bại"}
+                : new String[]{"#", "Case Name", "Suite", "Group", "Status",
                 "Skip Reason", "Duration (ms)", "Screenshot", "Failure Reason"};
         Row header = sheet.createRow(0);
         header.setHeightInPoints(22);
@@ -221,9 +234,13 @@ public class ExcelReportService {
         applyTableBorder(sheet, 0, Math.max(1, lastRow), 0, lastCol);
     }
 
-    private static void createAssertsSheet(Sheet sheet, RunReport report, Styles styles) {
+    private static void createAssertsSheet(Sheet sheet, RunReport report, Styles styles, ExportLanguage lang) {
+        boolean isVi = lang != null && lang.isVietnamese();
         sheet.setDisplayGridlines(false);
-        String[] cols = {"Case", "Assert #", "Type", "Detail",
+        String[] cols = isVi
+                ? new String[]{"Test Case", "Kiểm tra #", "Loại", "Chi tiết",
+                "Trạng thái cấu hình", "Trạng thái kết quả", "Thông điệp"}
+                : new String[]{"Case", "Assert #", "Type", "Detail",
                 "Config Status", "Result Status", "Message"};
         Row header = sheet.createRow(0);
         header.setHeightInPoints(22);
@@ -325,6 +342,13 @@ public class ExcelReportService {
     }
 
     private static String yesNo(boolean value) {
+        return yesNo(value, false);
+    }
+
+    private static String yesNo(boolean value, boolean isVi) {
+        if (isVi) {
+            return value ? "Có" : "Không";
+        }
         return value ? "Yes" : "No";
     }
 

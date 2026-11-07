@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
+import com.studio.model.ExportLanguage;
 import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
@@ -35,6 +36,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.awt.Desktop;
 import java.io.File;
@@ -42,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Controller for the report detail page (report_detail_page.fxml).
@@ -695,17 +698,25 @@ public class ReportDetailPageController {
             ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
             return;
         }
+
+        Window window = exportHtmlBtn != null && exportHtmlBtn.getScene() != null
+                ? exportHtmlBtn.getScene().getWindow()
+                : (exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null);
+
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (HTML)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("🌐 Xuất báo cáo HTML độc lập");
+        chooser.setTitle(lang.isVietnamese() ? "🌐 Xuất báo cáo HTML độc lập" : "🌐 Export Standalone HTML Report");
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
-        chooser.setInitialFileName("report_" + currentReport.getRunId() + ".html");
-        File file = chooser.showSaveDialog(exportHtmlBtn != null && exportHtmlBtn.getScene() != null
-                ? exportHtmlBtn.getScene().getWindow()
-                : (exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null));
+        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        chooser.setInitialFileName(prefix + currentReport.getRunId() + ".html");
+        File file = chooser.showSaveDialog(window);
         if (file != null) {
             try {
-                HtmlReportService.export(currentReport, file.toPath());
+                HtmlReportService.export(currentReport, file.toPath(), lang);
                 ToastService.success("🌐 Đã xuất báo cáo HTML: " + file.getName());
                 try {
                     if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -724,15 +735,22 @@ public class ReportDetailPageController {
             ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
             return;
         }
+
+        Window window = exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null;
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (Excel)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("📤 Xuất báo cáo Excel");
+        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất báo cáo Excel" : "📤 Export Excel Report");
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        chooser.setInitialFileName("report_" + currentReport.getRunId() + ".xlsx");
-        File file = chooser.showSaveDialog(exportBtn.getScene().getWindow());
+        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        chooser.setInitialFileName(prefix + currentReport.getRunId() + ".xlsx");
+        File file = chooser.showSaveDialog(window);
         if (file != null) {
             try {
-                ExcelReportService.export(currentReport, file.toPath());
+                ExcelReportService.export(currentReport, file.toPath(), lang);
                 ToastService.success("📤 Đã xuất Excel: " + file.getName());
             } catch (Exception e) {
                 ToastService.error("❌ Xuất thất bại: " + e.getMessage());

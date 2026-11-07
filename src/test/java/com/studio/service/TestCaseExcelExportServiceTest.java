@@ -1,6 +1,7 @@
 package com.studio.service;
 
 import com.studio.model.Assertion;
+import com.studio.model.ExportLanguage;
 import com.studio.model.TestCase;
 import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
@@ -189,6 +190,39 @@ class TestCaseExcelExportServiceTest {
             // Must have 2 test cases (Row 0 is header, Row 1 is TC1, Row 2 is TC2)
             assertEquals("TC_LOGIN_01", sCases.getRow(1).getCell(1).getStringCellValue());
             assertEquals("TC_LOGIN_02", sCases.getRow(2).getCell(1).getStringCellValue());
+        }
+    }
+
+    @Test
+    void testExportSuiteToExcelEnglish() throws Exception {
+        Path excelOut = tempDir.resolve("test_cases_export_en.xlsx");
+
+        TestCaseExcelExportService.exportSuite(suite, "TestGroup", suiteDir, excelOut, ExportLanguage.ENGLISH);
+
+        assertTrue(Files.exists(excelOut), "Excel file must be created");
+        try (Workbook wb = new XSSFWorkbook(new FileInputStream(excelOut.toFile()))) {
+            assertEquals(3, wb.getNumberOfSheets());
+
+            Sheet sOverview = wb.getSheet("Overview");
+            Sheet sCases = wb.getSheet("Test Cases");
+            Sheet sSteps = wb.getSheet("Step Details");
+
+            assertNotNull(sOverview, "Overview sheet must exist in English");
+            assertNotNull(sCases, "Test Cases sheet must exist in English");
+            assertNotNull(sSteps, "Step Details sheet must exist in English");
+
+            Row bannerRow = sOverview.getRow(1);
+            assertNotNull(bannerRow);
+            assertTrue(bannerRow.getCell(0).getStringCellValue().contains("TEST SUITE: SuiteTest"));
+
+            // Check English table headers in Test Cases sheet
+            Row headerRow = sCases.getRow(0);
+            assertNotNull(headerRow);
+            assertEquals("TC ID", headerRow.getCell(1).getStringCellValue());
+            assertEquals("Test Case Name", headerRow.getCell(2).getStringCellValue());
+            assertEquals("Preconditions", headerRow.getCell(7).getStringCellValue());
+            assertEquals("Execution Steps Summary", headerRow.getCell(8).getStringCellValue());
+            assertEquals("Expected Results", headerRow.getCell(10).getStringCellValue());
         }
     }
 }

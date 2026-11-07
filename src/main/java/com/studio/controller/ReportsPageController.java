@@ -1,5 +1,6 @@
 package com.studio.controller;
 
+import com.studio.model.ExportLanguage;
 import com.studio.model.RunReport;
 import com.studio.service.ExcelReportService;
 import com.studio.service.HtmlReportService;
@@ -24,6 +25,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -31,6 +33,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import javafx.util.StringConverter;
 
 /**
@@ -365,23 +368,31 @@ public class ReportsPageController {
             return;
         }
 
+        Window window = reportsTable != null && reportsTable.getScene() != null
+                ? reportsTable.getScene().getWindow() : null;
+
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (Excel)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("📤 Xuất báo cáo Excel");
+        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất báo cáo Excel" : "📤 Export Excel Report");
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        chooser.setInitialFileName("report_" + runId + ".xlsx");
+        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        chooser.setInitialFileName(prefix + runId + ".xlsx");
         try {
             var exports = StudioPaths.getExportsDir();
             Files.createDirectories(exports);
             chooser.setInitialDirectory(exports.toFile());
         } catch (Exception ignored) {
         }
-        File file = chooser.showSaveDialog(reportsTable.getScene().getWindow());
+        File file = chooser.showSaveDialog(window);
         if (file == null) {
             return;
         }
         try {
-            ExcelReportService.export(full, file.toPath());
+            ExcelReportService.export(full, file.toPath(), lang);
             ToastService.success("📤 Đã xuất Excel: " + file.getName());
         } catch (Exception e) {
             ToastService.error("❌ Xuất thất bại: " + e.getMessage());
@@ -402,23 +413,31 @@ public class ReportsPageController {
             return;
         }
 
+        Window window = reportsTable != null && reportsTable.getScene() != null
+                ? reportsTable.getScene().getWindow() : null;
+
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (HTML)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("🌐 Xuất báo cáo HTML độc lập");
+        chooser.setTitle(lang.isVietnamese() ? "🌐 Xuất báo cáo HTML độc lập" : "🌐 Export Standalone HTML Report");
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
-        chooser.setInitialFileName("report_" + runId + ".html");
+        String prefix = lang.isVietnamese() ? "Bao_cao_" : "Report_";
+        chooser.setInitialFileName(prefix + runId + ".html");
         try {
             var exports = StudioPaths.getExportsDir();
             Files.createDirectories(exports);
             chooser.setInitialDirectory(exports.toFile());
         } catch (Exception ignored) {
         }
-        File file = chooser.showSaveDialog(reportsTable.getScene().getWindow());
+        File file = chooser.showSaveDialog(window);
         if (file == null) {
             return;
         }
         try {
-            HtmlReportService.export(full, file.toPath());
+            HtmlReportService.export(full, file.toPath(), lang);
             ToastService.success("🌐 Đã xuất HTML: " + file.getName());
             try {
                 if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {

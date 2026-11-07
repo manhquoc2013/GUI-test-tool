@@ -19,4 +19,9 @@
 - [x] Task 17: Update `ai_assistant_page.fxml` and `AiAssistantPageController` with Skill dropdown & slash commands <!-- id: 27 -->
 - [x] Task 18: Add CSS styles for Skill selector in `studio.css` and `studio-light.css` <!-- id: 28 -->
 - [x] Task 19: Write unit tests in `AiSkillTest` and verify entire test suite (`mvn clean test`) <!-- id: 29 -->
+- [x] Task 20: Create `com.studio.model.ExportLanguage` with Vietnamese (default) & English <!-- id: 30 -->
+- [x] Task 21: Add language support to `TestCaseExcelExportService`, `ExcelReportService` & `HtmlReportService` <!-- id: 31 -->
+- [x] Task 22: Create `com.studio.controller.ExportLanguageDialog` with modal picker (defaulting to Tiếng Việt) <!-- id: 32 -->
+- [x] Task 23: Wire language selection into `SuiteWorkspacePageController`, `ExplorerPageController`, `ReportsPageController`, and `ReportDetailPageController` <!-- id: 33 -->
+- [x] Task 24: Add unit tests for bilingual exports in `TestCaseExcelExportServiceTest`, `HtmlReportServiceTest` & verify suite <!-- id: 34 -->
 

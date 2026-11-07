@@ -84,3 +84,4 @@ class AiSkillTest {
         assertTrue(cases.get(0).getScriptCode().contains("[Theory]"));
     }
 }
+

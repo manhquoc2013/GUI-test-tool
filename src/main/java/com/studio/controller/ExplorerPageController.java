@@ -30,6 +30,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.io.File;
 import java.io.IOException;
@@ -1993,17 +1994,23 @@ public class ExplorerPageController {
         Path suiteDir = resolveSuitePath(ref);
         if (suiteDir == null || !Files.isDirectory(suiteDir)) return;
 
+        Window window = projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null;
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Kịch Bản Test Cases - Suite (Excel)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("📤 Xuất Test Cases (Suite) ra Excel chuẩn QA");
-        chooser.setInitialFileName(ref.name + "_TestCases.xlsx");
+        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất Test Cases (Suite) ra Excel chuẩn QA" : "📤 Export QA Test Cases (Suite) to Excel");
+        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_" : "Test_Cases_";
+        chooser.setInitialFileName(filePrefix + ref.name + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        File file = chooser.showSaveDialog(projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null);
+        File file = chooser.showSaveDialog(window);
         if (file == null) return;
 
         try {
             TestSuite suite = projectStore.loadAndMigrateSuite(suiteDir);
             String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "Project";
-            TestCaseExcelExportService.exportSuite(suite, groupName, suiteDir, file.toPath());
+            TestCaseExcelExportService.exportSuite(suite, groupName, suiteDir, file.toPath(), lang);
             ToastService.success("📤 Đã xuất Excel test cases: " + file.getName());
         } catch (Exception e) {
             ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
@@ -2017,15 +2024,22 @@ public class ExplorerPageController {
         Path groupDir = resolveGroupDir(ref);
         if (groupDir == null || !Files.isDirectory(groupDir)) return;
 
+        Window window = projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null;
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Kịch Bản Test Cases - Nhóm (Excel)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("📤 Xuất toàn bộ Test Cases (Nhóm) ra Excel chuẩn QA");
-        chooser.setInitialFileName((ref.name != null && !ref.name.isBlank() ? ref.name : "Group") + "_TestCases.xlsx");
+        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất toàn bộ Test Cases (Nhóm) ra Excel chuẩn QA" : "📤 Export QA Test Cases (Group) to Excel");
+        String gName = (ref.name != null && !ref.name.isBlank() ? ref.name : "Group");
+        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_Nhom_" : "Test_Cases_Group_";
+        chooser.setInitialFileName(filePrefix + gName + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        File file = chooser.showSaveDialog(projectTree != null && projectTree.getScene() != null ? projectTree.getScene().getWindow() : null);
+        File file = chooser.showSaveDialog(window);
         if (file == null) return;
 
         try {
-            TestCaseExcelExportService.exportGroup(groupDir, projectStore, file.toPath());
+            TestCaseExcelExportService.exportGroup(groupDir, projectStore, file.toPath(), lang);
             ToastService.success("📤 Đã xuất Excel toàn bộ test cases nhóm: " + file.getName());
         } catch (Exception e) {
             ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());

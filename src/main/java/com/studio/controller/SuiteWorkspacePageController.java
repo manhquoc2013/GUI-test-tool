@@ -26,6 +26,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -1025,18 +1026,25 @@ public class SuiteWorkspacePageController {
             ToastService.warn("⚠️ Không có Suite nào đang mở để xuất Excel");
             return;
         }
+
+        Window window = backBtn != null && backBtn.getScene() != null ? backBtn.getScene().getWindow() : null;
+        Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Kịch Bản Test Cases (Excel)");
+        if (langOpt.isEmpty()) return;
+        ExportLanguage lang = langOpt.get();
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("📤 Xuất Test Cases ra Excel chuẩn QA");
+        chooser.setTitle(lang.isVietnamese() ? "📤 Xuất Test Cases ra Excel chuẩn QA" : "📤 Export QA Test Cases to Excel");
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
         String safeName = sName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        chooser.setInitialFileName(safeName + "_TestCases.xlsx");
+        String filePrefix = lang.isVietnamese() ? "Kich_ban_kiem_thu_" : "Test_Cases_";
+        chooser.setInitialFileName(filePrefix + safeName + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
-        File file = chooser.showSaveDialog(backBtn != null && backBtn.getScene() != null ? backBtn.getScene().getWindow() : null);
+        File file = chooser.showSaveDialog(window);
         if (file == null) return;
 
         try {
             String groupName = suitePath.getParent() != null ? suitePath.getParent().getFileName().toString() : "Project";
-            TestCaseExcelExportService.exportSuite(suite, groupName, suitePath, file.toPath());
+            TestCaseExcelExportService.exportSuite(suite, groupName, suitePath, file.toPath(), lang);
             ToastService.success("📤 Đã xuất tài liệu Test Cases: " + file.getName());
         } catch (Exception e) {
             ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
