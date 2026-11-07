@@ -149,6 +149,10 @@ public class DataCleanupDialog {
         progress.setManaged(false);
 
         executeBtn.setOnAction(e -> {
+            if (com.studio.service.RunCancelService.isRunActive()) {
+                ToastService.error("Không thể dọn dẹp dữ liệu khi kiểm thử đang chạy. Vui lòng dừng hoặc chờ phiên chạy hoàn tất.");
+                return;
+            }
             if (!cleanReportsCb.isSelected() && !cleanChatCb.isSelected() && !cleanWorkCb.isSelected()) {
                 ToastService.warn("Vui lòng chọn ít nhất 1 mục để dọn dẹp.");
                 return;

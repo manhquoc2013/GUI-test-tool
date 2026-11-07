@@ -211,3 +211,4 @@ echo " Installer (.dmg): ${DMG_OUTPUT} (${FILE_SIZE})                "
 echo " Standalone .app:  ${APP_BUNDLE}                                "
 echo "================================================================="
 echo "Users can double-click the .dmg and drag into Applications to run!"
+

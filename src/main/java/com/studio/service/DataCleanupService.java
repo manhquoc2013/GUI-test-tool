@@ -156,8 +156,12 @@ public class DataCleanupService {
     /**
      * Execute data cleanup according to selected options.
      * System settings are strictly guarded and never deleted.
+     * Aborts with IllegalStateException if an in-process test run is currently active.
      */
     public CleanupResult executeCleanup(CleanupOptions options) {
+        if (RunCancelService.isRunActive()) {
+            throw new IllegalStateException("Không thể dọn dẹp dữ liệu khi kiểm thử đang chạy.");
+        }
         CleanupResult result = new CleanupResult();
         if (options == null) return result;
 

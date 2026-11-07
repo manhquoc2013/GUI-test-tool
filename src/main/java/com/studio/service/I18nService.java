@@ -111,8 +111,8 @@ public final class I18nService {
                     try (InputStreamReader reader = new InputStreamReader(is, StandardCharsets.UTF_8)) {
                         p.load(reader);
                     }
-                } else {
-                    System.err.println("[I18nService] Missing translation resource: " + path);
+                } else if (DEFAULT_LANG_CODE.equals(c)) {
+                    System.err.println("[I18nService] Missing translation resource for default locale: " + path);
                 }
             } catch (Exception e) {
                 System.err.println("[I18nService] Failed to load " + path + ": " + e.getMessage());

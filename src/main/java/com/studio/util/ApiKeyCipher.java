@@ -39,6 +39,7 @@ public final class ApiKeyCipher {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static volatile SecretKey cachedKey = null;
+    private static volatile SecretKey cachedLegacyKey = null;
 
     private ApiKeyCipher() {}
 
@@ -87,6 +88,7 @@ public final class ApiKeyCipher {
 
     /**
      * Transparently decrypts an encrypted API key.
+     * Supports automatic fallback to legacy entropy derivation for backwards compatibility.
      * If string is not encrypted (legacy plain text), returns it directly.
      */
     public static String decrypt(String cipherOrPlain) {
@@ -98,30 +100,40 @@ public final class ApiKeyCipher {
         }
 
         try {
-            String base64Payload = cipherOrPlain.substring(ENVELOPE_PREFIX.length());
-            byte[] combined = Base64.getDecoder().decode(base64Payload);
-            if (combined.length <= GCM_IV_LENGTH) {
-                return "";
+            String res = decryptWithKey(cipherOrPlain, getOrDeriveKey());
+            if (!res.isEmpty()) {
+                return res;
             }
+        } catch (Exception ignored) {}
 
-            ByteBuffer byteBuffer = ByteBuffer.wrap(combined);
-            byte[] iv = new byte[GCM_IV_LENGTH];
-            byteBuffer.get(iv);
-
-            byte[] cipherBytes = new byte[byteBuffer.remaining()];
-            byteBuffer.get(cipherBytes);
-
-            SecretKey secretKey = getOrDeriveKey();
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-            GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
-            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec);
-
-            byte[] decrypted = cipher.doFinal(cipherBytes);
-            return new String(decrypted, StandardCharsets.UTF_8).trim();
+        try {
+            return decryptWithKey(cipherOrPlain, getOrDeriveLegacyKey());
         } catch (Exception ex) {
             // Authentication tag mismatch (tampering) or different machine: safely return empty
             return "";
         }
+    }
+
+    private static String decryptWithKey(String cipherText, SecretKey key) throws Exception {
+        String base64Payload = cipherText.substring(ENVELOPE_PREFIX.length());
+        byte[] combined = Base64.getDecoder().decode(base64Payload);
+        if (combined.length <= GCM_IV_LENGTH) {
+            return "";
+        }
+
+        ByteBuffer byteBuffer = ByteBuffer.wrap(combined);
+        byte[] iv = new byte[GCM_IV_LENGTH];
+        byteBuffer.get(iv);
+
+        byte[] cipherBytes = new byte[byteBuffer.remaining()];
+        byteBuffer.get(cipherBytes);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+
+        byte[] decrypted = cipher.doFinal(cipherBytes);
+        return new String(decrypted, StandardCharsets.UTF_8).trim();
     }
 
     /**
@@ -166,20 +178,100 @@ public final class ApiKeyCipher {
                 return cachedKey;
             }
             try {
-                String machineEntropy = buildDeviceEntropy();
+                String machineEntropy = buildStableDeviceEntropy();
                 SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
                 KeySpec spec = new PBEKeySpec(machineEntropy.toCharArray(), STATIC_SALT, ITERATIONS, KEY_LENGTH);
                 SecretKey tmp = factory.generateSecret(spec);
                 cachedKey = new SecretKeySpec(tmp.getEncoded(), "AES");
             } catch (Exception e) {
-                // Fallback fixed-key if machine derivation fails
                 cachedKey = new SecretKeySpec(STATIC_SALT, 0, 16, "AES");
             }
             return cachedKey;
         }
     }
 
-    private static String buildDeviceEntropy() {
+    private static SecretKey getOrDeriveLegacyKey() {
+        if (cachedLegacyKey != null) {
+            return cachedLegacyKey;
+        }
+        synchronized (ApiKeyCipher.class) {
+            if (cachedLegacyKey != null) {
+                return cachedLegacyKey;
+            }
+            try {
+                String machineEntropy = buildLegacyDeviceEntropy();
+                SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+                KeySpec spec = new PBEKeySpec(machineEntropy.toCharArray(), STATIC_SALT, ITERATIONS, KEY_LENGTH);
+                SecretKey tmp = factory.generateSecret(spec);
+                cachedLegacyKey = new SecretKeySpec(tmp.getEncoded(), "AES");
+            } catch (Exception e) {
+                cachedLegacyKey = new SecretKeySpec(STATIC_SALT, 0, 16, "AES");
+            }
+            return cachedLegacyKey;
+        }
+    }
+
+    private static String buildStableDeviceEntropy() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(System.getProperty("user.name", "unknown_user")).append("|");
+        sb.append(System.getProperty("os.name", "unknown_os")).append("|");
+        sb.append(System.getProperty("os.arch", "unknown_arch")).append("|");
+        sb.append(System.getProperty("user.home", "/")).append("|");
+
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            if (interfaces != null) {
+                List<NetworkInterface> list = Collections.list(interfaces);
+                List<NetworkInterface> physicalCandidates = new java.util.ArrayList<>();
+                for (NetworkInterface nif : list) {
+                    if (nif.isLoopback() || nif.isVirtual()) continue;
+                    String name = nif.getName().toLowerCase();
+                    if (name.startsWith("awdl") || name.startsWith("llw") || name.startsWith("p2p")
+                            || name.startsWith("bridge") || name.startsWith("utun") || name.startsWith("tun")
+                            || name.startsWith("tap") || name.startsWith("docker") || name.startsWith("veth")
+                            || name.startsWith("tailscale") || name.startsWith("wg")) {
+                        continue;
+                    }
+                    byte[] mac = nif.getHardwareAddress();
+                    if (mac != null && mac.length > 0) {
+                        physicalCandidates.add(nif);
+                    }
+                }
+
+                if (!physicalCandidates.isEmpty()) {
+                    physicalCandidates.sort(Comparator.comparing(NetworkInterface::getName));
+                    NetworkInterface chosen = physicalCandidates.get(0);
+                    for (NetworkInterface cand : physicalCandidates) {
+                        String name = cand.getName().toLowerCase();
+                        if (name.equals("en0") || name.equals("eth0") || name.equals("wlan0")) {
+                            chosen = cand;
+                            break;
+                        }
+                    }
+                    byte[] mac = chosen.getHardwareAddress();
+                    for (byte b : mac) {
+                        sb.append(String.format("%02X", b));
+                    }
+                } else {
+                    list.sort(Comparator.comparing(NetworkInterface::getName));
+                    for (NetworkInterface nif : list) {
+                        if (nif.isLoopback()) continue;
+                        byte[] mac = nif.getHardwareAddress();
+                        if (mac != null && mac.length > 0) {
+                            for (byte b : mac) {
+                                sb.append(String.format("%02X", b));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return sb.toString();
+    }
+
+    private static String buildLegacyDeviceEntropy() {
         StringBuilder sb = new StringBuilder();
         sb.append(System.getProperty("user.name", "unknown_user")).append("|");
         sb.append(System.getProperty("os.name", "unknown_os")).append("|");
@@ -199,7 +291,7 @@ public final class ApiKeyCipher {
                         for (byte b : mac) {
                             sb.append(String.format("%02X", b));
                         }
-                        break; // Use the first valid hardware MAC in deterministic sorted order
+                        break;
                     }
                 }
             }

@@ -97,3 +97,4 @@ class StudioPathsTest {
         assertTrue(Files.isDirectory(StudioPaths.getHarnessDir()));
     }
 }
+

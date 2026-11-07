@@ -80,3 +80,4 @@ jobs:
           name: PlaywrightAutomationStudio-Windows-Setup
           path: dist/*Setup*.exe
           if-no-files-found: error
+

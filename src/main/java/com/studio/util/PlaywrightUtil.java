@@ -19,7 +19,7 @@ public final class PlaywrightUtil {
     /**
      * Resolves the effective browsers directory, giving priority to:
      * 1. System environment variable PLAYWRIGHT_BROWSERS_PATH (if set and valid directory)
-     * 2. Bundled browsers directory in APP_HOME/browsers (portable bundle)
+     * 2. StudioPaths.getBrowsersDir() (portable APP_HOME/browsers or installed DATA_HOME/browsers)
      * 3. BrowserDetector.resolvePlaywrightBrowsersPath()
      */
     public static Path resolveBrowsersPath() {
@@ -31,9 +31,9 @@ public final class PlaywrightUtil {
             }
         }
 
-        Path bundled = StudioPaths.getAppHome().resolve("browsers");
-        if (Files.isDirectory(bundled)) {
-            return bundled;
+        Path studioBrowsers = StudioPaths.getBrowsersDir();
+        if (studioBrowsers != null && Files.isDirectory(studioBrowsers)) {
+            return studioBrowsers;
         }
 
         return BrowserDetector.resolvePlaywrightBrowsersPath();

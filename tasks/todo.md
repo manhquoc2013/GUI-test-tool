@@ -35,4 +35,12 @@
 - [x] Task 33: Create `.github/workflows/build-installers.yml` for automated multi-OS release builds <!-- id: 43 -->
 - [x] Task 34: Execute macOS `.dmg` build, verify installer artifact & offline browser integration <!-- id: 44 -->
 - [x] Task 35: Run full verification suite and update `tasks/learnings.md` <!-- id: 45 -->
+- [x] Task 36: Fix selector escaping and locator chaining proxy in `OptimizedSelfHealingExecutor` <!-- id: 46 -->
+- [x] Task 37: Add run-active guard in `DataCleanupService` and `DataCleanupDialog` <!-- id: 47 -->
+- [x] Task 38: Stabilize machine entropy derivation in `ApiKeyCipher` <!-- id: 48 -->
+- [x] Task 39: Eliminate N+1 assertion queries in `ProjectDbService` <!-- id: 49 -->
+- [x] Task 40: Unify browser path resolution in `PlaywrightUtil` with `StudioPaths.getBrowsersDir()` <!-- id: 50 -->
+- [x] Task 41: Add vision model capability check in `OptimizedSelfHealingExecutor` and quiet i18n logging <!-- id: 51 -->
+- [x] Task 42: Comprehensive unit tests and full suite regression verification <!-- id: 52 -->
+- [x] Task 43: Update `tasks/learnings.md`, atomic commit and git push <!-- id: 53 -->
 

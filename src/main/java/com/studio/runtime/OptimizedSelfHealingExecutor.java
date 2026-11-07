@@ -69,6 +69,8 @@ public class OptimizedSelfHealingExecutor {
      * Resolve a selector with multi-tier self-healing support.
      * Uses a Dynamic Proxy to preserve native Playwright Auto-Waiting.
      * Only intercepts and triggers healing if an action/assert throws PlaywrightException.
+     * Supports locator method chaining (e.g. .first(), .last(), .nth(i), .filter(...))
+     * while retaining self-healing capabilities on the resulting child locators.
      */
     public Locator resolveLocator(String selector, String actionDescription) {
         if (selector == null || selector.isBlank() || page == null) {
@@ -78,12 +80,16 @@ public class OptimizedSelfHealingExecutor {
         String initialSelector = LOCATE_CACHE.getOrDefault(selector, selector);
         Locator initialLocator = page.locator(initialSelector);
 
+        return createProxy(initialSelector, initialLocator, actionDescription, null);
+    }
+
+    private Locator createProxy(String activeSelector, Locator targetLocator, String actionDescription, ChainedStep parentStep) {
         return (Locator) java.lang.reflect.Proxy.newProxyInstance(
                 Locator.class.getClassLoader(),
                 new Class<?>[]{Locator.class},
                 new java.lang.reflect.InvocationHandler() {
-                    private String currentActive = initialSelector;
-                    private Locator currentLoc = initialLocator;
+                    private String currentActive = activeSelector;
+                    private Locator currentLoc = targetLocator;
 
                     @Override
                     public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
@@ -98,7 +104,12 @@ public class OptimizedSelfHealingExecutor {
                         }
 
                         try {
-                            return method.invoke(currentLoc, args);
+                            Object result = method.invoke(currentLoc, args);
+                            if (result instanceof Locator childLoc && !"page".equals(method.getName())) {
+                                ChainedStep nextStep = new ChainedStep(parentStep, method, args);
+                                return createProxy(currentActive, childLoc, actionDescription, nextStep);
+                            }
+                            return result;
                         } catch (java.lang.reflect.InvocationTargetException ite) {
                             Throwable cause = ite.getCause();
                             if (cause instanceof PlaywrightException) {
@@ -108,8 +119,18 @@ public class OptimizedSelfHealingExecutor {
                                         cause.getMessage());
                                 if (repaired != null) {
                                     currentActive = repaired;
-                                    currentLoc = page.locator(repaired);
-                                    return method.invoke(currentLoc, args);
+                                    Locator base = page.locator(repaired);
+                                    if (parentStep != null) {
+                                        currentLoc = parentStep.replay(base);
+                                    } else {
+                                        currentLoc = base;
+                                    }
+                                    Object result = method.invoke(currentLoc, args);
+                                    if (result instanceof Locator childLoc && !"page".equals(method.getName())) {
+                                        ChainedStep nextStep = new ChainedStep(parentStep, method, args);
+                                        return createProxy(currentActive, childLoc, actionDescription, nextStep);
+                                    }
+                                    return result;
                                 }
                             }
                             throw cause != null ? cause : ite;
@@ -117,6 +138,23 @@ public class OptimizedSelfHealingExecutor {
                     }
                 }
         );
+    }
+
+    private static class ChainedStep {
+        final ChainedStep parent;
+        final java.lang.reflect.Method method;
+        final Object[] args;
+
+        ChainedStep(ChainedStep parent, java.lang.reflect.Method method, Object[] args) {
+            this.parent = parent;
+            this.method = method;
+            this.args = args;
+        }
+
+        Locator replay(Locator base) throws Exception {
+            Locator target = (parent != null) ? parent.replay(base) : base;
+            return (Locator) method.invoke(target, args);
+        }
     }
 
     /**
@@ -182,8 +220,9 @@ public class OptimizedSelfHealingExecutor {
             return heuristicMatch;
         }
 
-        // Tier 3: Multimodal VLM Healing
-        if (openAiClient != null && aiConfig != null && !aiConfig.getEffectiveApiKey().isBlank()) {
+        // Tier 3: Multimodal VLM Healing (only if configured model supports vision)
+        if (openAiClient != null && aiConfig != null && !aiConfig.getEffectiveApiKey().isBlank()
+                && isVisionSupported(aiConfig.getEffectiveModel())) {
             String vlmMatch = attemptVlmHealing(failedSelector, actionDescription, errorMessage);
             if (vlmMatch != null) {
                 recordHealing(failedSelector, vlmMatch, "VLM", 0.90, actionDescription);
@@ -193,6 +232,16 @@ public class OptimizedSelfHealingExecutor {
         }
 
         return null;
+    }
+
+    public static boolean isVisionSupported(String modelName) {
+        if (modelName == null || modelName.isBlank()) return true;
+        String m = modelName.toLowerCase();
+        if (m.contains("gpt-3.5") || m.contains("deepseek") || m.contains("embedding")
+                || (m.contains("instruct") && !m.contains("vision") && !m.contains("vl"))) {
+            return false;
+        }
+        return true;
     }
 
     private String attemptVlmHealing(String failedSelector, String actionDescription, String errorMessage) {
@@ -275,10 +324,18 @@ public class OptimizedSelfHealingExecutor {
             Path scriptPath = suiteDir.resolve(scriptFileName);
             if (Files.exists(scriptPath)) {
                 String content = Files.readString(scriptPath);
-                String quotedOld = "\"" + oldSelector + "\"";
-                String quotedNew = "\"" + newSelector + "\"";
-                if (content.contains(quotedOld)) {
-                    Files.writeString(scriptPath, content.replace(quotedOld, quotedNew));
+                String oldEsc = com.studio.util.StringEscapeUtil.escapeJava(oldSelector);
+                String newEsc = com.studio.util.StringEscapeUtil.escapeJava(newSelector);
+                String quotedOldEsc = "\"" + oldEsc + "\"";
+                String quotedOldRaw = "\"" + oldSelector + "\"";
+                String quotedNew = "\"" + newEsc + "\"";
+
+                if (content.contains(quotedOldEsc)) {
+                    Files.writeString(scriptPath, content.replace(quotedOldEsc, quotedNew));
+                    System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
+                            scriptFileName, newSelector);
+                } else if (content.contains(quotedOldRaw)) {
+                    Files.writeString(scriptPath, content.replace(quotedOldRaw, quotedNew));
                     System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
                             scriptFileName, newSelector);
                 }

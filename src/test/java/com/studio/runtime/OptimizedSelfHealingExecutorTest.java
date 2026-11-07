@@ -74,4 +74,50 @@ class OptimizedSelfHealingExecutorTest {
         );
         assertNull(executor.resolveLocator("#btn", "CLICK"));
     }
+
+    @Test
+    @DisplayName("isVisionSupported correctly identifies vision-capable models")
+    void testIsVisionSupported() {
+        assertTrue(OptimizedSelfHealingExecutor.isVisionSupported("gpt-4o"));
+        assertTrue(OptimizedSelfHealingExecutor.isVisionSupported("gpt-4o-mini"));
+        assertTrue(OptimizedSelfHealingExecutor.isVisionSupported("gemini-1.5-pro"));
+        assertTrue(OptimizedSelfHealingExecutor.isVisionSupported("qwen-vl-plus"));
+
+        assertFalse(OptimizedSelfHealingExecutor.isVisionSupported("gpt-3.5-turbo"));
+        assertFalse(OptimizedSelfHealingExecutor.isVisionSupported("deepseek-chat"));
+        assertFalse(OptimizedSelfHealingExecutor.isVisionSupported("deepseek-reasoner"));
+        assertFalse(OptimizedSelfHealingExecutor.isVisionSupported("text-embedding-3-small"));
+    }
+
+    @Test
+    @DisplayName("persistMutation cleanly escapes selectors containing double quotes into script file")
+    void testPersistMutationEscapesQuotes(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws java.io.IOException {
+        TestCase tc = new TestCase("tc1", "LoginCase", "Desc", "LoginCase.java", "Ready");
+        java.nio.file.Path scriptFile = tempDir.resolve("LoginCase.java");
+        String initialCode = """
+            package com.test;
+            public class LoginCase {
+                public static void main(String[] args) {
+                    com.studio.runtime.StudioRuntime.healLocator("[data-testid=\\"old-btn\\"]").click();
+                }
+            }
+            """;
+        java.nio.file.Files.writeString(scriptFile, initialCode);
+
+        OptimizedSelfHealingExecutor executor = new OptimizedSelfHealingExecutor(
+                null, null, null, null, tempDir, null, tc
+        );
+
+        try {
+            java.lang.reflect.Method m = OptimizedSelfHealingExecutor.class.getDeclaredMethod("persistMutation", String.class, String.class);
+            m.setAccessible(true);
+            m.invoke(executor, "[data-testid=\"old-btn\"]", "button:has-text(\"Đăng nhập\")");
+        } catch (Exception e) {
+            fail("Reflection invocation failed: " + e.getMessage());
+        }
+
+        String updatedCode = java.nio.file.Files.readString(scriptFile);
+        assertTrue(updatedCode.contains("button:has-text(\\\"Đăng nhập\\\")"), "Script should contain properly escaped new selector");
+        assertFalse(updatedCode.contains("old-btn"), "Old selector should have been replaced");
+    }
 }

@@ -57,12 +57,13 @@ public class ProjectDbService {
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    TestCase tc = mapTestCase(rs);
-                    tc.setAssertions(getAssertionsForCase(conn, tc.getId()));
-                    results.add(tc);
+                    results.add(mapTestCase(rs));
                 }
             }
-        } catch (SQLException ignored) {}
+            attachAssertions(conn, results);
+        } catch (SQLException e) {
+            System.err.println("[ProjectDbService] Error searching test cases: " + e.getMessage());
+        }
 
         return results;
     }
@@ -80,14 +81,59 @@ public class ProjectDbService {
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    TestCase tc = mapTestCase(rs);
-                    tc.setAssertions(getAssertionsForCase(conn, tc.getId()));
-                    results.add(tc);
+                    results.add(mapTestCase(rs));
                 }
             }
-        } catch (SQLException ignored) {}
+            attachAssertions(conn, results);
+        } catch (SQLException e) {
+            System.err.println("[ProjectDbService] Error querying suite test cases: " + e.getMessage());
+        }
 
         return results;
+    }
+
+    private void attachAssertions(Connection conn, List<TestCase> cases) throws SQLException {
+        if (cases == null || cases.isEmpty()) return;
+        Map<String, List<Assertion>> map = new HashMap<>();
+        for (TestCase tc : cases) {
+            map.put(tc.getId(), new ArrayList<>());
+        }
+
+        List<String> ids = new ArrayList<>(map.keySet());
+        int chunkSize = 500;
+        for (int i = 0; i < ids.size(); i += chunkSize) {
+            List<String> chunk = ids.subList(i, Math.min(i + chunkSize, ids.size()));
+            StringBuilder inSql = new StringBuilder("SELECT * FROM test_assertions WHERE case_id IN (");
+            for (int j = 0; j < chunk.size(); j++) {
+                if (j > 0) inSql.append(",");
+                inSql.append("?");
+            }
+            inSql.append(") ORDER BY order_index ASC");
+
+            try (PreparedStatement ps = conn.prepareStatement(inSql.toString())) {
+                for (int j = 0; j < chunk.size(); j++) {
+                    ps.setString(j + 1, chunk.get(j));
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String caseId = rs.getString("case_id");
+                        List<Assertion> list = map.get(caseId);
+                        if (list != null) {
+                            Assertion a = new Assertion();
+                            a.setType(rs.getString("assert_type"));
+                            a.setLocator(rs.getString("locator"));
+                            a.setValue(rs.getString("expected_val"));
+                            a.setStatus(rs.getString("status"));
+                            list.add(a);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (TestCase tc : cases) {
+            tc.setAssertions(map.getOrDefault(tc.getId(), new ArrayList<>()));
+        }
     }
 
     /**

@@ -102,5 +102,16 @@ public class DataCleanupServiceTest {
         assertEquals("EDGE", settingsStore.load().getBrowser());
         assertTrue(result.isSettingsPreserved());
     }
+
+    @Test
+    public void testCleanupAbortsWhenRunIsActive() {
+        RunCancelService.beginRun();
+        try {
+            DataCleanupService.CleanupOptions options = new DataCleanupService.CleanupOptions(true, 0, true, true);
+            assertThrows(IllegalStateException.class, () -> cleanupService.executeCleanup(options));
+        } finally {
+            RunCancelService.endRun();
+        }
+    }
 }
 

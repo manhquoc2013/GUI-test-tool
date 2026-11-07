@@ -222,3 +222,42 @@
   - Sử dụng `hdiutil` tạo DMG chuẩn Apple với symlink `Applications -> /Applications` và icon app.
 - **Windows Inno Setup Wizard**:
   - Kịch bản `installer.iss` cung cấp wizard cài đặt hiện đại, icon Desktop, Start Menu, và Uninstaller tự động. Có fallback sang `jpackage --type exe/msi` nếu máy build chưa có Inno Setup.
+
+## 9. Comprehensive System Review Hardening & Autonomous Optimizations
+
+### 1. Robust Self-Healing Selector Escaping (`OptimizedSelfHealingExecutor.java`)
+- **Quoted Selector Persistence**:
+  - Khi lưu vết selector tự chữa lành vào mã nguồn Java `.java`, các selector chứa dấu nháy kép (`[data-testid="submit"]`, `button:has-text("Xác nhận")`) phải được xử lý cẩn trọng:
+    - Trong file `.java`, chuỗi được escape dưới dạng `\"`.
+    - `persistMutation` áp dụng `StringEscapeUtil.escapeJava(...)` cho cả `oldSelector` và `newSelector`, đảm bảo tìm đúng chuỗi literal cần thay thế và ghi ra cú pháp Java hợp lệ, không gây lỗi biên dịch ở các lần chạy tiếp theo.
+
+### 2. Deep Chaining Support for Dynamic Proxy Locators
+- **Chained Method Interception**:
+  - Khi script Playwright gọi chuỗi phương thức trả về `Locator` con (như `.first()`, `.last()`, `.nth(i)`, `.filter(...)`), Dynamic Proxy trước đây trả về đối tượng `Locator` gốc, làm đứt đoạn khả năng tự chữa lành của các thao tác kế tiếp.
+  - Giải pháp: Khi phương thức proxy trả về một `Locator`, tự động bọc lại nó vào một proxy chữa lành mới lưu vết `ChainedStep`. Nếu thao tác sau đó quăng lỗi `PlaywrightException`, hệ thống tự sửa selector gốc và gọi `replay(baseLocator)` để tái hiện chuỗi định vị trên phần tử mới được phục hồi.
+
+### 3. Active-Run Guard for Data Maintenance
+- **Data Cleanup Concurrency Guard (`DataCleanupService.java`, `DataCleanupDialog.java`)**:
+  - `DataCleanupService.executeCleanup` kiểm tra `RunCancelService.isRunActive()`, ngay lập tức chặn yêu cầu với `IllegalStateException` nếu có một phiên kiểm thử đang chạy.
+  - Trên giao diện `DataCleanupDialog`, nút "Bắt đầu dọn dẹp" hiển thị cảnh báo lỗi và chặn thực hiện nếu kiểm thử đang diễn ra, ngăn ngừa triệt để nguy cơ xóa nhầm thư mục `work/harness` và file báo cáo đang được ghi.
+
+### 4. Deterministic Physical Hardware Entropy & Backward Compatibility
+- **Stable Machine Binding (`ApiKeyCipher.java`)**:
+  - Loại bỏ việc dựa đơn thuần vào thứ tự tên interface mạng (dễ bị đảo lộn bởi các interface ảo như `awdl0`, `bridge0`, Docker, VPN).
+  - Thuật toán mới lọc bỏ các interface ảo và ưu tiên các interface vật lý chuẩn (`en0`, `eth0`, `wlan0`), đồng thời tích hợp `os.arch`.
+  - Hỗ trợ giải mã kép (Dual-Key Fallback): Nếu khóa mới không giải mã được bản mã cũ (được mã hóa từ các phiên bản trước), hàm giải mã tự động thử tiếp với khóa entropy cũ trước khi báo lỗi, bảo toàn 100% API key đã lưu trữ của người dùng.
+
+### 5. Elimination of N+1 Database Roundtrips (`ProjectDbService.java`)
+- **Batch Assertion Loading**:
+  - Chuyển đổi từ cơ chế duyệt từng case và bắn `SELECT * FROM test_assertions WHERE case_id = ?` (N+1 queries) sang cơ chế phân lô `WHERE case_id IN (?, ?, ...)` (tối đa 500 ID mỗi đợt).
+  - Giảm thiểu số lượt truy vấn database từ `1 + N` xuống chỉ còn `1 + 1` query duy nhất, tăng tốc đáng kể thao tác tìm kiếm và nạp cây kiểm thử.
+
+### 6. Unified Local Browser Resolution (`PlaywrightUtil.java`)
+- **Direct Integration with `StudioPaths.getBrowsersDir()`**:
+  - `PlaywrightUtil.resolveBrowsersPath()` chuyển sang gọi `StudioPaths.getBrowsersDir()`, tự động tìm kiếm Chromium tại cả `APP_HOME/browsers` và `DATA_HOME/browsers`, đồng bộ hoàn toàn giữa chế độ Portable và Installed.
+
+### 7. Vision Capability Pre-flight Check & Quiet i18n Fallback
+- **Pre-flight Model Check (`OptimizedSelfHealingExecutor.isVisionSupported`)**:
+  - Kiểm tra năng lực hỗ trợ thị giác của mô hình trước khi chụp ảnh màn hình và đính kèm base64 JPEG trong VLM Tier 3. Các mô hình thuần text (`gpt-3.5-turbo`, `deepseek-chat`, `deepseek-reasoner`, embedding models) được bỏ qua êm thuận mà không phải chịu độ trễ của lỗi HTTP 400 Bad Request.
+- **Quiet i18n Logging (`I18nService.java`)**:
+  - Loại bỏ log cảnh báo gây nhiễu ra `stderr` đối với các ngôn ngữ tùy chọn chưa có file bundle, chỉ log khi file cấu hình của ngôn ngữ mặc định (`vi`) bị thiếu.

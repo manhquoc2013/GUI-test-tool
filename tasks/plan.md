@@ -44,3 +44,14 @@
 - Create `scripts/installer.iss` and `scripts/build-installer.bat` for Windows Inno Setup / jpackage installer.
 - Create GitHub Actions workflow `.github/workflows/build-installers.yml` for automated CI/CD installer generation.
 - Execute macOS `.dmg` installer build and verify integrity, launchability, and offline Chromium presence.
+
+## Phase 8: System Review Hardening & Autonomous Optimizations
+- **Self-Healing Selector Escaping**: Fix `OptimizedSelfHealingExecutor.persistMutation` to properly escape inner quotes in Java source literals and `newSelector` replacement.
+- **Locator Chaining Self-Healing**: Wrap child `Locator` returns (`first()`, `last()`, `nth()`, `filter()`) in the healing dynamic proxy.
+- **Data Cleanup Active-Run Guard**: Guard `DataCleanupService.executeCleanup` against executing while `RunCancelService.isRunActive()` is true, and disable cleanup button in `DataCleanupDialog`.
+- **Machine Entropy Stability**: Improve `ApiKeyCipher.buildDeviceEntropy` to prioritize stable physical network interfaces (`en0`, `eth0`) and OS identifiers so dynamic virtual interfaces don't corrupt keys.
+- **N+1 Database Query Optimization**: Batch load assertions in `ProjectDbService.searchCases` and `getCasesForSuite`.
+- **Unified Browsers Path**: Route `PlaywrightUtil.resolveBrowsersPath()` through `StudioPaths.getBrowsersDir()`.
+- **Vision Model Capability Check**: Skip Tier 3 VLM screenshot and image payload when non-vision/text-only models are configured.
+- **Quiet I18n Resource Fallback**: Restrict missing bundle logging in `I18nService` to default language only.
+- **Verification & Git Push**: Ensure all unit tests pass, commit atomically, and push to remote.
