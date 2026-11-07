@@ -95,5 +95,32 @@ class FxmlLoadTest {
                     "main_shell.fxml should not have hardcoded stylesheets on BorderPane to allow theme switching via Scene stylesheets");
         }
     }
+
+    @Test
+    void testReportDetailPageDrawerHeightBoundToDetailLayer() throws Exception {
+        runFx(() -> {
+            try {
+                URL resource = getClass().getResource("/fxml/report_detail_page.fxml");
+                assertNotNull(resource);
+                FXMLLoader loader = new FXMLLoader(resource);
+                Node root = loader.load();
+                assertNotNull(root);
+                ReportDetailPageController controller = loader.getController();
+                assertNotNull(controller);
+
+                javafx.scene.layout.StackPane detailLayer = (javafx.scene.layout.StackPane) root.lookup("#detailLayer");
+                javafx.scene.layout.VBox caseDetailSidebar = (javafx.scene.layout.VBox) root.lookup("#caseDetailSidebar");
+                assertNotNull(detailLayer, "detailLayer must be present");
+                assertNotNull(caseDetailSidebar, "caseDetailSidebar must be present");
+
+                assertTrue(caseDetailSidebar.prefHeightProperty().isBound(),
+                        "caseDetailSidebar prefHeight must be bound to prevent drawer collapse");
+                assertTrue(caseDetailSidebar.maxHeightProperty().isBound(),
+                        "caseDetailSidebar maxHeight must be bound to detailLayer");
+            } catch (Exception e) {
+                fail("Failed to verify report detail drawer: " + e.getMessage(), e);
+            }
+        });
+    }
 }
 

@@ -207,6 +207,11 @@ public class MainShellController implements Initializable {
         }
         if (helpLayer != null) {
             helpLayer.widthProperty().addListener((obs, o, n) -> applyHelpDrawerWidth(n.doubleValue()));
+            if (helpDrawer != null) {
+                helpDrawer.prefHeightProperty().bind(helpLayer.heightProperty());
+                helpDrawer.maxHeightProperty().bind(helpLayer.heightProperty());
+                helpDrawer.minHeightProperty().bind(helpLayer.heightProperty());
+            }
         }
     }
 

@@ -11,6 +11,34 @@ import java.util.List;
 public class AssertCodeGenerator {
 
     /**
+     * Check if the assertion type is supported for code generation.
+     */
+    public static boolean isSupported(String type) {
+        if (type == null || type.isBlank()) return false;
+        String t = type.trim().toUpperCase();
+        return switch (t) {
+            case "TEXT_VISIBLE", "TEXT_NOT_VISIBLE", "TEXT_EXACT", "HEADING_VISIBLE",
+                 "TITLE_CONTAINS", "PAGE_TITLE_CONTAINS", "TITLE_EQUALS", "PAGE_TITLE_EQUALS",
+                 "URL_CONTAINS", "PAGE_URL_CONTAINS", "URL_EQUALS", "PAGE_URL_EQUALS", "URL_MATCHES",
+                 "PAGE_HAS_TEXT", "PAGE_CONTAINS_TEXT", "PAGE_NOT_CONTAINS_TEXT",
+                 "ELEMENT_VISIBLE", "ELEMENT_EXISTS", "ELEMENT_HIDDEN", "ELEMENT_NOT_VISIBLE",
+                 "ELEMENT_ENABLED", "ELEMENT_DISABLED", "ELEMENT_EDITABLE",
+                 "ELEMENT_CHECKED", "CHECKBOX_CHECKED", "ELEMENT_UNCHECKED",
+                 "ELEMENT_COUNT", "ELEMENT_HAS_TEXT", "ELEMENT_TEXT_CONTAINS",
+                 "ELEMENT_HAS_VALUE", "INPUT_VALUE_EQUALS", "INPUT_VALUE_CONTAINS",
+                 "PLACEHOLDER_EQUALS", "SELECT_HAS_OPTION",
+                 "ATTRIBUTE_EQUALS", "ELEMENT_HAS_ATTRIBUTE", "CSS_CONTAINS", "LINK_HREF_CONTAINS",
+                 "IMAGE_VISIBLE", "IMAGE_COUNT", "VIDEO_VISIBLE", "AUDIO_VISIBLE",
+                 "FILE_DOWNLOADED",
+                 "TABLE_HAS_TEXT", "TABLE_ROW_COUNT", "TABLE_CELL_EQUALS", "TABLE_HEADER_CONTAINS",
+                 "FORM_VALID", "FORM_INVALID", "NO_CONSOLE_ERROR", "COOKIE_EXISTS",
+                 "LOCAL_STORAGE_EQUALS", "SESSION_STORAGE_EQUALS",
+                 "CUSTOM", "CUSTOM_JS", "CUSTOM_JS_TRUE" -> true;
+            default -> false;
+        };
+    }
+
+    /**
      * Generate soft-assert Java code block for a list of assertions.
      * Only ACTIVE assertions produce try/catch blocks.
      * Returns: String containing the assert block + trailing AssertionError throw.
@@ -23,11 +51,25 @@ public class AssertCodeGenerator {
 
         int idx = 0;
         for (Assertion a : assertions) {
+            String type = a.getType() != null ? a.getType().trim().toUpperCase() : "";
             if (!"ACTIVE".equals(a.getStatus())) {
                 // Non-active: record as SKIPPED
                 sb.append(String.format(
                     "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"SKIPPED\\\",\\\"assertStatus\\\":\\\"%s\\\",\\\"message\\\":\\\"Assert not ACTIVE\\\"}\");\n",
                     idx, StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(a.getStatus())
+                ));
+            } else if (!isSupported(type)) {
+                // Unknown or unsupported: record directly as FAILED without breaking compilation with unreachable statements
+                sb.append(String.format(
+                    "        __studioFailed.add(\"[%s] %s: Unsupported or unknown assertion type\");\n",
+                    StringEscapeUtil.escapeJson(a.getType()),
+                    StringEscapeUtil.escapeJson(a.getValue() != null ? a.getValue() : "")
+                ));
+                sb.append(String.format(
+                    "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"FAILED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":\\\"Unsupported or unknown assertion type: %s\\\"}\");\n",
+                    idx,
+                    StringEscapeUtil.escapeJson(a.getType()),
+                    StringEscapeUtil.escapeJson(a.getType())
                 ));
             } else {
                 sb.append("        try {\n");
@@ -65,7 +107,7 @@ public class AssertCodeGenerator {
     // ========================================================================
 
     private static String generateAssertCode(Assertion a) {
-        String type = a.getType();
+        String type = a.getType() != null ? a.getType().trim().toUpperCase() : "";
         String value = a.getValue() != null ? a.getValue() : "";
         String locator = a.getLocator() != null ? a.getLocator() : "";
         int timeout = a.getTimeoutMs() > 0 ? a.getTimeoutMs() : 30000;
@@ -93,22 +135,22 @@ public class AssertCodeGenerator {
                     "            com.studio.runtime.StudioRuntime.page().getByRole(com.microsoft.playwright.options.AriaRole.HEADING, new com.microsoft.playwright.Page.GetByRoleOptions().setName(\"%s\")).first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(value), timeout);
 
-            case "TITLE_CONTAINS":
+            case "TITLE_CONTAINS", "PAGE_TITLE_CONTAINS":
                 return String.format(
                     "            String __title = com.studio.runtime.StudioRuntime.page().title(); if (!__title.contains(\"%s\")) throw new AssertionError(\"Title does not contain: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
-            case "TITLE_EQUALS":
+            case "TITLE_EQUALS", "PAGE_TITLE_EQUALS":
                 return String.format(
                     "            String __title = com.studio.runtime.StudioRuntime.page().title(); if (!__title.equals(\"%s\")) throw new AssertionError(\"Title expected: %s, actual: \" + __title);\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
-            case "URL_CONTAINS":
+            case "URL_CONTAINS", "PAGE_URL_CONTAINS":
                 return String.format(
                     "            String __url = com.studio.runtime.StudioRuntime.page().url(); if (!__url.contains(\"%s\")) throw new AssertionError(\"URL does not contain: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
-            case "URL_EQUALS":
+            case "URL_EQUALS", "PAGE_URL_EQUALS":
                 return String.format(
                     "            String __url = com.studio.runtime.StudioRuntime.page().url(); if (!__url.equals(\"%s\")) throw new AssertionError(\"URL expected: %s, actual: \" + __url);\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
@@ -118,19 +160,24 @@ public class AssertCodeGenerator {
                     "            String __url = com.studio.runtime.StudioRuntime.page().url(); if (!__url.matches(\"%s\")) throw new AssertionError(\"URL does not match: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
-            case "PAGE_HAS_TEXT":
+            case "PAGE_HAS_TEXT", "PAGE_CONTAINS_TEXT":
                 return String.format(
                     "            String __content = com.studio.runtime.StudioRuntime.page().content(); if (!__content.contains(\"%s\")) throw new AssertionError(\"Page does not contain text: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
+            case "PAGE_NOT_CONTAINS_TEXT":
+                return String.format(
+                    "            String __content = com.studio.runtime.StudioRuntime.page().content(); if (__content.contains(\"%s\")) throw new AssertionError(\"Page unexpectedly contains text: %s\");\n",
+                    StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
+
             // ─── B. Element / UI ─────────────────────────────────────────────
 
-            case "ELEMENT_VISIBLE":
+            case "ELEMENT_VISIBLE", "ELEMENT_EXISTS":
                 return String.format(
                     "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), timeout);
 
-            case "ELEMENT_HIDDEN":
+            case "ELEMENT_HIDDEN", "ELEMENT_NOT_VISIBLE":
                 return String.format(
                     "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d).setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));\n",
                     StringEscapeUtil.escapeJava(locator), timeout);
@@ -150,7 +197,7 @@ public class AssertCodeGenerator {
                     "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isEditable()) throw new AssertionError(\"Element not editable: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
 
-            case "ELEMENT_CHECKED":
+            case "ELEMENT_CHECKED", "CHECKBOX_CHECKED":
                 return String.format(
                     "            if (!com.studio.runtime.StudioRuntime.page().locator(\"%s\").isChecked()) throw new AssertionError(\"Element not checked: %s\");\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator));
@@ -165,7 +212,7 @@ public class AssertCodeGenerator {
                     "            int __count = com.studio.runtime.StudioRuntime.page().locator(\"%s\").count(); if (!(%s)) throw new AssertionError(\"Element count for '%s': expected %s, actual: \" + __count);\n",
                     StringEscapeUtil.escapeJava(locator), buildCountCondition(value), StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
 
-            case "ELEMENT_HAS_TEXT":
+            case "ELEMENT_HAS_TEXT", "ELEMENT_TEXT_CONTAINS":
                 return String.format(
                     "            com.studio.runtime.StudioRuntime.page().locator(\"%s\").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText(\"%s\")).first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), timeout);
@@ -175,7 +222,7 @@ public class AssertCodeGenerator {
                     "            String __val = com.studio.runtime.StudioRuntime.page().locator(\"%s\").inputValue(); if (!\"%s\".equals(__val)) throw new AssertionError(\"Expected value: %s, actual: \" + __val);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
 
-            case "ATTRIBUTE_EQUALS":
+            case "ATTRIBUTE_EQUALS", "ELEMENT_HAS_ATTRIBUTE":
                 return String.format(
                     "            String __attr = com.studio.runtime.StudioRuntime.page().locator(\"%s\").getAttribute(\"%s\"); if (!\"%s\".equals(__attr)) throw new AssertionError(\"Attribute %s expected: %s, actual: \" + __attr);\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(a.getExpectedValue()), StringEscapeUtil.escapeJava(a.getAttribute()), StringEscapeUtil.escapeJava(a.getExpectedValue()));
@@ -312,7 +359,7 @@ public class AssertCodeGenerator {
                     "            // CUSTOM assert with locator: %s\n            com.studio.runtime.StudioRuntime.page().locator(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(locator), timeout);
 
-            case "CUSTOM_JS":
+            case "CUSTOM_JS", "CUSTOM_JS_TRUE":
                 return String.format(
                     "            Object __jsResult = com.studio.runtime.StudioRuntime.page().evaluate(\"%s\"); if (!Boolean.TRUE.equals(__jsResult)) throw new AssertionError(\"Custom JS assertion failed: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
@@ -321,8 +368,8 @@ public class AssertCodeGenerator {
 
             default:
                 return String.format(
-                    "            // Unknown assert type: %s\n            throw new AssertionError(\"Unknown assert type: %s\");\n",
-                    StringEscapeUtil.escapeJava(type), StringEscapeUtil.escapeJava(type));
+                    "            // Unsupported assert type: %s\n",
+                    StringEscapeUtil.escapeJava(type));
         }
     }
 

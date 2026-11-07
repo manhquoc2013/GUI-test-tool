@@ -119,6 +119,9 @@ public class ReportDetailPageController {
             caseDetailSidebar.addEventHandler(MouseEvent.MOUSE_CLICKED, MouseEvent::consume);
             if (detailLayer != null) {
                 detailLayer.widthProperty().addListener((obs, o, n) -> applyDrawerWidth(n.doubleValue()));
+                caseDetailSidebar.prefHeightProperty().bind(detailLayer.heightProperty());
+                caseDetailSidebar.maxHeightProperty().bind(detailLayer.heightProperty());
+                caseDetailSidebar.minHeightProperty().bind(detailLayer.heightProperty());
             }
         }
         if (detailScroll != null) {

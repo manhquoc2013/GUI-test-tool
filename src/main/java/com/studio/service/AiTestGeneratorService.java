@@ -87,24 +87,21 @@ public class AiTestGeneratorService {
         Do NOT call playwright.chromium().launch(), browser.newContext(), or page.close(). The Studio manages these.
 
         2. Each test case can have assertions. The supported Assertion types include:
-           - PAGE_CONTAINS_TEXT (value: expected text)
+           - TITLE_CONTAINS (value: text)
+           - TITLE_EQUALS (value: title)
+           - URL_CONTAINS (value: substring)
+           - URL_EQUALS (value: url)
+           - PAGE_HAS_TEXT (value: expected text)
            - PAGE_NOT_CONTAINS_TEXT (value: text)
-           - PAGE_TITLE_EQUALS (value: title)
-           - PAGE_TITLE_CONTAINS (value: text)
-           - PAGE_URL_EQUALS (value: url)
-           - PAGE_URL_CONTAINS (value: substring)
            - ELEMENT_VISIBLE (locator: css or text locator)
-           - ELEMENT_NOT_VISIBLE (locator)
-           - ELEMENT_EXISTS (locator)
+           - ELEMENT_HIDDEN (locator)
            - ELEMENT_ENABLED (locator)
            - ELEMENT_DISABLED (locator)
            - ELEMENT_HAS_TEXT (locator, value)
-           - ELEMENT_TEXT_CONTAINS (locator, value)
-           - INPUT_VALUE_EQUALS (locator, value)
-           - CHECKBOX_CHECKED (locator)
-           - ELEMENT_HAS_ATTRIBUTE (locator, attribute, expectedValue)
            - ELEMENT_COUNT (locator, value: count as number)
-           - CUSTOM_JS_TRUE (value: javascript expression returning boolean)
+           - INPUT_VALUE_EQUALS (locator, value)
+           - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
+           - CUSTOM_JS (value: javascript expression returning boolean)
 
         3. Response format:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
@@ -207,7 +204,7 @@ public class AiTestGeneratorService {
                         List<Assertion> asserts = new ArrayList<>();
                         for (JsonNode aNode : assertsNode) {
                             Assertion a = new Assertion();
-                            a.setType(aNode.path("type").asText("PAGE_CONTAINS_TEXT"));
+                            a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
                             a.setValue(aNode.path("value").asText(""));
                             a.setLocator(aNode.path("locator").asText(""));
                             a.setAttribute(aNode.path("attribute").asText(""));
@@ -284,6 +281,25 @@ public class AiTestGeneratorService {
         }
 
         return applied;
+    }
+
+    public static String normalizeAssertionType(String rawType) {
+        if (rawType == null || rawType.isBlank()) return "PAGE_HAS_TEXT";
+        String t = rawType.trim().toUpperCase();
+        return switch (t) {
+            case "PAGE_TITLE_CONTAINS" -> "TITLE_CONTAINS";
+            case "PAGE_TITLE_EQUALS" -> "TITLE_EQUALS";
+            case "PAGE_URL_CONTAINS" -> "URL_CONTAINS";
+            case "PAGE_URL_EQUALS" -> "URL_EQUALS";
+            case "PAGE_CONTAINS_TEXT" -> "PAGE_HAS_TEXT";
+            case "ELEMENT_EXISTS" -> "ELEMENT_VISIBLE";
+            case "ELEMENT_NOT_VISIBLE" -> "ELEMENT_HIDDEN";
+            case "ELEMENT_TEXT_CONTAINS" -> "ELEMENT_HAS_TEXT";
+            case "CHECKBOX_CHECKED" -> "ELEMENT_CHECKED";
+            case "ELEMENT_HAS_ATTRIBUTE" -> "ATTRIBUTE_EQUALS";
+            case "CUSTOM_JS_TRUE" -> "CUSTOM_JS";
+            default -> t;
+        };
     }
 
     private String sanitizeCaseName(String name) {

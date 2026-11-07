@@ -769,12 +769,16 @@
 .report-summary-bar {
     -fx-background-color: #f8fafc;
     -fx-border-color: #e2e8f0;
-    -fx-border-width: 0 0 1 0;
+    -fx-border-width: 1;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 10 12;
 }
 
 .report-summary-label {
     -fx-text-fill: #0f172a;
     -fx-font-weight: bold;
+    -fx-font-size: 14px;
 }
 
 .reports-table, .cases-table, .asserts-detail-table {
@@ -858,16 +862,6 @@
     -fx-text-fill: #0f172a;
 }
 
-.report-summary-bar {
-    -fx-background-color: #f8fafc;
-    -fx-border-color: #e2e8f0;
-    -fx-border-width: 1;
-}
-
-.report-summary-label {
-    -fx-text-fill: #0f172a;
-}
-
 /* === AI ASSISTANT PAGE === */
 .ai-assistant-page {
     -fx-background-color: #f8fafc;
@@ -939,8 +933,35 @@
 /* === DRAWERS & OVERLAYS === */
 .help-drawer, .case-detail-drawer {
     -fx-background-color: #ffffff;
-    -fx-border-color: #e2e8f0;
+    -fx-border-color: #cbd5e1;
     -fx-border-width: 0 0 0 1;
+    -fx-max-height: Infinity;
+    -fx-pref-height: Infinity;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.18), 28, 0.2, -6, 0);
+}
+
+.help-scrim, .case-detail-scrim {
+    -fx-background-color: rgba(15, 23, 42, 0.35);
+    -fx-cursor: hand;
+}
+
+.case-detail-layer, .help-layer {
+    -fx-background-color: transparent;
+}
+
+.case-detail-scroll, .help-drawer-scroll {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+    -fx-hbar-policy: never;
+}
+
+.case-detail-scroll > .viewport, .help-drawer-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.case-detail-sidebar-body, .help-drawer-body {
+    -fx-background-color: transparent;
 }
 
 .help-drawer-header, .case-detail-sidebar-header {

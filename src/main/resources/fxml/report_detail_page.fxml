@@ -52,7 +52,7 @@
                mouseTransparent="false" maxWidth="Infinity" maxHeight="Infinity">
         <Region fx:id="detailScrim" styleClass="case-detail-scrim" maxWidth="Infinity" maxHeight="Infinity"/>
         <VBox fx:id="caseDetailSidebar" spacing="0" styleClass="case-detail-drawer"
-              StackPane.alignment="CENTER_RIGHT" maxHeight="Infinity">
+              StackPane.alignment="TOP_RIGHT" maxHeight="Infinity" prefHeight="Infinity">
             <HBox styleClass="case-detail-sidebar-header" spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
                 <Label fx:id="detailCaseTitle" text="Chi tiết case" styleClass="case-detail-sidebar-title"
@@ -62,7 +62,7 @@
             </HBox>
             <Separator/>
             <ScrollPane fx:id="detailScroll" fitToWidth="true" hbarPolicy="NEVER" pannable="false"
-                        VBox.vgrow="ALWAYS" styleClass="case-detail-scroll">
+                        VBox.vgrow="ALWAYS" maxHeight="Infinity" styleClass="case-detail-scroll">
                 <VBox fx:id="detailBody" spacing="12" styleClass="case-detail-sidebar-body"
                       maxWidth="Infinity">
                     <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>

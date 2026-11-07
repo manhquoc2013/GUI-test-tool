@@ -59,3 +59,4 @@ public class UiTooltipsTest {
         assertNull(lbl.getTooltip());
     }
 }
+

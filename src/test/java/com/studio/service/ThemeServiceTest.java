@@ -145,7 +145,9 @@ public class ThemeServiceTest {
                     ".split-pane:horizontal > .split-pane-divider",
                     ".tooltip",
                     ".ai-target-box",
-                    ".ai-assistant-page"
+                    ".ai-assistant-page",
+                    ".case-detail-drawer",
+                    ".case-detail-scrim"
             };
             for (String sel : requiredSelectors) {
                 assertTrue(css.contains(sel), "studio-light.css must define " + sel + " to prevent dark theme leakage");
