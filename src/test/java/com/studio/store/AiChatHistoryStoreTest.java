@@ -84,3 +84,4 @@ public class AiChatHistoryStoreTest {
         assertFalse(Files.exists(caseB), "Newly created CaseB.java must be deleted on rollback");
     }
 }
+

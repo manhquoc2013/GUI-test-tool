@@ -115,3 +115,4 @@ public class AiChatMessage {
         this.appliedToSuite = appliedToSuite;
     }
 }
+

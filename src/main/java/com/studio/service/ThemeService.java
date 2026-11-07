@@ -40,6 +40,7 @@ public final class ThemeService {
             currentTheme = THEME_DARK;
         }
         applyCurrentTheme(scene);
+        notifyListeners();
     }
 
     public static String getCurrentTheme() {
@@ -87,13 +88,22 @@ public final class ThemeService {
         }, "Save-Theme-Worker").start();
 
         // Notify UI listeners
-        Platform.runLater(() -> {
+        notifyListeners();
+    }
+
+    private static void notifyListeners() {
+        Runnable task = () -> {
             for (Consumer<String> listener : themeChangeListeners) {
                 try {
                     listener.accept(currentTheme);
                 } catch (Exception ignored) {}
             }
-        });
+        };
+        if (Platform.isFxApplicationThread()) {
+            task.run();
+        } else {
+            Platform.runLater(task);
+        }
     }
 
     /**
@@ -109,7 +119,9 @@ public final class ThemeService {
      */
     public static void applyThemeToDialog(Dialog<?> dialog) {
         if (dialog == null || dialog.getDialogPane() == null) return;
-        Scene scene = dialog.getDialogPane().getScene();
+        DialogPane pane = dialog.getDialogPane();
+        applyCurrentTheme(pane.getStylesheets());
+        Scene scene = pane.getScene();
         if (scene != null) {
             applyCurrentTheme(scene);
         } else {
@@ -123,16 +135,21 @@ public final class ThemeService {
 
     private static void applyCurrentTheme(Scene scene) {
         if (scene == null) return;
+        applyCurrentTheme(scene.getStylesheets());
+    }
+
+    private static void applyCurrentTheme(List<String> stylesheets) {
+        if (stylesheets == null) return;
         URL lightUrl = ThemeService.class.getResource(LIGHT_CSS_PATH);
         if (lightUrl == null) return;
         String lightForm = lightUrl.toExternalForm();
 
         if (THEME_LIGHT.equalsIgnoreCase(currentTheme)) {
-            if (!scene.getStylesheets().contains(lightForm)) {
-                scene.getStylesheets().add(lightForm);
+            if (!stylesheets.contains(lightForm)) {
+                stylesheets.add(lightForm);
             }
         } else {
-            scene.getStylesheets().remove(lightForm);
+            stylesheets.remove(lightForm);
         }
     }
 }

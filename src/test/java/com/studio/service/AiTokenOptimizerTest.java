@@ -83,3 +83,4 @@ public class AiTokenOptimizerTest {
         assertTrue(hasMsg20, "Message #20 should be in sliding window");
     }
 }
+

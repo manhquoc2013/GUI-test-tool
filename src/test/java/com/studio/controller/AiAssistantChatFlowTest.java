@@ -108,3 +108,4 @@ public class AiAssistantChatFlowTest {
         assertFalse(Files.readString(suiteJson).contains("NewAiCase"));
     }
 }
+
