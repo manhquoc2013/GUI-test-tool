@@ -237,6 +237,11 @@ public class ExplorerPageController {
                 private final Button editBtn = new Button();
                 private final Button copyBtn = new Button();
                 private final Label statusLabel = new Label();
+                private final Runnable updateActionVisibility = () -> {
+                    boolean show = (isHover() || isSelected()) && !isEmpty() && getItem() != null;
+                    actionsBox.setVisible(show);
+                    actionsBox.setManaged(show);
+                };
 
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
@@ -259,8 +264,7 @@ public class ExplorerPageController {
                     for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn)) {
                         btn.getStyleClass().add("tree-action-btn");
                         btn.setFocusTraversable(false);
-                        btn.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, javafx.event.Event::consume);
-                        btn.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_CLICKED, javafx.event.Event::consume);
+                        btn.setOnDragDetected(javafx.event.Event::consume);
                     }
                     runBtn.getStyleClass().add("tree-action-run");
                     com.studio.util.UiTooltips.install(runBtn, "Chạy ngay");
@@ -275,11 +279,8 @@ public class ExplorerPageController {
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
                     row.getChildren().addAll(nameLabel, actionsBox, statusLabel);
 
-                    hoverProperty().addListener((obs, wasHovered, isHovered) -> {
-                        boolean show = isHovered && !isEmpty() && getItem() != null;
-                        actionsBox.setVisible(show);
-                        actionsBox.setManaged(show);
-                    });
+                    hoverProperty().addListener((obs, wasHovered, isHovered) -> updateActionVisibility.run());
+                    selectedProperty().addListener((obs, wasSelected, isSelected) -> updateActionVisibility.run());
                 }
 
                 @Override
@@ -334,11 +335,17 @@ public class ExplorerPageController {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
                             runSelected();
+                            e.consume();
                         });
 
                         openBtn.setVisible(isSuite || isCase);
                         openBtn.setManaged(isSuite || isCase);
-                        openBtn.setOnAction(e -> openWorkspaceForRef(ref));
+                        openBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            openWorkspaceForRef(ref);
+                            e.consume();
+                        });
 
                         addBtn.setVisible(isGroup || isSuite);
                         addBtn.setManaged(isGroup || isSuite);
@@ -351,6 +358,7 @@ public class ExplorerPageController {
                             } else if (isSuite) {
                                 addCase();
                             }
+                            e.consume();
                         });
 
                         editBtn.setVisible(!isRoot);
@@ -359,6 +367,7 @@ public class ExplorerPageController {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
                             editSelectedEntity();
+                            e.consume();
                         });
 
                         copyBtn.setVisible(isSuite || isCase);
@@ -367,17 +376,22 @@ public class ExplorerPageController {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
                             copyItem();
+                            e.consume();
                         });
                     }
                     statusLabel.setText(statusText);
                     statusLabel.setVisible(!statusText.isEmpty());
                     statusLabel.setManaged(!statusText.isEmpty());
+                    updateActionVisibility.run();
                     setText(null);
                     setGraphic(row);
                 }
             };
             // Primary: click again on selected row → unselect. Secondary: menu without changing selection.
             cell.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+                if (isTreeCellActionButtonEvent(e)) {
+                    return;
+                }
                 if (cell.isEmpty() || cell.getTreeItem() == null) {
                     return;
                 }
@@ -401,6 +415,9 @@ public class ExplorerPageController {
                 }
             });
             cell.setOnMouseClicked(e -> {
+                if (isTreeCellActionButtonEvent(e)) {
+                    return;
+                }
                 if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || e.getClickCount() != 2) {
                     return;
                 }
@@ -2098,5 +2115,22 @@ public class ExplorerPageController {
             return suiteDir.getParent() != null ? suiteDir.getParent() : rootProjectDir;
         }
         return rootProjectDir;
+    }
+
+    private static boolean isTreeCellActionButtonEvent(javafx.scene.input.MouseEvent e) {
+        if (!(e.getTarget() instanceof javafx.scene.Node node)) {
+            return false;
+        }
+        javafx.scene.Node cur = node;
+        while (cur != null) {
+            if (cur.getStyleClass().contains("tree-action-btn") || cur.getStyleClass().contains("tree-cell-actions")) {
+                return true;
+            }
+            if (cur instanceof TreeCell<?>) {
+                return false;
+            }
+            cur = cur.getParent();
+        }
+        return false;
     }
 }

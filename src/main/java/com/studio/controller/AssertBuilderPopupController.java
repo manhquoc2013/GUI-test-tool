@@ -183,7 +183,6 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                     deleteBtn.getStyleClass().add("assert-row-delete-btn");
                     deleteBtn.setFocusTraversable(false);
                     com.studio.util.UiTooltips.install(deleteBtn, "Xóa assertion này");
-                    deleteBtn.addEventFilter(MouseEvent.MOUSE_PRESSED, MouseEvent::consume);
                     deleteBtn.setOnAction(e -> {
                         int viewIdx = getIndex();
                         int idx = toAssertIndex(viewIdx);
