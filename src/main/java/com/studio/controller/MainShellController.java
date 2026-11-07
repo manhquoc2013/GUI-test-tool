@@ -48,6 +48,7 @@ public class MainShellController implements Initializable {
     @FXML private Button navReportsBtn;
     @FXML private Button navAiBtn;
     @FXML private Button themeToggleBtn;
+    @FXML private Button cleanupBtn;
     @FXML private Button settingsBtn;
     @FXML private Label activeSuiteLabel;
     @FXML private Label sidebarSuiteSectionLabel;
@@ -124,6 +125,9 @@ public class MainShellController implements Initializable {
         if (helpCloseBtn != null) {
             com.studio.util.UiIcons.setGraphic(helpCloseBtn, com.studio.util.UiIcons.CLOSE, 12);
             helpCloseBtn.setText("");
+        }
+        if (cleanupBtn != null) {
+            com.studio.util.UiIcons.setGraphic(cleanupBtn, com.studio.util.UiIcons.TRASH, 13);
         }
         com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 13);
         com.studio.util.UiIcons.setGraphic(helpBtn, com.studio.util.UiIcons.HELP, 13);
@@ -609,6 +613,11 @@ public class MainShellController implements Initializable {
     @FXML
     public void openSettings() {
         AiSettingsDialog.show(new SettingsStore());
+    }
+
+    @FXML
+    public void openCleanupDialog() {
+        DataCleanupDialog.show();
     }
 
     @FXML

@@ -1,22 +1,19 @@
-# Implementation Plan: Local Embedded Database (H2) Acceleration
+# Implementation Plan: System Data Cleanup & Settings Protection
 
-## Phase 1: Database Infrastructure & Schema Setup
-- Add `com.h2database:h2:2.2.224` to `pom.xml`.
-- Create `DatabaseManager.java` managing connection lifecycle, schema initialization, and test memory mode.
-- Unit tests for `DatabaseManagerTest`.
+## Phase 1: Settings Dual-Persistence & Backup
+- Add `system_settings` table to `DatabaseManager.java`.
+- Enhance `SettingsStore.java` with H2 mirror persistence, fallback loading, and Export/Import methods.
+- Write unit tests in `SettingsStoreTest.java`.
 
-## Phase 2: Indexing Engine & Synchronization
-- Create `LocalDataIndexService.java` with batch synchronization from disk (`syncAllFromDisk`), entity upserts, and deletions.
-- Create domain services: `ProjectDbService.java`, `ReportDbService.java`, `AiChatDbService.java`.
-- Unit tests for `LocalDataIndexServiceTest`, `ReportDbServiceTest`, and `ProjectDbServiceTest`.
+## Phase 2: Data Cleanup Engine
+- Create `DataCleanupService.java` handling multi-target deletions, report retention limits, work directory purging, and byte counting.
+- Write unit tests in `DataCleanupServiceTest.java`.
 
-## Phase 3: Integration with Stores & Controllers
-- Hook `LocalDataIndexService` into `ProjectStore.java` on save/create/delete operations.
-- Hook `LocalDataIndexService` into `ReportStore.java` on save report operations.
-- Hook `LocalDataIndexService` into `AiChatHistoryStore.java` on save/delete session operations.
-- Initialize `LocalDataIndexService.syncAllFromDisk()` on startup or lazy-first-load.
+## Phase 3: Cleanup Modal Dialog & Shell Integration
+- Create `DataCleanupDialog.java` with safety banner, backup/restore buttons, target checkboxes, retention picker, and confirmation workflow.
+- Update `main_shell.fxml` with "Dọn dẹp" button in header bar.
+- Update `MainShellController.java` to launch `DataCleanupDialog`.
 
-## Phase 4: Full Verification & Performance Audit
-- Execute all unit tests (`mvn test -o`).
-- Verify query speed and memory safety.
-- Record institutional learnings in `tasks/learnings.md`.
+## Phase 4: Full Verification & Learnings
+- Run all tests with `mvn test -o`.
+- Document learnings in `tasks/learnings.md`.

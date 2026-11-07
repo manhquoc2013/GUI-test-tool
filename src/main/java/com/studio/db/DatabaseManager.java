@@ -139,6 +139,12 @@ public class DatabaseManager {
                 created_at BIGINT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS system_settings (
+                setting_key VARCHAR(100) PRIMARY KEY,
+                setting_value CLOB NOT NULL,
+                updated_at BIGINT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tc_suite ON test_cases(group_name, suite_name);
             CREATE INDEX IF NOT EXISTS idx_tc_status ON test_cases(status);
             CREATE INDEX IF NOT EXISTS idx_tc_name ON test_cases(name);

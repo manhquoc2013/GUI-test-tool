@@ -97,3 +97,19 @@
 3. **Pure Java Zero-Dependency Offline Compatibility**:
    - Sử dụng H2 2.2.224 có sẵn trong local `.m2` repository, tương thích tuyệt đối với JDK 26, chạy 100% offline (`mvn -o`), không cần cài đặt thêm C++ binary driver như SQLite.
    - Hỗ trợ chế độ in-memory `jdbc:h2:mem:...` phục vụ kiểm thử đơn vị độc lập và chạy nhanh gấp nhiều lần.
+
+
+## System Data Cleanup & Dual-Persistence Settings Protection
+1. **Dual-Persistence & Automatic Self-Healing Settings**:
+   - Cấu hình hệ thống (`SettingsStore`) áp dụng mô hình lưu trữ kép: ghi đồng thời ra file đĩa `data/config/settings.json` và bảng cơ sở dữ liệu H2 `system_settings`.
+   - Khi khởi động hoặc nạp cấu hình, nếu file đĩa `settings.json` bị mất, xóa nhầm hoặc hỏng định dạng JSON, hệ thống sẽ tự động khôi phục dữ liệu từ H2 `system_settings` và tái tạo lại file `settings.json` ngay lập tức mà không gây gián đoạn hoạt động.
+   - Bổ sung tính năng Sao lưu (Export) và Phục hồi (Import) cấu hình JSON 1-click có xác thực cấu trúc, ngăn ngừa nhập file sai định dạng.
+2. **Surgical Multi-Target Data Cleanup (`DataCleanupService`)**:
+   - Cung cấp khả năng tính toán dung lượng đĩa sử dụng theo từng nhóm dữ liệu trước khi dọn dẹp (`DiskUsageStats`).
+   - Hỗ trợ chính sách lưu giữ thông minh (Retention Policy) cho Báo cáo kiểm thử: thay vì xóa trắng toàn bộ, người dùng có thể tùy chọn giữ lại N báo cáo gần nhất (ví dụ: giữ 5 hoặc 10 báo cáo mới nhất) để đối chiếu lịch sử regression testing.
+   - Khi dọn dẹp, dịch vụ dọn sạch cả file trên đĩa cứng (`data/reports/`, ảnh chụp màn hình, file `.ai_chat.json`, thư mục tạm `work/`) lẫn bản ghi trong cơ sở dữ liệu H2 (`run_reports`, `ai_chat_messages`) để đảm bảo tính nhất quán dữ liệu 100%.
+   - Nguyên tắc bất khả xâm phạm: Thư mục cấu hình `data/config/settings.json` và bảng `system_settings` được đưa vào danh sách trắng tuyệt đối không bị ảnh hưởng bởi bất kỳ thao tác dọn dẹp nào.
+3. **Safety-First Modal UX (`DataCleanupDialog`)**:
+   - Cung cấp banner thông tin bảo đảm an toàn cấu hình hệ thống với nút Sao lưu / Phục hồi trực tiếp.
+   - Hiển thị dung lượng ước tính của từng mục dữ liệu có thể dọn dẹp và yêu cầu hộp thoại xác nhận trước khi thực thi.
+   - Thực thi tác vụ dọn dẹp trên luồng nền (`Task<CleanupResult>`) kèm thanh chỉ báo tiến trình để không làm đông cứng giao diện JavaFX.
