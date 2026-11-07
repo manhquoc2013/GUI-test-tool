@@ -120,35 +120,32 @@ PlaywrightAutomationStudio-<os>-<arch>/
 
 ---
 
-## CI/CD
-
-### `.github/workflows/ci.yml`
-
-Triggers only on **version tags** (`v*`), e.g. `v1.0.0`:
-
-- Checkout → Setup JDK 26 → `mvn -B -DskipTests package`
-- Does **not** run on push or pull request to `main`.
+## CI/CD (Release Workflow)
 
 ### `.github/workflows/release-portable.yml`
 
-Triggers on **tag** (e.g., `v1.0.0`) or manual `workflow_dispatch`:
+Quy trình CI/CD hoàn toàn tự động cho 3 nền tảng (**macOS**, **Windows**, **Ubuntu Linux**), **chỉ chạy khi phát hành phiên bản**:
+- **Triggers**:
+  - Khi push tag phiên bản: `git tag v1.0.0 && git push origin v1.0.0`
+  - Khi tạo/publish Release trên GitHub: `release: [published]`
+  - Khi kích hoạt thủ công trong tab Actions: `workflow_dispatch` (cho phép nhập version tag tùy chọn)
 
-| Runner | Artifact |
-|--------|----------|
-| `macos-latest` | `PlaywrightAutomationStudio-mac-*.zip` |
-| `windows-latest` | `PlaywrightAutomationStudio-win-*.zip` |
-| `ubuntu-latest` | `PlaywrightAutomationStudio-linux-*.zip` |
+| Runner | Hệ điều hành mục tiêu | Artifact Portable Output |
+|--------|-----------------------|--------------------------|
+| `macos-latest` | macOS (Apple Silicon / arm64) | `PlaywrightAutomationStudio-Darwin-*.zip` |
+| `windows-latest` | Windows (x64) | `PlaywrightAutomationStudio-win-x64.zip` |
+| `ubuntu-latest` | Ubuntu Linux (x64) | `PlaywrightAutomationStudio-Linux-*.zip` |
 
-Each job:
-
-1. Setup JDK 26 + Node.js
-2. `mvn -B package`
-3. Run platform-specific `scripts/build-portable.*`
-4. Upload artifact via `actions/upload-artifact` and attach to GitHub Release.
+**Quy trình thực thi:**
+1. Setup JDK 26 (Temurin) + Node.js 22.
+2. Kiểm tra công cụ jpackage.
+3. Chạy toàn bộ bộ kiểm thử tự động (**162 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
+4. Chạy `scripts/build-portable.sh` / `scripts/build-portable.bat` để đóng gói jpackage app-image kèm JRE nhúng, Node.js và Playwright Chromium.
+5. Upload artifacts của 3 hệ điều hành lên GitHub Actions.
+6. Job `publish` gom toàn bộ 3 file ZIP và đính kèm vào mục Assets của GitHub Release chính thức.
 
 ### Required permissions
-
-- `contents: write` for publishing releases.
+- `contents: write` để tự động tạo và tải assets lên GitHub Releases.
 
 ---
 
