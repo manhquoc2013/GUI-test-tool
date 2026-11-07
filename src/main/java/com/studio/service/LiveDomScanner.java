@@ -51,7 +51,13 @@ public class LiveDomScanner {
             page.setDefaultNavigationTimeout(timeout);
             page.setDefaultTimeout(timeout);
 
-            page.navigate(url, new Page.NavigateOptions().setTimeout((double) timeout));
+            try {
+                page.navigate(url, new Page.NavigateOptions().setTimeout((double) timeout));
+            } catch (Exception navEx) {
+                // If navigation timed out or partial load, still attempt to extract whatever DOM was rendered
+                System.err.println("[LiveDomScanner] Navigation partial/timeout warning: " + navEx.getMessage());
+            }
+
             try {
                 page.waitForLoadState(LoadState.DOMCONTENTLOADED, new Page.WaitForLoadStateOptions().setTimeout((double) Math.min(timeout, 3000)));
             } catch (Exception ignored) {

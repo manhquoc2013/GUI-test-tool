@@ -537,7 +537,22 @@ public class AiAssistantPageController implements Initializable {
         String prompt = promptInputArea != null ? promptInputArea.getText() : "";
         String targetUrl = extractUrl(prompt);
         if (targetUrl == null || targetUrl.isBlank()) {
-            TextInputDialog dialog = new TextInputDialog("https://example.com");
+            String defaultUrl = "https://example.com";
+            Path suiteDir = getSelectedSuiteDir();
+            if (suiteDir != null) {
+                try {
+                    TestSuite s = projectStore.loadAndMigrateSuite(suiteDir);
+                    if (s != null && s.getCases() != null) {
+                        for (TestCase tc : s.getCases()) {
+                            if (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) {
+                                defaultUrl = tc.getStartUrl();
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+            TextInputDialog dialog = new TextInputDialog(defaultUrl);
             dialog.setTitle("Quét Live DOM Trang Web");
             dialog.setHeaderText("Nhập URL trang web cần quét các phần tử DOM tương tác:");
             dialog.setContentText("URL:");
