@@ -7,6 +7,8 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.LoadState;
 import com.studio.util.PlaywrightUtil;
 import com.studio.runtime.EnhancedDomExtractor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Service to capture interactive live DOM snapshots from active browser sessions
@@ -15,6 +17,26 @@ import com.studio.runtime.EnhancedDomExtractor;
 public class LiveDomScanner {
 
     private static final int DEFAULT_TIMEOUT_MS = 10000;
+    private static final Pattern URL_PATTERN =
+            Pattern.compile("https?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/[^\\s\"'<>]*)?", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Extract the first HTTP/HTTPS URL found in natural language text or prompt.
+     */
+    public static String extractFirstUrl(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = URL_PATTERN.matcher(text);
+        if (matcher.find()) {
+            String url = matcher.group().trim();
+            while (url.endsWith(".") || url.endsWith(",") || url.endsWith(";") || url.endsWith(")") || url.endsWith("]") || url.endsWith(">")) {
+                url = url.substring(0, url.length() - 1);
+            }
+            return url;
+        }
+        return null;
+    }
 
     /**
      * Scan the DOM of an active Playwright page.

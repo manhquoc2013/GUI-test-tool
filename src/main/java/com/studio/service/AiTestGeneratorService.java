@@ -81,7 +81,21 @@ public class AiTestGeneratorService {
            - Provide parameterized test data sets (`testDataSets`): Cover Equivalence Partitioning & Boundary Value Analysis (e.g., Valid credentials, Invalid input, Empty fields, Extreme length).
            - Provide executable Java code in `scriptCode`.
 
-        2. **Resilience & Autonomous Self-Healing**:
+        2. **Authentication & Precondition Handling (CRITICAL)**:
+           - **Quy tắc bắt buộc**: Nếu URL đích hoặc danh sách phần tử DOM thực tế (Live Page Elements) chứa form Đăng nhập / Xác thực (chẳng hạn các bộ chọn: `#auth-email`, `#auth-password`, `input[type='email']`, `input[type='password']`, `button[type='submit']`, text "Đăng nhập", "Login", "Sign in"):
+             AI BẮT BUỘC phải sinh bước Đăng nhập trước (nhập email/tên đăng nhập, nhập mật khẩu, bấm nút Đăng nhập và chờ trang tải xong) trước khi thực hiện các luồng nghiệp vụ bên trong (như thêm giao dịch, tạo đơn hàng, quản lý danh sách, checkout).
+           - Trong kịch bản Playwright `scriptCode`, thực hiện kiểm tra hoặc bọc bước đăng nhập an toàn ngay sau khi điều hướng:
+             ```java
+             // Bước tiền đề: Đăng nhập nếu trang yêu cầu xác thực
+             if (page.locator("#auth-email, input[type='email'], input[name='email']").isVisible()) {
+                 page.locator("#auth-email, input[type='email'], input[name='email']").first().fill("user@example.com");
+                 page.locator("#auth-password, input[type='password'], input[name='password']").first().fill("password123");
+                 page.locator("button[type='submit'], button:has-text('Đăng nhập'), button:has-text('Sign in')").first().click();
+                 page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE);
+             }
+             ```
+
+        3. **Resilience & Autonomous Self-Healing**:
            - For element interactions, wrap dynamic selectors using the Studio's built-in self-healing proxy:
              `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").click();`
              or `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").fill("value");`
@@ -89,7 +103,7 @@ public class AiTestGeneratorService {
              `page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);`
            - Prefer semantic selectors (`[data-testid='...']`, `[aria-label='...']`, `role=button[name='...']`, text locator). If live DOM elements are provided in the prompt, prioritize those exact candidate selectors!
 
-        3. **Execution Environment Rules**:
+        4. **Execution Environment Rules**:
            - Browser and Page lifecycles are managed automatically by the Studio. Scripts must follow this Java template:
         ```java
         package com.test;
@@ -108,7 +122,7 @@ public class AiTestGeneratorService {
         ```
            - DO NOT call `playwright.chromium().launch()`, `Playwright.create()`, `browser.newContext()`, or `page.close()`. The Studio manages these.
 
-        4. **Supported Assertion Types**:
+        5. **Supported Assertion Types**:
            - TITLE_CONTAINS (value: text)
            - TITLE_EQUALS (value: title)
            - URL_CONTAINS (value: substring)
@@ -125,7 +139,7 @@ public class AiTestGeneratorService {
            - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
            - CUSTOM_JS (value: javascript expression returning boolean)
 
-        5. **Response Format**:
+        6. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
@@ -265,7 +279,23 @@ public class AiTestGeneratorService {
                 context.append("Existing Java Script:\n```java\n").append(currentScript).append("\n```\n");
             }
         }
-        return generateTestCases(config, userPrompt, attachments, context.toString(), null, List.of());
+        String targetUrl = LiveDomScanner.extractFirstUrl(userPrompt);
+        if (targetUrl == null && currentCase != null && currentCase.getStartUrl() != null && !currentCase.getStartUrl().isBlank()) {
+            targetUrl = LiveDomScanner.extractFirstUrl(currentCase.getStartUrl());
+        }
+
+        String domContext = null;
+        if (targetUrl != null) {
+            try {
+                LiveDomScanner scanner = new LiveDomScanner();
+                String scanned = scanner.scanUrl(targetUrl, 10000);
+                if (scanned != null && !scanned.isBlank() && !"[]".equals(scanned)) {
+                    domContext = scanned;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        return generateTestCases(config, userPrompt, attachments, context.toString(), domContext, List.of());
     }
 
     /**

@@ -469,13 +469,46 @@ public class AiAssistantPageController implements Initializable {
 
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
+
+        // Tự động phát hiện URL từ prompt hoặc từ Suite hiện tại nếu chưa có Live DOM
+        String promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(prompt);
+        if (promptUrl == null && suiteDir != null) {
+            try {
+                TestSuite s = projectStore.loadAndMigrateSuite(suiteDir);
+                if (s != null && s.getCases() != null) {
+                    for (TestCase tc : s.getCases()) {
+                        if (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) {
+                            promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(tc.getStartUrl());
+                            if (promptUrl != null) break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        final String detectedTargetUrl = promptUrl;
         String domContext = liveDomJson;
         final AiConfig effectiveAiConfig = aiConfig;
 
         Thread thread = new Thread(() -> {
             try {
+                String activeDomContext = domContext;
+                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM ngầm!
+                if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext)) && detectedTargetUrl != null) {
+                    Platform.runLater(() -> updateThinkingStatus("Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "..."));
+                    try {
+                        String autoScannedDom = domScanner.scanUrl(detectedTargetUrl, 10000);
+                        if (autoScannedDom != null && !autoScannedDom.isBlank() && !"[]".equals(autoScannedDom)) {
+                            activeDomContext = autoScannedDom;
+                            liveDomJson = autoScannedDom; // Cache cho phiên làm việc
+                            Platform.runLater(() -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
+                        }
+                    } catch (Exception ex) {
+                        System.err.println("[AiAssistant] Tự động quét DOM ngầm thất bại: " + ex.getMessage());
+                    }
+                }
+
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        effectiveAiConfig, prompt, docsSnapshot, context, domContext, currentSession.getMessages(),
+                        effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext, currentSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status))
                 );
 

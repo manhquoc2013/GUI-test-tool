@@ -28,4 +28,20 @@ class LiveDomScannerTest {
         assertNotNull(res);
         assertTrue(res.contains("submit-btn") || res.contains("Click Me") || res.equals("[]"));
     }
+
+    @Test
+    void testExtractFirstUrl() {
+        assertNull(LiveDomScanner.extractFirstUrl(null));
+        assertNull(LiveDomScanner.extractFirstUrl(""));
+        assertNull(LiveDomScanner.extractFirstUrl("Viết kịch bản kiểm thử không có link"));
+
+        assertEquals("https://manhquoc2013.github.io/quan-ly-thu-chi/",
+                LiveDomScanner.extractFirstUrl("Tạo kịch bản kiểm thử cho https://manhquoc2013.github.io/quan-ly-thu-chi/ thêm giao dịch"));
+
+        assertEquals("http://localhost:3000/login",
+                LiveDomScanner.extractFirstUrl("Kiểm thử (http://localhost:3000/login), kiểm tra form đăng nhập."));
+
+        assertEquals("https://example.com/api/v1",
+                LiveDomScanner.extractFirstUrl("Mở https://example.com/api/v1."));
+    }
 }
