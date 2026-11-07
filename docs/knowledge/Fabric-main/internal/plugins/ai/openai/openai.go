@@ -1,0 +1,513 @@
+package openai
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/danielmiessler/fabric/internal/chat"
+	"github.com/danielmiessler/fabric/internal/domain"
+	"github.com/danielmiessler/fabric/internal/i18n"
+	debuglog "github.com/danielmiessler/fabric/internal/log"
+	"github.com/danielmiessler/fabric/internal/plugins"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/pagination"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
+	"github.com/openai/openai-go/v3/shared/constant"
+)
+
+func NewClient() (ret *Client) {
+	return NewClientCompatibleWithResponses("OpenAI", "https://api.openai.com/v1", true, nil)
+}
+
+func NewClientCompatible(vendorName string, defaultBaseUrl string, configureCustom func() error) (ret *Client) {
+	ret = NewClientCompatibleNoSetupQuestions(vendorName, configureCustom)
+
+	ret.ApiKey = ret.AddSetupQuestion("API Key", true)
+	ret.ApiBaseURL = ret.AddSetupQuestion("API Base URL", false)
+	ret.ApiBaseURL.Value = defaultBaseUrl
+
+	return
+}
+
+func NewClientCompatibleWithResponses(vendorName string, defaultBaseUrl string, implementsResponses bool, configureCustom func() error) (ret *Client) {
+	ret = NewClientCompatibleNoSetupQuestions(vendorName, configureCustom)
+
+	ret.ApiKey = ret.AddSetupQuestion("API Key", true)
+	ret.ApiBaseURL = ret.AddSetupQuestion("API Base URL", false)
+	ret.ApiBaseURL.Value = defaultBaseUrl
+	ret.ImplementsResponses = implementsResponses
+
+	return
+}
+
+func NewClientCompatibleNoSetupQuestions(vendorName string, configureCustom func() error) (ret *Client) {
+	ret = &Client{}
+
+	if configureCustom == nil {
+		configureCustom = ret.configure
+	}
+
+	ret.PluginBase = plugins.NewVendorPluginBase(vendorName, configureCustom)
+
+	return
+}
+
+type Client struct {
+	*plugins.PluginBase
+	ApiKey              *plugins.SetupQuestion
+	ApiBaseURL          *plugins.SetupQuestion
+	ApiClient           *openai.Client
+	ImplementsResponses bool // Whether this provider supports the Responses API
+	httpClient          *http.Client
+	// webSearchToolName replaces "web_search_preview" when set. xAI needs "web_search".
+	webSearchToolName string
+	// enableXSearch adds the xAI "x_search" tool next to the web search tool.
+	enableXSearch bool
+	// sessionHeaderName, when non-empty, is the request header used to carry a
+	// stable per-conversation session ID (e.g. OpenCode's "x-opencode-session").
+	sessionHeaderName string
+	// userAgent, when non-empty, overrides the SDK's default User-Agent header.
+	userAgent string
+	// responseParamsHook, when set, changes each Responses API request after Fabric builds it.
+	responseParamsHook func(*responses.ResponseNewParams)
+}
+
+// SetResponsesAPIEnabled configures whether to use the Responses API
+func (o *Client) SetResponsesAPIEnabled(enabled bool) {
+	o.ImplementsResponses = enabled
+}
+
+// SetWebSearchToolName replaces the "web_search_preview" tool type that the
+// Responses API request has when Search is true. A name that is not empty
+// also selects the web_search tool param (OfWebSearch). An empty name keeps
+// the OpenAI default. xAI uses "web_search".
+func (o *Client) SetWebSearchToolName(name string) {
+	o.webSearchToolName = name
+}
+
+// SetEnableXSearch toggles whether an additional xAI "x_search" tool
+// entry is appended when Search is enabled. Non-xAI providers should
+// leave this false.
+func (o *Client) SetEnableXSearch(enabled bool) {
+	o.enableXSearch = enabled
+}
+
+// SetSessionHeaderName sets the request header used to carry a stable
+// per-conversation session ID (for example, OpenCode's "x-opencode-session").
+// Pass an empty string to disable.
+func (o *Client) SetSessionHeaderName(name string) {
+	o.sessionHeaderName = name
+}
+
+// SetUserAgent overrides the User-Agent header sent with chat and responses
+// requests. Pass an empty string to keep the SDK's default.
+func (o *Client) SetUserAgent(userAgent string) {
+	o.userAgent = userAgent
+}
+
+// SetResponseParamsHook sets a function that changes each Responses API
+// request after Fabric builds it. Perplexity uses it to select presets.
+func (o *Client) SetResponseParamsHook(hook func(*responses.ResponseNewParams)) {
+	o.responseParamsHook = hook
+}
+
+// requestOptions returns per-request options that attach Fabric's session ID
+// and User-Agent headers when configured. Providers that do not set these
+// values get an empty slice, preserving default behavior.
+func (o *Client) requestOptions(sessionID string) (ret []option.RequestOption) {
+	if o.sessionHeaderName != "" && sessionID != "" {
+		ret = append(ret, option.WithHeader(o.sessionHeaderName, sessionID))
+	}
+	if o.userAgent != "" {
+		ret = append(ret, option.WithHeader("User-Agent", o.userAgent))
+	}
+	return
+}
+
+func checkImageGenerationCompatibility(model string) {
+	if !supportsImageGeneration(model) {
+		fmt.Fprintf(os.Stderr, "%s", fmt.Sprintf(i18n.T("openai_warning_model_no_image_generation"),
+			model, strings.Join(ImageGenerationSupportedModels, ", ")))
+	}
+}
+
+func (o *Client) configure() (ret error) {
+	// With no base URL, the SDK reads OPENAI_BASE_URL from the environment.
+	if ret = plugins.RequireSecureBaseURL(cmp.Or(o.ApiBaseURL.Value, os.Getenv("OPENAI_BASE_URL"))); ret != nil {
+		return
+	}
+	opts := []option.RequestOption{option.WithAPIKey(o.ApiKey.Value)}
+	if o.ApiBaseURL.Value != "" {
+		opts = append(opts, option.WithBaseURL(o.ApiBaseURL.Value))
+	}
+	client := openai.NewClient(opts...)
+	o.ApiClient = &client
+
+	// httpClient serves the direct /models fetch, which bypasses the SDK.
+	o.httpClient = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	return
+}
+
+func (o *Client) ListModels(ctx context.Context) (ret []string, err error) {
+	var page *pagination.Page[openai.Model]
+	if page, err = o.ApiClient.Models.List(ctx); err == nil {
+		for _, mod := range page.Data {
+			ret = append(ret, mod.ID)
+		}
+		return ret, nil
+	}
+
+	// Some providers return a format that the SDK cannot parse. Fall back to a direct fetch.
+	debuglog.Debug(debuglog.Basic, "SDK Models.List failed for %s: %v, falling back to direct API fetch\n", o.GetName(), err)
+	return FetchModelsDirectly(ctx, o.ApiBaseURL.Value, o.ApiKey.Value, o.GetName(), o.httpClient)
+}
+
+func (o *Client) SendStream(
+	ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan domain.StreamUpdate,
+) (err error) {
+	if o.supportsResponsesAPI() {
+		err = o.sendStreamResponses(ctx, msgs, opts, channel)
+	} else {
+		err = o.sendStreamChatCompletions(ctx, msgs, opts, channel)
+	}
+	return withProviderErrorMessage(err)
+}
+
+func (o *Client) sendStreamResponses(
+	ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan domain.StreamUpdate,
+) (err error) {
+	defer close(channel)
+
+	req := o.buildResponseParams(msgs, opts)
+	stream := o.ApiClient.Responses.NewStreaming(ctx, req, o.requestOptions(opts.SessionID)...)
+	var sources []string
+	var failure error
+	for stream.Next() {
+		event := stream.Current()
+		switch event.Type {
+		case string(constant.ResponseCompleted("").Default()):
+			completed := event.AsResponseCompleted()
+			sources = searchResultSources(&completed.Response)
+		case string(constant.ResponseFailed("").Default()):
+			// A failed response ends the stream without an SDK error.
+			e := event.AsResponseFailed().Response.Error
+			failure = fmt.Errorf("response failed: %s (%s)", e.Message, e.Code)
+		case string(constant.ResponseOutputTextDelta("").Default()):
+			channel <- domain.StreamUpdate{
+				Type:    domain.StreamTypeContent,
+				Content: event.AsResponseOutputTextDelta().Delta,
+			}
+		case string(constant.ResponseOutputTextDone("").Default()):
+			// The done event repeats the text that the delta events already sent.
+			continue
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return err
+	}
+	if failure != nil {
+		return failure
+	}
+	content := "\n"
+	if len(sources) > 0 {
+		content = sourcesHeader + strings.Join(sources, "\n") + "\n"
+	}
+	channel <- domain.StreamUpdate{
+		Type:    domain.StreamTypeContent,
+		Content: content,
+	}
+	return nil
+}
+
+func (o *Client) Send(ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions) (ret string, err error) {
+	if o.supportsResponsesAPI() {
+		ret, err = o.sendResponses(ctx, msgs, opts)
+	} else {
+		ret, err = o.sendChatCompletions(ctx, msgs, opts)
+	}
+	return ret, withProviderErrorMessage(err)
+}
+
+// withProviderErrorMessage adds the provider message and code to an API error.
+// In v3, the SDK error text has only the HTTP status.
+func withProviderErrorMessage(err error) error {
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) || apiErr.Message == "" {
+		return err
+	}
+	if apiErr.Code != "" {
+		return fmt.Errorf("%w: %s (%s)", err, apiErr.Message, apiErr.Code)
+	}
+	return fmt.Errorf("%w: %s", err, apiErr.Message)
+}
+
+func (o *Client) sendResponses(ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions) (ret string, err error) {
+	if opts.ImageFile != "" {
+		checkImageGenerationCompatibility(opts.Model)
+	}
+
+	if opts.ImageFile != "" && !supportsImageGeneration(opts.Model) {
+		return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("openai_model_no_image_generation"), opts.Model, strings.Join(ImageGenerationSupportedModels, ", ")))
+	}
+
+	req := o.buildResponseParams(msgs, opts)
+
+	var resp *responses.Response
+	if resp, err = o.ApiClient.Responses.New(ctx, req, o.requestOptions(opts.SessionID)...); err != nil {
+		return
+	}
+
+	if err = o.extractAndSaveImages(resp, opts); err != nil {
+		return
+	}
+
+	ret = o.extractText(resp)
+	return
+}
+
+func (o *Client) supportsResponsesAPI() bool {
+	return o.ImplementsResponses
+}
+
+func (o *Client) NeedsRawMode(modelName string) bool {
+	openaiModelsPrefixes := []string{
+		"glm",
+		"gpt-5",
+		"gpt-6",
+		"o1",
+		"o3",
+		"o4",
+	}
+	openAIModelsNeedingRaw := []string{
+		"gpt-4o-mini-search-preview",
+		"gpt-4o-mini-search-preview-2025-03-11",
+		"gpt-4o-search-preview",
+		"gpt-4o-search-preview-2025-03-11",
+	}
+	for _, prefix := range openaiModelsPrefixes {
+		if strings.HasPrefix(modelName, prefix) {
+			return true
+		}
+	}
+	return slices.Contains(openAIModelsNeedingRaw, modelName)
+}
+
+func parseReasoningEffort(level domain.ThinkingLevel) (shared.ReasoningEffort, bool) {
+	switch domain.ThinkingLevel(strings.ToLower(string(level))) {
+	case domain.ThinkingLow:
+		return shared.ReasoningEffortLow, true
+	case domain.ThinkingMedium:
+		return shared.ReasoningEffortMedium, true
+	case domain.ThinkingHigh:
+		return shared.ReasoningEffortHigh, true
+	default:
+		return "", false
+	}
+}
+
+func (o *Client) buildResponseParams(
+	inputMsgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions,
+) (ret responses.ResponseNewParams) {
+
+	items := make([]responses.ResponseInputItemUnionParam, len(inputMsgs))
+	for i, msgPtr := range inputMsgs {
+		msg := *msgPtr
+		if strings.Contains(opts.Model, "deepseek") && len(inputMsgs) == 1 && msg.Role == chat.ChatMessageRoleSystem {
+			msg.Role = chat.ChatMessageRoleUser
+		}
+		items[i] = convertMessage(msg)
+	}
+
+	ret = responses.ResponseNewParams{
+		Model: shared.ResponsesModel(opts.Model),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: items,
+		},
+	}
+
+	var tools []responses.ToolUnionParam
+
+	if opts.Search {
+		var webSearchTool responses.ToolUnionParam
+		// Attach a location only on request. xAI rejects an unexpected location payload.
+		if o.webSearchToolName == "" {
+			webSearchTool = responses.ToolParamOfWebSearchPreview(responses.WebSearchPreviewToolTypeWebSearchPreview)
+			if opts.SearchLocation != "" {
+				webSearchTool.OfWebSearchPreview.UserLocation = responses.WebSearchPreviewToolUserLocationParam{
+					Type:     "approximate",
+					Timezone: openai.String(opts.SearchLocation),
+				}
+			}
+		} else {
+			webSearchTool = responses.ToolParamOfWebSearch(responses.WebSearchToolType(o.webSearchToolName))
+			if opts.SearchLocation != "" {
+				webSearchTool.OfWebSearch.UserLocation = responses.WebSearchToolUserLocationParam{
+					Type:     "approximate",
+					Timezone: openai.String(opts.SearchLocation),
+				}
+			}
+		}
+		tools = append(tools, webSearchTool)
+
+		// xAI accepts a bare {"type":"x_search"} entry. OfWebSearch is the
+		// container for it. Its other fields are omitzero, so the JSON has only "type".
+		if o.enableXSearch {
+			tools = append(tools, responses.ToolParamOfWebSearch(responses.WebSearchToolType("x_search")))
+		}
+	}
+
+	tools = o.addImageGenerationTool(opts, tools)
+
+	if len(tools) > 0 {
+		ret.Tools = tools
+	}
+
+	if eff, ok := parseReasoningEffort(opts.Thinking); ok {
+		ret.Reasoning = shared.ReasoningParam{Effort: eff}
+	}
+
+	if !opts.Raw {
+		ret.Temperature = openai.Float(opts.Temperature)
+		if opts.TopP != 0 {
+			ret.TopP = openai.Float(opts.TopP)
+		}
+		if opts.MaxTokens != 0 {
+			ret.MaxOutputTokens = openai.Int(int64(opts.MaxTokens))
+		}
+
+		// The Responses API has no fields for these parameters. Send them as extra fields.
+		extraFields := make(map[string]any)
+		if opts.PresencePenalty != 0 {
+			extraFields["presence_penalty"] = opts.PresencePenalty
+		}
+		if opts.FrequencyPenalty != 0 {
+			extraFields["frequency_penalty"] = opts.FrequencyPenalty
+		}
+		if opts.Seed != 0 {
+			extraFields["seed"] = opts.Seed
+		}
+		if len(extraFields) > 0 {
+			ret.SetExtraFields(extraFields)
+		}
+	}
+	if o.responseParamsHook != nil {
+		o.responseParamsHook(&ret)
+	}
+	return
+}
+
+// BuildResponseParams exposes the shared Responses API request builder so
+// auth-specialized vendors can reuse Fabric's OpenAI-compatible request shape.
+func (o *Client) BuildResponseParams(
+	inputMsgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions,
+) responses.ResponseNewParams {
+	return o.buildResponseParams(inputMsgs, opts)
+}
+
+func convertMessage(msg chat.ChatCompletionMessage) responses.ResponseInputItemUnionParam {
+	result := convertMessageCommon(msg)
+	role := responses.EasyInputMessageRole(result.Role)
+
+	if result.HasMultiContent {
+		var parts []responses.ResponseInputContentUnionParam
+		for _, p := range result.MultiContent {
+			switch p.Type {
+			case chat.ChatMessagePartTypeText:
+				parts = append(parts, responses.ResponseInputContentParamOfInputText(p.Text))
+			case chat.ChatMessagePartTypeImageURL:
+				part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+				if part.OfInputImage != nil {
+					part.OfInputImage.ImageURL = openai.String(p.ImageURL.URL)
+				}
+				parts = append(parts, part)
+			}
+		}
+		contentList := responses.ResponseInputMessageContentListParam(parts)
+		return responses.ResponseInputItemParamOfMessage(contentList, role)
+	}
+	return responses.ResponseInputItemParamOfMessage(result.Content, role)
+}
+
+func (o *Client) extractText(resp *responses.Response) (ret string) {
+	var textParts []string
+	var citations []string
+	citationMap := make(map[string]bool)
+
+	for _, item := range resp.Output {
+		if item.Type == "message" {
+			for _, c := range item.Content {
+				if c.Type == "output_text" {
+					outputText := c.AsOutputText()
+					textParts = append(textParts, outputText.Text)
+
+					for _, annotation := range outputText.Annotations {
+						if annotation.Type == "url_citation" {
+							urlCitation := annotation.AsURLCitation()
+							citationKey := urlCitation.URL + "|" + urlCitation.Title
+							if !citationMap[citationKey] {
+								citationMap[citationKey] = true
+								citationText := fmt.Sprintf("- [%s](%s)", urlCitation.Title, urlCitation.URL)
+								citations = append(citations, citationText)
+							}
+						}
+					}
+				}
+			}
+			break
+		}
+	}
+
+	ret = strings.Join(textParts, "")
+
+	citations = append(citations, searchResultSources(resp)...)
+	if len(citations) > 0 {
+		ret += sourcesHeader + strings.Join(citations, "\n")
+	}
+
+	return
+}
+
+const sourcesHeader = "\n\n## Sources\n\n"
+
+// searchResultSources lists the results of the Perplexity "search_results"
+// output items. The result IDs agree with the [n] markers in the answer text.
+func searchResultSources(resp *responses.Response) (ret []string) {
+	for _, item := range resp.Output {
+		if item.Type != "search_results" {
+			continue
+		}
+		var parsed struct {
+			Results []struct {
+				ID    int    `json:"id"`
+				Title string `json:"title"`
+				URL   string `json:"url"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal([]byte(item.RawJSON()), &parsed); err != nil {
+			debuglog.Debug(debuglog.Basic, "cannot parse search_results item: %v\n", err)
+			continue
+		}
+		for _, r := range parsed.Results {
+			ret = append(ret, fmt.Sprintf("- [%d] [%s](%s)", r.ID, r.Title, r.URL))
+		}
+	}
+	return
+}
+
+// ExtractText exposes the shared Responses API text extraction logic so other
+// vendors can reuse Fabric's response formatting and citation handling.
+func (o *Client) ExtractText(resp *responses.Response) string {
+	return o.extractText(resp)
+}

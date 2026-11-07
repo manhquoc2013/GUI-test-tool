@@ -1,0 +1,201 @@
+package githelper
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
+)
+
+// FetchOptions defines options for fetching files from a git repo
+type FetchOptions struct {
+	// RepoURL is the URL of the git repository
+	RepoURL string
+
+	// PathPrefix is the folder within the repo to extract (e.g. "patterns/")
+	PathPrefix string
+
+	// DestDir is where the files will be saved locally
+	DestDir string
+
+	// SingleDirectory if true, only fetch files directly in the specified directory
+	// without recursing into subdirectories
+	SingleDirectory bool
+}
+
+// FetchFilesFromRepo clones a git repo and extracts files from a specific folder.
+// It tries go-git first, and falls back to the git CLI if available.
+func FetchFilesFromRepo(opts FetchOptions) error {
+	if !strings.HasSuffix(opts.PathPrefix, "/") {
+		opts.PathPrefix = opts.PathPrefix + "/"
+	}
+
+	goGitErr := fetchFilesViaGoGit(opts)
+	if goGitErr == nil {
+		return nil
+	}
+
+	if _, lookErr := exec.LookPath("git"); lookErr != nil {
+		return goGitErr
+	}
+
+	cliErr := fetchFilesViaGitCLI(opts)
+	if cliErr == nil {
+		return nil
+	}
+
+	return fmt.Errorf(i18n.T("githelper_failed_git_cli_fallback"), goGitErr, cliErr)
+}
+
+// fetchFilesViaGoGit clones a repo in memory using go-git and extracts files.
+func fetchFilesViaGoGit(opts FetchOptions) error {
+	r, err := git.Clone(memory.NewStorage(), nil, &git.CloneOptions{
+		URL:   opts.RepoURL,
+		Depth: 1,
+	})
+	if err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_clone_repository"), err)
+	}
+
+	ref, err := r.Head()
+	if err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_get_head"), err)
+	}
+
+	commit, err := r.CommitObject(ref.Hash())
+	if err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_get_commit"), err)
+	}
+
+	tree, err := commit.Tree()
+	if err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_get_tree"), err)
+	}
+
+	if err := os.MkdirAll(opts.DestDir, 0755); err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_create_dest_directory"), err)
+	}
+
+	return tree.Files().ForEach(func(f *object.File) error {
+		if !strings.HasPrefix(f.Name, opts.PathPrefix) {
+			return nil
+		}
+
+		if opts.SingleDirectory {
+			remainingPath := strings.TrimPrefix(f.Name, opts.PathPrefix)
+			if strings.Contains(remainingPath, "/") {
+				return nil
+			}
+		}
+
+		relativePath := strings.TrimPrefix(f.Name, opts.PathPrefix)
+		localPath := filepath.Join(opts.DestDir, relativePath)
+
+		if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+			return err
+		}
+
+		reader, err := f.Reader()
+		if err != nil {
+			return err
+		}
+		defer reader.Close()
+
+		file, err := os.Create(localPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(file, reader)
+		return err
+	})
+}
+
+// fetchFilesViaGitCLI clones a repo with the git binary and extracts files.
+// It is the fallback when go-git fails, for example from DNS errors on Termux.
+func fetchFilesViaGitCLI(opts FetchOptions) error {
+	tmpDir, err := os.MkdirTemp("", "fabric-git-clone-*")
+	if err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_create_temp_directory"), err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cmd := exec.Command("git", "clone", "--depth", "1", "--", opts.RepoURL, tmpDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_git_cli_clone"), err, string(output))
+	}
+
+	srcDir := filepath.Join(tmpDir, strings.TrimSuffix(opts.PathPrefix, "/"))
+
+	if err := os.MkdirAll(opts.DestDir, 0755); err != nil {
+		return fmt.Errorf(i18n.T("githelper_failed_create_dest_directory"), err)
+	}
+
+	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		// Skip symlinks and other non-regular files. A symlink in the
+		// repository can point to a file outside the clone. copyFile opens
+		// the source, so it would copy that file into the patterns folder.
+		if !d.Type().IsRegular() {
+			return nil
+		}
+
+		relativePath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		if opts.SingleDirectory {
+			if strings.Contains(relativePath, string(filepath.Separator)) {
+				return nil
+			}
+		}
+
+		destPath := filepath.Join(opts.DestDir, relativePath)
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return err
+		}
+
+		return copyFile(path, destPath)
+	})
+}
+
+func copyFile(src, dst string) error {
+	// Refuse a source that is not a regular file. This is a second check
+	// after the walk, so that copyFile never follows a symlink.
+	if info, err := os.Lstat(src); err != nil {
+		return err
+	} else if !info.Mode().IsRegular() {
+		return fmt.Errorf(i18n.T("githelper_skip_non_regular_file"), src)
+	}
+
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}

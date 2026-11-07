@@ -1,0 +1,242 @@
+package template
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
+	debuglog "github.com/danielmiessler/fabric/internal/log"
+
+	"gopkg.in/yaml.v3"
+)
+
+// ExtensionDefinition represents a single extension configuration
+type ExtensionDefinition struct {
+	Name        string   `yaml:"name"`
+	Executable  string   `yaml:"executable"`
+	Type        string   `yaml:"type"`
+	Timeout     string   `yaml:"timeout"`
+	Description string   `yaml:"description"`
+	Version     string   `yaml:"version"`
+	Env         []string `yaml:"env"`
+
+	Operations map[string]OperationConfig `yaml:"operations"`
+
+	Config map[string]any `yaml:"config"`
+}
+
+type OperationConfig struct {
+	CmdTemplate string `yaml:"cmd_template"`
+}
+
+// RegistryEntry represents a registered extension
+type RegistryEntry struct {
+	ConfigPath     string `yaml:"config_path"`
+	ConfigHash     string `yaml:"config_hash"`
+	ExecutableHash string `yaml:"executable_hash"`
+}
+
+type ExtensionRegistry struct {
+	configDir string
+	registry  struct {
+		Extensions map[string]*RegistryEntry `yaml:"extensions"`
+	}
+}
+
+// Helper methods for Config access
+func (e *ExtensionDefinition) GetOutputMethod() string {
+	if output, ok := e.Config["output"].(map[string]any); ok {
+		if method, ok := output["method"].(string); ok {
+			return method
+		}
+	}
+	return "stdout"
+}
+
+func (e *ExtensionDefinition) GetFileConfig() map[string]any {
+	if output, ok := e.Config["output"].(map[string]any); ok {
+		if fileConfig, ok := output["file_config"].(map[string]any); ok {
+			return fileConfig
+		}
+	}
+	return nil
+}
+
+func (e *ExtensionDefinition) IsCleanupEnabled() bool {
+	if fc := e.GetFileConfig(); fc != nil {
+		if cleanup, ok := fc["cleanup"].(bool); ok {
+			return cleanup
+		}
+	}
+	return false
+}
+
+func NewExtensionRegistry(configDir string) *ExtensionRegistry {
+	r := &ExtensionRegistry{
+		configDir: configDir,
+	}
+	r.registry.Extensions = make(map[string]*RegistryEntry)
+
+	r.ensureConfigDir()
+
+	if err := r.loadRegistry(); err != nil {
+		debuglog.Log(i18n.T("extension_warning_load_registry"), err)
+	}
+
+	return r
+}
+
+func (r *ExtensionRegistry) ensureConfigDir() error {
+	extDir := filepath.Join(r.configDir, "extensions")
+	return os.MkdirAll(extDir, 0755)
+}
+
+func (r *ExtensionRegistry) Register(configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_read_config"), err)
+	}
+
+	var ext ExtensionDefinition
+	if err := yaml.Unmarshal(data, &ext); err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_parse_config"), err)
+	}
+
+	if ext.Name == "" {
+		return errors.New(i18n.T("extension_name_empty"))
+	}
+
+	if strings.Contains(ext.Name, " ") {
+		return fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_name_contains_spaces"), ext.Name))
+	}
+
+	if _, err := os.Stat(ext.Executable); err != nil {
+		return fmt.Errorf(i18n.T("extension_executable_not_found"), err)
+	}
+
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_get_absolute_path"), err)
+	}
+
+	configHash := ComputeStringHash(string(data))
+	executableHash, err := ComputeHash(ext.Executable)
+	if err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_hash_executable"), err)
+	}
+
+	if err := r.validateExtensionDefinition(&ext); err != nil {
+		return fmt.Errorf(i18n.T("extension_invalid_definition"), err)
+	}
+
+	r.registry.Extensions[ext.Name] = &RegistryEntry{
+		ConfigPath:     absPath,
+		ConfigHash:     configHash,
+		ExecutableHash: executableHash,
+	}
+
+	return r.saveRegistry()
+}
+
+func (r *ExtensionRegistry) validateExtensionDefinition(ext *ExtensionDefinition) error {
+	if ext.Name == "" {
+		return errors.New(i18n.T("extension_name_required"))
+	}
+	if ext.Executable == "" {
+		return errors.New(i18n.T("extension_executable_required"))
+	}
+	if ext.Type == "" {
+		return errors.New(i18n.T("extension_type_required"))
+	}
+
+	if ext.Timeout != "" {
+		if _, err := time.ParseDuration(ext.Timeout); err != nil {
+			return fmt.Errorf(i18n.T("extension_invalid_timeout_format"), err)
+		}
+	}
+
+	if len(ext.Operations) == 0 {
+		return errors.New(i18n.T("extension_operation_required"))
+	}
+	for name, op := range ext.Operations {
+		if op.CmdTemplate == "" {
+			return fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_cmd_template_required"), name))
+		}
+	}
+
+	return nil
+}
+
+func (r *ExtensionRegistry) Remove(name string) error {
+	if _, exists := r.registry.Extensions[name]; !exists {
+		return fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_not_found"), name))
+	}
+
+	delete(r.registry.Extensions, name)
+
+	return r.saveRegistry()
+}
+
+func (r *ExtensionRegistry) GetExtension(name string) (*ExtensionDefinition, error) {
+	entry, exists := r.registry.Extensions[name]
+	if !exists {
+		return nil, fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_not_found"), name))
+	}
+
+	data, err := os.ReadFile(entry.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf(i18n.T("extension_failed_read_config"), err)
+	}
+
+	currentHash := ComputeStringHash(string(data))
+	if currentHash != entry.ConfigHash {
+		return nil, fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_config_hash_mismatch"), name))
+	}
+
+	var ext ExtensionDefinition
+	if err := yaml.Unmarshal(data, &ext); err != nil {
+		return nil, fmt.Errorf(i18n.T("extension_failed_parse_config"), err)
+	}
+
+	currentExecHash, err := ComputeHash(ext.Executable)
+	if err != nil {
+		return nil, fmt.Errorf(i18n.T("extension_failed_verify_executable"), err)
+	}
+
+	if currentExecHash != entry.ExecutableHash {
+		return nil, fmt.Errorf("%s", fmt.Sprintf(i18n.T("extension_executable_hash_mismatch"), name))
+	}
+
+	return &ext, nil
+}
+
+func (r *ExtensionRegistry) saveRegistry() error {
+	data, err := yaml.Marshal(r.registry)
+	if err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_marshal_registry"), err)
+	}
+
+	registryPath := filepath.Join(r.configDir, "extensions", "extensions.yaml")
+	return os.WriteFile(registryPath, data, 0644)
+}
+
+func (r *ExtensionRegistry) loadRegistry() error {
+	registryPath := filepath.Join(r.configDir, "extensions", "extensions.yaml")
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // New registry
+		}
+		return fmt.Errorf(i18n.T("extension_failed_read_registry"), err)
+	}
+
+	if err := yaml.Unmarshal(data, &r.registry); err != nil {
+		return fmt.Errorf(i18n.T("extension_failed_parse_registry"), err)
+	}
+
+	return nil
+}

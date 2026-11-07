@@ -1,0 +1,663 @@
+package core
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
+	debuglog "github.com/danielmiessler/fabric/internal/log"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/anthropic"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/azure"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/azure_entra"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/azureaigateway"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/bedrock"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/claudecode"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/codex"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/copilot"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/digitalocean"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/dryrun"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/exolab"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/gemini"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/lmstudio"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/ollama"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/openai"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/openai_compatible"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/perplexity"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/vertexai"
+	"github.com/danielmiessler/fabric/internal/plugins/strategy"
+
+	"github.com/samber/lo"
+
+	"github.com/danielmiessler/fabric/internal/plugins"
+	"github.com/danielmiessler/fabric/internal/plugins/ai"
+	"github.com/danielmiessler/fabric/internal/plugins/db/fsdb"
+	"github.com/danielmiessler/fabric/internal/plugins/template"
+	"github.com/danielmiessler/fabric/internal/tools"
+	"github.com/danielmiessler/fabric/internal/tools/custom_patterns"
+	"github.com/danielmiessler/fabric/internal/tools/firecrawl"
+	"github.com/danielmiessler/fabric/internal/tools/jina"
+	"github.com/danielmiessler/fabric/internal/tools/lang"
+	"github.com/danielmiessler/fabric/internal/tools/serply"
+	"github.com/danielmiessler/fabric/internal/tools/spotify"
+	"github.com/danielmiessler/fabric/internal/tools/youtube"
+	"github.com/danielmiessler/fabric/internal/util"
+)
+
+func NewPluginRegistry(db *fsdb.Db) (ret *PluginRegistry, err error) {
+	ret = &PluginRegistry{
+		Db:             db,
+		VendorManager:  ai.NewVendorsManager(),
+		VendorsAll:     ai.NewVendorsManager(),
+		PatternsLoader: tools.NewPatternsLoader(db.Patterns),
+		CustomPatterns: custom_patterns.NewCustomPatterns(),
+		YouTube:        youtube.NewYouTube(),
+		Language:       lang.NewLanguage(),
+		Jina:           jina.NewClient(),
+		Serply:         serply.NewClient(),
+		Firecrawl:      firecrawl.NewClient(),
+		Spotify:        spotify.NewSpotify(),
+		Strategies:     strategy.NewStrategiesManager(),
+	}
+
+	var homedir string
+	if homedir, err = os.UserHomeDir(); err != nil {
+		return
+	}
+	ret.TemplateExtensions = template.NewExtensionManager(filepath.Join(homedir, ".config/fabric"))
+
+	ret.Defaults = tools.NeeDefaults(ret.GetModels)
+
+	vendors := []ai.Vendor{}
+
+	codexClient := codex.NewClient()
+	codexClient.WithStoreLock = func(fn func() error) error {
+		return db.WithEnvLock(func() error {
+			env, err := db.ReadEnvFile()
+			if err != nil {
+				return err
+			}
+			codexClient.LoadEnvSettings(env)
+			return fn()
+		})
+	}
+	codexClient.TokenPersist = func() error {
+		return db.ApplyEnvUpdates(map[string]string{
+			codexClient.AccessToken.EnvVariable:  strings.TrimSpace(codexClient.AccessToken.Value),
+			codexClient.RefreshToken.EnvVariable: strings.TrimSpace(codexClient.RefreshToken.Value),
+			codexClient.AccountID.EnvVariable:    strings.TrimSpace(codexClient.AccountID.Value),
+		})
+	}
+	vendors = append(vendors,
+		openai.NewClient(),
+		digitalocean.NewClient(),
+		ollama.NewClient(),
+		azure.NewClient(),
+		azureaigateway.NewClient(),
+		azure_entra.NewClient(),
+		gemini.NewClient(),
+		anthropic.NewClient(),
+		vertexai.NewClient(),
+		lmstudio.NewClient(),
+		lmstudio.NewClientCompatible("llama.cpp", "http://localhost:8080/v1", nil), // llama.cpp server. Same HTTP API as LM Studio, API key optional.
+		exolab.NewClient(),
+		perplexity.NewClient(),
+		codexClient,
+		copilot.NewClient(),    // Microsoft 365 Copilot
+		bedrock.NewClient(),    // AWS Bedrock. Credentials come from setup or the AWS credential chain.
+		claudecode.NewClient(), // Claude Code CLI. It uses the local Claude subscription login.
+	)
+
+	for providerName := range openai_compatible.ProviderMap {
+		provider, _ := openai_compatible.GetProviderByName(providerName)
+		vendors = append(vendors, openai_compatible.NewClient(provider))
+	}
+
+	sort.Slice(vendors, func(i, j int) bool {
+		return strings.ToLower(vendors[i].GetName()) < strings.ToLower(vendors[j].GetName())
+	})
+
+	ret.VendorsAll.AddVendors(vendors...)
+	_ = ret.Configure()
+
+	return
+}
+
+func (o *PluginRegistry) ListVendors(out io.Writer) error {
+	vendors := lo.Map(o.VendorsAll.Vendors, func(vendor ai.Vendor, _ int) string {
+		return vendor.GetName()
+	})
+	fmt.Fprintf(out, "%s\n\n", i18n.T("available_vendors_header"))
+	for _, vendor := range vendors {
+		fmt.Fprintf(out, "%s\n", vendor)
+	}
+	return nil
+}
+
+type PluginRegistry struct {
+	Db *fsdb.Db
+
+	vendorMu sync.Mutex
+
+	VendorManager      *ai.VendorsManager
+	VendorsAll         *ai.VendorsManager
+	Defaults           *tools.Defaults
+	PatternsLoader     *tools.PatternsLoader
+	CustomPatterns     *custom_patterns.CustomPatterns
+	YouTube            *youtube.YouTube
+	Language           *lang.Language
+	Jina               *jina.Client
+	Serply             *serply.Client
+	Firecrawl          *firecrawl.Client
+	Spotify            *spotify.Spotify
+	TemplateExtensions *template.ExtensionManager
+	Strategies         *strategy.StrategiesManager
+}
+
+func (o *PluginRegistry) SaveEnvFile() (err error) {
+	var envFileContent bytes.Buffer
+
+	o.Defaults.Settings.FillEnvFileContent(&envFileContent)
+	o.PatternsLoader.SetupFillEnvFileContent(&envFileContent)
+	o.CustomPatterns.SetupFillEnvFileContent(&envFileContent)
+	o.Strategies.SetupFillEnvFileContent(&envFileContent)
+
+	for _, vendor := range o.VendorManager.Vendors {
+		vendor.SetupFillEnvFileContent(&envFileContent)
+	}
+
+	o.YouTube.SetupFillEnvFileContent(&envFileContent)
+	o.Jina.SetupFillEnvFileContent(&envFileContent)
+	o.Serply.SetupFillEnvFileContent(&envFileContent)
+	o.Firecrawl.SetupFillEnvFileContent(&envFileContent)
+	o.Spotify.SetupFillEnvFileContent(&envFileContent)
+	o.Language.SetupFillEnvFileContent(&envFileContent)
+
+	err = o.Db.SaveEnv(envFileContent.String())
+	return
+}
+
+func (o *PluginRegistry) Setup() (err error) {
+	isFirstRun := o.isFirstTimeSetup()
+
+	if isFirstRun {
+		err = o.runFirstTimeSetup()
+	} else {
+		err = o.runInteractiveSetup()
+	}
+
+	if err != nil {
+		return
+	}
+
+	o.validateSetup()
+
+	return
+}
+
+func (o *PluginRegistry) isFirstTimeSetup() bool {
+	patternsConfigured := o.PatternsLoader.IsConfigured()
+	strategiesConfigured := o.Strategies.IsConfigured()
+	hasVendor := len(o.VendorManager.Vendors) > 0
+
+	return !patternsConfigured || !strategiesConfigured || !hasVendor
+}
+
+// runFirstTimeSetup downloads patterns and strategies without a prompt, then asks for a vendor and the defaults.
+func (o *PluginRegistry) runFirstTimeSetup() (err error) {
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println(i18n.T("setup_welcome_header"))
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if !o.PatternsLoader.IsConfigured() {
+		fmt.Printf("\n%s\n", i18n.T("setup_step_downloading_patterns"))
+		if err = o.PatternsLoader.Setup(); err != nil {
+			return fmt.Errorf(i18n.T("setup_failed_download_patterns"), err)
+		}
+		if err = o.SaveEnvFile(); err != nil {
+			return
+		}
+	}
+
+	if !o.Strategies.IsConfigured() {
+		fmt.Printf("\n%s\n", i18n.T("setup_step_downloading_strategies"))
+		if err = o.Strategies.Setup(); err != nil {
+			return fmt.Errorf(i18n.T("setup_failed_download_strategies"), err)
+		}
+		if err = o.SaveEnvFile(); err != nil {
+			return
+		}
+	}
+
+	if len(o.VendorManager.Vendors) == 0 {
+		fmt.Printf("\n%s\n", i18n.T("setup_step_configure_ai_provider"))
+		fmt.Printf("   %s\n", i18n.T("setup_ai_provider_required"))
+		fmt.Printf("   %s\n", i18n.T("setup_add_more_providers_later"))
+		fmt.Println()
+
+		if err = o.runVendorSetup(); err != nil {
+			return
+		}
+	}
+
+	if !o.Defaults.IsConfigured() {
+		fmt.Printf("\n%s\n", i18n.T("setup_step_setting_defaults"))
+		if err = o.Defaults.Setup(); err != nil {
+			return fmt.Errorf(i18n.T("setup_failed_set_defaults"), err)
+		}
+		if err = o.SaveEnvFile(); err != nil {
+			return
+		}
+	}
+
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println(i18n.T("setup_complete_header"))
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("\n%s\n", i18n.T("setup_next_steps"))
+	fmt.Printf("  %s\n", i18n.T("setup_list_patterns"))
+	fmt.Printf("  %s\n", i18n.T("setup_try_pattern"))
+	fmt.Printf("  %s\n", i18n.T("setup_configure_more"))
+	fmt.Println()
+
+	return
+}
+
+// runVendorSetup asks the user to select and configure one AI vendor.
+func (o *PluginRegistry) runVendorSetup() (err error) {
+	setupQuestion := plugins.NewSetupQuestion("Enter the number of the AI provider to configure")
+	groupsPlugins := util.NewGroupsItemsSelector(i18n.T("setup_available_ai_providers"),
+		func(plugin plugins.Plugin) string {
+			return plugin.GetSetupDescription()
+		})
+
+	groupsPlugins.AddGroupItems("", lo.Map(o.VendorsAll.Vendors,
+		func(vendor ai.Vendor, _ int) plugins.Plugin {
+			return vendor
+		})...)
+
+	groupsPlugins.Print(false)
+
+	if answerErr := setupQuestion.Ask(i18n.T("setup_enter_ai_provider_number")); answerErr != nil {
+		return answerErr
+	}
+
+	if setupQuestion.Value == "" {
+		return errors.New(i18n.T("setup_no_ai_provider_selected"))
+	}
+
+	number, parseErr := strconv.Atoi(setupQuestion.Value)
+	if parseErr != nil {
+		return fmt.Errorf(i18n.T("setup_invalid_selection"), setupQuestion.Value)
+	}
+
+	var plugin plugins.Plugin
+	if _, plugin, err = groupsPlugins.GetGroupAndItemByItemNumber(number); err != nil {
+		return
+	}
+
+	if pluginSetupErr := plugin.Setup(); pluginSetupErr != nil {
+		return pluginSetupErr
+	}
+
+	o.registerVendor(plugin)
+
+	if err = o.SaveEnvFile(); err != nil {
+		return
+	}
+
+	return
+}
+
+func (o *PluginRegistry) runInteractiveSetup() (err error) {
+	setupQuestion := plugins.NewSetupQuestion(i18n.T("setup_plugin_prompt"))
+	groupsPlugins := util.NewGroupsItemsSelector(i18n.T("setup_available_plugins"),
+		func(plugin plugins.Plugin) string {
+			var configuredLabel string
+			if plugin.IsConfigured() {
+				configuredLabel = i18n.T("plugin_configured")
+			} else {
+				configuredLabel = i18n.T("plugin_not_configured")
+			}
+			return fmt.Sprintf("%v%v", plugin.GetSetupDescription(), configuredLabel)
+		})
+
+	groupsPlugins.AddGroupItems(i18n.T("setup_required_configuration_header"), lo.Map(o.VendorsAll.Vendors,
+		func(vendor ai.Vendor, _ int) plugins.Plugin {
+			return vendor
+		})...)
+
+	groupsPlugins.AddGroupItems(i18n.T("setup_required_tools"), o.Defaults, o.PatternsLoader, o.Strategies)
+
+	groupsPlugins.AddGroupItems(i18n.T("setup_optional_configuration_header"), o.CustomPatterns, o.Firecrawl, o.Jina, o.Language, o.Serply, o.Spotify, o.YouTube)
+
+	for {
+		groupsPlugins.Print(false)
+
+		if answerErr := setupQuestion.Ask(i18n.T("setup_plugin_number")); answerErr != nil {
+			break
+		}
+
+		if setupQuestion.Value == "" {
+			break
+		}
+		number, parseErr := strconv.Atoi(setupQuestion.Value)
+		setupQuestion.Value = ""
+
+		if parseErr == nil {
+			var plugin plugins.Plugin
+			if _, plugin, err = groupsPlugins.GetGroupAndItemByItemNumber(number); err != nil {
+				return
+			}
+
+			if pluginSetupErr := plugin.Setup(); pluginSetupErr != nil {
+				println(pluginSetupErr.Error())
+			} else {
+				o.registerVendor(plugin)
+				if err = o.SaveEnvFile(); err != nil {
+					break
+				}
+			}
+		} else {
+			break
+		}
+	}
+
+	err = o.SaveEnvFile()
+
+	return
+}
+
+// validateSetup prints the status of each required component and a warning when one is missing.
+func (o *PluginRegistry) validateSetup() {
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println(i18n.T("setup_validation_header"))
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	missingRequired := false
+
+	if len(o.VendorManager.Vendors) > 0 {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_ai_provider_configured"))
+	} else {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_ai_provider_missing"))
+		missingRequired = true
+	}
+
+	if o.Defaults.IsConfigured() {
+		fmt.Printf("  %s\n", fmt.Sprintf(i18n.T("setup_validation_defaults_configured"), o.Defaults.Vendor.Value, o.Defaults.Model.Value))
+	} else {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_defaults_missing"))
+		missingRequired = true
+	}
+
+	if o.PatternsLoader.IsConfigured() {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_patterns_configured"))
+	} else {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_patterns_missing"))
+		missingRequired = true
+	}
+
+	if o.Strategies.IsConfigured() {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_strategies_configured"))
+	} else {
+		fmt.Printf("  %s\n", i18n.T("setup_validation_strategies_missing"))
+		missingRequired = true
+	}
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if missingRequired {
+		fmt.Printf("\n%s\n", i18n.T("setup_validation_incomplete_warning"))
+		fmt.Printf("   %s\n", i18n.T("setup_validation_incomplete_help"))
+		fmt.Println()
+	} else {
+		fmt.Printf("\n%s\n", i18n.T("setup_validation_complete"))
+		fmt.Println()
+	}
+}
+
+func (o *PluginRegistry) SetupVendor(vendorName string) (err error) {
+	if err = o.VendorsAll.SetupVendor(vendorName, o.VendorManager.VendorsByName); err != nil {
+		return
+	}
+	if vendor := o.VendorsAll.FindByName(vendorName); vendor != nil {
+		o.registerVendor(vendor)
+	}
+	err = o.SaveEnvFile()
+	return
+}
+
+func (o *PluginRegistry) registerVendor(plugin plugins.Plugin) {
+	vendor, ok := plugin.(ai.Vendor)
+	if !ok {
+		return
+	}
+	o.vendorMu.Lock()
+	defer o.vendorMu.Unlock()
+	name := vendor.GetName()
+	for _, existing := range o.VendorManager.Vendors {
+		if strings.EqualFold(existing.GetName(), name) {
+			return
+		}
+	}
+	o.VendorManager.AddVendors(vendor)
+}
+
+func (o *PluginRegistry) ConfigureVendors() {
+	o.vendorMu.Lock()
+	defer o.vendorMu.Unlock()
+	o.VendorManager.Clear()
+	for _, vendor := range o.VendorsAll.Vendors {
+		if vendorErr := vendor.Configure(); vendorErr != nil {
+			msg := fmt.Sprintf(i18n.T("vendor_not_configured"), vendor.GetName())
+			if vendor.IsConfigured() {
+				debuglog.Log("%s: %v\n", msg, vendorErr)
+			} else {
+				debuglog.Debug(debuglog.Trace, "%s: %v\n", msg, vendorErr)
+			}
+		} else if vendor.IsConfigured() {
+			o.VendorManager.AddVendors(vendor)
+		}
+	}
+}
+
+func (o *PluginRegistry) activateVendor(name string) (ai.Vendor, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, nil
+	}
+
+	o.vendorMu.Lock()
+	defer o.vendorMu.Unlock()
+
+	if v := o.VendorManager.FindByName(name); v != nil {
+		return v, nil
+	}
+	if o.VendorsAll == nil {
+		return nil, nil
+	}
+	v := o.VendorsAll.FindByName(name)
+	if v == nil {
+		return nil, nil
+	}
+	if err := v.Configure(); err != nil {
+		return nil, err
+	}
+	if !v.IsConfigured() {
+		return nil, nil
+	}
+	o.VendorManager.AddVendors(v)
+	return v, nil
+}
+
+func (o *PluginRegistry) GetModels() (ret *ai.VendorsModels, err error) {
+	o.ConfigureVendors()
+	ret, err = o.VendorManager.GetModels()
+	return
+}
+
+// Configure buildClient VendorsController based on the environment variables
+func (o *PluginRegistry) Configure() (err error) {
+	o.ConfigureVendors()
+	_ = o.Defaults.Configure()
+	if err := o.CustomPatterns.Configure(); err != nil {
+		return fmt.Errorf(i18n.T("plugin_registry_error_configuring_custom_patterns"), err)
+	}
+	_ = o.PatternsLoader.Configure()
+
+	customPatternsDir := os.Getenv("CUSTOM_PATTERNS_DIRECTORY")
+	if customPatternsDir != "" {
+		if strings.HasPrefix(customPatternsDir, "~/") {
+			if homeDir, err := os.UserHomeDir(); err == nil {
+				customPatternsDir = filepath.Join(homeDir, customPatternsDir[2:])
+			}
+		}
+		o.Db.Patterns.CustomPatternsDir = customPatternsDir
+		o.PatternsLoader.Patterns.CustomPatternsDir = customPatternsDir
+	}
+
+	// These plugins are optional. Ignore their configuration errors.
+	_ = o.YouTube.Configure()
+	_ = o.Jina.Configure()
+	_ = o.Serply.Configure()
+	_ = o.Firecrawl.Configure()
+	_ = o.Spotify.Configure()
+	_ = o.Language.Configure()
+	return
+}
+
+func (o *PluginRegistry) GetChatter(model string, modelContextLength int, vendorName string, stream bool, dryRun bool) (ret *Chatter, err error) {
+	ret = &Chatter{
+		db:     o.Db,
+		Stream: stream,
+		DryRun: dryRun,
+	}
+
+	defaultModel := o.Defaults.Model.Value
+	defaultModelContextLength, err := strconv.Atoi(o.Defaults.ModelContextLength.Value)
+	defaultVendor := o.Defaults.Vendor.Value
+	vendorManager := o.VendorManager
+
+	if err != nil {
+		defaultModelContextLength = 0
+		err = nil
+	}
+
+	ret.modelContextLength = modelContextLength
+	if ret.modelContextLength == 0 {
+		ret.modelContextLength = defaultModelContextLength
+	}
+
+	if dryRun {
+		ret.vendor = dryrun.NewClient()
+		ret.model = model
+		if ret.model == "" {
+			ret.model = defaultModel
+		}
+	} else if model == "" {
+		name := vendorName
+		if name == "" {
+			name = defaultVendor
+		}
+		if ret.vendor, err = o.activateVendor(name); err != nil {
+			return
+		}
+		ret.model = defaultModel
+	} else {
+		if vendorName != "" {
+			if ret.vendor, err = o.activateVendor(vendorName); err != nil {
+				return
+			}
+		} else if !vendorManager.HasVendors() {
+			if _, err = o.activateVendor(defaultVendor); err != nil {
+				return
+			}
+		}
+
+		var models *ai.VendorsModels
+		if models, err = vendorManager.GetModels(); err != nil {
+			return
+		}
+
+		// Use the vendor's spelling of the model name. It becomes ret.model.
+		modelCatalog := models
+		if vendorName != "" {
+			modelCatalog = models.FilterByVendor(vendorName)
+		}
+		actualModelName := modelCatalog.FindModelNameCaseInsensitive(model)
+		if actualModelName != "" {
+			model = actualModelName
+		}
+
+		if vendorName != "" {
+			ret.vendor = vendorManager.FindByName(vendorName)
+			availableVendors := models.FindGroupsByItem(model)
+			vendorAvailable := lo.ContainsBy(availableVendors, func(name string) bool {
+				return strings.EqualFold(name, vendorName)
+			})
+			// The Codex models endpoint omits some subscription models.
+			// A user can still select one with -V Codex -m <model>.
+			allowCodexPassthrough := ret.vendor != nil &&
+				strings.EqualFold(ret.vendor.GetName(), "Codex") &&
+				len(availableVendors) == 0
+			if ret.vendor == nil || (!vendorAvailable && !allowCodexPassthrough) {
+				err = fmt.Errorf(i18n.T("plugin_registry_model_not_available_for_vendor"), model, vendorName)
+				return
+			}
+		} else {
+			// An unknown model with a "/" can be "vendor/model", for example "ollama/llama3".
+			if actualModelName == "" {
+				if idx := strings.Index(model, "/"); idx > 0 {
+					prefix := model[:idx]
+					if v := vendorManager.FindByName(prefix); v != nil {
+						vendorName = prefix
+						model = model[idx+1:]
+						if normalized := models.FilterByVendor(prefix).FindModelNameCaseInsensitive(model); normalized != "" {
+							model = normalized
+						}
+						ret.vendor = v
+					}
+				}
+			}
+
+			if ret.vendor == nil {
+				availableVendors := models.FindGroupsByItem(model)
+				if len(availableVendors) > 1 {
+					debuglog.Log("Warning: multiple vendors provide model %s: %s. Using %s. Specify --vendor to select a vendor.\n", model, strings.Join(availableVendors, ", "), availableVendors[0])
+				}
+				ret.vendor = vendorManager.FindByName(models.FindGroupsByItemFirst(model))
+			}
+		}
+
+		ret.model = model
+	}
+
+	if ret.vendor == nil {
+		name := vendorName
+		if name == "" {
+			name = defaultVendor
+		}
+		if ret.vendor, err = o.activateVendor(name); err != nil {
+			return
+		}
+	}
+
+	if ret.vendor == nil {
+		var errMsg string
+		if defaultModel == "" || defaultVendor == "" {
+			errMsg = i18n.T("plugin_registry_run_setup_select_defaults")
+		} else {
+			errMsg = i18n.T("plugin_registry_could_not_find_vendor")
+		}
+		err = fmt.Errorf(
+			" Requested Model = %s\n Default Model = %s\n Default Vendor = %s.\n\n%s",
+			model, defaultModel, defaultVendor, errMsg)
+		return
+	}
+	return
+}
