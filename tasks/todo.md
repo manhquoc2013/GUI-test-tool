@@ -28,4 +28,11 @@
 - [x] Task 26: Add in-memory LRU cache with TTL in `LiveDomScanner` for repeated URL scanning <!-- id: 36 -->
 - [x] Task 27: Implement Excel 32,767 cell limit safe truncation guard in `TestCaseExcelExportService` & `ExcelReportService` <!-- id: 37 -->
 - [x] Task 28: Add unit tests for atomic writes, DOM cache, and cell truncation; verify full test suite (154/154 passing) <!-- id: 38 -->
+- [x] Task 29: Enhance `StudioPaths.java` for installed permission safety & data persistence <!-- id: 39 -->
+- [x] Task 30: Write unit tests for `StudioPaths` in `StudioPathsTest.java` and verify all tests pass <!-- id: 40 -->
+- [x] Task 31: Create `scripts/build-installer.sh` for macOS `.dmg` installer with bundled offline runtime <!-- id: 41 -->
+- [x] Task 32: Create `scripts/installer.iss` and `scripts/build-installer.bat` for Windows `.exe` Setup <!-- id: 42 -->
+- [x] Task 33: Create `.github/workflows/build-installers.yml` for automated multi-OS release builds <!-- id: 43 -->
+- [x] Task 34: Execute macOS `.dmg` build, verify installer artifact & offline browser integration <!-- id: 44 -->
+- [x] Task 35: Run full verification suite and update `tasks/learnings.md` <!-- id: 45 -->
 

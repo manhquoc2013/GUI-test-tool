@@ -4,11 +4,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 
 public class StudioPaths {
     private static Path APP_HOME;
+    private static Path DATA_HOME;
 
     static {
+        initPaths();
+    }
+
+    private static void initPaths() {
         // 1. System property (jpackage sets -Dstudio.home=$ROOTDIR)
         String prop = System.getProperty("studio.home");
         if (prop != null && !prop.isBlank()) {
@@ -56,6 +62,77 @@ public class StudioPaths {
         if (APP_HOME == null) {
             APP_HOME = Paths.get(System.getProperty("user.dir"));
         }
+
+        DATA_HOME = determineDataHome(APP_HOME);
+    }
+
+    public static Path determineDataHome(Path appHome) {
+        // 1. Explicit system property override
+        String prop = System.getProperty("studio.data.dir");
+        if (prop != null && !prop.isBlank()) {
+            return Paths.get(prop);
+        }
+        // 2. Explicit environment variable override
+        String env = System.getenv("STUDIO_DATA_DIR");
+        if (env != null && !env.isBlank()) {
+            return Paths.get(env);
+        }
+        // 3. Check if appHome is an installed system location or read-only
+        if (isSystemOrReadOnlyLocation(appHome)) {
+            return getDefaultUserDataDir();
+        }
+        // 4. Portable or dev mode: store data alongside application
+        return appHome;
+    }
+
+    public static boolean isSystemOrReadOnlyLocation(Path path) {
+        if (path == null) {
+            return true;
+        }
+        String p = path.toAbsolutePath().normalize().toString();
+        String pLower = p.toLowerCase(Locale.ROOT);
+
+        // macOS app bundles or Applications folder
+        if (pLower.contains("/applications/") || pLower.startsWith("/applications")
+                || pLower.contains(".app/contents") || pLower.endsWith(".app")) {
+            return true;
+        }
+        // Windows Program Files
+        if (pLower.contains("program files") || pLower.contains("program files (x86)")) {
+            return true;
+        }
+        // Unix system directories
+        if (pLower.startsWith("/usr/") || pLower.startsWith("/opt/") || pLower.startsWith("/etc/")) {
+            return true;
+        }
+        // If not writable
+        try {
+            if (Files.exists(path) && !Files.isWritable(path)) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    public static Path getDefaultUserDataDir() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String userHome = System.getProperty("user.home", ".");
+        if (os.contains("mac")) {
+            return Paths.get(userHome, "Library", "Application Support", "PlaywrightAutomationStudio");
+        } else if (os.contains("win")) {
+            String appdata = System.getenv("APPDATA");
+            if (appdata != null && !appdata.isBlank()) {
+                return Paths.get(appdata, "PlaywrightAutomationStudio");
+            }
+            return Paths.get(userHome, "AppData", "Roaming", "PlaywrightAutomationStudio");
+        } else {
+            String xdg = System.getenv("XDG_DATA_HOME");
+            if (xdg != null && !xdg.isBlank()) {
+                return Paths.get(xdg, "playwright-automation-studio");
+            }
+            return Paths.get(userHome, ".local", "share", "playwright-automation-studio");
+        }
     }
 
     private static String name(Path path) {
@@ -64,6 +141,7 @@ public class StudioPaths {
     }
 
     public static Path getAppHome() { return APP_HOME; }
+    public static Path getDataHome() { return DATA_HOME; }
     public static Path getDataDir() { return resolve("data"); }
     public static Path getProjectDir() { return resolve("data", "project"); }
     public static Path getReportsDir() { return resolve("data", "reports"); }
@@ -72,27 +150,75 @@ public class StudioPaths {
     public static Path getWorkDir() { return resolve("work"); }
     public static Path getCompileDir() { return resolve("work", "compile"); }
     public static Path getHarnessDir() { return resolve("work", "harness"); }
-    public static Path resolve(String... segments) { return Paths.get(APP_HOME.toString(), segments); }
 
-    public static Path getToolsDir() { return resolve("tools"); }
-    public static Path getNodeDir() { return getToolsDir().resolve("node"); }
-    public static Path getBrowsersDir() { return resolve("browsers"); }
-
-    public static Path getNodeExecutable() {
-        String os = System.getProperty("os.name").toLowerCase();
-        String nodeExe = os.contains("win") ? "node.exe" : "node";
-        Path inBin = getNodeDir().resolve("bin").resolve(nodeExe);
-        if (Files.exists(inBin)) {
-            return inBin;
+    public static Path resolve(String... segments) {
+        if (segments == null || segments.length == 0) {
+            return APP_HOME;
         }
-        Path inRoot = getNodeDir().resolve(nodeExe);
-        if (Files.exists(inRoot)) {
-            return inRoot;
+        String first = segments[0];
+        if ("data".equalsIgnoreCase(first) || "work".equalsIgnoreCase(first)) {
+            return Paths.get(DATA_HOME.toString(), segments);
         }
-        return inBin;
+        return Paths.get(APP_HOME.toString(), segments);
     }
 
-    public static Path getPlaywrightCliDir() { return getToolsDir().resolve("playwright-cli"); }
+    public static Path getToolsDir() { return APP_HOME.resolve("tools"); }
+    public static Path getNodeDir() { return getToolsDir().resolve("node"); }
+
+    public static Path getBrowsersDir() {
+        Path bundled = APP_HOME.resolve("browsers");
+        if (Files.isDirectory(bundled)) {
+            return bundled;
+        }
+        if (DATA_HOME != null && !DATA_HOME.equals(APP_HOME)) {
+            Path inData = DATA_HOME.resolve("browsers");
+            if (Files.isDirectory(inData)) {
+                return inData;
+            }
+        }
+        return bundled;
+    }
+
+    public static Path getNodeExecutable() {
+        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        String nodeExe = os.contains("win") ? "node.exe" : "node";
+
+        // 1. Check APP_HOME/tools/node/bin or APP_HOME/tools/node
+        Path inAppBin = APP_HOME.resolve("tools").resolve("node").resolve("bin").resolve(nodeExe);
+        if (Files.exists(inAppBin)) {
+            return inAppBin;
+        }
+        Path inAppRoot = APP_HOME.resolve("tools").resolve("node").resolve(nodeExe);
+        if (Files.exists(inAppRoot)) {
+            return inAppRoot;
+        }
+        // 2. Check DATA_HOME/tools/node if distinct
+        if (DATA_HOME != null && !DATA_HOME.equals(APP_HOME)) {
+            Path inDataBin = DATA_HOME.resolve("tools").resolve("node").resolve("bin").resolve(nodeExe);
+            if (Files.exists(inDataBin)) {
+                return inDataBin;
+            }
+            Path inDataRoot = DATA_HOME.resolve("tools").resolve("node").resolve(nodeExe);
+            if (Files.exists(inDataRoot)) {
+                return inDataRoot;
+            }
+        }
+        return inAppBin;
+    }
+
+    public static Path getPlaywrightCliDir() {
+        Path inApp = APP_HOME.resolve("tools").resolve("playwright-cli");
+        if (Files.isDirectory(inApp)) {
+            return inApp;
+        }
+        if (DATA_HOME != null && !DATA_HOME.equals(APP_HOME)) {
+            Path inData = DATA_HOME.resolve("tools").resolve("playwright-cli");
+            if (Files.isDirectory(inData)) {
+                return inData;
+            }
+        }
+        return inApp;
+    }
 
     public static void ensureDirectories() throws IOException {
         Files.createDirectories(getDataDir());
@@ -103,5 +229,14 @@ public class StudioPaths {
         Files.createDirectories(getWorkDir());
         Files.createDirectories(getCompileDir());
         Files.createDirectories(getHarnessDir());
+    }
+
+    static void setPathsForTesting(Path appHome, Path dataHome) {
+        APP_HOME = appHome;
+        DATA_HOME = dataHome != null ? dataHome : determineDataHome(appHome);
+    }
+
+    static void resetForTesting() {
+        initPaths();
     }
 }

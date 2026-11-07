@@ -208,3 +208,17 @@
   - Toàn bộ background worker threads trong `ThemeService`, `AiCasePromptDialog`, `BusyButtons` đều được đặt cờ `setDaemon(true)` để không cản trở JVM shutdown.
 - **Embedded Database Reclamation**:
   - `DatabaseManager.shutdown()` chạy `SHUTDOWN COMPACT` để defrag file H2, flush toàn bộ dirty pages và nhả lock file.
+
+## 8. Full Offline Native Installers (macOS .dmg & Windows .exe Setup)
+- **Kiến trúc App Image & Installer**:
+  - `jpackage` tạo app-image tự chứa OpenJDK runtime tối giản qua `jlink` (`java.base`, `java.desktop`, `java.sql`, `java.naming`, `java.management`, `java.instrument`, `jdk.compiler`, `jdk.unsupported`).
+  - Node.js LTS được nhúng portable dưới `tools/node/` và Playwright Chromium + FFMPEG được nhúng dưới `browsers/` trong bundle giúp ứng dụng 100% offline, mở lên chạy ngay không cần internet hay cài đặt thêm.
+- **An toàn dữ liệu người dùng khi cài đặt vào thư mục hệ thống**:
+  - Khi ứng dụng được cài vào `/Applications` (macOS) hoặc `C:\Program Files` (Windows), người dùng thường không có quyền ghi trực tiếp vào bundle, và việc ghi vào bundle trên macOS có thể vi phạm Code Signing / SIP, đồng thời nâng cấp phiên bản mới sẽ xóa mất dữ liệu cũ.
+  - `StudioPaths` được thiết kế thông minh:
+    - Nếu chạy ở chế độ portable hoặc dev (thư mục ghi được): Dữ liệu `data/` và `work/` nằm ngay cạnh app.
+    - Nếu cài đặt vào `/Applications` hoặc `Program Files`: Tự động chuyển hướng thư mục ghi (`data/`, `work/`) sang thư mục chuẩn của hệ điều hành (`~/Library/Application Support/PlaywrightAutomationStudio` trên macOS, `%APPDATA%\PlaywrightAutomationStudio` trên Windows), trong khi các tài nguyên nhị phân tĩnh (`browsers/`, `tools/`) vẫn đọc trực tiếp từ app bundle.
+- **macOS Drag-and-Drop DMG**:
+  - Sử dụng `hdiutil` tạo DMG chuẩn Apple với symlink `Applications -> /Applications` và icon app.
+- **Windows Inno Setup Wizard**:
+  - Kịch bản `installer.iss` cung cấp wizard cài đặt hiện đại, icon Desktop, Start Menu, và Uninstaller tự động. Có fallback sang `jpackage --type exe/msi` nếu máy build chưa có Inno Setup.

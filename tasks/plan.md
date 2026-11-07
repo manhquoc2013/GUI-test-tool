@@ -36,3 +36,11 @@
 - Add error logging for database and disk storage operations in `SettingsStore`.
 - Protect log and terminal outputs via `SecuritySanitizer.sanitize(...)` in `OpenAiClient` and `TestRunnerService`.
 - Verify all 138 unit tests pass cleanly.
+
+## Phase 7: Full Offline Native Installers (macOS .dmg & Windows .exe Setup)
+- Update `StudioPaths.java` to support installed app permission safety (redirecting writable data to user app support directory when installed in system directories like `/Applications` or `Program Files`, while preserving static bundled `browsers/` and `tools/` from `APP_HOME`).
+- Add unit tests for `StudioPaths` in `StudioPathsTest.java`.
+- Create `scripts/build-installer.sh` to package macOS `.app` bundle and build `.dmg` drag-and-drop installer.
+- Create `scripts/installer.iss` and `scripts/build-installer.bat` for Windows Inno Setup / jpackage installer.
+- Create GitHub Actions workflow `.github/workflows/build-installers.yml` for automated CI/CD installer generation.
+- Execute macOS `.dmg` installer build and verify integrity, launchability, and offline Chromium presence.

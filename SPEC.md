@@ -70,3 +70,14 @@ Upgrade the AI capabilities in Playwright Automation Studio (`GUI-test-tool`) in
 - Unit tests for `AiAssistantPageController` tab bindings and live DOM scan integration.
 - Unit tests for `ApiKeyCipherTest`, `SettingsSecurityTest`, `SecuritySanitizerTest`.
 - Regression verification: All 138+ tests must PASS.
+
+## 4. Full Offline Native Installers (macOS .dmg and Windows .exe Setup)
+
+### 4.1 Objective
+Provide turnkey native installer formats (`.dmg` for macOS, `.exe` Setup wizard for Windows) that are 100% self-contained and offline-ready:
+1. **Zero Host Java Prerequisite**: Embedded OpenJDK 26 runtime created via `jpackage` with all required JavaFX & compiler modules.
+2. **Offline Browsers & Node Runtime**: Bundled Node.js LTS and Playwright Chromium binaries offline.
+3. **Data Safety & Clean Permissions**: `StudioPaths` dynamically identifies portable vs installed mode. When installed in system folders (`/Applications` on macOS, `Program Files` on Windows), writable user data (`data/`, `work/`) is safely anchored in standard OS user application data directories (`~/Library/Application Support/PlaywrightAutomationStudio` on macOS, `%APPDATA%\PlaywrightAutomationStudio` on Windows) while static binaries (`browsers`, `tools`) are loaded directly from the installation package.
+4. **macOS Installer (`.dmg`)**: Automated script creating a drag-and-drop installer `.dmg` with `/Applications` shortcut and `.app` bundle.
+5. **Windows Installer (`.exe`)**: Inno Setup script (`installer.iss`) and build script (`build-installer.bat`) creating a modern Setup wizard with Desktop shortcut, Start Menu shortcut, and Uninstaller.
+6. **Continuous Integration**: GitHub Actions workflow to build release installers for both macOS and Windows.
