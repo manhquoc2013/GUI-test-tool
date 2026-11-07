@@ -279,7 +279,11 @@ public class ExcelReportService {
 
     private static void writeText(Row row, int col, String value, Styles styles, boolean zebra, boolean center) {
         Cell cell = row.createCell(col);
-        cell.setCellValue(value);
+        String text = nullToEmpty(value);
+        if (text.length() > 32700) {
+            text = text.substring(0, 32700) + "\n... [TRUNCATED - EXCEEDED EXCEL 32,767 CHAR LIMIT]";
+        }
+        cell.setCellValue(text);
         cell.setCellStyle(center ? styles.dataCenter(zebra) : styles.data(zebra));
     }
 

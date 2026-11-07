@@ -399,6 +399,16 @@ public final class TestCaseExcelExportService {
         return rowIdx + 1;
     }
 
+    public static final int EXCEL_MAX_CELL_CHARS = 32700;
+
+    public static String safeCellText(String text) {
+        if (text == null) return "";
+        if (text.length() > EXCEL_MAX_CELL_CHARS) {
+            return text.substring(0, EXCEL_MAX_CELL_CHARS) + "\n... [TRUNCATED - EXCEEDED EXCEL 32,767 CHAR LIMIT]";
+        }
+        return text;
+    }
+
     private static void createCasesSheet(Sheet sheet, List<TestCaseRowData> cases, Styles styles, ExportLanguage lang) {
         boolean en = (lang != null && lang.isEnglish());
         sheet.setDisplayGridlines(true);
@@ -437,57 +447,57 @@ public final class TestCaseExcelExportService {
 
             // 1: Mã Test Case
             Cell c1 = row.createCell(1);
-            c1.setCellValue(c.id);
+            c1.setCellValue(safeCellText(c.id));
             c1.setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
             // 2: Tên Test Case
             Cell c2 = row.createCell(2);
-            c2.setCellValue(c.name);
+            c2.setCellValue(safeCellText(c.name));
             c2.setCellStyle(zebra ? styles.dataOddBold : styles.dataEvenBold);
 
             // 3: Nhóm
             Cell c3 = row.createCell(3);
-            c3.setCellValue(c.groupPath);
+            c3.setCellValue(safeCellText(c.groupPath));
             c3.setCellStyle(zebra ? styles.dataOdd : styles.dataEven);
 
             // 4: Suite
             Cell c4 = row.createCell(4);
-            c4.setCellValue(c.suiteName);
+            c4.setCellValue(safeCellText(c.suiteName));
             c4.setCellStyle(zebra ? styles.dataOdd : styles.dataEven);
 
             // 5: Độ ưu tiên
             Cell c5 = row.createCell(5);
-            c5.setCellValue(c.priority);
+            c5.setCellValue(safeCellText(c.priority));
             c5.setCellStyle(styles.priorityMedium);
 
             // 6: Trạng thái
             Cell c6 = row.createCell(6);
-            c6.setCellValue(c.status);
+            c6.setCellValue(safeCellText(c.status));
             c6.setCellStyle("Ready".equalsIgnoreCase(c.status) ? styles.statusReady : styles.statusDraft);
 
             // 7: Điều kiện tiên quyết
             Cell c7 = row.createCell(7);
-            c7.setCellValue(c.preconditions);
+            c7.setCellValue(safeCellText(c.preconditions));
             c7.setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
             // 8: Các bước thực hiện
             Cell c8 = row.createCell(8);
-            c8.setCellValue(c.stepsSummary);
+            c8.setCellValue(safeCellText(c.stepsSummary));
             c8.setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
             // 9: Dữ liệu kiểm thử
             Cell c9 = row.createCell(9);
-            c9.setCellValue(c.testDataSummary);
+            c9.setCellValue(safeCellText(c.testDataSummary));
             c9.setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
             // 10: Kết quả mong đợi
             Cell c10 = row.createCell(10);
-            c10.setCellValue(c.expectedResults);
+            c10.setCellValue(safeCellText(c.expectedResults));
             c10.setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
             // 11: File kịch bản
             Cell c11 = row.createCell(11);
-            c11.setCellValue(c.scriptFile);
+            c11.setCellValue(safeCellText(c.scriptFile));
             c11.setCellStyle(zebra ? styles.dataOdd : styles.dataEven);
         }
 
@@ -533,10 +543,10 @@ public final class TestCaseExcelExportService {
                 row.createCell(0).setCellValue(stepGlobalIndex++);
                 row.getCell(0).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(1).setCellValue(c.id);
+                row.createCell(1).setCellValue(safeCellText(c.id));
                 row.getCell(1).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(2).setCellValue(c.name);
+                row.createCell(2).setCellValue(safeCellText(c.name));
                 row.getCell(2).setCellStyle(zebra ? styles.dataOddBold : styles.dataEvenBold);
 
                 row.createCell(3).setCellValue(1);
@@ -545,16 +555,16 @@ public final class TestCaseExcelExportService {
                 row.createCell(4).setCellValue("EXECUTE_SCRIPT");
                 row.getCell(4).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(5).setCellValue(c.scriptFile);
+                row.createCell(5).setCellValue(safeCellText(c.scriptFile));
                 row.getCell(5).setCellStyle(zebra ? styles.dataOdd : styles.dataEven);
 
-                row.createCell(6).setCellValue(c.testDataSummary);
+                row.createCell(6).setCellValue(safeCellText(c.testDataSummary));
                 row.getCell(6).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
-                row.createCell(7).setCellValue(c.stepsSummary);
+                row.createCell(7).setCellValue(safeCellText(c.stepsSummary));
                 row.getCell(7).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
-                row.createCell(8).setCellValue(c.expectedResults);
+                row.createCell(8).setCellValue(safeCellText(c.expectedResults));
                 row.getCell(8).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
                 continue;
             }
@@ -567,28 +577,28 @@ public final class TestCaseExcelExportService {
                 row.createCell(0).setCellValue(stepGlobalIndex++);
                 row.getCell(0).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(1).setCellValue(c.id);
+                row.createCell(1).setCellValue(safeCellText(c.id));
                 row.getCell(1).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(2).setCellValue(c.name);
+                row.createCell(2).setCellValue(safeCellText(c.name));
                 row.getCell(2).setCellStyle(zebra ? styles.dataOddBold : styles.dataEvenBold);
 
                 row.createCell(3).setCellValue(st.getStepNumber() > 0 ? st.getStepNumber() : stepNum++);
                 row.getCell(3).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(4).setCellValue(st.getAction());
+                row.createCell(4).setCellValue(safeCellText(st.getAction()));
                 row.getCell(4).setCellStyle(zebra ? styles.dataCenterOdd : styles.dataCenterEven);
 
-                row.createCell(5).setCellValue(st.getTarget());
+                row.createCell(5).setCellValue(safeCellText(st.getTarget()));
                 row.getCell(5).setCellStyle(zebra ? styles.dataOdd : styles.dataEven);
 
-                row.createCell(6).setCellValue(st.getTestData());
+                row.createCell(6).setCellValue(safeCellText(st.getTestData()));
                 row.getCell(6).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
-                row.createCell(7).setCellValue(st.getDescription());
+                row.createCell(7).setCellValue(safeCellText(st.getDescription()));
                 row.getCell(7).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
 
-                row.createCell(8).setCellValue(st.getExpectedResult());
+                row.createCell(8).setCellValue(safeCellText(st.getExpectedResult()));
                 row.getCell(8).setCellStyle(zebra ? styles.dataOddWrap : styles.dataEvenWrap);
             }
         }

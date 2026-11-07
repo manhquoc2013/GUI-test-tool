@@ -225,4 +225,39 @@ class TestCaseExcelExportServiceTest {
             assertEquals("Expected Results", headerRow.getCell(10).getStringCellValue());
         }
     }
+
+    @Test
+    void testExportSuiteOversizedTextTruncation() throws Exception {
+        // Create a test case with >35,000 characters in steps
+        TestCase hugeCase = new TestCase();
+        hugeCase.setId("TC_HUGE_01");
+        hugeCase.setName("TC With Oversized Content");
+        hugeCase.setStatus("Ready");
+
+        TestStep hugeStep = new TestStep();
+        hugeStep.setStepNumber(1);
+        hugeStep.setAction("INPUT");
+        hugeStep.setDescription("A".repeat(35000));
+        hugeCase.setTestSteps(List.of(hugeStep));
+
+        TestSuite hugeSuite = new TestSuite();
+        hugeSuite.setName("HugeSuite");
+        hugeSuite.setCases(List.of(hugeCase));
+
+        Path excelOut = tempDir.resolve("huge_export.xlsx");
+        assertDoesNotThrow(() -> {
+            TestCaseExcelExportService.exportSuite(hugeSuite, "TestGroup", suiteDir, excelOut);
+        }, "Export should not throw IllegalArgumentException when cell text exceeds 32767 chars");
+
+        assertTrue(Files.exists(excelOut));
+        try (Workbook wb = new XSSFWorkbook(new FileInputStream(excelOut.toFile()))) {
+            Sheet sCases = wb.getSheet("Danh sách Test Cases");
+            assertNotNull(sCases);
+            Row r1 = sCases.getRow(1);
+            // Column 8 is stepsSummary
+            String cellVal = r1.getCell(8).getStringCellValue();
+            assertTrue(cellVal.contains("TRUNCATED"), "Oversized content should be safely truncated");
+            assertTrue(cellVal.length() <= 32767, "Length must be within Excel limit");
+        }
+    }
 }

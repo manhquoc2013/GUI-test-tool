@@ -24,4 +24,8 @@
 - [x] Task 22: Create `com.studio.controller.ExportLanguageDialog` with modal picker (defaulting to Tiếng Việt) <!-- id: 32 -->
 - [x] Task 23: Wire language selection into `SuiteWorkspacePageController`, `ExplorerPageController`, `ReportsPageController`, and `ReportDetailPageController` <!-- id: 33 -->
 - [x] Task 24: Add unit tests for bilingual exports in `TestCaseExcelExportServiceTest`, `HtmlReportServiceTest` & verify suite <!-- id: 34 -->
+- [x] Task 25: Implement atomic file write protection (`writeJsonAtomic`) in `ProjectStore` and `ReportStore` <!-- id: 35 -->
+- [x] Task 26: Add in-memory LRU cache with TTL in `LiveDomScanner` for repeated URL scanning <!-- id: 36 -->
+- [x] Task 27: Implement Excel 32,767 cell limit safe truncation guard in `TestCaseExcelExportService` & `ExcelReportService` <!-- id: 37 -->
+- [x] Task 28: Add unit tests for atomic writes, DOM cache, and cell truncation; verify full test suite (154/154 passing) <!-- id: 38 -->
 

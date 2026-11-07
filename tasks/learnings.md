@@ -151,5 +151,17 @@
 3. **Dual Representation & Data-Driven Parameterization (Testsigma-inspired)**:
    - Một kịch bản kiểm thử hoàn chỉnh cần song hành: (1) Khai báo các bước NLP rõ ràng cho Manual QA; (2) Ma trận tham số dữ liệu (`testDataSets`) bao quát Happy Path, Validation Failure, và Boundary Values; (3) Mã nguồn Playwright thực thi với cơ chế tự phục hồi selector.
 
+## Storage Atomicity, DOM Caching & Large-Scale Export Learnings
+1. **Atomic File Write Protection (`ProjectStore.writeJsonAtomic`)**:
+   - Sử dụng ghi file tạm (`.tmp`) rồi thực hiện `Files.move(..., ATOMIC_MOVE)` giúp ngăn chặn triệt để tình trạng file `suite.json`, `group.json` hay `settings.json` bị mất hoặc rỗng dữ liệu khi ứng dụng bị tắt đột ngột.
+2. **In-Memory LRU Cache with TTL for Live DOM Scanning (`LiveDomScanner`)**:
+   - Tự động lưu trữ cây DOM đã rút gọn theo URL đích với TTL 3 phút và dung lượng 10 mục. Khi người dùng hỏi nhiều câu hỏi liên tiếp về cùng một website, hệ thống phản hồi tức thì mà không cần khởi tạo lại Chromium headless.
+3. **Excel Cell Boundary Safeguard (`safeCellText`)**:
+   - Apache POI sẽ ném ngoại lệ `IllegalArgumentException` nếu nội dung ô vượt quá 32,767 ký tự.
+   - Cơ chế tự động cắt tỉa an toàn (32,700 ký tự) kèm chú thích `[TRUNCATED]` bảo đảm mọi tài liệu Excel và báo cáo kiểm thử đều xuất thành công dù kịch bản có chứa log lỗi hay payload kiểm thử cực lớn.
+4. **Bilingual Export Architecture (`ExportLanguage`)**:
+   - Hỗ trợ song ngữ Tiếng Việt (mặc định) và Tiếng Anh chuẩn ISTQB/IEEE 829 cho tất cả định dạng xuất (Excel Test Cases, Excel Run Report, HTML Standalone Report) thông qua hộp thoại chọn ngôn ngữ trực quan.
+
+
 
 

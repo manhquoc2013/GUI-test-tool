@@ -31,7 +31,7 @@ public class ReportStore {
     public void saveReport(RunReport report) throws IOException {
         Path reportDir = StudioPaths.getReportsDir().resolve(report.getRunId());
         Files.createDirectories(reportDir);
-        mapper.writeValue(reportDir.resolve(REPORT_JSON).toFile(), report);
+        ProjectStore.writeJsonAtomic(reportDir.resolve(REPORT_JSON), report);
         indexService.indexReport(report);
     }
 
