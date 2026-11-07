@@ -72,5 +72,9 @@ class ApiKeyCipherTest {
         assertTrue(masked.endsWith("XYZW"), "Masked key should retain last 4 characters for identification");
         assertTrue(masked.contains("•"), "Masked key should contain bullets");
         assertFalse(masked.contains("1234567890"), "Masked key must not reveal secret content");
+        assertTrue(ApiKeyCipher.isMasked(masked));
+        assertFalse(ApiKeyCipher.isMasked(openAiKey));
+        assertFalse(ApiKeyCipher.isMasked(null));
+        assertFalse(ApiKeyCipher.isMasked(""));
     }
 }

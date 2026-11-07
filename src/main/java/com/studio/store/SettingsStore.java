@@ -114,7 +114,8 @@ public class SettingsStore {
         if (Files.exists(settingsFile)) {
             try {
                 Settings s = mapper.readValue(settingsFile.toFile(), Settings.class);
-                saveToDatabase(s); // Ensure DB mirror is up to date
+                decryptInMemory(s);
+                saveToDatabase(prepareForStorage(s)); // Ensure DB mirror is up to date
                 return s;
             } catch (Exception ignored) {
                 // Disk file corrupted, proceed to DB fallback
@@ -124,10 +125,11 @@ public class SettingsStore {
         // 2. Try recovering from H2 Database
         Settings fromDb = loadFromDatabase();
         if (fromDb != null) {
+            decryptInMemory(fromDb);
             // Restore disk file from database mirror
             try {
                 Files.createDirectories(configDir);
-                mapper.writeValue(settingsFile.toFile(), fromDb);
+                mapper.writeValue(settingsFile.toFile(), prepareForStorage(fromDb));
             } catch (Exception ignored) {}
             return fromDb;
         }
@@ -153,37 +155,95 @@ public class SettingsStore {
     public void save(Settings s) throws IOException {
         if (s == null) return;
 
+        Settings persistent = prepareForStorage(s);
+
         // 1. Save to disk
         Files.createDirectories(configDir);
         Path settingsFile = configDir.resolve(SETTINGS_JSON);
-        mapper.writeValue(settingsFile.toFile(), s);
+        mapper.writeValue(settingsFile.toFile(), persistent);
 
         // 2. Mirror into H2 database
-        saveToDatabase(s);
+        saveToDatabase(persistent);
     }
 
     /**
-     * Export current system settings to an external JSON file.
+     * Export current system settings to an external JSON file with optional API key masking.
      */
     public void exportSettings(Path targetFile) throws IOException {
+        exportSettings(targetFile, true);
+    }
+
+    public void exportSettings(Path targetFile, boolean maskApiKey) throws IOException {
         if (targetFile == null) return;
         if (targetFile.getParent() != null) {
             Files.createDirectories(targetFile.getParent());
         }
         Settings current = load();
+        if (maskApiKey && current.getAiConfig() != null) {
+            String plainKey = current.getAiConfig().getApiKey();
+            current.getAiConfig().setApiKey(com.studio.util.ApiKeyCipher.mask(plainKey));
+        }
         mapper.writeValue(targetFile.toFile(), current);
     }
 
     /**
      * Import system settings from an external JSON file and persist.
+     * If the imported file contains a masked key placeholder, local credentials are preserved.
      */
     public Settings importSettings(Path sourceFile) throws IOException {
         if (sourceFile == null || !Files.exists(sourceFile)) {
             throw new IOException("Không tìm thấy file cấu hình: " + sourceFile);
         }
         Settings imported = mapper.readValue(sourceFile.toFile(), Settings.class);
+        decryptInMemory(imported);
+
+        if (imported.getAiConfig() != null) {
+            String importedKey = imported.getAiConfig().getApiKey();
+            if (com.studio.util.ApiKeyCipher.isMasked(importedKey)) {
+                Settings existing = load();
+                if (existing != null && existing.getAiConfig() != null
+                        && existing.getAiConfig().getApiKey() != null
+                        && !existing.getAiConfig().getApiKey().isBlank()) {
+                    imported.getAiConfig().setApiKey(existing.getAiConfig().getApiKey());
+                } else {
+                    imported.getAiConfig().setApiKey("");
+                }
+            }
+        }
+
         save(imported);
         return imported;
+    }
+
+    private Settings prepareForStorage(Settings source) {
+        if (source == null) return null;
+        Settings copy = new Settings();
+        copy.setBrowser(source.getBrowser());
+        copy.setHeadlessDefault(source.isHeadlessDefault());
+        copy.setShareContextDefault(source.isShareContextDefault());
+        copy.setStopOnFirstFailureDefault(source.isStopOnFirstFailureDefault());
+        copy.setTheme(source.getTheme());
+        if (source.getAiConfig() != null) {
+            AiConfig srcAi = source.getAiConfig();
+            String plainKey = srcAi.getApiKey();
+            String encKey = (plainKey != null && !plainKey.isBlank())
+                    ? com.studio.util.ApiKeyCipher.encrypt(plainKey)
+                    : "";
+            AiConfig copyAi = new AiConfig(encKey, srcAi.getBaseUrl(), srcAi.getModel());
+            copyAi.setTemperature(srcAi.getTemperature());
+            copyAi.setMaxTokens(srcAi.getMaxTokens());
+            copy.setAiConfig(copyAi);
+        }
+        return copy;
+    }
+
+    private void decryptInMemory(Settings s) {
+        if (s != null && s.getAiConfig() != null) {
+            String rawKey = s.getAiConfig().getApiKey();
+            if (rawKey != null && !rawKey.isBlank()) {
+                s.getAiConfig().setApiKey(com.studio.util.ApiKeyCipher.decrypt(rawKey));
+            }
+        }
     }
 
     private void saveToDatabase(Settings s) {

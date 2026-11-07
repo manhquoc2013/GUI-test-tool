@@ -145,6 +145,16 @@ public final class ApiKeyCipher {
         return prefix + "••••••••" + suffix;
     }
 
+    /**
+     * Checks if a string appears to be a masked API key placeholder.
+     */
+    public static boolean isMasked(String apiKey) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return false;
+        }
+        return apiKey.contains("•") || apiKey.contains("****") || apiKey.contains("***");
+    }
+
     private static SecretKey getOrDeriveKey() {
         if (cachedKey != null) {
             return cachedKey;
