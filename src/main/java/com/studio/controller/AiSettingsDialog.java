@@ -234,40 +234,79 @@ public class AiSettingsDialog {
         // API Key
         Label keyLabel = new Label("API Key:");
         keyLabel.getStyleClass().add("field-label");
-        PasswordField keyField = new PasswordField();
-        keyField.setText(aiConfig.getApiKey());
+
+        String originalApiKey = aiConfig.getApiKey() != null ? aiConfig.getApiKey().trim() : "";
+        final String[] actualKeyHolder = new String[]{ originalApiKey };
+        final boolean[] isShowingPlain = new boolean[]{ false };
+
+        TextField keyField = new TextField();
+        // Hiển thị mặc định dạng mask (sk-••••••••XYZW) theo đúng phong cách của label bên dưới
+        if (!originalApiKey.isEmpty()) {
+            keyField.setText(com.studio.util.ApiKeyCipher.mask(originalApiKey));
+        }
         keyField.setPromptText("sk-proj-... hoặc để trống để dùng biến môi trường");
         HBox.setHgrow(keyField, Priority.ALWAYS);
 
-        TextField plainKeyField = new TextField();
-        plainKeyField.setText(aiConfig.getApiKey());
-        plainKeyField.setPromptText("sk-proj-...");
-        plainKeyField.setVisible(false);
-        plainKeyField.setManaged(false);
-        HBox.setHgrow(plainKeyField, Priority.ALWAYS);
-
-        keyField.textProperty().bindBidirectional(plainKeyField.textProperty());
-
         Button toggleShowBtn = new Button();
         toggleShowBtn.getStyleClass().add("icon-btn");
-        UiTooltips.install(toggleShowBtn, "Hiện / Ẩn API Key");
+        UiTooltips.install(toggleShowBtn, "Hiện đầy đủ API Key");
         UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE, 13);
-        toggleShowBtn.setOnAction(e -> {
-            boolean showing = plainKeyField.isVisible();
-            plainKeyField.setVisible(!showing);
-            plainKeyField.setManaged(!showing);
-            keyField.setVisible(showing);
-            keyField.setManaged(showing);
-            UiIcons.setGraphic(toggleShowBtn, showing ? UiIcons.EYE : UiIcons.EYE_OFF, 13);
+
+        Label envHint = new Label();
+        envHint.getStyleClass().add("settings-hint-label");
+
+        Runnable updateHint = () -> {
+            String current = actualKeyHolder[0];
+            String env = System.getenv("OPENAI_API_KEY");
+            if (current != null && !current.isBlank()) {
+                envHint.setText("Đang khả dụng: API Key trực tiếp (" + com.studio.util.ApiKeyCipher.mask(current) + ")");
+            } else if (env != null && !env.isBlank()) {
+                envHint.setText("Đang khả dụng: biến môi trường OPENAI_API_KEY (" + com.studio.util.ApiKeyCipher.mask(env) + ")");
+            } else {
+                envHint.setText("Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY).");
+            }
+        };
+        updateHint.run();
+
+        keyField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String trimmed = newVal != null ? newVal.trim() : "";
+            if (trimmed.isEmpty()) {
+                actualKeyHolder[0] = "";
+            } else if (com.studio.util.ApiKeyCipher.isMasked(trimmed)) {
+                if (!originalApiKey.isEmpty() && (trimmed.equals(com.studio.util.ApiKeyCipher.mask(originalApiKey)) || trimmed.contains("•"))) {
+                    actualKeyHolder[0] = originalApiKey;
+                }
+            } else {
+                actualKeyHolder[0] = trimmed;
+            }
+            updateHint.run();
         });
 
-        HBox keyBox = new HBox(6, keyField, plainKeyField, toggleShowBtn);
-        keyBox.setAlignment(Pos.CENTER_LEFT);
+        keyField.focusedProperty().addListener((obs, oldVal, focused) -> {
+            if (focused && !isShowingPlain[0] && com.studio.util.ApiKeyCipher.isMasked(keyField.getText())) {
+                Platform.runLater(keyField::selectAll);
+            }
+        });
 
-        Label envHint = new Label(aiConfig.getEffectiveApiKey().isEmpty()
-                ? "Chưa phát hiện API Key (cả trong cài đặt và biến môi trường OPENAI_API_KEY)."
-                : "Đang khả dụng: " + (aiConfig.getApiKey().isEmpty() ? "biến môi trường OPENAI_API_KEY" : "API Key trực tiếp (" + com.studio.util.ApiKeyCipher.mask(aiConfig.getApiKey()) + ")"));
-        envHint.getStyleClass().add("settings-hint-label");
+        toggleShowBtn.setOnAction(e -> {
+            isShowingPlain[0] = !isShowingPlain[0];
+            if (isShowingPlain[0]) {
+                keyField.setText(actualKeyHolder[0]);
+                UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE_OFF, 13);
+                UiTooltips.install(toggleShowBtn, "Che mờ API Key");
+            } else {
+                if (actualKeyHolder[0] != null && !actualKeyHolder[0].isBlank()) {
+                    keyField.setText(com.studio.util.ApiKeyCipher.mask(actualKeyHolder[0]));
+                } else {
+                    keyField.setText("");
+                }
+                UiIcons.setGraphic(toggleShowBtn, UiIcons.EYE, 13);
+                UiTooltips.install(toggleShowBtn, "Hiện đầy đủ API Key");
+            }
+        });
+
+        HBox keyBox = new HBox(6, keyField, toggleShowBtn);
+        keyBox.setAlignment(Pos.CENTER_LEFT);
 
         Label securityBadge = new Label("🔒 Mã hóa AES-256-GCM bảo vệ an toàn theo phần cứng thiết bị.");
         securityBadge.setStyle("-fx-font-size: 11px; -fx-text-fill: #10b981;");
@@ -387,7 +426,7 @@ public class AiSettingsDialog {
             testStatusLabel.getStyleClass().setAll("settings-hint-label");
 
             AiConfig probeConfig = new AiConfig();
-            probeConfig.setApiKey(keyField.getText().trim());
+            probeConfig.setApiKey(actualKeyHolder[0]);
             probeConfig.setBaseUrl(urlField.getText().trim());
 
             Thread thread = new Thread(() -> {
@@ -433,7 +472,7 @@ public class AiSettingsDialog {
             testStatusLabel.getStyleClass().setAll("settings-hint-label");
 
             AiConfig probeConfig = new AiConfig();
-            probeConfig.setApiKey(keyField.getText().trim());
+            probeConfig.setApiKey(actualKeyHolder[0]);
             probeConfig.setBaseUrl(urlField.getText().trim());
             String probeModel = modelCombo.getEditor().getText() != null && !modelCombo.getEditor().getText().isBlank()
                     ? modelCombo.getEditor().getText().trim()
@@ -491,10 +530,7 @@ public class AiSettingsDialog {
 
                     // Save AI Settings
                     AiConfig cfg = finalSettings.getAiConfig();
-                    String key = keyField.getText() != null ? keyField.getText().trim() : "";
-                    if (key.isEmpty() && plainKeyField.getText() != null) {
-                        key = plainKeyField.getText().trim();
-                    }
+                    String key = actualKeyHolder[0] != null ? actualKeyHolder[0].trim() : "";
                     cfg.setApiKey(key);
 
                     String url = urlField.getText() != null ? urlField.getText().trim() : "";
