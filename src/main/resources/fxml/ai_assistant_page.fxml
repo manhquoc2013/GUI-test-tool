@@ -29,6 +29,7 @@
         <Label text="Trợ lý AI" styleClass="page-title"/>
         <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle"/>
         <HBox HBox.hgrow="ALWAYS"/>
+        <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge"/>
         <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge"/>
         <Button text="Cài đặt OpenAI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary"/>
         <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary"/>

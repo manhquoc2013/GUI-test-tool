@@ -44,6 +44,9 @@ public class UiIconsTest {
         assertNotNull(UiIcons.AI_SPARKLES);
         assertNotNull(UiIcons.SUN);
         assertNotNull(UiIcons.MOON);
+        assertNotNull(UiIcons.COPY);
+        assertNotNull(UiIcons.UNDO);
+        assertFalse(UiIcons.UNDO.isBlank());
         assertNotNull(UiIcons.SETTINGS);
         assertNotNull(UiIcons.MENU);
         assertNotNull(UiIcons.FOLDER);

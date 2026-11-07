@@ -60,3 +60,26 @@
 4. **Unicode Variation Selector (\uFE0F) & Windows Font Fallback**:
    - Các emoji ký hiệu như `✖️` (`\u2716\uFE0F`), `⚠️` (`\u26A0\uFE0F`), `⏭️` (`\u23ED\uFE0F`) chứa ký tự tàng hình Variation Selector-16 (`\uFE0F`) thường xuyên bị Windows font fallback biến thành ô vuông `[]` (tofu box).
    - Loại bỏ hoàn toàn các emoji này trên toàn bộ hệ thống (Dialog buttons, Toast alerts, Breadcrumbs, Table cells, Tree actions) và thay bằng `UiIcons` vector SVG cùng typography chuẩn giúp giao diện sạch, chuyên nghiệp và không bao giờ lỗi font.
+
+## AI Assistant Chat Management, Copy, Revert/Undo & Token Optimization Architecture
+1. **Persistent Chat Sessions per Suite (`AiChatHistoryStore.java`)**:
+   - Lưu trữ lịch sử hội thoại độc lập theo từng Suite tại `.ai_chat.json` trong thư mục Suite.
+   - Khi QA chuyển đổi giữa các Suite / Group, hệ thống tự động lưu session cũ và nạp session của Suite mới mà không làm mất dòng suy nghĩ hoặc kịch bản đã sinh.
+   - Khi không có Suite nào được chọn, tự động fallback về session mặc định tại `StudioPaths.getDataDir()`.
+
+2. **1-Click Message Copy**:
+   - Tích hợp nút vector SVG Copy trên từng bong bóng chat (cả người dùng và trợ lý AI).
+   - Ghi dữ liệu vào `javafx.scene.input.Clipboard` kết hợp hiển thị thông báo `ToastService.success()` phản hồi tức thì.
+
+3. **Complete Undo / Rollback Engine**:
+   - Khác với chat bot thông thường chỉ xóa tin nhắn hiển thị, nút "Hoàn tác" (`Undo`) trong Playwright Automation Studio hỗ trợ khôi phục đa tầng:
+     - **Tầng 1 (Session State)**: Xóa cặp lượt hỏi-đáp tương ứng ra khỏi session và lưu bền vững vào `.ai_chat.json`.
+     - **Tầng 2 (Preview State)**: Khôi phục danh sách test case sinh ra ở panel xem trước về trạng thái của lượt AI trước đó (sử dụng snapshot `generatedCasesSnapshot` gắn liền với `AiChatMessage`).
+     - **Tầng 3 (Suite Files Rollback)**: Khi người dùng đã bấm "Nhập vào Suite", hệ thống tự động ghi lại snapshot trước đó (gồm `suite.json` và toàn bộ mã nguồn file `.java`). Khi bấm Hoàn tác trên tin nhắn đó, hộp thoại xác nhận sẽ hỏi người dùng và tự động rollback: khôi phục `suite.json`, phục hồi nội dung file `.java` đã bị sửa, và xóa bỏ triệt để các file test case `.java` mới được thêm vào.
+
+4. **Comprehensive Token Optimization (`AiTokenOptimizer.java`)**:
+   - **Token Estimation Heuristic**: Ước lượng chính xác số lượng token cho đa ngôn ngữ (tiếng Anh ~1.3 tokens/word, tiếng Việt có dấu ~0.4 token overhead/char, và ký tự cú pháp lập trình Java `{`, `}`, `;`).
+   - **Live Token Usage Badge**: Hiển thị trực tiếp trên thanh công cụ `Tokens: ~total / 4,000 (Prompt: ~p, Lịch sử: ~h)` cập nhật thời gian thực khi người dùng gõ phím.
+   - **Sliding Window Context**: Mặc định chỉ giữ 6 lượt (12 tin nhắn) gần nhất làm ngữ cảnh đưa sang model, ngăn chặn tình trạng tràn context window và bùng nổ chi phí token API.
+   - **Automatic Pruned Summary**: Khi các lượt chat cũ bị cắt tỉa khỏi sliding window, bộ tối ưu sẽ tự động trích lọc các ý chính của người dùng thành một bản tóm tắt ngắn gọn đưa vào System Context, giữ vững ngữ cảnh dài hạn với chi phí token tối thiểu.
+   - **Document & Attachment Compression**: Làm sạch khoảng trắng thừa, xóa các dòng trống liên tiếp (3+ dòng thu về 1), và cắt gọt an toàn các tài liệu dung lượng lớn trước khi gửi sang API.

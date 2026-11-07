@@ -1628,6 +1628,37 @@
     -fx-border-radius: 12;
     -fx-border-width: 1;
 }
+.ai-token-badge {
+    -fx-background-color: #1f2d3d;
+    -fx-text-fill: #73daca;
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+    -fx-padding: 4 10;
+    -fx-background-radius: 12;
+    -fx-border-color: #41a6b5;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+}
+.chat-action-btn {
+    -fx-background-color: transparent;
+    -fx-padding: 2 6;
+    -fx-font-size: 10px;
+    -fx-text-fill: #9aa5ce;
+    -fx-border-color: transparent;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+.chat-action-btn:hover {
+    -fx-background-color: #2c3047;
+    -fx-text-fill: #c0caf5;
+    -fx-border-color: #414868;
+}
+.chat-action-btn-danger:hover {
+    -fx-background-color: #3b2234;
+    -fx-text-fill: #f7768e;
+    -fx-border-color: #f7768e;
+}
 .ai-split-pane {
     -fx-background-color: transparent;
     -fx-padding: 0;

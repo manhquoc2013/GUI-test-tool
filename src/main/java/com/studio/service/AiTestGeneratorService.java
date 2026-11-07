@@ -24,14 +24,20 @@ public class AiTestGeneratorService {
 
     private final OpenAiClient openAiClient;
     private final ObjectMapper mapper;
+    private final AiTokenOptimizer tokenOptimizer;
 
     public AiTestGeneratorService() {
-        this(new OpenAiClient(), new ObjectMapper());
+        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper) {
+        this(openAiClient, mapper, new AiTokenOptimizer());
+    }
+
+    public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer) {
         this.openAiClient = openAiClient;
         this.mapper = mapper;
+        this.tokenOptimizer = tokenOptimizer != null ? tokenOptimizer : new AiTokenOptimizer();
     }
 
     public static class GenerationResult {
@@ -129,31 +135,26 @@ public class AiTestGeneratorService {
     public GenerationResult generateTestCases(AiConfig config, String userPrompt,
                                              List<ParsedDocument> attachments,
                                              String contextInfo) throws IOException, InterruptedException {
-        List<OpenAiClient.ChatMessage> messages = new ArrayList<>();
-        messages.add(new OpenAiClient.ChatMessage("system", SYSTEM_PROMPT));
+        return generateTestCases(config, userPrompt, attachments, contextInfo, List.of());
+    }
 
-        StringBuilder userContent = new StringBuilder();
-        if (contextInfo != null && !contextInfo.isBlank()) {
-            userContent.append("### Ngữ cảnh Suite hiện tại:\n").append(contextInfo).append("\n\n");
-        }
-
-        userContent.append("### Yêu cầu người dùng:\n").append(userPrompt).append("\n\n");
-
-        List<String> imageUrls = new ArrayList<>();
-        if (attachments != null && !attachments.isEmpty()) {
-            userContent.append("### Tài liệu đính kèm:\n");
-            for (ParsedDocument doc : attachments) {
-                if (doc.isImage()) {
-                    imageUrls.add(doc.getContent());
-                    userContent.append("- Hình ảnh UI: ").append(doc.getFileName()).append(" (đã đính kèm ảnh)\n");
-                } else {
-                    userContent.append("- Tên file: ").append(doc.getFileName()).append("\n");
-                    userContent.append("```\n").append(doc.getContent()).append("\n```\n\n");
-                }
-            }
-        }
-
-        messages.add(new OpenAiClient.ChatMessage("user", userContent.toString(), imageUrls));
+    /**
+     * Generate test cases with token optimization, history sliding window, and attachment compression.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             List<com.studio.model.AiChatMessage> history) throws IOException, InterruptedException {
+        int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
+                SYSTEM_PROMPT,
+                history,
+                userPrompt,
+                attachments,
+                contextInfo,
+                maxTokens,
+                AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
+        );
 
         String reply = openAiClient.chatCompletion(config, messages);
         return parseResponse(reply);

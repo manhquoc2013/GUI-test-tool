@@ -1,23 +1,24 @@
 package com.studio.controller;
 
-import com.studio.model.AiConfig;
-import com.studio.model.AiGeneratedCase;
-import com.studio.model.Assertion;
-import com.studio.model.TestCase;
-import com.studio.model.TestGroup;
-import com.studio.model.TestSuite;
+import com.studio.model.*;
 import com.studio.service.AiTestGeneratorService;
+import com.studio.service.AiTokenOptimizer;
 import com.studio.service.DocumentParserService;
 import com.studio.service.ToastService;
+import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ProjectStore;
 import com.studio.store.SettingsStore;
+import com.studio.util.DialogTheme;
 import com.studio.util.StudioPaths;
+import com.studio.util.UiIcons;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
@@ -28,17 +29,23 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalTime;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.ResourceBundle;
 
 /**
  * Controller for the dedicated AI Assistant screen.
+ * Supports persistent chat history, 1-click message copy, full undo/rollback of
+ * generated test cases and suite file changes, and token usage optimization.
  */
 public class AiAssistantPageController implements Initializable {
 
+    @FXML private Label tokenUsageBadge;
     @FXML private Label modelIndicatorLabel;
     @FXML private Button settingsBtn;
     @FXML private Button clearChatBtn;
@@ -69,23 +76,27 @@ public class AiAssistantPageController implements Initializable {
     private final ProjectStore projectStore = new ProjectStore();
     private final DocumentParserService documentParser = new DocumentParserService();
     private final AiTestGeneratorService aiGenerator = new AiTestGeneratorService();
+    private final AiChatHistoryStore chatHistoryStore = new AiChatHistoryStore();
+    private final AiTokenOptimizer tokenOptimizer = new AiTokenOptimizer();
 
     private final List<DocumentParserService.ParsedDocument> attachedDocuments = new ArrayList<>();
     private final List<AiGeneratedCase> currentGeneratedCases = new ArrayList<>();
+    private AiChatSession currentSession = new AiChatSession("global");
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         refreshModelIndicator();
         reloadTargets();
 
-        if (settingsBtn != null) com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 12);
-        if (clearChatBtn != null) com.studio.util.UiIcons.setGraphic(clearChatBtn, com.studio.util.UiIcons.TRASH, 12);
-        if (sendBtn != null) com.studio.util.UiIcons.setGraphic(sendBtn, com.studio.util.UiIcons.PLAY, 12);
-        if (attachFileBtn != null) com.studio.util.UiIcons.setGraphic(attachFileBtn, com.studio.util.UiIcons.PLUS, 12);
-        if (applyToSuiteBtn != null) com.studio.util.UiIcons.setGraphic(applyToSuiteBtn, com.studio.util.UiIcons.CHECK, 12);
-        if (refreshTargetsBtn != null) com.studio.util.UiIcons.setGraphic(refreshTargetsBtn, com.studio.util.UiIcons.REFRESH, 12);
+        if (settingsBtn != null) UiIcons.setGraphic(settingsBtn, UiIcons.SETTINGS, 12);
+        if (clearChatBtn != null) UiIcons.setGraphic(clearChatBtn, UiIcons.TRASH, 12);
+        if (sendBtn != null) UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
+        if (attachFileBtn != null) UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
+        if (applyToSuiteBtn != null) UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
+        if (refreshTargetsBtn != null) UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
 
         targetGroupCombo.setOnAction(e -> onGroupSelected());
+        targetSuiteCombo.setOnAction(e -> loadChatHistoryForSuite());
 
         // Setup case list cell factory
         generatedCasesListView.setCellFactory(lv -> new ListCell<>() {
@@ -113,9 +124,11 @@ public class AiAssistantPageController implements Initializable {
             }
         });
 
-        // Add welcome message in chat
-        addChatBubble("assistant", "Xin chào! Tôi là Trợ lý AI của Playwright Automation Studio.\n\n"
-                + "Bạn có thể gửi yêu cầu viết test case, hoặc đính kèm tài liệu yêu cầu (.txt, .md, Word .docx, PDF .pdf) hoặc ảnh chụp màn hình UI (.png, .jpg) để tôi tự động phân tích và sinh kịch bản Playwright runnable kèm các Assertions kiểm thử!");
+        // Dynamic token estimation listener as user types
+        promptInputArea.textProperty().addListener((obs, oldVal, newVal) -> updateTokenUsageDisplay());
+
+        // Load initial chat history for the default target suite
+        loadChatHistoryForSuite();
     }
 
     public void refreshModelIndicator() {
@@ -174,6 +187,80 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    public Path getSelectedSuiteDir() {
+        String group = targetGroupCombo.getValue();
+        String suite = targetSuiteCombo.getValue();
+        if (group != null && suite != null && !group.isBlank() && !suite.isBlank()) {
+            Path p = StudioPaths.getProjectDir().resolve(group).resolve(suite);
+            if (Files.exists(p) && Files.isDirectory(p)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    public void loadChatHistoryForSuite() {
+        Path suiteDir = getSelectedSuiteDir();
+        currentSession = chatHistoryStore.loadSession(suiteDir);
+        renderChatHistory();
+        updateTokenUsageDisplay();
+    }
+
+    private void renderChatHistory() {
+        chatMessagesBox.getChildren().clear();
+
+        if (currentSession.getMessages().isEmpty()) {
+            // Add default welcome message
+            AiChatMessage welcomeMsg = new AiChatMessage("assistant",
+                    "Xin chào! Tôi là Trợ lý AI của Playwright Automation Studio.\n\n"
+                    + "Bạn có thể gửi yêu cầu viết test case, hoặc đính kèm tài liệu yêu cầu (.txt, .md, Word .docx, PDF .pdf) hoặc ảnh chụp màn hình UI (.png, .jpg) để tôi tự động phân tích và sinh kịch bản Playwright runnable kèm các Assertions kiểm thử!");
+            welcomeMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(welcomeMsg));
+            renderMessageBubble(welcomeMsg, false);
+            clearPreviewArea();
+        } else {
+            for (AiChatMessage msg : currentSession.getMessages()) {
+                renderMessageBubble(msg, false);
+            }
+            // Restore preview cases from the latest assistant response
+            restoreLatestPreviewCases();
+        }
+
+        Platform.runLater(() -> chatScroll.setVvalue(1.0));
+    }
+
+    private void restoreLatestPreviewCases() {
+        List<AiChatMessage> msgs = currentSession.getMessages();
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            AiChatMessage m = msgs.get(i);
+            if ("assistant".equalsIgnoreCase(m.getRole()) && !m.getGeneratedCasesSnapshot().isEmpty()) {
+                currentGeneratedCases.clear();
+                currentGeneratedCases.addAll(m.getGeneratedCasesSnapshot());
+                generatedCasesListView.getItems().setAll(currentGeneratedCases);
+                resultSummaryLabel.setText(m.getContent());
+                applyToSuiteBtn.setDisable(false);
+                generatedCasesListView.getSelectionModel().select(0);
+                return;
+            }
+        }
+        clearPreviewArea();
+    }
+
+    private void clearPreviewArea() {
+        currentGeneratedCases.clear();
+        generatedCasesListView.getItems().clear();
+        resultSummaryLabel.setText("Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái.");
+        applyToSuiteBtn.setDisable(true);
+        showCaseDetail(null);
+    }
+
+    private void updateTokenUsageDisplay() {
+        if (tokenUsageBadge == null) return;
+        int promptTokens = tokenOptimizer.estimateTokens(promptInputArea.getText());
+        int historyTokens = currentSession != null ? currentSession.calculateTotalTokens() : 0;
+        int total = promptTokens + historyTokens;
+        tokenUsageBadge.setText("Tokens: ~" + total + " / 4,000 (Prompt: ~" + promptTokens + ")");
+    }
+
     @FXML
     public void openSettings() {
         AiSettingsDialog.show(settingsStore);
@@ -182,8 +269,23 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void clearChat() {
-        chatMessagesBox.getChildren().clear();
-        addChatBubble("assistant", "Đoạn hội thoại đã được xóa. Hãy bắt đầu yêu cầu mới!");
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Xác nhận xóa lịch sử");
+        alert.setHeaderText("Xóa toàn bộ đoạn hội thoại");
+        alert.setContentText("Bạn có chắc chắn muốn xóa toàn bộ lịch sử chat của Suite này không?");
+        DialogTheme.apply(alert);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            Path suiteDir = getSelectedSuiteDir();
+            try {
+                chatHistoryStore.clearSession(suiteDir);
+            } catch (IOException ignored) {}
+            currentSession = new AiChatSession(suiteDir != null ? suiteDir.getFileName().toString() : "global");
+            renderChatHistory();
+            updateTokenUsageDisplay();
+            ToastService.info("Đoạn hội thoại đã được xóa.");
+        }
     }
 
     @FXML
@@ -282,31 +384,40 @@ public class AiAssistantPageController implements Initializable {
             return;
         }
 
-        // Add user bubble in chat
+        // Create User Message
         StringBuilder userChatText = new StringBuilder(prompt);
+        List<String> fileNames = new ArrayList<>();
         if (!attachedDocuments.isEmpty()) {
             userChatText.append("\n\nĐã đính kèm: ");
             for (var d : attachedDocuments) {
                 userChatText.append(d.getFileName()).append(" ");
+                fileNames.add(d.getFileName());
             }
         }
-        addChatBubble("user", userChatText.toString());
+
+        AiChatMessage userMsg = new AiChatMessage("user", userChatText.toString());
+        userMsg.setAttachedFiles(fileNames);
+        userMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userMsg));
+        currentSession.addMessage(userMsg);
+        renderMessageBubble(userMsg, true);
 
         // Snapshot attached docs and clear input
         List<DocumentParserService.ParsedDocument> docsSnapshot = new ArrayList<>(attachedDocuments);
         promptInputArea.clear();
         clearAttachments();
+        updateTokenUsageDisplay();
 
         sendBtn.setDisable(true);
         generationProgress.setVisible(true);
         generationProgress.setManaged(true);
 
+        Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
 
         Thread thread = new Thread(() -> {
             try {
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        aiConfig, prompt, docsSnapshot, context
+                        aiConfig, prompt, docsSnapshot, context, currentSession.getMessages()
                 );
 
                 Platform.runLater(() -> {
@@ -314,7 +425,19 @@ public class AiAssistantPageController implements Initializable {
                     generationProgress.setVisible(false);
                     generationProgress.setManaged(false);
 
-                    addChatBubble("assistant", result.getSummary() + "\n\n(Đã sinh " + result.getCases().size() + " test cases. Xem chi tiết ở bảng bên phải)");
+                    AiChatMessage assistantMsg = new AiChatMessage("assistant", result.getSummary());
+                    assistantMsg.setGeneratedCasesSnapshot(result.getCases());
+                    assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
+                    currentSession.addMessage(assistantMsg);
+
+                    // Persist updated history
+                    try {
+                        chatHistoryStore.saveSession(suiteDir, currentSession);
+                    } catch (IOException ignored) {}
+
+                    renderMessageBubble(assistantMsg, true);
+                    updateTokenUsageDisplay();
+
                     resultSummaryLabel.setText(result.getSummary());
 
                     currentGeneratedCases.clear();
@@ -336,7 +459,13 @@ public class AiAssistantPageController implements Initializable {
                     sendBtn.setDisable(false);
                     generationProgress.setVisible(false);
                     generationProgress.setManaged(false);
-                    addChatBubble("assistant", "❌ Lỗi: " + ex.getMessage());
+
+                    AiChatMessage errorMsg = new AiChatMessage("assistant", "❌ Lỗi: " + ex.getMessage());
+                    errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
+                    currentSession.addMessage(errorMsg);
+                    renderMessageBubble(errorMsg, true);
+                    updateTokenUsageDisplay();
+
                     ToastService.error("Lỗi AI: " + ex.getMessage());
                 });
             }
@@ -391,8 +520,27 @@ public class AiAssistantPageController implements Initializable {
         }
 
         try {
+            // Capture snapshot of suite files before applying
+            String suiteSnapshotJson = chatHistoryStore.createSuiteSnapshot(suiteDir);
+
             List<TestCase> applied = aiGenerator.applyCasesToSuite(suiteDir, currentGeneratedCases, projectStore);
-            ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite + "'!");
+
+            // Record snapshot on the latest assistant message so user can undo it later
+            List<AiChatMessage> msgs = currentSession.getMessages();
+            for (int i = msgs.size() - 1; i >= 0; i--) {
+                AiChatMessage m = msgs.get(i);
+                if ("assistant".equalsIgnoreCase(m.getRole())) {
+                    m.setSuiteSnapshotJson(suiteSnapshotJson);
+                    m.setSuiteSnapshotDir(suiteDir.toString());
+                    m.setAppliedToSuite(true);
+                    break;
+                }
+            }
+
+            chatHistoryStore.saveSession(suiteDir, currentSession);
+            renderChatHistory();
+
+            ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.");
 
             // Re-open workspace for this suite
             ViewNavigator.navigateToWorkspace(group, suite, suiteDir);
@@ -401,21 +549,60 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    private void addChatBubble(String role, String text) {
-        VBox bubble = new VBox(4);
-        bubble.setMaxWidth(500);
+    private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
+        String role = msg.getRole();
+        VBox bubble = new VBox(6);
+        bubble.setMaxWidth(520);
 
-        String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-        Label headerLabel = new Label(("user".equals(role) ? "Bạn" : "Trợ lý AI") + "  •  " + time);
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(msg.getTimestamp()), ZoneId.systemDefault());
+        String formattedTime = time.format(DateTimeFormatter.ofPattern("HH:mm"));
+
+        // Header Row: Label + Spacer + Copy Button + Undo Button
+        HBox header = new HBox(8);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        String title = ("user".equalsIgnoreCase(role) ? "Bạn" : "Trợ lý AI") + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
+        Label headerLabel = new Label(title);
         headerLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce;");
+        HBox.setHgrow(headerLabel, Priority.ALWAYS);
 
-        Label contentLabel = new Label(text);
+        // Copy Button
+        Button copyBtn = new Button("Sao chép");
+        copyBtn.getStyleClass().add("chat-action-btn");
+        UiIcons.setGraphic(copyBtn, UiIcons.COPY, 10);
+        copyBtn.setOnAction(e -> {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(msg.getContent());
+            Clipboard.getSystemClipboard().setContent(content);
+            ToastService.success("Đã sao chép nội dung tin nhắn!");
+        });
+
+        // Undo Button
+        Button undoBtn = new Button("Hoàn tác");
+        undoBtn.getStyleClass().addAll("chat-action-btn", "chat-action-btn-danger");
+        UiIcons.setGraphic(undoBtn, UiIcons.UNDO, 10);
+        undoBtn.setOnAction(e -> handleUndoMessage(msg));
+
+        header.getChildren().addAll(headerLabel, copyBtn, undoBtn);
+
+        // Content
+        Label contentLabel = new Label(msg.getContent());
         contentLabel.setWrapText(true);
 
-        bubble.getChildren().addAll(headerLabel, contentLabel);
+        bubble.getChildren().addAll(header, contentLabel);
+
+        // If applied to suite, show indicator badge
+        if (msg.isAppliedToSuite()) {
+            HBox appliedBadge = new HBox(4);
+            appliedBadge.setAlignment(Pos.CENTER_LEFT);
+            Label appliedLbl = new Label("✓ Đã áp dụng vào Suite (Bấm Hoàn tác để khôi phục)");
+            appliedLbl.setStyle("-fx-font-size: 10px; -fx-text-fill: #73daca; -fx-font-weight: bold;");
+            appliedBadge.getChildren().add(appliedLbl);
+            bubble.getChildren().add(appliedBadge);
+        }
 
         HBox wrapper = new HBox(bubble);
-        if ("user".equals(role)) {
+        if ("user".equalsIgnoreCase(role)) {
             wrapper.setAlignment(Pos.CENTER_RIGHT);
             bubble.setStyle("-fx-background-color: #22325b; -fx-padding: 10px 14px; -fx-background-radius: 12px 12px 2px 12px;");
         } else {
@@ -424,7 +611,63 @@ public class AiAssistantPageController implements Initializable {
         }
 
         chatMessagesBox.getChildren().add(wrapper);
-        Platform.runLater(() -> chatScroll.setVvalue(1.0));
+        if (scrollToBottom) {
+            Platform.runLater(() -> chatScroll.setVvalue(1.0));
+        }
+    }
+
+    private void handleUndoMessage(AiChatMessage targetMsg) {
+        if (targetMsg == null) return;
+
+        // 1. If applied to suite, ask for confirmation to rollback files
+        if (targetMsg.isAppliedToSuite() && targetMsg.getSuiteSnapshotJson() != null) {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Xác nhận hoàn tác Suite");
+            alert.setHeaderText("Hoàn tác toàn bộ thay đổi trong Suite");
+            alert.setContentText("Tin nhắn này đã thêm/sửa test cases trên đĩa. Bạn có muốn hoàn tác và khôi phục các file của Suite về trạng thái ban đầu không?");
+            DialogTheme.apply(alert);
+
+            Optional<ButtonType> result = alert.showAndWait();
+            if (result.isEmpty() || result.get() != ButtonType.OK) {
+                return;
+            }
+
+            Path suiteDir = getSelectedSuiteDir();
+            try {
+                chatHistoryStore.rollbackSuiteSnapshot(suiteDir, targetMsg.getSuiteSnapshotJson());
+                ToastService.success("⚡ Đã khôi phục Suite về trạng thái trước khi áp dụng!");
+            } catch (Exception ex) {
+                ToastService.error("Lỗi khi khôi phục Suite: " + ex.getMessage());
+            }
+        }
+
+        // 2. Remove the message and its pair from the session
+        List<AiChatMessage> msgs = currentSession.getMessages();
+        int idx = msgs.indexOf(targetMsg);
+        if (idx >= 0) {
+            if ("user".equalsIgnoreCase(targetMsg.getRole())) {
+                // If user message is undone, also remove the subsequent assistant reply if present
+                if (idx + 1 < msgs.size() && "assistant".equalsIgnoreCase(msgs.get(idx + 1).getRole())) {
+                    msgs.remove(idx + 1);
+                }
+                msgs.remove(idx);
+            } else {
+                // If assistant message is undone, remove this assistant message and prior user prompt
+                msgs.remove(idx);
+                if (idx - 1 >= 0 && "user".equalsIgnoreCase(msgs.get(idx - 1).getRole())) {
+                    msgs.remove(idx - 1);
+                }
+            }
+        }
+
+        // 3. Persist and re-render
+        Path suiteDir = getSelectedSuiteDir();
+        try {
+            chatHistoryStore.saveSession(suiteDir, currentSession);
+        } catch (IOException ignored) {}
+
+        renderChatHistory();
+        updateTokenUsageDisplay();
+        ToastService.info("Đã hoàn tác tin nhắn thành công.");
     }
 }
-

@@ -65,6 +65,9 @@ public final class UiIcons {
     /** Copy */
     public static final String COPY = "M 16 1 H 4 c -1.1 0 -2 0.9 -2 2 v 14 h 2 V 3 h 12 Z m 3 4 H 8 c -1.1 0 -2 0.9 -2 2 v 14 c 0 1.1 0.9 2 2 2 h 11 c 1.1 0 2 -0.9 2 -2 V 7 c 0 -1.1 -0.9 -2 -2 -2 Z m 0 16 H 8 V 7 h 11 Z";
 
+    /** Undo / Revert */
+    public static final String UNDO = "M 12.5 8 c -2.65 0 -5.05 1 -6.9 2.6 L 2 7 v 9 h 9 l -3.62 -3.62 c 1.39 -1.16 3.16 -1.88 5.12 -1.88 c 3.54 0 6.55 2.31 7.6 5.5 l 2.37 -0.78 C 21.08 11.03 17.15 8 12.5 8 Z";
+
     /** Search */
     public static final String SEARCH = "M 15.5 14 h -0.79 l -0.28 -0.27 A 6.47 6.47 0 0 0 16 9.5 A 6.5 6.5 0 1 0 9.5 16 c 1.61 0 3.09 -0.59 4.23 -1.57 l 0.27 0.28 v 0.79 l 5 4.99 L 20.49 19 Z m -6 0 C 7.01 14 5 11.99 5 9.5 S 7.01 5 9.5 5 S 14 7.01 14 9.5 S 11.99 14 9.5 14 Z";
 
