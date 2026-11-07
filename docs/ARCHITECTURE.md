@@ -30,14 +30,15 @@ The application runs **in-process** — test scripts are compiled and executed w
 com.studio/
 ├── App.java                              # JavaFX Application entry point
 │
-├── model/                                # Data models (7 classes)
+├── model/                                # Data models (8 classes)
 │   ├── TestGroup.java                    # Group node (can be nested)
 │   ├── TestSuite.java                    # Suite node (contains cases)
 │   ├── TestCase.java                     # Individual test case (holds per-case assertions)
 │   ├── Assertion.java                    # Assertion definition (type, value, status, 46 types)
 │   ├── CaseResult.java                   # Per-case run outcome
 │   ├── AssertResult.java                 # Per-assertion run outcome
-│   └── RunReport.java                    # Full run report (all cases)
+│   ├── RunReport.java                    # Full run report (all cases)
+│   └── HealedStepMeta.java               # Self-healing audit metadata (action, old/new selector, method)
 │
 ├── store/                                # Filesystem persistence (3 classes)
 │   ├── ProjectStore.java                 # Group/Suite/Case CRUD + tree load + case collection
@@ -47,8 +48,8 @@ com.studio/
 ├── service/                              # Business logic (8 classes)
 │   ├── TestRunnerService.java            # Run orchestration — all 4 scopes, compile, execute
 │   ├── SharedBrowserSession.java         # In-process Playwright browser context lifecycle
-│   ├── AssertCodeGenerator.java          # 46 assert types → soft-assert Java code block
-│   ├── ScriptHarnessTransformer.java     # Rewrites codegen output for in-process execution
+│   ├── AssertCodeGenerator.java          # 46 assert types → soft-assert Java code block with healing
+│   ├── ScriptHarnessTransformer.java     # Rewrites codegen output with StudioRuntime.healLocator
 │   ├── ExcelReportService.java           # 3-sheet Excel export (Summary, Cases, Asserts)
 │   ├── AssertResultsScorer.java          # Reads assert-results JSON to determine pass/fail
 │   ├── ToastService.java                 # Non-blocking toast notifications
@@ -59,13 +60,16 @@ com.studio/
 │   ├── ExplorerPageController.java       # Tree CRUD, drag-drop, run buttons, preview panel
 │   ├── SuiteWorkspacePageController.java # Code editor, Record/Run, terminal, assert management
 │   ├── ReportsPageController.java        # Report list with filters
-│   ├── ReportDetailPageController.java   # Per-report detail with case expansion, Excel export
+│   ├── ReportDetailPageController.java   # Per-report detail with case expansion, Excel export, heal drawer
 │   ├── AssertBuilderPopupController.java # Assertion creation/modification modal (46 types)
 │   ├── EntityFormDialog.java             # Create/Edit modals for Group, Suite, Case entities
 │   └── ViewNavigator.java                # Static page navigation + FXML cache
 │
-├── runtime/
-│   └── StudioRuntime.java                # Thread-local Page + BrowserContext for harness
+├── runtime/                              # In-process runtime & self-healing engine (4 classes)
+│   ├── StudioRuntime.java                # Thread-local Page + BrowserContext + healLocator helper
+│   ├── EnhancedDomExtractor.java         # Deep interactive DOM extractor (Shadow DOM + Iframe traversal)
+│   ├── HeuristicHealer.java              # Rule-based zero-cost locator repair (<30ms, dynamic ID, text, aria)
+│   └── OptimizedSelfHealingExecutor.java # 5-tier self-healing orchestrator with Dynamic Proxy Locator
 │
 └── util/                                 # Utilities (9 classes)
     ├── StudioPaths.java                  # APP_HOME resolution + directory structure
@@ -211,6 +215,20 @@ sequenceDiagram
     UI->>User: Toast summary (xP / yF / zS)
     UI->>UI: Navigate to Reports or show results inline
 ```
+
+---
+
+## Multi-Tier Self-Healing Engine
+
+Playwright Automation Studio integrates an autonomous 5-tier Self-Healing Engine (see full technical specification in [docs/SELF_HEALING_DESIGN.md](file:///Users/tranquoc/Developer/tools/GUI-test-tool/docs/SELF_HEALING_DESIGN.md)):
+
+1. **Tier 0 (Smart Wait Buffer)**: 350-400ms buffer absorbing hydration delays before declaring failure.
+2. **Tier 1 (LocateCache)**: In-memory session cache ensuring sub-millisecond reuse of previously healed selectors across repeated steps.
+3. **Tier 2 (Fast Heuristics)**: Zero-cost rule-based browser repair (<30ms) stripping dynamic ID suffixes, hash classes, and mapping semantic attributes (`data-testid`, `aria-label`, placeholder, role with text).
+4. **Tier 3 (Multimodal VLM)**: `EnhancedDomExtractor` traverses Shadow DOM & IFrames, paired with compressed JPEG viewport screenshots sent to vision LLM via `OpenAiClient`.
+5. **Tier 4 (Sandbox Verification)**: Enforces `count == 1 && isVisible() && isEnabled()` before accepting any candidate.
+6. **Lazy Dynamic Proxy**: Transformed scripts call `StudioRuntime.healLocator(...)` which delegates via `java.lang.reflect.Proxy`, preserving 100% of native Playwright Auto-Waiting.
+7. **Persistent Mutation**: Safely updates quoted string literals in `.java` test scripts and `suite.json` assertions, preventing repeat repair costs in future runs.
 
 ---
 
