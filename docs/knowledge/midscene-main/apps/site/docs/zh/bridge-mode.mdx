@@ -1,0 +1,138 @@
+import { PackageManagerTabs } from '@theme';
+
+# Chrome Bridge 环境配置
+
+Chrome Bridge 通过 Midscene Chrome 插件，让 Node.js 脚本直接控制桌面 Chrome 浏览器，从而复用浏览器中已有的登录状态、Cookie 和扩展程序。运行脚本的 Node.js 进程负责启动 Bridge Server 并调用 AI 模型，Chrome 插件则连接到该服务并执行标签页操作。
+
+![Chrome Bridge](/images/midscene-bridge-mode.png)
+
+## 安装与权限
+
+1. 安装 [Midscene Chrome 插件](https://chromewebstore.google.com/detail/midscene/gbldofcpkknbggpkmbdaefngejllnief)。安装后，插件默认会在后台自动监听本地连接请求，无需手动开启。
+2. （可选）如果脚本需要触发本地文件上传，请在浏览器地址栏访问 `chrome://extensions`，进入 Midscene 插件的「详情」页，开启**允许访问文件网址**（**Allow access to file URLs**）。配置完成后，请先切回目标 `http(s)://` 页面再发起连接。
+
+## 在 Playground 中验证模型和页面交互
+
+先按照 [Web 环境配置](./platforms/web#启动-playground) 打开插件侧边栏、保存模型配置，在 TodoMVC 中完成一次 `aiAct` 操作和 `aiAssert` 断言，并查看执行步骤和截图。
+
+插件 Playground 直接操作当前页面，不经过 Node.js Bridge Server。完成体验后，还需要执行下面的连接检查，确认脚本进程可以通过插件控制 Chrome。
+
+<a id="快速开始"></a>
+
+## 验证连接 {#verify-connection}
+
+以下最小示例仅用于验证 Node.js 脚本与 Chrome 插件之间的通信链路，不调用任何 AI 方法，因此无需提前配置模型。
+
+### 1. 安装依赖
+
+安装 Node.js（版本范围：`^20.19.0 || ^22.12.0 || >=24.0.0`），安装 pnpm，在项目目录执行 `pnpm init`（已有 `package.json` 时跳过），然后安装依赖：
+
+<PackageManagerTabs command="install @midscene/web tsx --save-dev" />
+
+### 2. 编写代码
+
+将以下代码保存为 `bridge-check.ts`：
+
+```typescript title="bridge-check.ts"
+import { AgentOverChromeBridge } from '@midscene/web/bridge-mode';
+
+async function main() {
+  const agent = new AgentOverChromeBridge();
+  try {
+    await agent.connectNewTabWithUrl('https://example.com');
+    console.log('Chrome Bridge connected');
+    console.log(await agent.getBrowserTabList());
+  } finally {
+    await agent.destroy();
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+### 3. 运行并授权
+
+```bash
+pnpm exec tsx bridge-check.ts
+```
+
+运行后，Chrome 插件会弹出连接确认窗口，点击 **Allow** 允许本次连接（选择 **Always Allow** 可自动放行后续请求，后续可在插件的 Bridge Mode 面板中随时重置）。
+
+连接成功后，Chrome 会新开标签页并访问 `example.com`，同时终端会输出 `Chrome Bridge connected` 及当前窗口的标签页列表。随后脚本执行完毕并自动断开连接，新开的标签页会保留在浏览器中。插件图标上的圆点颜色代表当前状态：黄色表示正在监听等待连接，绿色表示已建立连接（由于该示例执行完毕后即刻销毁 Agent，绿点会很快恢复为黄点）。
+
+<p align="center">
+  <img src="/images/bridge_in_extension.png" alt="Chrome Bridge connection" width="400"/>
+</p>
+
+## 下一步
+
+环境和 Playground 验证通过后，根据使用方式继续：
+
+- **编写 YAML 测试**：通过 [Midscene Test](./midscene-test/use) 创建项目、运行用例并查看报告。
+- **编写自动化流程**：阅读[独立自动化脚本](./sdk/standalone)，选择 Chrome Bridge 示例。
+- **查询平台接口**：阅读 [Chrome Bridge SDK API 参考](./sdk/chrome-bridge)，了解构造参数、平台方法和资源清理。
+
+Playground 中保存的模型配置不会自动同步到测试或脚本进程。请将验证通过的配置写入项目的 `.env`，并按集成教程加载；设备连接工具、服务和权限仍需保持可用。
+
+Midscene Test 的 Web 模板默认使用 Playwright。若要使用 Bridge，创建项目后需按[配置测试工程](./midscene-test/configuration)管理 `AgentOverChromeBridge` 的连接与销毁，并通过 `createMidsceneNodes()` 注册 Agent；不能直接复用模板中的 Playwright 页面初始化。
+
+Chrome Bridge 不提供 Playwright 的 `Page` 对象。如果要接入 Playwright Test，请改走 [Web 环境配置](./platforms/web)。
+
+<a id="远程访问配置"></a>
+
+## 远程访问配置 {#remote-access-configuration}
+
+默认情况下，Bridge Server 仅监听本机回环地址 `127.0.0.1`，只接受本机 Chrome 插件的连接。如果需要跨机器通信（例如脚本运行在机器 A，Chrome 浏览器运行在机器 B），需在两端同时配置远程访问：
+
+**1. Server 端（Node.js 脚本）**
+
+```typescript
+// 方式一：监听所有网卡（0.0.0.0:3766）
+const agent = new AgentOverChromeBridge({
+  allowRemoteAccess: true,
+});
+
+// 方式二：指定监听特定网卡 IP
+const agent = new AgentOverChromeBridge({
+  host: '192.168.1.100',
+  port: 3766,
+});
+```
+
+**2. Client 端（Chrome 插件）**
+
+1. 打开 Chrome 插件侧边栏，切换到 **Bridge Mode** 面板。
+2. 在 **Bridge Server URL** 输入框中填写服务端地址：
+   - 本机连接：`ws://localhost:3766`（默认）
+   - 远程连接：`ws://192.168.1.100:3766`（请替换为运行脚本的机器 IP）
+3. 运行脚本，并在插件弹出的确认窗口中点击 **Allow**。
+
+<p align="center">
+  <img src="/images/bridge_remote_config.png" alt="bridge remote config" width="400"/>
+</p>
+
+:::warning 安全提示
+
+开启远程访问后，Bridge Server 将暴露在网络中。请务必注意：
+- 仅在受信任的内网环境中使用；
+- 配合防火墙规则限制可访问的源 IP；
+- 切勿在公网环境中直接暴露该端口，以免带来安全风险。
+
+:::
+
+## 问题排查 {#faq}
+
+### 插件一直未能连接
+
+请依次排查：Chrome 浏览器是否已启动、Midscene 插件是否已启用，以及插件 Bridge Mode 面板中的 **Bridge Server URL** 是否与脚本监听的地址和端口一致（本机默认为 `ws://127.0.0.1:3766`）。如果是跨机器远程连接，还需确认脚本端已开启 `allowRemoteAccess: true` 或指定了正确的网卡 `host`，且目标端口未被防火墙拦截。
+
+### 如何重新触发连接授权弹窗？
+
+在插件的 Bridge Mode 面板中重置已保存的授权记录，然后重新运行脚本，插件即会再次弹出授权确认窗口。
+
+### 模型环境变量应该配置在哪里？
+
+调用 `aiAct`、`aiAssert` 等 AI 方法时，需在运行脚本的 Node.js 环境中完成[模型配置](./model-api-setup)。插件 Playground 中填写的模型配置仅作用于 Playground 自身，不会同步给 Node.js 脚本。此外，上方的连接验证脚本仅测试桥接通信，连接成功不代表模型配置已就绪。

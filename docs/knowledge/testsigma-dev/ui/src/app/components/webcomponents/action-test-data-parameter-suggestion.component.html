@@ -1,0 +1,174 @@
+<div class="theme-overlay-container">
+  <div
+    [class.with-br-bottom]="!testDataProfileDetails"
+    class="theme-overlay-header">
+    <div
+      class="theme-overlay-title"
+      [translate]="('action.data_profile.suggestion.title'| translate)+( !filteredMultiDataProfileSuggestions?.length && testDataName? '(' +testDataName +')': '') ">
+    </div>
+    <button
+      class="theme-overlay-close"
+      type="button"
+      [matTooltip]="'hint.message.common.close' | translate"
+      (click)="closeSuggestion()">
+    </button>
+  </div>
+  <div class="identifier-record text-center h-100-64 overflow-y-auto"
+       *ngIf="!dataProfileSuggestion?.length && !isQueryBased && !filteredMultiDataProfileSuggestions?.length">
+    <div class="pt-20 px-35 pb-20">
+      <div [translate]="'test_data_profile_suggestion.not_found.start_title'"
+           class="fz-14 pb-10 text-left line-height-large"></div>
+      <div class="d-flex align-items-center">
+        <a
+          (click)="closeSuggestion(!option.stepRecorderView)"
+          class="btn theme-btn-primary" [routerLink]="['/td', versionId, 'data', 'new']" target="_blank">
+          <span [textContent]="'btn.common.create' | translate"></span>
+        </a>
+        <a
+          (click)="closeSuggestion(!option.stepRecorderView)"
+          class="btn theme-btn-primary" [routerLink]="['/td', testcase.workspaceVersionId, testcase.isStepGroup? 'step_groups': 'cases', testCaseId, 'edit']" target="_blank">
+          <span [translate]="'btn.common.associate'"></span>
+        </a>
+        <button
+          *ngIf="showRefreshOption"
+          (click)="refreshTestDataProfileId()"
+          [matTooltip]="'result.hint.click.here.refresh' | translate"
+          class="btn icon-btn border-rds-2 ml-10">
+          <i class="fa-refresh-thick"></i>
+        </button>
+        <a class="btn btn-clear-default border-rds-4 ml-auto"
+           rel="noreferrer nofollow"
+           href="https://testsigma.com/docs/test-data/create-data-profiles/" target="_blank">
+          <i class="text-purplish-blue fa-article pr-6 fz-15"></i>
+          <span class="text-dark" [translate]="'message.common.know_more'"></span>
+        </a>
+      </div>
+    </div>
+    <div class="px-30">
+      <div>
+        <div
+          *ngIf="!showVideo"
+          class="d-flex align-items-center justify-content-center w-100 border-rds-12 identifier-bg pointer"
+          style="height: 300px; color: red">
+          <i
+            (click)="showVideo= !showVideo"
+            class="fa-youtube fz-38"></i>
+        </div>
+        <video
+          *ngIf="showVideo"
+          height="300" controls autoplay class="border-rds-12 d-flex w-100 identifier-bg"
+          src="https://s3.amazonaws.com/assets.testsigma.com/videos/test-data/create-profile.mp4"></video>
+      </div>
+    </div>
+  </div>
+  <form
+    class="ts-form theme-overlay-content without-footer" id="testcaseStatusForm"
+    (keydown.enter)="false"
+    novalidate="novalidate">
+    <div
+      *ngIf="dataProfileSuggestion?.length || isQueryBased || filteredMultiDataProfileSuggestions?.length"
+      [class.pt-25]="!testDataProfileDetails"
+      class="overflow-x-hidden h-100">
+      <div
+        *ngIf="filteredTdpDatas?.content || isQueryBasedTdp"
+        class="d-flex pb-30 align-items-center ts-col-100">
+        <div
+          class="fz-14 rb-medium ts-col-40"
+          [translate]="testDataProfileDetails.content?.length>1 ? 'test_data_profiles.title':'action.data_profile.suggestion.title'"
+        ></div>
+        <app-auto-complete
+          class="ts-col-60"
+          [items]="filteredTdpDatas"
+          [value]="selectedTestData"
+          [isDisabled]="!filteredTdpDatas.content.length"
+          (onSearch)="onSearchTdp($event)"
+          (onValueChange)="onSelectTdp($event)"
+        ></app-auto-complete>
+      </div>
+      <div
+        [class.pb-30]="!testDataProfileDetails"
+        [class.pb-15]="testDataProfileDetails"
+        class="d-flex text-t-secondary">
+        <div
+          [class.rounded-search]="testDataProfileDetails"
+          class="w-85 d-flex align-items-center">
+          <i
+            [matTooltip]="'hint.message.common.search' | translate"
+            class="fa-search fz-13 mr-5"></i>
+          <div
+            class="form-control border-0 w-85 data-placeholder-content d-inline-block p-0"
+            #searchInput
+            (focus)="this.currentFocusedIndex=0"
+            (keydown.enter)="selectedSuggestion()"
+            (keydown.arrowup)="scrollUpParameterFocus()"
+            (keydown.arrowDown)="scrollDownParameterFocus()"
+            contenteditable="true"
+            [attr.data-placeholder]="'common.place_holder.search_field' | translate: {fieldName: 'Parameter Name'}"></div>
+        </div>
+      </div>
+      <div
+        *ngIf="!filteredMultiDataProfileSuggestions?.length && filteredSuggestion?.length"
+        [class.list-header]="!testDataProfileDetails"
+        [class.rb-medium-i-d]="testDataProfileDetails"
+        [class.px-10]="testDataProfileDetails"
+        class="px-5 py-10">
+        <div
+          class="ts-col-100 pr-10 d-flex">
+        <span
+          class="pl-7"
+          [translate]="'elements.column_name'"></span>
+        </div>
+      </div>
+      <div
+        *ngIf="filteredMultiDataProfileSuggestions?.length"
+        class="list-header ts-col-100 pr-10 d-flex px-10">
+        <div class="ts-col-35" [translate]="'elements.column_name'"></div>
+        <div class="ts-col-65" [translate]="'action.data_profile.suggestion.title'"></div>
+      </div>
+
+    <cdk-virtual-scroll-viewport
+      itemSize="{{testDataProfileDetails ? '65': '59'}}"
+      class="list-container virtual-scroll-viewport theme-details-scroll x-sm-h">
+      <a
+        [class.border-0]="!testDataProfileDetails"
+        [class.py-10]="testDataProfileDetails"
+        [class.py-7]="!testDataProfileDetails"
+        class="list-view green-highlight px-5 pointer align-items-center grey-on-hover"
+        *ngFor='let parameter of filteredSuggestion; let index = index'
+        [class.h-active]="currentFocusedIndex == index"
+        (mouseover)="currentFocusedIndex = index"
+        (click)="selectedSuggestion(parameter,selectedTestData?.testDataProfileStepId)">
+        <div
+          class="ts-col-100 d-flex text-truncate pr-10 pl-16" [matTooltip]="parameter"
+          [textContent]="parameter">
+        </div>
+      </a>
+      <a
+        [class.border-0]="!filteredMultiDataProfileSuggestions"
+        [class.py-10]="filteredMultiDataProfileSuggestions"
+        [class.py-7]="!filteredMultiDataProfileSuggestions"
+        class="list-view green-highlight px-5 pointer align-items-center grey-on-hover"
+        *ngFor='let parameter of filteredMultiDataProfileSuggestions; let index = index'
+        [class.h-active]="currentFocusedIndex == index"
+        (mouseover)="currentFocusedIndex = index"
+        (click)="selectSuggestion(parameter.key,parameter.id)">
+        <div
+          class="ts-col-100 d-flex text-truncate pr-10 pl-16">
+          <div class="ts-col-35" [textContent]="parameter.key"></div>
+          <div class="ts-col-65">
+            <span [textContent]="parameter.tdpName"></span>
+            <span [textContent]="' #'+parameter.stepDisplayNumber" [matTooltip]="('test_step.for_loop.title' | translate)+' [ '+parameter.tdpName+' ] [ '+parameter.startIndex+'...'+( parameter.endIndex === -1 ? ('test_step.for_loop.option_end' | translate) : parameter.endIndex )+' ]'"></span>
+          </div>
+        </div>
+      </a>
+        <div
+          *ngIf=" !filteredMultiDataProfileSuggestions?.length && !filteredSuggestion?.length"
+          class="p-50 d-flex align-items-center justify-content-center h-100 flex-column">
+          <div
+            class="text-t-secondary pt-30 pb-18"
+            [translate]="'message.common.search.not_found'"></div>
+        </div>
+    </cdk-virtual-scroll-viewport>
+    </div>
+</form>
+</div>

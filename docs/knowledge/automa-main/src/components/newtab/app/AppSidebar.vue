@@ -1,0 +1,221 @@
+<template>
+  <aside
+    class="fixed left-0 top-0 z-50 flex h-screen w-16 flex-col items-center bg-white py-6 dark:bg-gray-800"
+  >
+    <img
+      :title="`v${extensionVersion}`"
+      src="@/assets/svg/logo.svg"
+      class="mx-auto mb-4 w-10"
+    />
+    <div
+      class="relative w-full space-y-2 text-center"
+      @mouseleave="showHoverIndicator = false"
+    >
+      <div
+        v-show="showHoverIndicator"
+        ref="hoverIndicator"
+        class="bg-box-transparent absolute left-1/2 h-10 w-10 rounded-lg transition-transform duration-200"
+        style="transform: translate(-50%, 0)"
+      ></div>
+      <router-link
+        v-for="tab in tabs"
+        v-slot="{ href, navigate, isActive }"
+        :key="tab.id"
+        :to="tab.path"
+        custom
+      >
+        <a
+          v-tooltip:right.group="
+            `${t(`common.${tab.id}`, 2)} ${
+              tab.shortcut && `(${tab.shortcut.readable})`
+            }`
+          "
+          :class="{ 'is-active': isActive }"
+          :href="tab.id === 'log' ? '#' : href"
+          class="tab relative z-10 flex w-full items-center justify-center"
+          @click="navigateLink($event, navigate, tab)"
+          @mouseenter="hoverHandler"
+        >
+          <div class="inline-block rounded-lg p-2 transition-colors">
+            <v-remixicon :name="tab.icon" />
+          </div>
+          <span
+            v-if="tab.id === 'log' && runningWorkflowsLen > 0"
+            class="absolute -top-1 right-2 h-4 w-4 rounded-full bg-accent text-xs text-white dark:text-black"
+          >
+            {{ runningWorkflowsLen }}
+          </span>
+        </a>
+      </router-link>
+    </div>
+    <hr class="my-4 w-8/12" />
+    <button
+      v-tooltip:right.group="$t('home.elementSelector.name')"
+      class="focus:ring-0"
+      @click="injectElementSelector"
+    >
+      <v-remixicon name="riFocus3Line" />
+    </button>
+    <div class="grow"></div>
+    <router-link
+      v-if="userStore.user"
+      v-tooltip:right.group="t('settings.menu.profile')"
+      to="/profile"
+      class="bg-box-transparent inline-block rounded-full p-1 transition-transform hover:scale-110"
+    >
+      <img
+        :src="userStore.user.avatar_url"
+        height="32"
+        width="32"
+        class="rounded-full"
+        alt="User avatar"
+      />
+    </router-link>
+    <ui-popover trigger="mouseenter" placement="right" class="my-4">
+      <template #trigger>
+        <v-remixicon name="riGroupLine" />
+      </template>
+      <p class="mb-2">{{ t('home.communities') }}</p>
+      <ui-list class="w-40">
+        <ui-list-item
+          v-for="item in communities"
+          :key="item.name"
+          :href="item.url"
+          small
+          tag="a"
+          target="_blank"
+          rel="noopener"
+        >
+          <v-remixicon :name="item.icon" class="mr-2" />
+          {{ item.name }}
+        </ui-list-item>
+      </ui-list>
+    </ui-popover>
+    <router-link v-tooltip:right.group="t('settings.menu.about')" to="/about">
+      <v-remixicon class="cursor-pointer" name="riInformationLine" />
+    </router-link>
+  </aside>
+</template>
+<script setup>
+import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
+import { useToast } from 'vue-toastification';
+import browser from 'webextension-polyfill';
+import { useUserStore } from '@/stores/user';
+import { useWorkflowStore } from '@/stores/workflow';
+import { useShortcut, getShortcut } from '@/composable/shortcut';
+import { useGroupTooltip } from '@/composable/groupTooltip';
+import { communities } from '@/utils/shared';
+import { initElementSelector } from '@/newtab/utils/elementSelector';
+import emitter from '@/lib/mitt';
+
+useGroupTooltip();
+
+const { t } = useI18n();
+const toast = useToast();
+const router = useRouter();
+const userStore = useUserStore();
+const workflowStore = useWorkflowStore();
+
+const extensionVersion = browser.runtime.getManifest().version;
+const tabs = [
+  {
+    id: 'workflow',
+    icon: 'riFlowChart',
+    path: '/workflows',
+    shortcut: getShortcut('page:workflows', '/workflows'),
+  },
+  {
+    id: 'packages',
+    icon: 'mdiPackageVariantClosed',
+    path: '/packages',
+    shortcut: '',
+  },
+  {
+    id: 'schedule',
+    icon: 'riTimeLine',
+    path: '/schedule',
+    shortcut: getShortcut('page:schedule', '/triggers'),
+  },
+  {
+    id: 'storage',
+    icon: 'riHardDrive2Line',
+    path: '/storage',
+    shortcut: getShortcut('page:storage', '/storage'),
+  },
+  {
+    id: 'log',
+    icon: 'riHistoryLine',
+    path: '/logs',
+    shortcut: getShortcut('page:logs', '/logs'),
+  },
+  {
+    id: 'settings',
+    icon: 'riSettings3Line',
+    path: '/settings',
+    shortcut: getShortcut('page:settings', '/settings'),
+  },
+];
+const hoverIndicator = ref(null);
+const showHoverIndicator = ref(false);
+const runningWorkflowsLen = computed(() => workflowStore.getAllStates.length);
+
+useShortcut(
+  tabs.reduce((acc, { shortcut }) => {
+    if (shortcut) {
+      acc.push(shortcut);
+    }
+
+    return acc;
+  }, []),
+  ({ data }) => {
+    if (!data) return;
+
+    if (data.includes('/logs')) {
+      emitter.emit('ui:logs', { show: true });
+      return;
+    }
+
+    router.push(data);
+  }
+);
+
+function navigateLink(event, navigateFn, tab) {
+  event.preventDefault();
+
+  if (tab.id === 'log') {
+    emitter.emit('ui:logs', { show: true });
+  } else {
+    navigateFn();
+  }
+}
+function hoverHandler({ target }) {
+  showHoverIndicator.value = true;
+  hoverIndicator.value.style.transform = `translate(-50%, ${target.offsetTop}px)`;
+}
+async function injectElementSelector() {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, url: '*://*/*' });
+    if (!tab) {
+      toast.error(t('home.elementSelector.noAccess'));
+      return;
+    }
+
+    await initElementSelector();
+  } catch (error) {
+    console.error(error);
+  }
+}
+</script>
+<style scoped>
+.tab.is-active:after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  @apply bg-accent dark:bg-gray-100;
+}
+</style>

@@ -1,0 +1,254 @@
+<div class="d-flex flex-row position-relative h-100">
+
+  <div class="ts-col-40">
+    <div class="d-flex w-100 px-20 py-15 theme-border-b">
+      <span [translate]="'mobile_recorder.test_steps.title'" class="fz-15 rb-medium-i-d text-nowrap"></span>
+      <div class="ml-auto">
+        <span
+          class="ml-auto pl-14 pointer"
+          [matTooltip]="(pauseRecord?'mobile_recorder.hint.resume_recording':'mobile_recorder.hint.pause_recording')|translate"
+          (click)="pauseRecord=!pauseRecord">
+          <span
+            [class.fa-pause-record]="!pauseRecord"
+            [class.fa-play-circle]="pauseRecord"
+            [class.result-status-text-1]="!pauseRecord"
+            [class.result-status-text-0]="pauseRecord"
+            class="mr-5 pulse">
+          </span>
+          <span [translate]="!pauseRecord ? 'agents.mobile.inspection.recording' : 'agents.mobile.inspection.pause'"
+                class="text-danger"></span>
+        </span>
+      </div>
+    </div>
+    <div class="position-relative h-100-50">
+      <div
+        [class.h-100]="!suggestionName && !fullScreenMode"
+        [class.h-50]="suggestionName || fullScreenMode">
+        <ng-container *ngTemplateOutlet="stepRecorderTemplate"></ng-container>
+      </div>
+      <div *ngIf="suggestionName || fullScreenMode" class="h-50 theme-border-t">
+        <div *ngIf="suggestionName" class="h-100 pb-20">
+          <app-step-summary
+            *ngIf="isSummary"
+            [stepDetails]="suggestionContentData"></app-step-summary>
+          <app-element-form
+            *ngIf="isEditElement"
+            [formDetails]="suggestionContentData"
+            [doRefresh]=true
+          ></app-element-form>
+          <app-action-element-suggestion
+            *ngIf="isElementsSuggestion"
+            [elementSuggestion]="suggestionContentData"
+          ></app-action-element-suggestion>
+          <app-action-test-data-function-suggestion
+            *ngIf="isCustomFunction"
+            [testDataCustomFunction]="suggestionContentData"
+          ></app-action-test-data-function-suggestion>
+          <app-action-test-data-environment-suggestion
+            *ngIf="isEnvironment"
+            [testDataEnvironment]="suggestionContentData"
+          ></app-action-test-data-environment-suggestion>
+          <app-action-test-data-parameter-suggestion
+            *ngIf="isDataProfile"
+            [mobileDataProfileDetails]="suggestionContentData"
+          ></app-action-test-data-parameter-suggestion>
+          <app-test-step-more-action-form
+            *ngIf="isMoreAction"
+            [isFullScreenMode]="fullScreenMode"
+            [moreDetails]="suggestionContentData"
+          ></app-test-step-more-action-form>
+          <app-action-test-data-runtime-variable-suggestion
+            *ngIf="isRuntimeVariable"
+            [isFullScreenMode]="fullScreenMode"
+            [testDataRuntimeVariable]="suggestionContentData"
+          ></app-action-test-data-runtime-variable-suggestion>
+        </div>
+        <div *ngIf="!mirroring && fullScreenMode"
+             class="inspection-details-section w-100">
+          <div class="flex-column w-100">
+            <div class="ml-n12 theme-border-b h-50" #customDialogContainerH50
+                 [class.d-none]="!halfHeightDialogsOpen && !fullScreenMode || (fullScreenMode && !halfHeightDialogsOpen && !fullHeightDialogsOpen)"></div>
+            <mat-tab-group [class.disabled]="loading"
+                           [(selectedIndex)]="selectedIndex"
+                           [class.h-50]="halfHeightDialogsOpen || fullScreenMode && customDialogContainerH50['clientHeight'] > 2"
+                           [class.d-none-important]="fullHeightDialogsOpen && customDialogContainerH100['clientHeight'] > 2"
+                           class="inspector-mat-tab w-100 border-0 pt-10 pr-15"
+                           mat-stretch-tabs>
+              <mat-tab>
+                <ng-template mat-tab-label>
+                  <span [translate]="'agents.mobile.inspection.app_source'"></span>
+                </ng-template>
+                <app-source *ngIf="mirroringContainerComponent"
+                            (highlightCanvas)="mirroringContainerComponent.highlightOnSelection($event)"
+                            (highlightCanvasOnHover)="mirroringContainerComponent.mouseInFromAppSource($event)"
+                            (mouseOutFromAppSource)="mirroringContainerComponent.mouseOutFromAppSource()"
+                            [dataSource]="dataSource"
+                            [inspectedElement]="mirroringContainerComponent.inspectedElement"
+                            [isNativeAppEnabled]="mirroringContainerComponent.isNativeAppEnabled"
+                            [loading]="loading">
+                </app-source>
+              </mat-tab>
+              <mat-tab>
+                <ng-template mat-tab-label>
+                  <span [translate]="'agents.mobile.inspection.selected_element'"></span>
+                </ng-template>
+                <app-selected-elements *ngIf="mirroringContainerComponent"
+                                       [currentPageSource]="currentPageSource"
+                                       [inspectedElement]="mirroringContainerComponent.inspectedElement"
+                                       [isNativeAppEnabled]="mirroringContainerComponent.isNativeAppEnabled"
+                                       [sessionId]="sessionId"
+                                       [devicesService]="devicesService"
+                                       [isStepRecorder]="true"
+                                       [optimisingXpath]="mirroringContainerComponent.optimisingXpath"
+                                       (saveEnterStep)="saveEnterStep($event)"
+                                       (saveClearStep)="saveClearStep($event)"
+                                       (saveTapStep)="saveTapStep($event)">
+                </app-selected-elements>
+              </mat-tab>
+            </mat-tab-group>
+            <div class="mr-14 h-100" #customDialogContainerH100
+                 [class.d-none]="!fullHeightDialogsOpen || customDialogContainerH50['clientHeight'] > 2 || fullScreenMode"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div *ngIf="!mirroring" [class.d-none-important]="fullScreenMode"
+       class="inspection-details-section ts-col-30 theme-border-l">
+    <div class="flex-column w-100">
+      <div class="ml-n12 theme-border-b h-50" #customDialogContainerH50
+           [class.d-none]="!halfHeightDialogsOpen && !fullScreenMode || (fullScreenMode && !halfHeightDialogsOpen && !fullHeightDialogsOpen)"></div>
+      <mat-tab-group [class.disabled]="loading"
+                     [(selectedIndex)]="selectedIndex"
+                     [class.h-50]="halfHeightDialogsOpen || fullScreenMode && customDialogContainerH50['clientHeight'] > 2"
+                     [class.d-none-important]="fullHeightDialogsOpen && customDialogContainerH100['clientHeight'] > 2"
+                     class="inspector-mat-tab w-100 border-0 pt-10 pr-15"
+                     mat-stretch-tabs>
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <span [translate]="'agents.mobile.inspection.app_source'"></span>
+          </ng-template>
+          <app-source *ngIf="mirroringContainerComponent"
+                      (highlightCanvas)="mirroringContainerComponent.highlightOnSelection($event)"
+                      (highlightCanvasOnHover)="mirroringContainerComponent.mouseInFromAppSource($event)"
+                      (mouseOutFromAppSource)="mirroringContainerComponent.mouseOutFromAppSource()"
+                      [dataSource]="dataSource"
+                      [inspectedElement]="mirroringContainerComponent.inspectedElement"
+                      [isNativeAppEnabled]="mirroringContainerComponent.isNativeAppEnabled"
+                      [loading]="loading">
+          </app-source>
+        </mat-tab>
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <span [translate]="'agents.mobile.inspection.selected_element'"></span>
+          </ng-template>
+          <app-selected-elements *ngIf="mirroringContainerComponent"
+                                 [currentPageSource]="currentPageSource"
+                                 [inspectedElement]="mirroringContainerComponent.inspectedElement"
+                                 [isNativeAppEnabled]="mirroringContainerComponent.isNativeAppEnabled"
+                                 [sessionId]="sessionId"
+                                 [devicesService]="devicesService"
+                                 [isStepRecorder]="true"
+                                 [optimisingXpath]="mirroringContainerComponent.optimisingXpath"
+                                 (saveEnterStep)="saveEnterStep($event)"
+                                 (saveClearStep)="saveClearStep($event)"
+                                 (saveTapStep)="saveTapStep($event)">
+          </app-selected-elements>
+        </mat-tab>
+      </mat-tab-group>
+      <div class="mr-14 h-100" #customDialogContainerH100
+           [class.d-none]="!fullHeightDialogsOpen || customDialogContainerH50['clientHeight'] > 2 || fullScreenMode"
+      ></div>
+    </div>
+  </div>
+  <div [class.ts-col-60]="fullScreenMode"
+       class="mirroring-section ts-col-30 theme-border-l" style="background: #CEDAE6">
+    <div class="d-flex pt-10 pr-10">
+      <button (click)="loading?'':quit()"
+              [disabled]="deleteClicked"
+              [matTooltip]="(loading?'agents.mobile.inspection.quit_session_later':'agents.mobile.inspection.quit_session')| translate"
+              class="ml-auto theme-btn-clear-default bg-white">
+        <span class="fz-14 pr-12" [translate]="'agents.mobile.inspection.quit_session'"></span> &times;
+      </button>
+    </div>
+    <app-mirroring-container #mirroringContainerComponent
+                             [(dataSource)]="dataSource"
+                             [(loading)]="loading"
+                             [loadingActions]="loadingActions"
+                             [currentPageSource]="currentPageSource"
+                             [isIosNative]="isIosNative()"
+                             [isEdit]="isEdit"
+                             [uiId]="uiId"
+                             [sessionId]="sessionId"
+                             [data]="data"
+                             [mirroring]="mirroring"
+                             [selectedElement]="selectedElement1"
+                             (saveChangeOrientationStep)="saveChangeOrientationStep($event)"
+                             (saveTapStep)="saveTapStep($event)"
+                             (saveTapOnDeviceStep)="saveDeviceTapStep($event)"
+                             (saveNavigateBackStep)="saveNavigateBackStep()"
+                             (saveEnterStep)="saveEnterStep($event)"
+                             (saveClearStep)="saveClearStep($event)"
+                             (updateRecordedElement)="updateRecordedElement()"
+                             class="d-flex h-100-40 ts-col-100"
+    ></app-mirroring-container>
+  </div>
+</div>
+<!-- //TODO
+<simple-notifications></simple-notifications>-->
+<ng-template #stepRecorderTemplate>
+  <div
+    [class.showed]="canShowBulkActions && !canDrag"
+    class="bulk-action-container" [style.zIndex]="canShowBulkActions? 3 : -1">
+    <button
+      (click)="openBulkUpdate()"
+      class="theme-btn-clear-default">
+      <i class="fa-bulk-update pr-10 result-status-text-0"></i>
+      <span class="dark-light-text" [translate]="'testcase.details.step_bulk_update'"></span>
+    </button>
+    <button
+      *ngIf="(!canDrag && stepList?.testSteps?.content?.length > 1) || searchTerm"
+      (click)="canDrag=true;isReorder=false;"
+      [disabled]="searchTerm"
+      class="theme-btn-clear-default ml-10" [translate]="'testcase.details.steps.re-oder'">
+    </button>
+    <button
+      (click)="bulkDeleteConfirm()"
+      [matTooltip]="'hint.message.common.delete' | translate"
+      class="theme-btn-clear-default fa-trash-thin">
+    </button>
+  </div>
+  <div *ngIf="canDrag" class="d-flex ml-25 mr-5 py-10 theme-border-b">
+    <span *ngIf="canDrag" [translate]="'testcase.details.steps.re-oder'" class="fz-14 align-self-center"></span>
+    <button
+      (click)="cancelDragging()"
+      class="theme-btn-clear-default ml-auto" [translate]="'btn.common.cancel'">
+    </button>
+    <button
+      [disabled]="!draggedSteps || draggedSteps.length == 0"
+      (click)="updateSorting()"
+      class="theme-btn-primary" [translate]="'btn.common.update'">
+    </button>
+  </div>
+  <app-test-case-action-steps #stepList
+                           *ngIf="testCase && templates"
+                           class="d-flex pt-10 h-100 ml-n25"
+                           [stepRecorderView]="true"
+                           [testCase]="testCase"
+                           [searchTerm]="searchTerm"
+                           [version]="version"
+                           [templates]="templates"
+                           [addonTemplates]="addonAction"
+                           [selectedTemplate]="selectedTemplate"
+                           [isDragEnabled]="canDrag"
+                           [isCheckHelpPreference]="isCheckHelpPreference"
+                           (onStepSelection)="selectedSteps($event)"
+                           (onStepDrag)="onPositionChange($event)"
+                           (onSelectedStepType)="onStepType($event)"
+                           [class.mr-n12]="canDrag && !fullScreenMode"
+                           [class.h-100-50]="canDrag"
+  ></app-test-case-action-steps>
+</ng-template>

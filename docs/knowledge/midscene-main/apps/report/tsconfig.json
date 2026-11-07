@@ -1,0 +1,32 @@
+{
+  "extends": "../../packages/shared/tsconfig.app.base.json",
+  "compilerOptions": {
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "declarationDir": "dist/types"
+  },
+  "include": ["src", "tests", "scripts", "e2e/midscene.config.ts"],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/test"
+    },
+    {
+      "path": "../../packages/visualizer"
+    },
+    {
+      "path": "../../packages/web-integration"
+    },
+    {
+      "path": "../../packages/playground"
+    }
+  ]
+}

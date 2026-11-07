@@ -1,0 +1,344 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { parse, stringify } from "yaml";
+
+const mockNodes = new Map<
+  string,
+  { id: string; type: string; data?: Record<string, unknown> } | undefined
+>();
+const updateNodeData = vi.fn();
+
+vi.mock("@xyflow/react", async () => {
+  const actual =
+    await vi.importActual<typeof import("@xyflow/react")>("@xyflow/react");
+  return {
+    ...actual,
+    useReactFlow: () => ({
+      getNode: (id: string) => mockNodes.get(id),
+      updateNodeData,
+    }),
+    useNodesData: (id: string) => {
+      const node = mockNodes.get(id);
+      return node ? { id: node.id, type: node.type, data: node.data } : null;
+    },
+    useNodes: () => [],
+    useEdges: () => [],
+  };
+});
+
+vi.mock("../../nodes", () => ({
+  isWorkflowBlockNode: () => true,
+}));
+
+vi.mock("../../workflowEditorUtils", () => ({
+  getAvailableOutputParameterKeys: () => [],
+}));
+
+vi.mock("@/components/WorkflowBlockInputTextarea", () => ({
+  WorkflowBlockInputTextarea: () => <textarea />,
+}));
+
+vi.mock("@/routes/workflows/components/GoogleOAuthCredentialSelector", () => ({
+  GoogleOAuthCredentialSelector: ({
+    onChange,
+  }: {
+    onChange: (next: string) => void;
+  }) => (
+    <button
+      data-testid="gmail-template-change"
+      onClick={() => onChange("{{ gmail_credential_id }}")}
+    />
+  ),
+}));
+
+vi.mock(
+  "@/routes/workflows/components/MicrosoftOAuthCredentialSelector",
+  () => ({
+    MicrosoftOAuthCredentialSelector: () => <div />,
+    MICROSOFT_MAIL_REQUIRED_SCOPES: [],
+  }),
+);
+
+vi.mock("@/components/ui/accordion", () => {
+  const Pass = ({ children }: { children?: ReactNode }) => <>{children}</>;
+  return {
+    Accordion: Pass,
+    AccordionContent: Pass,
+    AccordionItem: Pass,
+    AccordionTrigger: Pass,
+  };
+});
+
+vi.mock("../../nodes/TaskNode/ParametersMultiSelect", () => ({
+  ParametersMultiSelect: ({
+    parameters,
+    onParametersChange,
+  }: {
+    parameters: Array<string>;
+    onParametersChange: (next: Array<string>) => void;
+  }) => (
+    <select
+      data-testid="parameters-multi-select"
+      multiple
+      value={parameters}
+      onChange={(event) =>
+        onParametersChange(
+          Array.from(event.target.selectedOptions, (option) => option.value),
+        )
+      }
+    >
+      <option value="microsoft_credential_id">microsoft_credential_id</option>
+      <option value="gmail_credential_id">gmail_credential_id</option>
+    </select>
+  ),
+}));
+
+import { usePendingCommitsStore } from "@/store/PendingCommitsStore";
+import { PageSlotsProvider } from "@/store/PageSlots";
+
+import { emailInboxNodeDefaultData } from "../../nodes/EmailInboxNode/types";
+import { EmailInboxBlockForm } from "./EmailInboxBlockForm";
+
+beforeEach(() => {
+  mockNodes.clear();
+  updateNodeData.mockReset();
+  usePendingCommitsStore.setState({ commits: {} });
+  mockNodes.set("email-1", {
+    id: "email-1",
+    type: "emailInbox",
+    data: {
+      ...emailInboxNodeDefaultData,
+      emailClient: "outlook",
+      credentialId: "{{ microsoft_credential_id }}",
+    },
+  });
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("EmailInboxBlockForm", () => {
+  test("updates parameter keys used by a templated credential", () => {
+    render(<EmailInboxBlockForm blockId="email-1" />);
+
+    const select = screen.getByTestId(
+      "parameters-multi-select",
+    ) as HTMLSelectElement;
+    const option = select.querySelector(
+      'option[value="microsoft_credential_id"]',
+    ) as HTMLOptionElement;
+    option.selected = true;
+    fireEvent.change(select);
+
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      parameterKeys: ["microsoft_credential_id"],
+    });
+  });
+
+  test("tracks the parameter key used by a Gmail credential template", () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: {
+        ...emailInboxNodeDefaultData,
+        emailClient: "gmail",
+      },
+    });
+    render(<EmailInboxBlockForm blockId="email-1" />);
+
+    fireEvent.click(screen.getByTestId("gmail-template-change"));
+
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialId: "{{ gmail_credential_id }}",
+      parameterKeys: ["gmail_credential_id"],
+    });
+  });
+
+  test("switching to Nango clears the native credential through serialization", async () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: { ...emailInboxNodeDefaultData, credentialId: "native_test" },
+    });
+    render(
+      <PageSlotsProvider
+        value={{
+          brokerCredentialSelector: ({ onChange }) => (
+            <button onClick={() => onChange("nango", "nc_synthetic")}>
+              Select synthetic Gmail
+            </button>
+          ),
+        }}
+      >
+        <EmailInboxBlockForm blockId="email-1" />
+      </PageSlotsProvider>,
+    );
+    fireEvent.click(screen.getByText("Select synthetic Gmail"));
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialSource: "nango",
+      connectionId: "nc_synthetic",
+      credentialId: "",
+    });
+    const node = mockNodes.get("email-1");
+    if (!node?.data) throw new Error("Expected email inbox node");
+    Object.assign(node.data, updateNodeData.mock.lastCall?.[1]);
+    const { getWorkflowBlocks } = await vi.importActual<
+      typeof import("../../workflowEditorUtils")
+    >("../../workflowEditorUtils");
+    const saved = parse(stringify(getWorkflowBlocks([node as never], [])[0]));
+    expect(saved).toMatchObject({
+      credential_source: "nango",
+      connection_id: "nc_synthetic",
+      credential_id: null,
+    });
+  });
+
+  test("selecting a native Gmail account clears a stale connected-account ID", () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: {
+        ...emailInboxNodeDefaultData,
+        credentialSource: "native",
+        connectionId: "nc_stale",
+      },
+    });
+    render(<EmailInboxBlockForm blockId="email-1" />);
+    fireEvent.click(screen.getByTestId("gmail-template-change"));
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialSource: "native",
+      connectionId: "",
+      credentialId: "{{ gmail_credential_id }}",
+      parameterKeys: ["gmail_credential_id"],
+    });
+  });
+
+  test("allows a saved unavailable Gmail account to switch to native without enabling attachments", async () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: {
+        ...emailInboxNodeDefaultData,
+        credentialSource: "nango",
+        connectionId: "nc_synthetic",
+      },
+    });
+    render(<EmailInboxBlockForm blockId="email-1" />);
+    expect(screen.getByText(/Saved Gmail account is unavailable/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/nango/i);
+    fireEvent.click(screen.getByTestId("gmail-template-change"));
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialSource: "native",
+      connectionId: "",
+      credentialId: "{{ gmail_credential_id }}",
+      parameterKeys: ["gmail_credential_id"],
+    });
+    const node = mockNodes.get("email-1");
+    if (!node?.data) throw new Error("Expected email inbox node");
+    Object.assign(node.data, updateNodeData.mock.lastCall?.[1]);
+    const { getWorkflowBlocks } = await vi.importActual<
+      typeof import("../../workflowEditorUtils")
+    >("../../workflowEditorUtils");
+    expect(
+      parse(stringify(getWorkflowBlocks([node as never], [])[0])),
+    ).toMatchObject({
+      credential_source: "native",
+      connection_id: null,
+      credential_id: "{{ gmail_credential_id }}",
+    });
+    expect(
+      (
+        screen.getByRole("switch", {
+          name: "Download Attachments",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  test("enables attachment downloads from the block editor", () => {
+    render(<EmailInboxBlockForm blockId="email-1" />);
+
+    const toggle = screen.getByRole("switch", { name: "Download Attachments" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      downloadAttachments: true,
+    });
+  });
+
+  test("replaces a stale credential parameter key", () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: {
+        ...emailInboxNodeDefaultData,
+        emailClient: "gmail",
+        credentialId: "{{ microsoft_credential_id }}",
+        parameterKeys: ["microsoft_credential_id", "other_parameter"],
+      },
+    });
+    render(<EmailInboxBlockForm blockId="email-1" />);
+
+    fireEvent.click(screen.getByTestId("gmail-template-change"));
+
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialId: "{{ gmail_credential_id }}",
+      parameterKeys: ["other_parameter", "gmail_credential_id"],
+    });
+  });
+
+  test("preserves the previous credential key when another field uses it", () => {
+    mockNodes.set("email-1", {
+      id: "email-1",
+      type: "emailInbox",
+      data: {
+        ...emailInboxNodeDefaultData,
+        emailClient: "gmail",
+        credentialId: "{{ microsoft_credential_id }}",
+        folder: "{{ microsoft_credential_id }}",
+        parameterKeys: ["microsoft_credential_id"],
+      },
+    });
+    render(<EmailInboxBlockForm blockId="email-1" />);
+
+    fireEvent.click(screen.getByTestId("gmail-template-change"));
+
+    expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+      credentialId: "{{ gmail_credential_id }}",
+      parameterKeys: ["microsoft_credential_id", "gmail_credential_id"],
+    });
+  });
+
+  test.each([
+    "{{ microsoft_credential_id.id }}",
+    "{{ microsoft_credential_id | default('INBOX') }}",
+  ])(
+    "preserves the previous credential key for a suffixed reference: %s",
+    (folder) => {
+      mockNodes.set("email-1", {
+        id: "email-1",
+        type: "emailInbox",
+        data: {
+          ...emailInboxNodeDefaultData,
+          emailClient: "gmail",
+          credentialId: "{{ microsoft_credential_id }}",
+          folder,
+          parameterKeys: ["microsoft_credential_id"],
+        },
+      });
+      render(<EmailInboxBlockForm blockId="email-1" />);
+
+      fireEvent.click(screen.getByTestId("gmail-template-change"));
+
+      expect(updateNodeData).toHaveBeenCalledWith("email-1", {
+        credentialId: "{{ gmail_credential_id }}",
+        parameterKeys: ["microsoft_credential_id", "gmail_credential_id"],
+      });
+    },
+  );
+});

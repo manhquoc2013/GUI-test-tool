@@ -1,0 +1,133 @@
+<div class="ts-col-100" [class.inline-upload]="inline">
+  <div class="theme-overlay-container" *ngIf="!uploading">
+    <div class="theme-overlay-header" *ngIf="!this.version">
+      <div
+        class="theme-overlay-title"
+        [translate]="upload.id ? 'uploads.form.edit_title' : 'uploads.form.create_title'">
+      </div>
+      <button
+        class="close"
+        [matTooltip]="'hint.message.common.close' | translate"
+        mat-dialog-close>
+      </button>
+    </div>
+
+    <div class="theme-overlay-content">
+      <form
+        class="ts-form align-items-center"
+        [class.pt-4]="inline"
+        [formGroup]="uploadForm" *ngIf="uploadForm">
+        <div class="align-items-baseline d-flex form-group pt-5 pb-0 upload-file">
+          <label class="mt-20 mb-30 theme-btn-clear-default overflow-x-hidden" *ngIf="!uploadedFileObject" @fade>
+            <i class="fa-pin pr-5"></i> Choose File
+            <input class="d-none" type="file" required
+                   [accept]="fileTypes"
+                   (change)="uploadedFile($event)">
+          </label>
+          <div class="overflow-x-hidden mt-10 mb-30 p-16 pt-0 border-rds-2 f-medium d-inline-flex align-items-center
+                  bg-grey-x-light mw-100 w-100"
+               *ngIf="uploadedFileObject" @fade>
+        <span [textContent]="upload?.name + ' ( size : ' + upload?.sizeInWords + ' ) '"
+              class="pr-10 text-truncate"></span>
+            <i class="fa-trash-thin pointer ml-auto" (click)="removeUpload()"></i>
+          </div>
+          <div class="error mt-30" *ngIf="maxSizeError"
+               [translate]="'form.validation.common.max_file_size'| translate: {FieldName: getRawValue().type ,max:500 }"></div>
+        </div>
+        <div
+          [class.ts-col-50]="inline"
+          [class.pb-0]="inline"
+          [class.pb-18]="!inline"
+          class="form-group upload-file-name" *ngIf="getRawValue().name || (!upload.id && uploadedFileObject?.name)" @fade>
+          <input class="form-control" formControlName="name">
+          <label class="control-label required" [translate]="'uploads.form.label.name'"></label>
+          <div class="error" *ngIf="uploadForm.controls.name.invalid"
+               [textContent]="'form.validation.common.min_length'| translate: {FieldName: 'Name' ,min: '4' }"></div>
+          <div class="error" *ngIf="uploadForm.controls.name?.errors?.maxlength"
+               [textContent]="'form.validation.common.max_length'| translate: {FieldName: 'Name' ,max: '256' }"></div>
+        </div>
+
+        <div class="form-group pb-18 upload-version" *ngIf="uploadedFileObject?.name" @fade>
+          <input class="form-control" formControlName="version">
+          <label class="control-label required" [translate]="'uploads.form.version.name'"></label>
+          <div class="error position-sticky mt-10" *ngIf="uploadForm.controls.version?.errors?.minlength"
+               [textContent]="'form.validation.common.min_length'| translate: {FieldName: ('uploads.form.version.name'|translate) ,min: '4' }"></div>
+          <div class="error position-sticky mt-10" *ngIf="uploadForm.controls.version?.errors?.maxlength"
+               [textContent]="'form.validation.common.max_length'| translate: {FieldName: ('uploads.form.version.name'|translate) ,max: '256' }"></div>
+        </div>
+
+        <div *ngIf="data?.version?.workspace?.isIosNative"
+             class="form-group ts-col-100">
+          <label
+            class="rb-medium pr-20"
+            [translate]="'uploads.form.label.supported_device_type'"></label>
+          <div class="d-flex pt-10">
+            <div
+              class="d-flex align-items-center pr-20" >
+              <input
+                type="radio"
+                id="realDevice"
+                name="created_type"
+                [value]="SupportedDeviceType.IOS_DEVICE"
+                [ngModelOptions]="{standalone: true}"
+                [(ngModel)]="upload.supportedDeviceType"/>
+              <label
+                for="realDevice"
+                class="pl-5 pointer"
+                [translate]="'uploads.form.label.supported_device_type.ios_device'"></label>
+            </div>
+            <div
+              class="d-flex align-items-center pr-20" >
+              <input
+                type="radio"
+                id="emulator"
+                name="created_type"
+                [value]="SupportedDeviceType.IOS_EMULATOR"
+                [ngModelOptions]="{standalone: true}"
+                [(ngModel)]="upload.supportedDeviceType"/>
+              <label
+                for="emulator"
+                class="pl-5 pointer"
+                [translate]="'uploads.form.label.supported_device_type.ios_emulator'"></label>
+            </div>
+          </div>
+        </div>
+
+      </form>
+    </div>
+
+    <div class="theme-overlay-footer mb-10">
+      <button *ngIf="inline? (uploadedFileObject && !version) : !this.version"
+              class="theme-btn-clear-default" [class.mb-n5]="inline"
+              mat-dialog-close
+              [translate]="'btn.common.cancel'"></button>
+      <button *ngIf="inline? (uploadedFileObject && version) : this.version"
+              class="theme-btn-clear-default"
+              [class.mb-n5]="inline"
+              (click)="onCancel()"
+              [translate]="'btn.common.cancel'"></button>
+      <button *ngIf="inline? (uploadedFileObject && uploadForm) : uploadForm"
+              [disabled]=isButtonDisabled
+              (click)="(upload.id)? update(): create()"
+              class="theme-btn-primary"
+              [class.mb-n5]="inline"
+              [translate]="uploading? 'message.common.uploading':( upload.id ? 'btn.common.update' : 'btn.common.upload')"></button>
+    </div>
+  </div>
+
+  <div
+    [class.flex-wrap]="inline"
+    class="theme-overlay-container" *ngIf="uploading">
+    <div *ngIf="!inline" class="ts-col-100 theme-overlay-header"></div>
+    <div
+      [class.mt-50]="!inline"
+      class="theme-overlay-content ts-col-100">
+      <app-placeholder-loader
+        class="ts-form align-items-center mt-20"
+        [isLogoLoader]="true"
+        [displayText]="('uploads.form.progress' | translate)"
+      ></app-placeholder-loader>
+    </div>
+    <div *ngIf="!inline" class="ts-col-100 theme-overlay-footer"></div>
+  </div>
+</div>

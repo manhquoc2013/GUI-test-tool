@@ -1,0 +1,2028 @@
+# 通用 Agent API
+
+本文介绍各平台 Agent 继承的通用 API，涵盖配置选项、交互方法、数据提取、元素定位、断言与等待、持续观察、工作流执行、报告与用量，以及生命周期与运行时配置。
+
+<a id="common"></a>
+
+## Agent 配置 {#agent-options}
+
+各平台 Agent 均支持以下通用配置项（构造函数中的目标连接参数与平台特有选项由各平台 SDK 定义）。
+
+<a id="common-parameters"></a>
+
+设备端 CLI 同样支持在单次调用时传入可序列化的 Agent 参数（如 `waitForActionReady` 等函数类型参数仅支持通过 JavaScript / TypeScript SDK 传入）。将参数名从 `camelCase` 转换为不带平台前缀的 `kebab-case` 命令行标志即可，例如 `waitAfterAction` 对应 `--wait-after-action`。各平台 CLI 入口见 [Skills](../skills)。
+
+### 模型配置 {#model-options}
+
+- `modelConfig?: Record<string, string | number>` —— 当前 Agent 实例的模型配置。通过代码直接传入模型配置后，**当前 Agent 将完全忽略系统环境变量中的模型配置**，仅使用该对象中的键值。基础配置与各服务商示例见[配置模型 API Key](../model-api-setup)，高级参数见[模型高级配置与调试](../model-config)，Default、Planning 和 Insight 模型的职责划分见[模型选择指南](../model-selection)。
+- `createOpenAIClient?: (openai, options) => Promise<OpenAI | undefined>` —— 自定义 OpenAI 客户端包装函数，可用于接入 LangSmith、Langfuse 等可观测性工具或挂载自定义中间件。
+
+<a id="自定义-openai-客户端"></a>
+
+**自定义 OpenAI 客户端参数说明：**
+
+- `openai: OpenAI` —— Midscene 创建的基础 OpenAI 客户端实例（已载入配置的 API Key、Base URL、代理等设置）。
+- `options: Record<string, unknown>` —— OpenAI 初始化选项，包括：
+  - `baseURL?: string`：API 接入地址。
+  - `apiKey?: string`：API Key。
+  - `dangerouslyAllowBrowser: boolean`：在 Midscene 中固定为 `true`。
+  - 其他 OpenAI 客户端初始化选项。
+- **返回值**：返回包装后的 OpenAI 客户端实例，或返回 `undefined` 以继续使用原始实例。
+
+### 执行与等待 {#execution-options}
+
+- `replanningCycleLimit?: number` —— `aiAct` 的最大重规划次数。标准模型默认为 `20`，UI-TARS 模型默认为 `40`，AutoGLM 模型默认为 `100`。推荐通过此 Agent 参数设置（环境变量 `MIDSCENE_REPLANNING_CYCLE_LIMIT` 仅保留作向后兼容）。
+- `waitForActionReady?: (context: ActionReadyContext) => Promise<void>` —— 自定义[每个动作执行后的就绪判断](#action-ready)。
+- `waitAfterAction?: number` —— 每次动作执行后的固定等待延迟（单位：毫秒），默认值为 `300`。详见[默认等待策略](#default-waiting-strategy)。
+- `useDeviceTime?: boolean` —— 是否使用目标设备的本地时间记录任务时间戳。要求底层 Device 实现 `getDeviceLocalTimeString` 方法；若未实现，Midscene 会记录一条警告日志并回退为宿主机的系统时间。默认值：`false`。
+
+<a id="action-ready"></a>
+
+**每个动作执行后的就绪判断**
+
+配置 `waitForActionReady` 可自定义每次动作完成后何时允许进入下一步。该回调作用于每个原子动作（如 `Input`、`Tap` 等，包含 `aiAct` 拆解出的子步骤和缓存回放步骤），但不会在初始页面加载或只读查询时触发。
+
+回调仅在动作执行成功后触发，SDK 会等待其返回的 Promise 完成后再继续执行。回调入参 `context` 包含：
+- `action: { id, name, param }`：每次执行都会生成新的 `id`，且 `param` 已完成参数解析与元素定位；
+- `signal?: AbortSignal`：可选的取消信号，用于在外部中止执行时清理回调内部的任务。
+
+以下示例中，`app.waitUntilReady` 为业务自定义的就绪检查函数：
+
+```ts
+import { PlaywrightAgent } from '@midscene/web/playwright';
+
+const agent = new PlaywrightAgent(page, {
+  waitForActionReady: async ({ action, signal }) => {
+    await app.waitUntilReady(action, { signal });
+  },
+});
+
+await agent.aiAct('登录');
+```
+
+注意事项：
+- 若回调耗时超过 5 秒，SDK 会打印一次警告日志并继续等待，不会强制超时或回退到默认等待策略。外部取消执行时，即使回调尚未结束，SDK 也会立即停止等待；请在回调内部监听 `signal`，及时停止自定义的轮询、网络请求或事件监听器。
+- 若动作本身执行失败，不会触发该回调；若回调内部抛出错误，当前执行流程会直接终止，不会自动重放动作或回退到重新规划。
+- 配置该回调后，它会接管并替代通用的动作后固定延迟（`waitAfterAction`）及平台默认的动作后检查；但驱动层必需的底层时序（如键盘就绪等待、手势持续时长）和生命周期钩子仍会正常执行。如果某次动作无需等待，在异步回调中直接 `return` 即可。
+- 该回调在动作完成后才开始执行，无法捕获动作触发瞬间闪过的单次事件；请基于当前应用状态或底层 `page` / `device` API 判断是否就绪。
+
+所有平台的 Agent 均支持此配置（`puppeteerAgentForTarget` 可在第二个参数中传入，且仍会保留初始页面连接时的网络空闲等待）。
+
+<a id="default-waiting-strategy"></a>
+
+**默认等待策略（高级配置）**
+
+未配置 `waitForActionReady` 时，默认按以下参数等待：
+
+| 参数 | 行为说明 |
+| --- | --- |
+| `waitAfterAction` | 每次动作执行后的固定延迟，默认 `300` 毫秒（若底层设备动作显式声明了延迟，则以动作声明为准）。 |
+| `waitForNavigationTimeout`（Web） | 等待页面 `<html>` 节点可用，默认超时 `5000` 毫秒（不保证页面导航或渲染已完全结束）。 |
+| `waitForNetworkIdleTimeout`（仅 Puppeteer） | 动作执行后的网络空闲等待，默认超时 `2000` 毫秒（要求连续 `200` 毫秒内活跃请求数不超过 2 个）。 |
+
+两项 Web 超时参数均可设为 `0` 以跳过检查；等待超时后仅会记录警告日志并继续后续步骤，不会抛出错误。
+
+### 缓存 {#cache-options}
+
+- `cache?: false | { id: string; strategy?: 'read-only' | 'read-write' | 'write-only'; cacheDir?: string }` —— 缓存配置：
+  - `false`：禁用缓存。
+  - `id`：缓存唯一标识（启用缓存时必填）。
+  - `strategy`：缓存读写策略，默认值为 `'read-write'`。
+  - `cacheDir`：自定义缓存目录路径。设置后，缓存文件会写入该目录而非默认的 `<MIDSCENE_RUN_DIR>/cache`（相对路径基于当前工作目录解析，而非基于 `MIDSCENE_RUN_DIR`），便于将缓存、日志和报告分别存放在不同目录。
+- `cacheId?: string`（已废弃）—— 仅保留作向后兼容，新代码请使用 `cache.id`。
+
+### 截图 {#screenshot-options}
+
+- `screenshotShrinkFactor?: number` —— 发送给 AI 模型前的截图缩放系数，用于缩小图像尺寸、降低 Token 消耗。默认值为 `1`（保持原始尺寸）；设为 `2` 时，截图宽高各缩减为原来的 1/2，像素面积缩减为 1/4。
+  - **移动端设备**：通常设为 `2` 即可在保持识别清晰度的同时明显降低 Token 开销；不建议超过 `3`，以免画面过度模糊影响模型定位。
+  - **Web 页面**：如果页面布局紧凑或包含大量微小文字，不宜设置过大的 `screenshotShrinkFactor`。Web 场景更推荐优先通过 Puppeteer 或 Playwright 的 `deviceScaleFactor` 从源头控制渲染与截图分辨率。
+
+:::info
+
+**`screenshotShrinkFactor` 与 `deviceScaleFactor` 的区别：**
+
+- `screenshotShrinkFactor` 是 Midscene 提供的后处理参数，用于在获取浏览器或设备截图后按比例缩小图片尺寸，从而减少 Token 消耗并加快模型响应；但过度压缩会导致画面模糊。
+- `deviceScaleFactor` 是 Puppeteer 和 Playwright 的浏览器视口参数，用于控制将 1 个 CSS 逻辑像素渲染为多少倍的物理像素，直接决定了截图生成时的原始像素尺寸。在有头（headed）模式下，若 `deviceScaleFactor` 与宿主机显示器的实际缩放比不一致，可能会导致浏览器画面闪烁。
+
+**二者是否需要同时配置？**
+
+- **Web 场景**：通常只需配置 `deviceScaleFactor` 从源头控制截图尺寸即可。唯一例外是在本地有头调试时：如果你为了避免高分屏闪烁而将 `deviceScaleFactor` 设为了 `2` 或更高，但又不希望把超大分辨率的截图发给模型，可以同时配合 `screenshotShrinkFactor` 在发送前缩小图片。
+- **移动端与桌面端等非 Web 场景**：没有 `deviceScaleFactor` 可用，直接通过 `screenshotShrinkFactor` 控制发送给模型的截图尺寸即可。
+
+:::
+
+### 报告配置 {#report-options}
+
+- `generateReport?: boolean` —— 是否生成执行报告文件。默认值：`true`。
+- `persistExecutionDump?: boolean` —— 是否额外保存原始执行 JSON，供诊断或分析使用（要求 `generateReport` 为 `true`）。默认值：`false`。
+- `reportFileName?: string` —— 自定义报告输出名称（默认由 Midscene 自动生成）。其具体含义取决于 `outputFormat`：
+  - 当 `outputFormat` 为 `'single-html'`（默认）时：作为文件名，输出到 `midscene_run/report/<reportFileName>.html`（若已包含 `.html` 后缀则不会重复追加）。
+  - 当 `outputFormat` 为 `'html-and-external-assets'` 时：作为子目录名，输出到 `midscene_run/report/<reportFileName>/index.html` 及同级静态资源目录。
+- `autoPrintReportMsg?: boolean` —— 是否在终端打印报告文件路径提示。默认值：`true`。
+- `outputFormat?: 'single-html' | 'html-and-external-assets'` —— 报告输出格式。默认值：`'single-html'`：
+  - `'single-html'`（默认）：生成自包含 HTML，直接用浏览器打开，支持离线查看和单文件分享。
+  - `'html-and-external-assets'`：生成 HTML 和外置资源，重复图片自动复用。分享时上传整个报告目录。预览时，在报告目录运行 `pnpm dlx serve`，再打开终端显示的地址。
+
+### 回调 {#callback-options}
+
+- `onTaskStartTip?: (tip: string) => void | Promise<void>` —— 每个子任务开始执行前触发的可选钩子，入参 `tip` 为可读的任务摘要。默认值：`undefined`。
+- `onLLMUsage?: (usage: AIUsageInfo) => void` —— 每次大模型调用完成后的用量回调，详见 [`onLLMUsage`](#onllmusage-option)。
+
+### AI 上下文 {#ai-context-options}
+
+- `aiContexts?: { default?: string; [apiName]?: string }` —— Agent 级别的 AI 补充上下文，默认值为 `undefined`。优先级规则详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+- `aiActContext?: string`（已废弃）—— `aiContexts.aiAct` 的旧版兼容字段。当两者同时存在时以 `aiContexts.aiAct` 为准；新代码请使用 `aiContexts.aiAct`。关于如何编写高质量的应用上下文，请参阅[为 GUI Agent 补充应用知识](../provide-application-knowledge-to-gui-agent)。
+- `aiActionContext?: string`（已废弃）—— 更早期的兼容别名，仅在 `aiContexts.aiAct` 和 `aiActContext` 均未设置时生效（解析顺序为 `aiContexts.aiAct ?? aiActContext ?? aiActionContext`，传入空字符串 `''` 同样会屏蔽低优先级字段）。新代码请使用 `aiContexts.aiAct`。
+
+## 提示词与调用选项 {#prompt-options}
+
+<a id="使用图片的提示词输入"></a>
+
+<a id="prompting-with-images"></a>
+<a id="使用图片作为提示词"></a>
+<a id="通过图像提示"></a>
+
+### 文本与图片提示词 {#prompt-input}
+
+当仅凭文字难以准确描述目标时，可以在提示词中附带参考图片。
+
+带图片的提示词对象格式如下：
+
+```javascript
+{
+  // 提示词文本，可在文本中通过图片名称引用下方的图片
+  prompt: string,
+  // 附带的参考图片列表
+  images?: {
+    // 图片名称，需与 prompt 文本中提及的名称一致
+    name: string,
+    // 图片地址，支持本地文件路径、Base64 字符串或 HTTP(S) 链接
+    url: string
+  }[],
+  // 设为 true 时，会将 HTTP(S) 图片链接预先转为 Base64 编码再发送给模型（适用于模型服务无法直接访问的内网图片链接）
+  convertHttpImage2Base64?: boolean
+}
+```
+
+- 示例一：结合参考图片定位点击目标
+
+```javascript
+await agent.aiTap({
+  prompt: '指定 logo',
+  images: [
+    {
+      name: '指定 logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+- 示例二：结合参考图片断言页面内容
+
+```javascript
+await agent.aiAssert({
+  prompt: '页面上是否存在指定 logo',
+  images: [
+    {
+      name: '指定 logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+- 示例三：结合参考图片引导自动规划（`aiAct`）
+
+```javascript
+await agent.aiAct({
+  prompt: '点击与参考 logo 一致的图标',
+  images: [
+    {
+      name: '指定 logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+**图片尺寸限制**
+
+请确保传入的图片符合对应模型服务商对图片体积与分辨率的限制（过大或过小的图片均可能被接口拒绝，具体限制请参考模型服务商文档）。
+
+<a id="单次调用上下文"></a>
+
+### `context` 与 `aiContexts` 的优先级 {#per-call-context}
+
+上下文（`context`）是提供给 AI 模型的背景信息（如业务名词、判断规则、交互约束或输出格式要求），用于补充而非替代 API 的主提示词。
+
+你可以通过三个层级配置上下文：
+- `aiContexts.default`：所有 AI 方法共享的全局回退上下文；
+- `aiContexts[apiName]`：特定 AI 方法的专属上下文；
+- `options.context`：单次 API 调用传入的上下文。
+
+这三个层级按 `options.context ?? aiContexts[apiName] ?? aiContexts.default` 的优先级依次覆盖，**不会自动合并**。只有当更高优先级的层级未设置（`undefined`）时，才会回退到下一层级；显式传入空字符串 `''` 会直接清空上下文并阻断向低优先级回退。如需同时保留多段上下文，请像下方示例一样手动拼接字符串：
+
+```typescript
+const defaultContext =
+  '页面中划线价格表示原价，普通价格表示当前售价，所有价格单位均为美元。';
+const agent = new PlaywrightAgent(page, {
+  aiContexts: {
+    default: defaultContext,
+    aiAct: '', // 显式忽略默认 context
+    aiQuery: '提取金额时只返回数字，不包含货币符号。',
+    aiBoolean: `${defaultContext}\n\n仅当当前售价低于原价时，才判断商品正在促销。`,
+  },
+});
+
+const isOnSale = await agent.aiBoolean('这个商品是否正在促销？');
+```
+
+`aiContexts` 支持配置的键名包括：`aiAct`、`aiTap`、`aiRightClick`、`aiMiddleClick`、`aiDoubleClick`、`aiHover`、`aiInput`、`aiKeyboardPress`、`aiScroll`、`aiPinch`、`aiLongPress`、`aiClearInput`、`aiLocate`、`aiQuery`、`aiBoolean`、`aiNumber`、`aiString`、`aiAsk`、`aiAssert` 和 `aiWaitFor`（其中 `ai` 及已废弃的 `aiAction` 别名共用 `aiAct` 的上下文）。
+
+<a id="深度定位deeplocate"></a>
+
+<a id="shared-types"></a>
+
+### `deepLocate` {#deep-locate}
+
+`deepLocate` 适用于所有涉及元素定位的 API（包括 `aiAct`、`aiTap`、`aiHover`、`aiInput`、`aiKeyboardPress`、`aiScroll`、`aiDoubleClick`、`aiRightClick`、`aiLocate` 等）。
+
+开启后，Midscene 会调用两次 AI 模型来精确定位目标元素，适用于目标元素面积较小或与周围元素难以区分的场景。对于新一代模型（如 Qwen3.x、Doubao 2.0、Gemini 3.5），常规模式通常已具备足够的定位精度，建议仅在确有需要时按需开启。
+
+- **默认值**：`false`
+
+```typescript
+// 开启 deepLocate 精确定位较难识别的元素
+await agent.aiTap('右上角购物车图标', { deepLocate: true });
+```
+
+:::note
+
+在早期版本中，`deepThink` 参数名在不同 API 中曾代表两种不同的含义：
+
+- 在 `aiAct()` 中，`deepThink` 表示**规划模式**，用于引导更深入的任务拆解与规划推理（详见 [`deepThink` 规划模式](#aiact-deepthink)）。
+- 在 `aiTap`、`aiHover` 等单步操作方法中，旧版 `deepThink` 表示**定位增强**，即现在的 `deepLocate`。
+
+为消除歧义，自 v1.5.1 起，`deepThink` 仅用于表示 `aiAct()` 的规划模式，定位增强统一命名为 `deepLocate`：
+
+- 在 `aiAct()` 中，可同时传入 `deepThink`（控制规划模式）和 `deepLocate`（控制本节所述的深度定位）。
+- 在 `aiTap`、`aiHover` 等单步操作方法中，请使用语义更明确的 `deepLocate`（旧参数名 `deepThink` 仍保留向后兼容，效果与 `deepLocate` 等同）。
+
+:::
+
+<a id="interaction-methods"></a>
+
+## 自动规划 {#planning-interaction}
+
+`agent.aiAct()`（及其简写别名 `agent.ai()`）会根据自然语言指令自动规划并执行一连串操作；而下文的即时交互方法（如 `aiTap`、`aiInput`）则在定位到目标元素后直接执行单步指定动作。
+
+<a id="agentaiact-或-agentai"></a>
+
+### `aiAct()` 或 `ai()` {#agentaiact}
+
+通过自然语言描述 UI 操作目标及可选的断言条件。执行期间，Midscene 会根据最新的界面状态持续进行 AI 规划并执行动作，直到达成目标；如果提示词中包含的断言未通过，`aiAct` 会立即中止并抛出错误。
+
+:::info 向后兼容
+
+该方法在早期版本中名为 `aiAction()`，当前版本仍保留兼容；为保持代码风格统一，新代码推荐使用 `aiAct()`。
+
+:::
+
+- 类型
+
+```typescript
+function aiAct(
+  prompt: string | object,
+  options?: {
+    cacheable?: boolean;
+    deepThink?: 'unset' | true | false;
+    deepLocate?: boolean;
+    fileChooserAccept?: string | string[];
+    fileChooserAllowedDir?: string;
+    abortSignal?: AbortSignal;
+    context?: string;
+  },
+): Promise<string | undefined>;
+function ai(prompt: string, options?: Object): Promise<string | undefined>; // 简写形式
+```
+
+- 参数：
+
+  - `prompt: string | object` —— 用自然语言描述的操作目标与可选断言条件，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+    - `deepThink?: 'unset' | true | false` —— 控制 `aiAct` 的规划模式实现，详见 [`deepThink` 规划模式](#aiact-deepthink)。
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `fileChooserAccept?: string | string[]` —— 当页面弹出文件选择器时自动填入的文件路径（支持单个路径字符串或路径数组）。仅在 Web 页面（Playwright、Puppeteer 或 Chrome Bridge）中可用，且不受 `fileChooserAllowedDir` 限制。
+      - **注意**：若目标文件输入框不支持多文件上传（不含 `multiple` 属性），但传入了多个文件路径，会直接抛出错误。
+      - **注意**：若操作触发了文件选择器但未传入 `fileChooserAccept`，文件选择器会被忽略，后续页面操作仍可正常继续。
+      - **注意**：在 Chrome Bridge 模式下上传本地文件，需先在 `chrome://extensions` 中进入 Midscene 插件详情页，开启**允许访问文件网址**（**Allow access to file URLs**），再切回目标 `http(s)://` 页面重新连接。
+      - **注意**：Chrome Bridge 模式不支持文件夹上传输入框（`webkitdirectory` / `directory`）；如需上传文件夹，请使用 Playwright。
+    - `fileChooserAllowedDir?: string` —— 显式授权当前 `aiAct` 调用在通过提示词触发文件上传时允许访问的本地目录（未配置此项时，由模型在规划阶段生成的文件上传动作会被拒绝）。提示词中的相对路径会基于该目录解析，并校验解析后的真实路径（包含软链接）是否仍位于该目录内；绝对路径同样会校验是否处于该目录下。建议将其设为测试用例的 `fixtures` 目录，以防范因 AI 幻觉或页面提示词注入攻击而误传敏感文件。
+    - `abortSignal?: AbortSignal` —— 用于中止 `aiAct` 执行的 [`AbortSignal`](https://developer.mozilla.org/zh-CN/docs/Web/API/AbortSignal)。信号触发后，Midscene 会立即停止规划循环并抛出错误，适用于自定义超时控制或主动取消任务。
+
+- 返回值：
+
+  - 返回规划执行完成后生成的总结文本；若规划未产生文本输出，则返回 `undefined`。执行失败时抛出错误。
+
+- 示例：
+
+```typescript
+// 执行操作并校验结果
+await agent.aiAct(
+  '搜索耳机，将第一件商品加入购物车，并确认购物车数量变为 1',
+);
+
+// 使用 .ai 简写形式
+await agent.ai(
+  '点击页面顶部的登录按钮，然后在用户名输入框中输入 "test@example.com"',
+);
+
+// 使用 abortSignal 设置 30 秒超时
+const controller = new AbortController();
+setTimeout(() => controller.abort('timeout'), 30000);
+await agent.aiAct('填写表单并提交', {
+  abortSignal: controller.signal,
+});
+
+// 针对复杂任务开启 deepThink 规划模式
+await agent.aiAct(
+  '完成 GitHub 账号注册表单填写，地区必须选择“加拿大”。确保表单无遗漏字段且所有字段通过校验。只需填写表单，不要真正提交注册，最后返回表单中实际填写的字段内容',
+  { deepThink: true },
+);
+```
+
+<a id="aiact-deepthink"></a>
+
+**`deepThink` 规划模式**
+
+`deepThink` 用于控制 `aiAct` 的内部规划策略：
+
+- 默认情况下（`false` 或 `'unset'`），`aiAct` 会在单次模型调用中同时完成下一步动作规划与目标元素定位。
+- 设为 `true` 后，`aiAct` 会侧重于任务拆解，并将「任务规划」与「元素定位」拆分为独立的模型调用。这有助于提升复杂长链路任务的稳定性，但会相应增加模型调用次数与整体耗时。
+
+注意：`deepThink` 仅控制 Midscene 自身的规划策略，不控制大模型底层的原生推理（Thinking / Reasoning）开关；模型原生推理配置请参阅[模型原生思考](../model-config#model-native-reasoning)。
+
+<a id="在-aiact-提示词中上传文件"></a>
+
+**在 `aiAct` 提示词中上传文件**
+
+如需在 `aiAct` 的自然语言提示词中直接指定要上传的文件，必须同时传入 `fileChooserAllowedDir`（推荐设为测试工程的 `fixtures` 目录）。Midscene 会在触发文件选择器前自动解析提示词中的路径，并校验该路径是否位于授权目录内：
+
+```typescript
+const agent = new PlaywrightAgent(page);
+
+await agent.aiAct(
+  '先点击“上传头像”按钮并上传 avatar.png；然后点击“上传封面”按钮并上传 cover.png。上传完成后，请确认页面头像显示一只猫、封面显示一片海滩。',
+  { fileChooserAllowedDir: './fixtures' },
+);
+```
+
+如果单次 `aiAct` 需要分步上传多个文件，请在提示词中将每个相对路径与其对应的点击上传动作明确写在一起（后一次上传配置会覆盖前一次的文件选择器路径）。切勿将提示词中的文件路径与 `options.fileChooserAccept` 混用，因为模型在规划过程中动态生成的文件选择器配置可能会覆盖 `options.fileChooserAccept`。
+
+该能力仅支持 Web 页面（Playwright、Puppeteer 和 Chrome Bridge）。在 Chrome Bridge 模式下上传本地文件时，请确保已在 `chrome://extensions` 的 Midscene 插件详情页中开启**允许访问文件网址**（**Allow access to file URLs**）。
+
+## 即时交互 {#instant-interactions}
+
+### `aiTap()` {#agentaitap}
+
+点击指定元素。
+
+- 类型
+
+```typescript
+function aiTap(locate: string | object, options?: object): Promise<void>;
+```
+
+- 参数：
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+    - `fileChooserAccept?: string | string[]` —— 当点击触发文件选择器时自动填入的文件路径（支持单个路径字符串或路径数组）。仅在 Web 页面（Playwright、Puppeteer 或 Chrome Bridge）中可用。
+      - **注意**：若目标文件输入框不支持多文件上传（不含 `multiple` 属性），但传入了多个文件路径，会直接抛出错误。
+      - **注意**：若点击触发了文件选择器但未传入 `fileChooserAccept`，文件选择器会被忽略，后续页面操作仍可正常继续。
+      - **注意**：Chrome Bridge 模式不支持文件夹上传输入框（`webkitdirectory` / `directory`）；如需上传文件夹，请使用 Playwright。
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.aiTap('页面顶部的登录按钮');
+
+// 开启 deepLocate 精确定位元素
+await agent.aiTap('页面顶部的登录按钮', { deepLocate: true });
+
+// 文件上传：点击上传按钮并选择文件
+await agent.aiTap('选择文件按钮', { fileChooserAccept: ['./document.pdf'] });
+await agent.aiTap('上传图片', { fileChooserAccept: ['./image1.jpg', './image2.png'] });
+```
+
+### `aiDoubleClick()` {#agentaidoubleclick}
+
+双击指定元素。
+
+- 类型
+
+```typescript
+function aiDoubleClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.aiDoubleClick('页面顶部的文件名称');
+
+// 开启 deepLocate 精确定位元素
+await agent.aiDoubleClick('页面顶部的文件名称', { deepLocate: true });
+```
+
+### `aiMiddleClick()` {#agentaimiddleclick}
+
+> 仅支持 Web 页面和桌面端（`@midscene/computer`），不支持移动设备（Android、iOS 或 HarmonyOS）。
+
+使用鼠标中键点击指定元素。具体行为由应用决定。
+
+- 类型
+
+```typescript
+function aiMiddleClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.aiMiddleClick('搜索结果中的链接');
+
+// 开启 deepLocate 精确定位元素
+await agent.aiMiddleClick('搜索结果中的链接', { deepLocate: true });
+```
+
+### `aiRightClick()` {#agentairightclick}
+
+> 仅支持 Web 页面和桌面端（`@midscene/computer`），不支持移动设备（Android、iOS 或 HarmonyOS）。
+
+右键点击指定元素。注意：右键点击后，Midscene 无法与浏览器原生的系统级右键菜单交互；该方法适用于页面自身监听了 `contextmenu` 事件并渲染自定义右键菜单的元素。
+
+- 类型
+
+```typescript
+function aiRightClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.aiRightClick('页面顶部的文件名称');
+
+// 开启 deepLocate 精确定位元素
+await agent.aiRightClick('页面顶部的文件名称', { deepLocate: true });
+```
+
+### `aiHover()` {#agentaihover}
+
+> 仅支持 Web 页面和桌面端（`@midscene/computer`），不支持移动设备（Android、iOS 或 HarmonyOS）。
+
+将鼠标指针悬停在指定元素上。
+
+- 类型
+
+```typescript
+function aiHover(locate: string | object, options?: object): Promise<void>;
+```
+
+- 参数：
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.aiHover('页面顶部的登录按钮');
+```
+
+### `aiLongPress()` {#agentailongpress}
+
+长按（按住不放）指定元素，常用于呼出上下文菜单、进入多选模式或触发其他长按手势。
+
+- 类型
+
+```typescript
+function aiLongPress(
+  locate: string | object,
+  opt?: {
+    duration?: number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#通过图像提示)。
+  - `opt?: object` —— 可选配置对象：
+    - `duration?: number` —— 按住持续时长（单位：毫秒）。Android 默认 `2000`，iOS 默认 `1000`，Web 默认 `500`；HarmonyOS 固定使用系统长按时长并忽略此参数。
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 长按首页的第一篇文章以呼出菜单
+await agent.aiLongPress('首页的第一篇文章');
+
+// 自定义长按持续时间
+await agent.aiLongPress('消息气泡', { duration: 2000 });
+```
+
+:::info 平台支持
+
+- 支持 **Android**、**iOS**、**HarmonyOS** 和 **Web**（基于 Chromium 的浏览器，通过触摸事件实现）。在 HarmonyOS 上，由于底层 `uitest` API 不支持自定义按压时长，`duration` 参数会被忽略。
+
+:::
+
+### `aiInput()` {#agentaiinput}
+
+向指定输入框输入文本。
+
+- 类型
+
+```typescript
+// 推荐用法：定位描述在前，配置项（含 value）在后
+function aiInput(
+  locate: string | object,
+  opt: {
+    value: string | number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+    autoDismissKeyboard?: boolean;
+    keyboardTypeDelay?: number;
+    inputStrategy?: 'legacy' | 'sequential' | 'bulk';
+    mode?: 'replace' | 'clear' | 'typeOnly';
+  },
+): Promise<void>;
+
+// 旧版兼容用法
+function aiInput(
+  value: string | number,
+  locate: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- 参数：
+
+  **推荐用法**：
+  - `locate: string | object` —— 目标输入框的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `opt: object` —— 配置对象：
+    - `value: string | number` —— **必填**。要输入的文本内容：
+      - 当 `mode` 为 `'replace'`（默认）时：先清空输入框中的原有内容，再输入 `value`。
+      - 当 `mode` 为 `'typeOnly'` 时：不清空原有内容，直接追加输入 `value`。
+      - 当 `mode` 为 `'clear'` 时：忽略 `value`，仅清空输入框。
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+    - `autoDismissKeyboard?: boolean` —— 输入完成后是否自动收起软键盘（仅在 Android、iOS、HarmonyOS 上生效）。默认值：`true`。
+    - `keyboardTypeDelay?: number` —— 按键之间的延迟（单位：毫秒，须为有限非负数）。在 `'legacy'` 模式下是否生效取决于各平台既有的输入路径（见下表）；支持延迟的 `'legacy'` 路径在延迟大于 `0` 时会逐个 Unicode 码点发送字符，适用于输入框因输入过快而丢字的场景。
+    - `inputStrategy?: 'legacy' | 'sequential' | 'bulk'` —— 文本发送策略。默认值：`'legacy'`：
+      - `'legacy'`（默认）：沿用各平台的历史默认输入行为，确保升级版本后不改变既有测试的表现。
+      - `'sequential'`：始终逐个 Unicode 码点发送字符（即使未设置 `keyboardTypeDelay` 或设为 `0`）。
+      - `'bulk'`：在平台支持的情况下，通过单次底层输入调用发送完整字符串。在 Web 上，`'replace'` 模式会先全选旧内容再调用 `insertText`，从而只触发一次插入 `input` 事件（而非先触发清空事件再逐字触发 `input` 事件）；其他平台则由 Midscene 向底层驱动发起一次调用（操作系统或驱动内部仍可能向应用派发多个事件）。
+      - 使用 `'bulk'` 时，不能设置 `keyboardTypeDelay`（或须将其设为 `0`），若传入正数会直接抛出错误（任何策略下传入负数或非有限数值均会报错）。动作级参数优先于 Device 或 Agent 级默认配置，因此当全局配置了正数延迟时，可在单次 `aiInput` 中传入 `keyboardTypeDelay: 0` 来配合 `'bulk'` 使用。
+    - `mode?: 'replace' | 'clear' | 'typeOnly'` —— 输入模式。默认值：`'replace'`：
+      - `'replace'`：先清空输入框，再输入新文本。
+      - `'typeOnly'`：不清空输入框，直接输入文本。
+      - `'clear'`：仅清空输入框，不输入新文本。
+
+  各平台在默认 `inputStrategy: 'legacy'` 下的具体行为如下：
+
+  | 平台 | `'legacy'` 模式行为 |
+  | --- | --- |
+  | Web / Playwright / Puppeteer | `'replace'` 模式下先清空旧值并等待 DOM 稳定，再将完整字符串传给 `keyboard.type(value)`；正数 `keyboardTypeDelay` 由浏览器驱动处理。 |
+  | Chrome Bridge | 沿用 Web 的「先清空、再输入」流程，通过远程键盘原语发送文本；`'legacy'` CDP 输入固定为零延迟，Bridge 会在 CLI 侧先解析策略再转发。 |
+  | Android | 包含非 ASCII 字符或 shell 敏感字符时，默认调用一次 yadb（为兼容历史行为，该路径忽略 `keyboardTypeDelay`）；纯 ASCII 原生 `adb input text` 路径默认整段发送，当 `keyboardTypeDelay > 0` 时切换为逐个 Unicode 码点调用。 |
+  | iOS | 默认调用一次 WDA `typeText`；当 `keyboardTypeDelay > 0` 时，切换为按每个 Unicode 码点调用一次 `typeRawKeys`。 |
+  | HarmonyOS | 默认调用一次 HDC `inputText`；当 `keyboardTypeDelay > 0` 时，切换为按每个 Unicode 码点调用一次。 |
+  | 本机桌面（Local Computer） | 未设置 `keyboardTypeDelay` 或设为 `0` 时使用剪贴板粘贴；当 `keyboardTypeDelay > 0` 时，切换为逐个 Unicode 码点发送真实按键事件。 |
+  | 远程桌面（RDP Computer） | 未设置 `keyboardTypeDelay` 或设为 `0` 时调用一次后端 `typeText`；当 `keyboardTypeDelay > 0` 时，切换为按每个 Unicode 码点调用一次后端。 |
+
+  **旧版兼容用法**（已废弃，仍保留支持）：
+  - `value: string | number` —— 要输入的文本内容。
+  - `locate: string | object` —— 目标元素的自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象，类型与推荐用法中的 `opt` 相同。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 推荐用法
+await agent.aiInput('搜索框', { value: 'Hello World' });
+
+// 旧版兼容用法（不推荐）
+await agent.aiInput('Hello World', '搜索框');
+```
+
+:::note 签名变更说明
+
+推荐使用将定位描述放在第一个参数的新签名 `aiInput(locate, opt)`。旧版签名 `aiInput(value, locate, options)` 仍保留向后兼容，但新代码请统一使用新签名。
+
+:::
+
+### `aiClearInput()` {#agentaiclearinput}
+
+清空指定输入框的内容。适合将「清空」作为独立步骤执行（例如测试输入框清空后的校验提示，或需要将清空与重新输入拆分为两个独立步骤）。
+
+- 类型
+
+```typescript
+function aiClearInput(
+  locate: string | object,
+  opt?: {
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object` —— 目标输入框的自然语言描述，或[带参考图片的提示词](#通过图像提示)。
+  - `opt?: object` —— 可选配置对象：
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 清空搜索框
+await agent.aiClearInput('搜索框');
+
+// 先清空再输入新值
+await agent.aiClearInput('邮箱输入框');
+await agent.aiInput('邮箱输入框', { value: 'user@example.com' });
+```
+
+:::info `aiClearInput` 与 `aiInput` 的选择
+
+`aiInput(locate, { value: '...' })` 默认（`mode: 'replace'`）就会先清空输入框再填入新值。仅当你需要将「清空」作为独立步骤执行时，才需要单独调用 `aiClearInput`。
+
+:::
+
+### `aiKeyboardPress()` {#agentaikeyboardpress}
+
+按下指定的键盘按键或组合键。
+
+- 类型
+
+```typescript
+// 推荐用法：定位描述在前，配置项（含 keyName）在后
+function aiKeyboardPress(
+  locate: string | object | undefined,
+  opt: {
+    keyName: string;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+
+// 旧版兼容用法
+function aiKeyboardPress(
+  key: string,
+  locate?: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- 参数：
+
+  **推荐用法**：
+  - `locate: string | object | undefined` —— 可选的目标元素自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。传入 `undefined` 时，不会执行 AI 元素定位和预先点击，而是直接向当前拥有焦点的元素发送按键。
+  - `opt: object` —— 配置对象：
+    - `keyName: string` —— **必填**。要按下的键名（如 `'Enter'`、`'Tab'`、`'Escape'`；如需输入普通文本请使用 `aiInput()`）。Web 和桌面端（Computer）支持以 `'+'` 连接的修饰键组合（如 `'Control+A'`、`'Shift+Enter'`），候选键名见[共享按键名称定义](https://github.com/web-infra-dev/midscene/blob/main/packages/shared/src/us-keyboard-layout.ts)（具体支持情况因平台而异）。内置的 Android、iOS 和 HarmonyOS 设备仅支持单键（其中 HarmonyOS 支持常见控制键以及 `A`–`Z`、`0`–`9`，不支持 `'?'` 等没有独立键码的字符）；传入不支持的键名或在移动端传入组合键会直接抛出错误。
+    - `deepLocate?: boolean` —— 是否开启[深度定位](#深度定位deeplocate)（旧参数名 `deepThink` 仍保留兼容）。默认值：`false`。
+    - `context?: string` —— 本次调用的补充上下文，详见[`context` 与 `aiContexts` 的优先级](#per-call-context)。
+    - `xpath?: string` —— 目标元素的 XPath。传入后，Midscene 会优先按该 XPath 查找元素，未命中时再依次尝试缓存与 AI 模型。默认值：`undefined`。
+    - `cacheable?: boolean` —— 启用[缓存功能](../caching.mdx)时，是否允许缓存本次调用结果。默认值：`true`。
+
+  **旧版兼容用法**（已废弃，仍保留支持）：
+  - `key: string` —— 要按下的键名（如 `'Enter'`、`'Tab'`、`'Escape'`）。
+  - `locate?: string | object` —— 可选的目标元素自然语言描述，或[带参考图片的提示词](#使用图片作为提示词)。
+  - `options?: object` —— 可选配置对象，类型与推荐用法中的 `opt` 相同。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 推荐用法
+await agent.aiKeyboardPress('搜索框', { keyName: 'Enter' });
+await agent.aiKeyboardPress('搜索框', { keyName: 'Control+A' });
+
+// 直接对当前焦点元素发送按键（不定位、不点击）
+await agent.aiKeyboardPress(undefined, { keyName: 'Control+X' });
+
+// 旧版兼容用法（不推荐）
+await agent.aiKeyboardPress('Enter', '搜索框');
+```
+
+:::note 签名变更说明
+
+推荐使用将可选定位描述放在第一个参数的新签名 `aiKeyboardPress(locate, opt)`。当按键直接作用于当前焦点时，第一个参数传 `undefined` 即可（此时虽不会向模型发起定位请求，但在执行动作前仍会校验模型配置是否有效）。旧版签名 `aiKeyboardPress(key, locate, options)` 仍保留向后兼容，但新代码请统一使用新签名。
+
+:::
+
+### `aiScroll()` {#agentaiscroll}
+
+滚动页面或某个元素。
+
+- 类型
+
+```typescript
+// 推荐用法：定位提示在前，其他选项在 opt 中
+function aiScroll(
+  locate: string | object | undefined,
+  opt: {
+    scrollType?: 'singleAction' | 'scrollToBottom' | 'scrollToTop' | 'scrollToRight' | 'scrollToLeft';
+    direction?: 'down' | 'up' | 'left' | 'right';
+    distance?: number | null;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+
+// 兼容用法：保留向后兼容性
+function aiScroll(
+  scrollParam: PlanningActionParamScroll,
+  locate?: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- 参数：
+
+  **推荐用法**：
+  - `locate: string | object | undefined` - 用自然语言描述的元素定位，或[使用图片作为提示词](#使用图片作为提示词)。未传入时，移动端使用下文的默认手势；Web 和电脑端在当前鼠标位置滚动。
+  - `opt: object` - 配置对象，包含：
+    - `scrollType?: 'singleAction' | 'scrollToBottom' | 'scrollToTop' | 'scrollToRight' | 'scrollToLeft'` - 滚动类型，默认值为 `singleAction`。
+    - `direction?: 'down' | 'up' | 'left' | 'right'` - 滚动方向，默认值为 `down`。仅在 `scrollType` 为 `singleAction` 时生效。不论是 Android 还是 Web，这里的滚动方向都是指页面哪个方向的内容会进入屏幕。比如当滚动方向是 `down` 时，页面下方被隐藏的内容会从屏幕底部开始逐渐向上露出。
+    - `distance?: number | null` - 滚动距离，单位为像素。设置为 `null` 表示由 Midscene 自动决定。
+    - `deepLocate?: boolean` - 是否开启[深度定位](#深度定位deeplocate)。该参数原来叫 `deepThink`，现已更名为 `deepLocate`。默认值为 false。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+    - `xpath?: string` - 目标元素的 xpath 路径，用于执行当前操作。如果提供了这个 xpath，Midscene 会优先使用该 xpath 来找到元素，然后依次使用缓存和 AI 模型。默认值为空
+    - `cacheable?: boolean` - 当启用 [缓存功能](../caching.mdx) 时，是否允许缓存当前 API 调用结果。默认值为 true
+
+  **兼容用法**（已过时，但仍然支持）：
+  - `scrollParam: PlanningActionParamScroll` - 滚动参数（包含 scrollType、direction、distance）。
+  - `locate?: string | object` - 用自然语言描述的元素定位，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选的配置对象，类型与推荐用法中的 `opt` 类型相同。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 推荐用法
+await agent.aiScroll('表单区域', {
+  scrollType: 'singleAction',
+  direction: 'up',
+  distance: 100,
+});
+
+// 兼容用法（不推荐）
+await agent.aiScroll(
+  { scrollType: 'singleAction', direction: 'up', distance: 100 },
+  '表单区域',
+);
+```
+
+<a id="移动端滚动"></a>
+
+**移动端滚动**
+
+Android、iOS 和鸿蒙的默认手势一致：从屏幕中间经过，滑动范围为屏幕中央 70%，耗时约 1 秒。
+
+默认滚动希望保留上一屏的部分内容，减少浏览时的遗漏。手指移动距离不等于内容滚动距离：松手后，列表可能继续滑动；分页控件可能自动翻页。
+
+| 场景 | 用法 |
+| --- | --- |
+| 不传 `locate`、`distance` | 使用上述默认手势。 |
+| 只传 `distance` | 按指定距离执行滚动手势。 |
+| 只传 `locate` | 在指定位置滚动，默认距离按屏幕大小计算。 |
+| 同时传 `locate`、`distance` | 在指定位置，按指定距离执行滚动手势。 |
+| 滚动到边界 | 使用 `scrollToTop` 等类型。长列表可能需要多次调用才能到达边界。 |
+
+请将 `distance` 设置在屏幕可用范围内，距离过大可能导致手势执行失败。
+
+在弹窗或局部列表中滚动时，建议同时指定 `locate` 和合适的 `distance`。例如：
+
+```typescript
+await agent.aiScroll('弹窗中的列表', { direction: 'down', distance: 100 });
+```
+
+需要快速划动或指定起终点时，使用 `Swipe`。`Swipe` 按指定坐标或方向执行手势，可设置 `duration`；`Scroll` 用于浏览内容。
+
+:::note 关于签名变更
+
+我们最近更新了 `aiScroll` 的 API 签名，将定位提示作为第一个参数，使得参数顺序更直观。旧的签名 `aiScroll(scrollParam, locate, options)` 仍然完全兼容，但建议新代码使用推荐的签名。
+
+:::
+
+### `aiPinch()` {#agentaipinch}
+
+执行双指缩放手势，用于放大或缩小。支持 Android、iOS 和 Web（基于 Chromium 的浏览器）。
+
+- 类型
+
+```typescript
+function aiPinch(
+  locate: string | object | undefined,
+  opt: {
+    direction: 'in' | 'out';
+    distance?: number;
+    duration?: number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- 参数：
+
+  - `locate: string | object | undefined` - 用自然语言描述的缩放目标元素，或[使用图片作为提示词](#使用图片作为提示词)。如果未传入，缩放将在屏幕中心执行。
+  - `opt: object` - 配置对象，包含：
+    - `direction: 'in' | 'out'` - **必填。** `"in"` = 双指收拢（缩小），`"out"` = 双指张开（放大）。
+    - `distance?: number` - 每根手指移动的距离（像素）。默认值为屏幕较短边的四分之一。
+    - `duration?: number` - 缩放手势持续时间（毫秒），默认值为 `500`。
+    - `deepLocate?: boolean` - 是否开启[深度定位](#深度定位deeplocate)。默认值为 false。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+    - `xpath?: string` - 目标元素的 xpath 路径。默认值为空。
+    - `cacheable?: boolean` - 当启用[缓存功能](../caching.mdx)时，是否允许缓存。默认值为 true。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 在地图上放大（双指张开）
+await agent.aiPinch('地图区域', { direction: 'out', distance: 200 });
+
+// 在屏幕中心缩小（双指收拢）
+await agent.aiPinch(undefined, { direction: 'in' });
+
+// 自定义持续时间放大
+await agent.aiPinch('图片', { direction: 'out', distance: 300, duration: 1000 });
+```
+
+:::info 平台支持
+
+- **Android**：通过 [yadb](https://github.com/ysbing/yadb) 的 `-pinch` 命令实现。
+- **iOS**：通过 W3C Actions API 双触摸指针实现。
+- **Web**：通过 CDP 触摸事件实现。Puppeteer/Playwright 需设置 `enableTouchEventsInActionSpace: true`。Playwright 仅支持 Chromium 内核浏览器。
+- **HarmonyOS**：不支持。`uitest` 框架未提供多触点 API。
+
+:::
+
+## 数据提取 {#extraction-location-assertion}
+
+### `aiAsk()` {#agentaiask}
+
+使用此方法，你可以针对当前页面，直接向 AI 模型发起提问，并获得字符串形式的回答。
+
+`aiAsk()` 与 `aiString()` 的查询和返回行为相同，但仍可分别通过 `aiContexts.aiAsk` 和 `aiContexts.aiString` 配置 Agent 级 context。
+
+- 类型
+
+```typescript
+function aiAsk(prompt: string | object, options?: object): Promise<string>;
+```
+
+- 参数：
+
+  - `prompt: string | object` - 用自然语言描述的询问内容，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。返回 AI 模型的回答。
+
+- 示例：
+
+```typescript
+const result = await agent.aiAsk('当前页面的应该怎么进行测试？');
+console.log(result); // 输出 AI 模型的回答
+```
+
+除了 `aiAsk` 方法，你还可以使用 `aiQuery` 方法，直接从 UI 提取结构化的数据。
+
+### `aiQuery()` {#agentaiquery}
+
+使用此方法，你可以直接从 UI 提取结构化的数据。只需在 `dataDemand` 中描述期望的数据格式（如字符串、数字、JSON、数组等），Midscene 即返回相应结果。
+
+- 类型
+
+```typescript
+function aiQuery<T>(dataDemand: string | object, options?: object): Promise<T>;
+```
+
+- 参数：
+
+  - `dataDemand: string | object`：描述预期的返回值和格式。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回值可以是任何合法的基本类型，比如字符串、数字、JSON、数组等。
+  - 你只需在 `dataDemand` 中描述它，Midscene 就会给你满足格式的返回。
+
+- 示例：
+
+```typescript
+const dataA = await agent.aiQuery({
+  time: '左上角展示的日期和时间，string',
+  userInfo: '用户信息，{name: string}',
+  tableFields: '表格的字段名，string[]',
+  tableDataRecord: '表格中的数据记录，{id: string, [fieldName]: string}[]',
+});
+
+// 你也可以用纯字符串描述预期的返回值格式：
+
+// dataB 将是一个字符串数组
+const dataB = await agent.aiQuery('string[]，列表中的任务名称');
+
+// dataC 将是一个包含对象的数组
+const dataC = await agent.aiQuery(
+  '{name: string, age: string}[], 表格中的数据记录',
+);
+
+// 使用 domIncluded 功能提取 UI 中不可见的属性
+const dataD = await agent.aiQuery(
+  '{name: string, age: string, avatarUrl: string}[], 表格中的数据记录',
+  { domIncluded: true },
+);
+```
+
+此外，我们还提供了 `aiBoolean()`, `aiNumber()`, `aiString()` 三个便捷方法，用于直接提取布尔值、数字和字符串。
+
+### `aiBoolean()` {#agentaiboolean}
+
+从 UI 中提取一个布尔值。
+
+- 类型
+
+```typescript
+function aiBoolean(prompt: string | object, options?: object): Promise<boolean>;
+```
+
+- 参数：
+
+  - `prompt: string` - 用自然语言描述的期望值，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。当 AI 返回结果时解析为布尔值。
+
+- 示例：
+
+```typescript
+const boolA = await agent.aiBoolean('是否存在登录对话框');
+
+// 使用 domIncluded 功能提取 UI 中不可见的属性
+const boolB = await agent.aiBoolean('忘记密码按钮是否存在链接', {
+  domIncluded: true,
+});
+```
+
+### `aiNumber()` {#agentainumber}
+
+从 UI 中提取一个数字。
+
+- 类型
+
+```typescript
+function aiNumber(prompt: string | object, options?: object): Promise<number>;
+```
+
+- 参数：
+
+  - `prompt: string | object` - 用自然语言描述的期望值，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。当 AI 返回结果时解析为数字。
+
+- 示例：
+
+```typescript
+const numberA = await agent.aiNumber('账户剩余的积分');
+
+// 使用 domIncluded 功能提取 UI 中不可见的属性
+const numberB = await agent.aiNumber('账户剩余的积分元素的 value 值', {
+  domIncluded: true,
+});
+```
+
+### `aiString()` {#agentaistring}
+
+从 UI 中提取一个字符串。
+
+`aiString()` 与 `aiAsk()` 的查询和返回行为相同，但仍可分别通过 `aiContexts.aiString` 和 `aiContexts.aiAsk` 配置 Agent 级 context。
+
+- 类型
+
+```typescript
+function aiString(prompt: string | object, options?: object): Promise<string>;
+```
+
+- 参数：
+
+  - `prompt: string | object` - 用自然语言描述的期望值，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。当 AI 返回结果时解析为字符串。
+
+- 示例：
+
+```typescript
+const stringA = await agent.aiString('当前列表的第一条记录的名称');
+
+// 使用 domIncluded 功能提取 UI 中不可见的属性
+const stringB = await agent.aiString('当前列表的第一条记录的跳转链接', {
+  domIncluded: true,
+});
+```
+
+## 元素定位 {#element-location}
+
+### `aiLocate()` {#agentailocate}
+
+通过自然语言描述一个元素的定位。
+
+- 类型
+
+```typescript
+function aiLocate(
+  locate: string | object,
+  options?: object,
+): Promise<{
+  rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  center: [number, number];
+  dpr?: number; // 仅 Web：设备像素比
+}>;
+```
+
+- 参数：
+
+  - `locate: string | object` - 用自然语言描述的元素定位，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `deepLocate?: boolean` - 是否开启[深度定位](#深度定位deeplocate)。该参数原来叫 `deepThink`，现已更名为 `deepLocate`。默认值为 false。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+    - `xpath?: string` - 目标元素的 xpath 路径，用于执行当前操作。如果提供了这个 xpath，Midscene 会优先使用该 xpath 来找到元素，然后依次使用缓存和 AI 模型。默认值为空
+    - `cacheable?: boolean` - 当启用 [缓存功能](../caching.mdx) 时，是否允许缓存当前 API 调用结果。默认值为 true
+
+- 返回值：
+
+  - 返回一个 Promise。当元素定位成功时解析为元素定位信息。
+  - `rect` 在大多数定位链路里表示命中的目标元素边界。
+  - 有些模型只支持按点定位，不支持按元素边界定位。在这种情况下，例如 AutoGLM，这里的 `rect` 会退化成一个包含元素中心的 `8x8` 小方块，而不是真实的元素边界。
+  - 由于 `rect` 的表现会明显受底层模型能力影响，不建议对这个字段建立过强的边界语义依赖。
+  - `center` 是基于模型定位结果得到的目标点，坐标对应截图的真实像素。如果你想获得更稳定的点击位置，推荐优先使用 `center` 字段。
+  - `dpr` 是仅供 Web 使用的兼容字段，表示截图物理像素与 CSS 逻辑像素的比例。其他 Agent 类型不保证提供该字段。
+
+- 示例：
+
+```typescript
+const locateInfo = await agent.aiLocate('页面顶部的登录按钮');
+console.log(locateInfo);
+```
+
+## 断言与等待 {#assertions-waiting}
+
+### `aiAssert()` {#agentaiassert}
+
+通过自然语言描述一个断言条件，让 AI 判断该条件是否为真。当条件不满足时，SDK 会抛出错误，并在错误信息中追加 AI 返回的详细原因。
+
+- 类型
+
+```typescript
+function aiAssert(
+  assertion: string | object,
+  errorMsg?: string,
+  options?: object,
+): Promise<void>;
+```
+
+- 参数：
+
+  - `assertion: string | object` - 用自然语言描述的断言条件，或[使用图片作为提示词](#使用图片作为提示词)。
+  - `errorMsg?: string` - 当断言失败时附加的可选错误提示信息。
+  - `options?: object` - 可选，一个配置对象，包含：
+    - `domIncluded?: boolean | 'visible-only'` - 是否向模型发送精简后的 DOM 信息，一般用于提取 UI 中不可见的属性，比如图片的链接。如果设置为 `'visible-only'`，则只发送可见的元素。默认值为 false。
+    - `screenshotIncluded?: boolean` - 是否向模型发送截图。默认值为 true。
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。当断言成功时解析为 void；若断言失败，则抛出一个错误，错误信息包含 `errorMsg` 以及 AI 生成的原因。
+
+- 示例：
+
+```typescript
+await agent.aiAssert('"Sauce Labs Onesie" 的价格是 7.99');
+```
+
+:::info
+
+断言在测试脚本中非常重要。为了降低因 AI 幻觉导致错误断言的风险（例如遗漏错误），你也可以使用 `.aiQuery` 加上常规的 JavaScript 断言来替代 `.aiAssert`。
+
+例如，你可以这样替代上面的断言代码：
+
+```typescript
+const items = await agent.aiQuery(
+  '{name: string, price: number}[], 返回商品名称和价格列表',
+);
+const onesieItem = items.find((item) => item.name === 'Sauce Labs Onesie');
+expect(onesieItem).toBeTruthy();
+expect(onesieItem.price).toBe(7.99);
+```
+
+:::
+
+### `aiWaitFor()` {#agentaiwaitfor}
+
+等待某个条件达成。为控制 AI 服务成本，相邻两次检查的开始时间至少间隔 `checkIntervalMs` 毫秒。
+
+- 类型
+
+```typescript
+function aiWaitFor(
+  assertion: string,
+  options?: {
+    timeoutMs?: number;
+    checkIntervalMs?: number;
+    context?: string;
+  },
+): Promise<void>;
+```
+
+- 参数：
+
+  - `assertion: string` - 用自然语言描述的断言条件
+  - `options?: object` - 可选的配置对象
+    - `timeoutMs?: number` - 超时时间（毫秒，默认为 15000）。每轮检查开始时都会记录时间，只要该时间点仍在超时窗口内，就会进入下一轮检查；否则视为超时
+    - `checkIntervalMs?: number` - 相邻两次检查开始时间的最小间隔（毫秒），默认值为 3000
+    - `context?: string` - 本次调用的额外上下文。详见[单次调用上下文](#单次调用上下文)。
+
+- 返回值：
+
+  - 返回一个 Promise。当断言成功时解析为 void；若超时，则抛出错误。
+
+- 示例：
+
+```typescript
+// 基本用法
+await agent.aiWaitFor('界面上至少有一个耳机的信息');
+
+// 使用自定义配置
+await agent.aiWaitFor('购物车图标显示数量为 2', {
+  timeoutMs: 30000, // 等待 30 秒
+  checkIntervalMs: 5000, // 每 5 秒检查一次
+});
+```
+
+:::info
+
+`aiWaitFor()` 每次检查都会消耗模型调用时间和 token。应用提供就绪信号时，可直接等待该信号。
+
+:::
+
+**等待方式对照**
+
+| 入口 | 用途 |
+| --- | --- |
+| [`agent.aiWaitFor(condition)`](#agentaiwaitfor) | 在脚本步骤中通过 AI 等待可见条件。 |
+| [`browserAgent.waitForNewPage(action)`](../sdk/playwright#wait-for-new-page) | 先监听，再执行 `action`，然后返回新页面（Playwright/Puppeteer）。 |
+| [`waitForActionReady`](#action-ready) | 自定义每个原子动作之后何时可以继续。 |
+
+其他事件直接 `await` 应用的 Promise 或浏览器、设备 API；一次性事件应先订阅再触发。
+
+## 持续观察 {#observation-waiting}
+
+### `startObserving()` {#agentstartobserving}
+
+`startObserving()` 会持续采集屏幕画面，适用于校验短暂出现的 UI 元素（如 Toast 提示、顶部横幅或页面过渡动画）。
+
+基本使用流程：先调用 `startObserving()` 开始录制，接着执行页面操作，最后调用 `observer.stop()` 结束录制并获取 `UIObservation` 对象，即可针对录制期间的画面序列发起查询或断言。
+
+```typescript
+function startObserving(options?: {
+  intervalMs?: number; // 采样间隔（默认 1,000 ms，最小 200 ms）
+  maxFrames?: number;  // 最多保留的帧数（默认 30）
+  watchdogMs?: number; // 最长录制时间（默认 300,000 ms；设为 0 则不限制）
+}): Promise<UIObserver>;
+```
+
+`UIObserver` 提供以下属性与方法：
+
+- `observer.bufferedFrameCount: number` —— 录制过程中当前已缓冲的帧数。
+- `observer.stop(): Promise<UIObservation>` —— 停止录制并返回 `UIObservation` 实例。
+
+`UIObservation` 保存了录制期间采集的画面帧（调用 `stop()` 后帧列表即固定不再变化）。你可以在 `UIObservation` 上调用 `aiQuery()`、`aiBoolean()`、`aiNumber()`、`aiString()`、`aiAsk()` 和 `aiAssert()`。由于这些方法仅基于录制的图像帧进行分析、不读取当前页面的实时 DOM，因此不支持传入 `domIncluded`（TypeScript 会在编译期报错，运行时传入也会直接抛出错误）。
+
+此外，`UIObservation` 还提供 `frameCount`、`startedAt` 和 `endedAt` 属性。使用完毕后，可调用 `observation.dispose()` 清理落盘的临时图片（调用 `agent.destroy()` 时也会一并清理未释放的临时图片）。
+
+```typescript
+const observer = await agent.startObserving();
+await agent.aiAct('提交表单');
+const observation = await observer.stop();
+await observation.aiAssert('提交过程中弹出了成功提示 Toast');
+const toastCount = await observation.aiNumber('共出现了多少次成功 Toast？');
+await observation.dispose();
+```
+
+采样机制与资源开销说明：
+
+- **帧源选择**：Midscene 会优先使用各平台的高效连续帧源——Android 使用 scrcpy（需开启 `scrcpyConfig.enabled`），iOS 使用 WDA MJPEG（需开启 `wdaMjpegFrameSource.enabled`），Web 使用 CDP Screencast；当连续帧源不可用时，会回退为按固定间隔主动截图（移动端在此模式下的采样频率会相对较低）。
+- **内存与磁盘管理**：为避免大量图片驻留内存，Data URL 格式的帧会在采样时直接写入临时文件，其余格式的帧句柄会在停止录制时分批解码落盘；仅当实际执行查询或断言时才会按需读取。
+- **采样控制**：单次查询或断言最多向模型发送 `maxFrames` 张观察帧外加最后一张完整截图。可通过调大 `intervalMs` 降低采样频率，或调小 `maxFrames` 限制发送帧数。观察帧在报告时间线中会带有 `Observed` 标记。
+- **iOS 画质说明**：iOS 的观察帧来自 MJPEG 实时流，分辨率与画质略低于常规截图，但结束时的最后一张截图仍保持完整画质。
+
+<a id="runyaml"></a>
+
+## 工作流执行 {#workflow-context}
+
+### `runYaml()` {#agentrunyaml}
+
+解析并执行一段 YAML 格式的自动化脚本（仅执行其中的 `tasks` 部分），并返回脚本内所有 `aiQuery` 步骤的结果。
+
+- 类型
+
+```typescript
+function runYaml(yamlScriptContent: string): Promise<{ result: any }>;
+```
+
+- 参数：
+
+  - `yamlScriptContent: string` —— YAML 格式的脚本字符串。
+
+- 返回值：
+
+  - 返回形如 `{ result: any }` 的对象，其中 `result` 汇总了脚本内所有 `aiQuery` 调用的返回值。
+
+- 示例：
+
+```typescript
+const { result } = await agent.runYaml(`
+tasks:
+  - name: search weather
+    flow:
+      - ai: input 'weather today' in input box, click search button
+      - sleep: 3000
+
+  - name: query weather
+    flow:
+      - aiQuery: "the result shows the weather info, {description: string}"
+`);
+console.log(result);
+```
+
+:::info
+
+关于 YAML 脚本的完整语法与配置，请参阅[使用 YAML 编写自动化脚本](../automate-with-scripts-in-yaml)。
+
+:::
+
+### `runGherkinScenario()` {#agentrungherkinscenario}
+
+运行单个 Gherkin Scenario，并将其中的自然语言步骤映射为对应的 Midscene Agent 调用。
+
+:::caution Beta
+
+该 API 自 Midscene v1.10 起提供，目前仍处于 Beta 阶段，后续版本可能会有所调整。
+
+:::
+
+- 类型
+
+```typescript
+function runGherkinScenario(
+  scenarioText: string,
+  options?: {
+    context?: string;
+    abortSignal?: AbortSignal;
+    deepThink?: 'unset' | true | false;
+    deepLocate?: boolean;
+  },
+): Promise<void>;
+```
+
+- 参数：
+
+  - `scenarioText: string` —— 单个 Gherkin Scenario 文本，或一组省略了 `Scenario:` 标题行的 Gherkin 步骤。
+  - `options?: object` —— 可选运行配置：
+    - `context?: string` —— 作用于本次运行所有步骤的 AI 补充上下文（对映射出的每次 API 调用，其优先级高于 Agent 上的 `aiContexts[apiName]` 和 `aiContexts.default`）。
+    - `abortSignal?: AbortSignal` —— 用于中止本次运行的可选取消信号。
+    - `deepThink?: 'unset' | true | false` —— 透传给 `Given` 和 `When` 步骤底层调用的 `aiAct`。
+    - `deepLocate?: boolean` —— 透传给 `Given` 和 `When` 步骤底层调用的 `aiAct`。
+
+- 返回值：
+
+  - `Promise<void>` —— 所有步骤执行完毕后 resolve；若某一步骤失败，抛出的错误信息会包含对应的 Gherkin 行号、原始步骤文本以及当时正在执行的 Midscene 动作。
+
+- 示例：
+
+```typescript
+await agent.runGherkinScenario(`
+Scenario: 添加待办事项
+  Given 待办事项页面已经打开
+  When 我添加一条名为“买牛奶”的待办事项
+  Then 待办事项列表中应该包含“买牛奶”
+`);
+```
+
+关于支持的语法规则、限制、缓存行为及 YAML 集成方式，请参阅 [BDD 风格脚本（Gherkin）](../advanced/bdd-style-scripts-with-gherkin)。
+
+## 上下文管理 {#context-management}
+
+`setAIContext()` 用于动态更新提供给 AI 的背景上下文；`freezePageContext()` 和 `unfreezePageContext()` 则用于控制后续调用是否直接复用同一份页面快照（含截图）。
+
+### `setAIContext()` {#agentsetaicontext}
+
+动态设置 Agent 级的全局回退上下文或指定 API 的专属上下文。
+
+- 类型
+
+```typescript
+function setAIContext(
+  target: 'default' | AiApiName,
+  context: string | undefined,
+): void;
+```
+
+- 参数：
+
+  - `target` —— 传入 `'default'` 表示设置所有 AI 方法共享的全局回退上下文；也可传入具体的 API 名称（如 `'aiAct'`、`'aiTap'`、`'aiQuery'` 或 `'aiAssert'`）。
+  - `context` —— 提供给 AI 的补充背景信息（如业务事实、规则约束或输出格式要求）。当 `target` 为具体 API 名称时，传入 `''` 会显式屏蔽全局默认上下文 `aiContexts.default`，传入 `undefined` 则会移除该 API 的专属覆盖并恢复继承 `aiContexts.default`；当 `target` 为 `'default'` 时，传入 `undefined` 会清除全局默认上下文。
+
+- 示例：
+
+```typescript
+agent.setAIContext('default', '页面中的价格单位均为美元。');
+agent.setAIContext('aiQuery', '提取金额时不要包含货币符号。');
+agent.setAIContext('aiQuery', '');        // 显式令 aiQuery 忽略 aiContexts.default
+agent.setAIContext('aiQuery', undefined); // 恢复 aiQuery 对 aiContexts.default 的继承
+```
+
+<a id="agentsetaiactcontext"></a>
+
+**`setAIActContext()`（已废弃）**
+
+用于设置后续 `agent.aiAct()` 或 `agent.ai()` 调用的背景上下文（不影响 `aiTap()` 等即时交互方法）。该方法等价于 `agent.setAIContext('aiAct', context)` 并会覆盖已有的 `aiContexts.aiAct`，新代码请统一使用 `agent.setAIContext('aiAct', context)`。
+
+- 类型
+
+```typescript
+function setAIActContext(aiActContext: string): void;
+```
+
+- 参数：
+
+  - `aiActContext: string` —— 发送给 AI 模型的背景知识。关于上下文的编写建议，请参阅[为 GUI Agent 补充应用知识](../provide-application-knowledge-to-gui-agent)。
+
+- 示例：
+
+```typescript
+agent.setAIActContext('如果存在 Cookie 授权弹窗，请先将其关闭');
+```
+
+:::info
+
+`agent.setAIActContext()` 与更早期的 `agent.setAIActionContext()` 均仅保留作向后兼容，新代码请使用 `agent.setAIContext('aiAct', context)`。
+
+:::
+
+### `freezePageContext()` {#agentfreezepagecontext}
+
+冻结当前页面上下文，使后续操作直接复用同一份页面快照，避免每次调用都重新截图和采集页面状态。适用于需要对同一静态界面连续发起大量并发只读查询的场景。
+
+使用限制：
+- 仅在确认「获取页面状态」成为性能瓶颈时按需使用；
+- 查询结束后，请及时调用 `agent.unfreezePageContext()` 恢复实时状态采集；
+- **切勿在冻结期间执行任何交互操作**（如点击、输入），否则模型无法感知界面变化，会基于过期的旧快照做出错误操作。
+
+- 类型
+
+```typescript
+function freezePageContext(): Promise<void>;
+```
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+// 冻结页面上下文，让并发查询共享同一份页面快照
+await agent.freezePageContext();
+
+const results = await Promise.all([
+  agent.aiQuery('用户名输入框的值'),
+  agent.aiQuery('密码输入框的值'),
+  agent.aiLocate('登录按钮'),
+]);
+console.log(results);
+
+// 解冻页面上下文，后续操作恢复读取实时页面状态
+await agent.unfreezePageContext();
+```
+
+:::info
+
+在执行报告的 Insight 标签页中，复用冻结快照的步骤会显示 🧊 图标。
+
+:::
+
+### `unfreezePageContext()` {#agentunfreezepagecontext}
+
+解除页面上下文冻结，恢复在每次操作前采集实时页面状态。
+
+- 类型
+
+```typescript
+function unfreezePageContext(): Promise<void>;
+```
+
+- 返回值：
+
+  - `Promise<void>`
+
+## 执行 JavaScript {#javascript-execution}
+
+### `evaluateJavaScript()` {#agentevaluatejavascript}
+
+> 仅 Web Agent 可用。
+
+在当前受控 Web 页面的上下文中执行一段 JavaScript 表达式，并返回执行结果。
+
+- 类型
+
+```typescript
+function evaluateJavaScript(script: string): Promise<any>;
+```
+
+- 参数：
+
+  - `script: string` —— 要执行的 JavaScript 代码字符串。
+
+- 返回值：
+
+  - 返回该 JavaScript 表达式的求值结果。
+
+- 示例：
+
+```typescript
+const result = await agent.evaluateJavaScript('document.title');
+console.log(result);
+```
+
+<a id="log-screenshot"></a>
+<a id="agentlogscreenshot"></a>
+
+## 报告与用量 {#reporting-metrics-lifecycle}
+
+<a id="reportfile"></a>
+
+### `reportFile` {#agentreportfile}
+
+当前报告文件的路径，类型为 `string | null | undefined`。
+
+在首次写入报告前，或当禁用了报告生成（`generateReport: false`）、运行在无文件系统权限的纯浏览器环境中、以及 Agent 尚未执行任何任务时，该属性均无可用值。
+
+即使该属性已有值，后续操作仍可能继续向报告追加内容。在读取或消费最终报告文件前，请务必先调用 [`await agent.destroy()`](#agentdestroy)，以确保报告已完成刷盘与收尾，并将最终路径更新到 `agent.reportFile`。
+
+### `recordToReport()` {#agentrecordtoreport}
+
+向执行报告中主动写入一条记录（默认自动截取当前画面，也可直接传入外部截图）。
+
+- 类型
+
+```typescript
+interface RecordToReportOptions {
+  content?: string;
+  /** @deprecated 请改用 screenshots。 */
+  screenshotBase64?: string;
+  screenshots?: {
+    /**
+     * PNG/JPEG Data URI，或裸 PNG Base64 字符串。
+     */
+    base64: string;
+    description?: string;
+  }[];
+}
+
+function recordToReport(
+  title?: string,
+  options?: RecordToReportOptions,
+): Promise<void>;
+```
+
+- 参数：
+
+  - `title?: string` —— 报告条目的标题。默认值：`'untitled'`。
+  - `options?: RecordToReportOptions` —— 可选配置对象：
+    - `content?: string` —— 该条目的文字描述说明。
+    - `screenshots?: Array<{ base64: string; description?: string }>` —— 在同一报告条目下附带的一张或多张外部截图（传入此项后，Midscene 不会再自动截取当前屏幕）。`base64` 支持传入 PNG / JPEG 的 Data URI（如 `data:image/png;base64,...`），或直接传入裸 Base64 字符串（按 PNG 格式处理）。
+
+- 兼容性说明：
+
+  旧版单张截图参数 `screenshotBase64?: string` 仍保留向后兼容，但新代码推荐使用 `screenshots: [{ base64 }]`（注意：`screenshots` 与 `screenshotBase64` 不能同时传入）。
+
+- 返回值：
+
+  - `Promise<void>`
+
+- 示例：
+
+```typescript
+await agent.recordToReport('登录页面', {
+  content: '用户 A',
+});
+
+const before = await page.screenshot({ encoding: 'base64' });
+const after = await page.screenshot({ encoding: 'base64' });
+await agent.recordToReport('结算页对比', {
+  content: '对比提交前后的页面状态。',
+  screenshots: [
+    {
+      base64: `data:image/png;base64,${before}`,
+      description: '提交前',
+    },
+    {
+      base64: `data:image/png;base64,${after}`,
+      description: '提交后',
+    },
+  ],
+});
+```
+
+<a id="llm-usage-metrics"></a>
+
+### `metrics` {#agentmetrics}
+
+Midscene 会自动统计每次大模型调用的 Token 消耗。你可以在运行时通过 `agent.metrics`（getter 属性）读取自该 Agent 创建以来累计的用量快照，方便对接 Langfuse 等可观测性平台进行成本统计。
+
+- 类型
+
+```typescript
+interface UsageBucket {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  calls: number;
+}
+
+interface MidsceneUsageMetrics {
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCachedInput: number;
+  totalTimeCostMs: number;
+  calls: number;
+  // 按调用意图分类统计：`planning`、`insight`、`default`
+  byIntent: Record<string, UsageBucket>;
+  // 按模型名称分类统计
+  byModel: Record<string, UsageBucket>;
+}
+```
+
+- 示例
+
+```typescript
+await agent.aiAct('搜索耳机');
+const usage = agent.metrics;
+console.log(usage.totalTokens, usage.byIntent, usage.byModel);
+```
+
+<a id="onllmusage-选项"></a>
+
+### `onLLMUsage` {#onllmusage-option}
+
+如需在每次模型调用结束时实时上报用量，可在构造 Agent 时传入 `onLLMUsage` 回调。每当单次模型调用返回用量数据时，该回调就会立即触发一次，入参包含本次调用的 Token 数、模型名称、调用意图（`intent`）、请求 ID 等原始信息：
+
+```typescript
+const agent = new PuppeteerAgent(page, {
+  onLLMUsage: (usage) => {
+    langfuse.event({ name: usage.intent, value: usage.total_tokens });
+  },
+});
+```
+
+### `_unstableLogContent()` {#agent_unstablelogcontent}
+
+获取当前报告对应的内部日志对象。注意：该返回对象的结构属于内部实现，后续版本可能会发生变更。
+
+- 类型
+
+```typescript
+function _unstableLogContent(): object;
+```
+
+- 返回值：
+
+  - 返回包含当前执行日志内容的对象。
+
+- 示例：
+
+```typescript
+const logContent = agent._unstableLogContent();
+console.log(logContent);
+```
+
+## 生命周期 {#lifecycle}
+
+### `destroy()` {#agentdestroy}
+
+完成 Agent 执行报告的收尾写入，并释放该 Agent 持有的资源。
+
+- 类型
+
+```typescript
+function destroy(): Promise<void>;
+```
+
+- 行为说明：
+  - 停止当前仍在运行的 `UIObserver`（若存在）。
+  - 调用底层 Device / Interface 上的可选 `destroy()` 方法，并等待其清理完成。
+  - 将报告缓存刷盘并完成收尾，随后将最终报告路径写入 `agent.reportFile`（若未生成报告则为 `undefined`）。
+  - 该方法是幂等的：首次调用完成后，重复调用不会再次执行清理。
+  - 若底层 Device 清理抛出错误，Midscene 仍会先尽力完成报告收尾，再将该清理错误抛出。
+
+调用 `destroy()` 后，该 Agent 实例即告销毁，请勿继续调用其方法。
+
+:::warning 资源清理范围
+
+`agent.destroy()` 负责停止 Agent、完成报告收尾并释放 Midscene 内部持有的控制资源。它通常不会主动关闭外部浏览器页面或断开物理设备连接，但部分平台会结束其启动的自动化会话或虚拟显示器。各平台的具体清理行为请参阅对应平台 SDK 文档中的「生命周期」章节。
+
+:::
+
+## 报告合并工具 {#reporting-utilities}
+
+<a id="report-merging-tool"></a>
+
+当多个自动化工作流或测试用例各自生成了独立的报告时，可以使用 `ReportMergingTool` 将它们合并为一份汇总报告（输出为单个 HTML 文件，或包含 `index.html` 与外部截图资源的目录）。
+
+### `new ReportMergingTool()`
+
+创建一个 `ReportMergingTool` 实例。
+
+- 示例：
+
+```typescript
+import { ReportMergingTool } from '@midscene/core/report';
+
+const reportMergingTool = new ReportMergingTool();
+```
+
+### `.append()`
+
+在每个工作流或用例执行结束后，将其报告信息追加到待合并列表中。
+
+- 类型
+
+```typescript
+type SkippedReportFileAttributes = Omit<
+  ReportFileAttributes,
+  'testStatus'
+> & {
+  testStatus: 'skipped';
+};
+
+type ReportFileWithAttributes =
+  | {
+      reportFilePath: string;
+      reportAttributes: ReportFileAttributes;
+    }
+  | {
+      reportFilePath?: undefined;
+      reportAttributes: SkippedReportFileAttributes;
+    };
+
+function append(reportInfo: ReportFileWithAttributes): void;
+```
+
+- 参数：
+
+  - `reportInfo: ReportFileWithAttributes` —— 待追加的报告条目信息：
+    - `reportFilePath: string | undefined` —— 源报告文件路径（通常取自 `agent.reportFile`）。仅当 `reportAttributes.testStatus` 为 `'skipped'` 时允许省略该字段；其他状态下若缺失路径，`append()` 会直接抛出错误。
+    - `reportAttributes: object` —— 该工作流或用例的元数据：
+      - `testId: string`：唯一标识符。
+      - `testTitle: string`：标题。
+      - `testDescription: string`：描述信息。
+      - `testDuration: number`：执行耗时（单位：毫秒）。
+      - `testStatus: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted'`：执行状态。
+
+- 返回值：
+
+  - `void`
+
+- 示例：
+
+```typescript
+import type { TestStatus } from '@midscene/core';
+
+// 在测试框架的 afterEach 钩子中收集报告（假设每个用例独占各自的 Agent）
+afterEach(async (ctx) => {
+  let workflowStatus: TestStatus = 'passed';
+  if (ctx.task.result?.state === 'skip') {
+    workflowStatus = 'skipped';
+  } else if (ctx.task.result?.errors?.[0]?.message.includes('timed out')) {
+    workflowStatus = 'timedOut';
+  } else if (ctx.task.result?.state === 'fail') {
+    workflowStatus = 'failed';
+  }
+
+  // 读取 agent.reportFile 前，必须先调用 destroy() 完成报告收尾
+  await agent.destroy();
+  const reportFilePath = agent.reportFile;
+  const reportAttributes = {
+    testId: ctx.task.name,
+    testTitle: ctx.task.name,
+    testDescription: '自动化工作流描述',
+    testDuration: Date.now() - startTime,
+  };
+
+  if (!reportFilePath) {
+    if (workflowStatus !== 'skipped') {
+      throw new Error('Midscene 报告未生成');
+    }
+
+    reportMergingTool.append({
+      reportAttributes: {
+        ...reportAttributes,
+        testStatus: 'skipped',
+      },
+    });
+    return;
+  }
+
+  reportMergingTool.append({
+    reportFilePath,
+    reportAttributes: {
+      ...reportAttributes,
+      testStatus: workflowStatus,
+    },
+  });
+});
+```
+
+注意：在调用 `.mergeReports()` 之前，请确保所有相关的 Agent 均已调用 `await agent.destroy()` 完成报告收尾。
+
+### `.mergeReports()`
+
+将已追加的所有报告合并输出为一份汇总报告。
+
+- 类型
+
+```typescript
+function mergeReports(
+  reportFileName?: 'AUTO' | string,
+  opts?: {
+    rmOriginalReports?: boolean;
+    overwrite?: boolean;
+    outputDir?: string;
+    outputFormat?: 'single-html' | 'html-and-external-assets';
+  },
+): string | null;
+```
+
+- 参数：
+
+  - `reportFileName?: 'AUTO' | string` —— 合并后的报告名称。默认值为 `'AUTO'`（由 Midscene 自动生成文件名）；传入自定义名称时无需包含 `.html` 后缀。
+  - `opts?: object` —— 可选配置对象：
+    - `rmOriginalReports?: boolean` —— 合并完成后是否删除各源报告文件。默认值：`false`。
+    - `overwrite?: boolean` —— 当目标输出路径已存在同名文件时是否覆盖。默认值：`false`。
+    - `outputDir?: string` —— 合并报告的输出目录（相对路径基于当前工作目录解析）。默认值：`midscene_run/report/`。
+    - `outputFormat` —— `'single-html'`（默认）或 `'html-and-external-assets'`，独立于源报告格式。
+
+- 返回值：
+
+  - 返回合并后报告的入口 HTML 路径；若待合并列表为空，则返回 `null`。
+  - 使用 `'single-html'`（默认）时，输出路径为 `<outputDir>/<reportFileName>.html`。
+  - 使用 `'html-and-external-assets'` 时，输出路径为 `<outputDir>/<reportFileName>/index.html`。分享时需保留整个报告目录，并通过 HTTP 服务查看。
+
+- 示例：
+
+```typescript
+// 基本用法：自动生成文件名
+afterAll(() => {
+  reportMergingTool.mergeReports();
+});
+
+// 指定自定义文件名
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report');
+});
+
+// 合并后删除原始子报告
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    rmOriginalReports: true,
+  });
+});
+
+// 覆盖已存在的同名报告
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    overwrite: true,
+  });
+});
+
+// 输出到自定义目录
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    outputDir: './test-results',
+  });
+});
+```
+
+### `.clear()`
+
+清空当前已追加的待合并报告列表（适用于复用同一个 `ReportMergingTool` 实例分批合并多组报告的场景）。
+
+- 类型
+
+```typescript
+function clear(): void;
+```
+
+- 返回值：
+
+  - `void`
+
+- 示例：
+
+```typescript
+reportMergingTool.mergeReports('first-batch');
+reportMergingTool.clear(); // 清空列表，准备下一批合并
+```
+
+## `exportReportArtifact()`
+
+将一份 Agent 或 Test 报告导出为指定格式，源报告保持不变。
+
+```ts
+import { exportReportArtifact } from '@midscene/core/report';
+
+const reportPath = await exportReportArtifact({
+  reportPath: './reports/run/index.html',
+  outputDir: './delivery',
+  reportFileName: 'run', // 无需 .html 后缀
+  outputFormat: 'single-html', // 默认；也可选 'html-and-external-assets'
+  overwrite: false, // 默认
+});
+```
+
+也可以通过 CLI 完成同样的操作：
+
+```bash
+pnpm exec midscene report-tool --action export --htmlPath ./reports/run/index.html --outputDir ./delivery --outputName run --outputFormat single-html
+```
+
+## 运行时配置 {#runtime-configuration}
+
+### 环境变量 {#environment-variables}
+
+以下环境变量用于控制 Midscene 的全局运行时行为（而非模型请求参数），因此不支持通过 Agent 的 `modelConfig` 选项传入：
+
+| 变量名 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `MIDSCENE_RUN_DIR` | `string` | `midscene_run` | 报告、日志、模型调用记录等运行产物的根目录（支持绝对路径或相对于当前工作目录的相对路径）。 |
+| `MIDSCENE_PREFERRED_LANGUAGE` | `string` | 根据系统时区自动判断：时区为 `Asia/Shanghai` 时默认为 `Chinese`，其余时区默认为 `English` | 模型输出推理与提示文本时的首选语言（通过系统提示词引导模型，具体效果取决于模型能力与上下文）。 |
+| `MIDSCENE_PLAYGROUND_HOST` | `string` | `127.0.0.1` | 本地 Playground 服务监听的网卡地址。当需要从远程设备、虚拟机、容器或局域网其他机器访问时，请设为对应的可访问网卡 IP（设为 `0.0.0.0` 会监听所有网卡，请仅在可信内网中使用）。 |
+| `DEBUG` | `string` | 未设置 | 开启指定命名空间的 Debug 日志输出，常用取值见下方 [Debug 日志](#debug-logs)。 |
+
+### Debug 日志 {#debug-logs}
+
+可通过设置 `DEBUG` 环境变量在终端输出对应的调试日志：
+
+| 取值 | 说明 |
+| --- | --- |
+| `midscene:ai:profile:stats` | 以逗号分隔格式打印每次模型调用的耗时与 Token 用量。 |
+| `midscene:ai:profile:detail` | 打印详细的 Token 用量分解日志。 |
+| `midscene:ai:call` | 打印 AI 模型的原始请求与响应详情。 |
+| `midscene:android:adb` | 打印 Android `adb` 命令的执行详情。 |
+| `midscene:*` | 打印所有 Midscene 模块的 Debug 日志。 |
+
+即使未设置 `DEBUG` 环境变量，Midscene 也会将运行日志写入 `<MIDSCENE_RUN_DIR>/log` 目录。注意：日志中可能包含提示词、模型输出或页面截图数据，对外分享前请先脱敏检查，切勿直接提交到公开代码仓库。
+
+关于模型连通性验证、调用录制及 Tracing 平台接入，请参阅[模型高级配置与调试](../model-config)。
+
+**延伸阅读**
+
+- [模型高级配置与调试](../model-config)
+- [缓存机制](../caching)

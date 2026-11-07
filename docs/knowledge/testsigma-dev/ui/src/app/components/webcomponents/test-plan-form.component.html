@@ -1,0 +1,49 @@
+<form [formGroup]="testPlanForm"
+      class="ts-form ts-col-100 h-100">
+  <div
+    [translate]="'test_plans.form.enter_name'"
+    class="create-form-title"></div>
+  <div
+    class="form-group pb-20 ml-auto ts-col-100">
+    <input
+      class="form-control"
+      required
+      name="name"
+      formControlName="name"
+      autofocus/>
+    <div *ngIf="formSubmitted">
+      <div class="error left w-fit-content" style="left: 193px"
+           *ngIf="testPlanForm.controls.name.errors?.required"
+           [translate]="'form.validation.common.required' | translate : {FieldName: 'Name'}"></div>
+      <div class="error left w-fit-content" style="left: 193px"
+           *ngIf="testPlanForm.controls.name.errors?.minlength"
+           [textContent]="'form.validation.common.min_length' | translate: {FieldName:'Name' , min:'4'}"></div>
+      <div class="error left w-fit-content" style="left: 193px"
+           *ngIf="testPlanForm.controls.name.errors?.maxlength"
+           [textContent]="'form.validation.common.max_length' | translate: {FieldName:'Name' , max:'250'}"></div>
+      <div class="error left w-fit-content" style="left: 193px"
+           *ngIf="testPlanForm.controls.name.hasError('whitespace')"
+           [textContent]="'form.validation.cannot_have_white_spaces' | translate: {FieldName:'Name'}"></div>
+    </div>
+  </div>
+  <div class="ts-col-100 form-group">
+    <span
+      [translate]="'message.common.description_optional'"
+      class="text-dark pointer"></span>
+    <div
+      class="mt-15">
+      <app-description class="without-label" [formCtrlName]="testPlanForm.controls.description"></app-description>
+    </div>
+  </div>
+
+  <div class="form-group p-0">
+    <app-tags-chip-list
+      [autofocus]="false"
+      [entityId]="testPlan.id"
+      [service]="tagService"
+      (onValueChange)="setTags($event)"
+    ></app-tags-chip-list>
+    <label class="control-label" [translate]="'testcase.list.tags'"></label>
+  </div>
+</form>
+

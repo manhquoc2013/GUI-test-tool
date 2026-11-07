@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from skyvern.forge.sdk.schemas.task_v2 import Thought
+from skyvern.schemas.runs import RunEngine, ScriptRunResponse
+from skyvern.schemas.workflows import BlockStatus, BlockType
+from skyvern.webeye.actions.actions import Action
+
+
+class AgentStepToolCall(BaseModel):
+    # Only x-internal fields reference this model, so the public schema drops it too.
+    model_config = ConfigDict(json_schema_extra={"x-internal": True})
+
+    index: int
+    tool: str
+    status: BlockStatus | Literal["invalid_arguments"] | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    arguments: str
+    block_type: BlockType | None = None
+    label: str | None = None
+    # The child block's workflow YAML as JSON, set once its arguments converted to a block.
+    block: str | None = None
+    child_workflow_run_block_id: str | None = None
+
+
+class WorkflowRunBlock(BaseModel):
+    workflow_run_block_id: str
+    block_workflow_run_id: str | None = None
+    workflow_run_id: str
+    attempt_number: int | None = None
+    organization_id: str
+    description: str | None = None
+    parent_workflow_run_block_id: str | None = None
+    block_type: BlockType
+    label: str | None = None
+    status: str | None = None
+    output: dict | list | str | None = None
+    continue_on_failure: bool = False
+    failure_reason: str | None = None
+    error_codes: list[str] = []
+    engine: RunEngine | None = None
+    task_id: str | None = None
+    url: str | None = None
+    final_url: str | None = None
+    # The block's own account of where it stopped (Task V3 LoopOutcome.reason), on every terminal path.
+    finish_reason: str | None = None
+    navigation_goal: str | None = None
+    navigation_payload: dict[str, Any] | list | str | None = None
+    data_extraction_goal: str | None = None
+    data_schema: dict[str, Any] | list | str | None = None
+    terminate_criterion: str | None = None
+    complete_criterion: str | None = None
+    actions: list[Action] = []
+    created_at: datetime
+    modified_at: datetime
+    include_action_history_in_verification: bool | None = False
+    include_extracted_text: bool = True
+    duration: float | None = None
+
+    # for loop block
+    loop_values: list[Any] | None = None
+
+    # block inside a loop block
+    current_value: str | None = None
+    current_index: int | None = None
+
+    # email block
+    recipients: list[str] | None = None
+    attachments: list[str] | None = None
+    subject: str | None = None
+    body: str | None = None
+
+    # prompt block / text prompt block / for loop block
+    prompt: str | None = None
+
+    # human interaction block
+    instructions: str | None = None
+    positive_descriptor: str | None = None
+    negative_descriptor: str | None = None
+
+    # conditional block
+    executed_branch_id: str | None = None
+    executed_branch_expression: str | None = None
+    executed_branch_result: bool | None = None
+    executed_branch_next_block: str | None = None
+
+    # Set when a script→AI fallback fires on this block. `None` covers
+    # clean cached execution, always-agent blocks, and pre-column rows.
+    script_run: ScriptRunResponse | None = None
+
+    # Count of files this block downloaded; scalar mirror of output["downloaded_files"].
+    downloaded_file_count: int | None = None
+
+    # An agent step's calls in run order, including the one still running.
+    tool_calls: list[AgentStepToolCall] | None = Field(default=None, json_schema_extra={"x-internal": True})
+
+
+class WorkflowRunTimelineType(StrEnum):
+    thought = "thought"
+    block = "block"
+
+
+class WorkflowRunTimeline(BaseModel):
+    type: WorkflowRunTimelineType
+    attempt: int = 1
+    block: WorkflowRunBlock | None = None
+    thought: Thought | None = None
+    children: list[WorkflowRunTimeline] = []
+    # The timeline replaces a task_v2 block with its inner run's rows; the first block row keeps the replaced
+    # blocks here, innermost first, so a reader can still show each step's own status, duration and output.
+    task_v2_blocks: list[WorkflowRunBlock] | None = Field(default=None, json_schema_extra={"x-internal": True})
+    created_at: datetime
+    modified_at: datetime

@@ -1,0 +1,145 @@
+%filled-circle {
+  display: inline-block;
+  padding: 4px;
+  box-sizing: border-box;
+  -moz-border-radius: 4px;
+  border-radius: 4px;
+}
+
+.primary-icon {
+  @extend .fz-24;
+  color: $white;
+  padding: 24px 0;
+  line-height: 0;
+  transition: all .3s ease-in-out;
+  text-decoration: none;
+  height: 37px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  &:hover, &.active {
+    color: #03A973!important;
+
+    span {
+      @extend %filled-circle;
+    }
+  }
+
+  &:hover {
+    span {
+      background-color: $background-dark-color;
+    }
+  }
+
+  &.active {
+    span {
+      background-image: linear-gradient(325deg, $background-dark-color, $background-dark-color);
+    }
+  }
+  .fa-plus-filled{
+    font-size: 19px;
+  }
+}
+
+.primary-nav-bar {
+  width: 60px;
+  height: 100vh;
+  position: relative;
+  display: inline-flex;
+  background-color: $secondary-primary-color;
+  flex-direction: column;
+  align-items: center;
+  padding: 15px 0;
+
+  .primary-nav {
+    padding-left: 0;
+    margin-bottom: 0;
+    list-style: none;
+    width: 100%;
+
+    > li, .primary-nav-item {
+      position: relative;
+      display: block;
+    }
+
+    > li a, .primary-nav-item a  {
+      @extend .primary-icon;
+      color: $disable-primary-icon;
+    }
+  }
+}
+
+.profile-action-section {
+  @extend .mt-auto, .w-80, .position-absolute, .pb-20;
+  bottom: 0;
+  background-color: $secondary-primary-color;
+
+  .profile-action-dropdown {
+    @extend .bg-white, .border-rds-4, .popup-sm-shadow, .position-absolute, .overflow-hidden, .bottom-0;
+  }
+}
+
+.primary-icon-padding {
+  padding-top: 34px;
+}
+
+.white-filled-circle {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: auto;
+  border-radius: 50%;
+  font-weight: 600;
+  color: $white;
+  line-height: 0;
+  background: $theme-selected-bg-color;
+
+  &.lg-pm {
+    width: 50px;
+    height: 50px;
+  }
+}
+
+.user-detail-view {
+  .white-filled-circle {
+    width: 50px;
+    height: 50px;
+    border-radius: 50px!important;
+  }
+}
+
+.crown-gold {
+  color: $theme-yellow-gold-color;
+}
+
+.crown-purple {
+  color: $purplish-blue;
+}
+
+.ts-logo {
+  width: 30px;
+  margin-left: 3px;
+
+  > a {
+    display: block;
+    background-image: url("~assets/color_icons/logo-icon.svg");
+    height: 30px;
+    background-size: cover;
+  }
+}
+
+.ts-chat-icon {
+  width: 25px;
+
+  > a {
+    display: block;
+
+    > img {
+      max-width: 100%;
+    }
+  }
+}
+

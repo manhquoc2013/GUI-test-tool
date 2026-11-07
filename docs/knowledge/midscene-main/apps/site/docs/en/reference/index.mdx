@@ -1,0 +1,2044 @@
+# Shared Agent APIs
+
+This page documents the shared APIs inherited by all platform Agents—covering configuration options, interaction methods, data extraction, element location, assertions and waiting, continuous observation, workflow execution, reporting and usage metrics, as well as lifecycle and runtime configuration.
+
+<a id="common"></a>
+
+<a id="constructors"></a>
+
+## Agent configuration {#agent-options}
+
+All platform Agents accept the shared options below (target connection arguments and platform-specific options are defined by each platform SDK).
+
+<a id="common-parameters"></a>
+
+Device CLIs also accept serializable Agent options per invocation (function-valued options such as `waitForActionReady` are only supported via the JavaScript / TypeScript SDK). Convert `camelCase` option names to `kebab-case` CLI flags without a platform prefix—for example, `waitAfterAction` becomes `--wait-after-action`. See [Skills](../skills) for platform-specific CLI entry points.
+
+### Model configuration {#model-options}
+
+- `modelConfig?: Record<string, string | number>` — Model configuration for this Agent instance. When provided in code, **all system environment variables for model configuration are ignored by this Agent**, and only the key-value pairs in this object are used. For basic setup and provider examples, see [Configure a model API key](../model-api-setup); for advanced parameters, see [Model advanced configuration and debugging](../model-config); to understand the Default, Planning, and Insight model roles, see the [Model selection guide](../model-selection).
+- `createOpenAIClient?: (openai, options) => Promise<OpenAI | undefined>` — Custom wrapper function for the OpenAI client, useful for integrating observability tools (such as LangSmith or Langfuse) or attaching custom middleware.
+
+<a id="custom-openai-client"></a>
+
+**Custom OpenAI client parameters:**
+
+- `openai: OpenAI` — Base OpenAI client instance created by Midscene (pre-configured with the specified API key, base URL, proxy, and other settings).
+- `options: Record<string, unknown>` — OpenAI initialization options, including:
+  - `baseURL?: string`: API endpoint URL.
+  - `apiKey?: string`: API key.
+  - `dangerouslyAllowBrowser: boolean`: Always `true` in Midscene.
+  - Other OpenAI client initialization options.
+- **Return value**: Returns the wrapped OpenAI client instance, or `undefined` to keep using the original instance.
+
+### Execution and waiting {#execution-options}
+
+- `replanningCycleLimit?: number` — Maximum number of `aiAct` replanning cycles. Default: `20` for standard models, `40` for UI-TARS models, and `100` for AutoGLM models. Prefer setting this Agent option directly (`MIDSCENE_REPLANNING_CYCLE_LIMIT` is retained only for backward compatibility).
+- `waitForActionReady?: (context: ActionReadyContext) => Promise<void>` — Customizes [readiness checks after each action](#action-ready).
+- `waitAfterAction?: number` — Fixed delay in milliseconds after each action. Default: `300`. See [Default waiting strategy](#default-waiting-strategy).
+- `useDeviceTime?: boolean` — Whether task timestamps use the target device's local time. Requires the underlying Device to implement `getDeviceLocalTimeString`; if unimplemented, Midscene logs a warning and falls back to the host system time. Default: `false`.
+
+<a id="action-ready"></a>
+
+**Readiness after each action**
+
+Configure `waitForActionReady` to control when the next step is allowed to start after an action completes. It runs after every atomic action (such as `Input` or `Tap`, including `aiAct` substeps and cache replay steps), but does not run on initial page load or read-only queries.
+
+The callback is invoked only after an action succeeds, and the SDK awaits the returned Promise before proceeding. Its `context` argument includes:
+- `action: { id, name, param }`: A unique `id` generated for each execution, along with the resolved action parameters and located target.
+- `signal?: AbortSignal`: An optional cancellation signal used to clean up in-flight work if execution is aborted.
+
+In the example below, `app.waitUntilReady` is your custom application readiness check:
+
+```ts
+import { PlaywrightAgent } from '@midscene/web/playwright';
+
+const agent = new PlaywrightAgent(page, {
+  waitForActionReady: async ({ action, signal }) => {
+    await app.waitUntilReady(action, { signal });
+  },
+});
+
+await agent.aiAct('Log in');
+```
+
+Notes:
+- If the callback takes longer than 5 seconds, the SDK logs a single warning and continues waiting without imposing a timeout or falling back to default delays. If the outer execution is cancelled, the SDK stops waiting immediately even if the callback has not settled—listen to `signal` inside your callback to stop any custom polling, network requests, or event listeners.
+- If the action itself fails, the callback is not invoked. If the callback throws an error, execution aborts immediately without replaying the action or falling back to replanning.
+- Configuring this callback replaces the generic post-action delay (`waitAfterAction`) and platform post-action checks, while keeping required driver timing (such as keyboard preparation and gesture duration) and lifecycle hooks intact. Return immediately from the async callback when no waiting is needed.
+- Because the callback starts after the action finishes, it cannot catch one-time events that fired while the action was running; check current application state or query underlying `page` / `device` APIs instead.
+
+All Agent platforms support this option (`puppeteerAgentForTarget` accepts it in its second argument while preserving its initial network-idle wait).
+
+<a id="default-waiting-strategy"></a>
+
+**Default waiting strategy (advanced)**
+
+When `waitForActionReady` is not configured, the following options apply:
+
+| Option | Behavior |
+| --- | --- |
+| `waitAfterAction` | Fixed delay after each action. Default: `300` ms (explicit delays declared by device actions take precedence). |
+| `waitForNavigationTimeout` (Web) | Waits for the `<html>` element to be available. Default timeout: `5000` ms (does not guarantee that navigation or rendering has fully completed). |
+| `waitForNetworkIdleTimeout` (Puppeteer only) | Post-action network-idle check. Default timeout: `2000` ms (requires at most two in-flight requests for `200` ms). |
+
+Set either Web timeout to `0` to skip its check. When a timeout is reached, Midscene logs a warning and continues execution without throwing an error.
+
+### Cache {#cache-options}
+
+- `cache?: false | { id: string; strategy?: 'read-only' | 'read-write' | 'write-only'; cacheDir?: string }` — Cache configuration:
+  - `false`: Disable caching.
+  - `id`: Cache identifier (required when enabling cache).
+  - `strategy`: Cache read/write strategy. Default: `'read-write'`.
+  - `cacheDir`: Custom directory for cache files. When set, cache files are written to this directory instead of `<MIDSCENE_RUN_DIR>/cache` (relative paths are resolved against the current working directory rather than `MIDSCENE_RUN_DIR`), allowing you to separate cache, log, and report directories.
+- `cacheId?: string` (deprecated) — Retained for backward compatibility. Use `cache.id` instead.
+
+### Screenshots {#screenshot-options}
+
+- `screenshotShrinkFactor?: number` — Factor by which screenshot dimensions are scaled down before being sent to the AI model, reducing image size and token usage. Default: `1` (original size). Setting it to `2` halves both width and height, reducing pixel area to one quarter.
+  - **Mobile devices**: A value of `2` typically reduces token usage significantly while keeping enough detail for recognition; avoid values above `3`, which can make screenshots too blurry for accurate localization.
+  - **Web pages**: Avoid high `screenshotShrinkFactor` values on dense or text-heavy pages. On Web, prefer using Puppeteer or Playwright's `deviceScaleFactor` to control rendering and screenshot resolution at the source.
+
+:::info
+
+**Difference between `screenshotShrinkFactor` and `deviceScaleFactor`:**
+
+- `screenshotShrinkFactor` is a Midscene post-processing option that downscales screenshots after capture to reduce token usage and latency, though excessive downscaling can blur fine details.
+- `deviceScaleFactor` is a browser viewport option in Puppeteer and Playwright that controls how many physical pixels render each logical CSS pixel, directly determining the native dimensions of captured screenshots. In headed mode, a mismatch between `deviceScaleFactor` and your display's actual scale factor can cause viewport flickering.
+
+**Should you use both together?**
+
+- **Web**: Usually configuring `deviceScaleFactor` alone is sufficient. The main exception is local headed debugging on a high-DPI display: if you set `deviceScaleFactor: 2` (or higher) to prevent browser flickering, you can pair it with `screenshotShrinkFactor` to downscale the captured image before sending it to the model.
+- **Mobile and desktop (non-Web)**: `deviceScaleFactor` does not exist on these platforms, so use `screenshotShrinkFactor` to control the image size sent to the model.
+
+:::
+
+### Report configuration {#report-options}
+
+- `generateReport?: boolean` — Whether to generate an execution report file. Default: `true`.
+- `persistExecutionDump?: boolean` — Whether to save additional raw execution JSON for diagnosis or analysis (requires `generateReport: true`). Default: `false`.
+- `reportFileName?: string` — Custom report output name (auto-generated by default). Its interpretation depends on `outputFormat`:
+  - When `outputFormat` is `'single-html'` (default): Treated as a file name and written to `midscene_run/report/<reportFileName>.html` (if `.html` is already present, it is not duplicated).
+  - When `outputFormat` is `'html-and-external-assets'`: Treated as a subdirectory name and written to `midscene_run/report/<reportFileName>/index.html` alongside its asset files.
+- `autoPrintReportMsg?: boolean` — Whether to print the generated report path in the terminal. Default: `true`.
+- `outputFormat?: 'single-html' | 'html-and-external-assets'` — Report output format. Default: `'single-html'`:
+  - `'single-html'` (default): Generates a self-contained HTML file. Open it directly in a browser, view it offline, or share the file alone.
+  - `'html-and-external-assets'`: Generates HTML with external assets and reuses repeated images. Upload the entire report directory when sharing. To preview it, run `pnpm dlx serve` in that directory and open the printed URL.
+
+### Callbacks {#callback-options}
+
+- `onTaskStartTip?: (tip: string) => void | Promise<void>` — Optional hook invoked before each subtask starts, receiving a human-readable task summary. Default: `undefined`.
+- `onLLMUsage?: (usage: AIUsageInfo) => void` — Optional callback invoked after each LLM call with token usage details. See [`onLLMUsage`](#onllmusage-option).
+
+### AI context {#ai-context-options}
+
+- `aiContexts?: { default?: string; [apiName]?: string }` — Agent-level AI background context. Default: `undefined`. For precedence rules, see [`context` and `aiContexts` precedence](#per-call-context).
+- `aiActContext?: string` (deprecated) — Legacy alias for `aiContexts.aiAct` (`aiContexts.aiAct` takes precedence when both are set). Use `aiContexts.aiAct` in new code. For best practices on writing context, see [Provide application knowledge to a GUI Agent](../provide-application-knowledge-to-gui-agent).
+- `aiActionContext?: string` (deprecated) — Older compatibility alias used only when neither `aiContexts.aiAct` nor `aiActContext` is set (resolved via `aiContexts.aiAct ?? aiActContext ?? aiActionContext`; an empty string `''` also overrides lower-priority aliases). Use `aiContexts.aiAct` in new code.
+
+## Prompts and call options {#prompt-options}
+
+<a id="prompt-input-with-images"></a>
+
+<a id="prompting-with-images"></a>
+
+### Text and image prompts {#prompt-input}
+
+When text alone cannot clearly describe the target, you can attach reference images to the prompt.
+
+Image-enabled prompts use the following object structure:
+
+```javascript
+{
+  // Prompt text that references the attached images by name
+  prompt: string,
+  // Attached reference images
+  images?: {
+    // Image name, matching the name referenced in the prompt text
+    name: string,
+    // Local file path, Base64 string, or HTTP(S) URL
+    url: string
+  }[],
+  // When true, converts HTTP(S) image URLs to Base64 before sending them to the model
+  // (useful when the image URLs are not publicly accessible to the model provider)
+  convertHttpImage2Base64?: boolean
+}
+```
+
+- Example 1: Identify a tap target using a reference image
+
+```javascript
+await agent.aiTap({
+  prompt: 'The specific logo',
+  images: [
+    {
+      name: 'The specific logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+- Example 2: Assert page content using a reference image
+
+```javascript
+await agent.aiAssert({
+  prompt: 'Whether there is a specific logo on the page.',
+  images: [
+    {
+      name: 'The specific logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+- Example 3: Guide `aiAct` planning using a reference image
+
+```javascript
+await agent.aiAct({
+  prompt: 'Tap the icon that matches the reference logo',
+  images: [
+    {
+      name: 'The specific logo',
+      url: 'https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png',
+    },
+  ],
+});
+```
+
+**Image size limits**
+
+Make sure attached images comply with your model provider's file size and resolution limits (oversized or tiny images may be rejected; check your provider's documentation for exact limits).
+
+### `context` and `aiContexts` precedence {#per-call-context}
+
+Context (`context`) provides background knowledge to the AI model—such as domain terms, decision rules, interaction constraints, or output formatting requirements—supplementing rather than replacing the API's main prompt.
+
+You can configure context at three levels:
+- `aiContexts.default`: Shared fallback context for all AI methods on the Agent.
+- `aiContexts[apiName]`: Context specific to a particular AI method.
+- `options.context`: Per-call context passed to an individual API invocation.
+
+These three levels override one another in the order `options.context ?? aiContexts[apiName] ?? aiContexts.default` and **are not merged automatically**. A lower-priority level is used only when higher-priority levels are `undefined` (or omitted); passing an empty string `''` explicitly clears the context and prevents falling back to lower-priority levels. To combine multiple context strings, concatenate them explicitly as shown below:
+
+```typescript
+const defaultContext =
+  'A struck-through price is the original price, a regular price is the current price, and all prices are in USD.';
+const agent = new PlaywrightAgent(page, {
+  aiContexts: {
+    default: defaultContext,
+    aiAct: '', // Explicitly ignore the default context
+    aiQuery: 'When extracting an amount, return only the number without the currency symbol.',
+    aiBoolean: `${defaultContext}\n\nA product is on sale only when its current price is lower than its original price.`,
+  },
+});
+
+const isOnSale = await agent.aiBoolean('Is this product on sale?');
+```
+
+Supported keys in `aiContexts` are `aiAct`, `aiTap`, `aiRightClick`, `aiMiddleClick`, `aiDoubleClick`, `aiHover`, `aiInput`, `aiKeyboardPress`, `aiScroll`, `aiPinch`, `aiLongPress`, `aiClearInput`, `aiLocate`, `aiQuery`, `aiBoolean`, `aiNumber`, `aiString`, `aiAsk`, `aiAssert`, and `aiWaitFor` (the `ai` and deprecated `aiAction` aliases share the `aiAct` context).
+
+<a id="shared-types"></a>
+
+<a id="deep-locate-deeplocate"></a>
+
+### `deepLocate` {#deep-locate}
+
+`deepLocate` is available on all APIs that perform element localization (including `aiAct`, `aiTap`, `aiHover`, `aiInput`, `aiKeyboardPress`, `aiScroll`, `aiDoubleClick`, `aiRightClick`, and `aiLocate`).
+
+When enabled, Midscene invokes the AI model twice to narrow down and locate the target element more accurately, which is helpful for small targets or elements that blend into their surroundings. Newer models (such as Qwen3.x, Doubao 2.0, and Gemini 3.5) generally achieve high accuracy without it, so enable it only when needed.
+
+- **Default**: `false`
+
+```typescript
+// Enable deepLocate to accurately locate hard-to-identify elements
+await agent.aiTap('Shopping cart icon in the top right', { deepLocate: true });
+```
+
+:::note
+
+In earlier versions, the `deepThink` option name carried two different meanings across APIs:
+
+- In `aiAct()`, `deepThink` controlled **planning mode**, guiding deeper task decomposition and planning reasoning (see [`deepThink` planning mode](#aiact-deepthink)).
+- In single-step action methods such as `aiTap` and `aiHover`, the legacy `deepThink` option controlled **enhanced element localization**, which is now named `deepLocate`.
+
+To avoid ambiguity, since v1.5.1 `deepThink` is reserved exclusively for `aiAct()` planning mode, while enhanced localization is named `deepLocate` across all APIs:
+
+- In `aiAct()`, you can pass both `deepThink` (to control planning mode) and `deepLocate` (to enable Deep Locate).
+- In single-step methods such as `aiTap` and `aiHover`, use `deepLocate` (the legacy `deepThink` alias remains supported for backward compatibility).
+
+:::
+
+<a id="interaction-methods"></a>
+
+## Automatic planning {#planning-interaction}
+
+`agent.aiAct()` (and its shorthand alias `agent.ai()`) automatically plans and executes a sequence of steps from a natural-language instruction, whereas the instant interaction methods below (such as `aiTap` and `aiInput`) locate a target element and perform a single specified action directly.
+
+<a id="agentaiact-or-agentai"></a>
+
+### `aiAct()` or `ai()` {#agentaiact}
+
+Describe your UI goal and optional assertions in natural language. During execution, Midscene continuously plans and performs actions based on the latest UI state until the goal is achieved; if an assertion included in the prompt fails, `aiAct` aborts immediately and throws an error.
+
+:::info Backward compatibility
+
+This method was named `aiAction()` in earlier versions and remains supported as an alias. We recommend using `aiAct()` in new code for consistency.
+
+:::
+
+- Type
+
+```typescript
+function aiAct(
+  prompt: string | object,
+  options?: {
+    cacheable?: boolean;
+    deepThink?: 'unset' | true | false;
+    deepLocate?: boolean;
+    fileChooserAccept?: string | string[];
+    fileChooserAllowedDir?: string;
+    abortSignal?: AbortSignal;
+    context?: string;
+  },
+): Promise<string | undefined>;
+function ai(prompt: string, options?: Object): Promise<string | undefined>; // shorthand form
+```
+
+- Parameters:
+
+  - `prompt: string | object` — Natural-language description of the UI goal and optional assertions, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+    - `deepThink?: 'unset' | true | false` — Controls the planning strategy used by `aiAct`. See [`deepThink` planning mode](#aiact-deepthink).
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `fileChooserAccept?: string | string[]` — File path(s) to supply when a file chooser dialog is triggered (accepts a single path or an array of paths). Supported on Web pages only (Playwright, Puppeteer, or Chrome Bridge) and not constrained by `fileChooserAllowedDir`.
+      - **Note**: If the target file input does not accept multiple files (lacks the `multiple` attribute) and multiple paths are passed, an error is thrown.
+      - **Note**: If a file chooser is triggered when `fileChooserAccept` is not set, the dialog is ignored so the page can continue operating normally.
+      - **Note**: In Chrome Bridge mode, uploading local files requires enabling **Allow access to file URLs** on `chrome://extensions` > Midscene > **Details**, then reconnecting from the target `http(s)://` tab.
+      - **Note**: Chrome Bridge mode does not support directory upload inputs (`webkitdirectory` / `directory`); use Playwright for directory uploads.
+    - `fileChooserAllowedDir?: string` — Explicitly authorizes the local directory that prompt-driven file uploads in this `aiAct` call may access (without this option, model-planned file uploads are rejected). Relative paths in the prompt are resolved against this directory and validated (including symlinks) to ensure they stay within it; absolute paths are also validated against this directory. Set this to your test suite's `fixtures` directory to prevent accidental uploads of sensitive files due to AI hallucinations or prompt injection.
+    - `abortSignal?: AbortSignal` — An [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) used to cancel the `aiAct` call. When triggered, Midscene stops the planning loop immediately and throws an error.
+
+- Return value:
+
+  - Returns the summary text produced upon completing the plan, or `undefined` if no text output was produced. Throws an error if execution fails.
+
+- Examples:
+
+```typescript
+// Perform actions and verify the result
+await agent.aiAct(
+  'Search for headphones, add the first item to the cart, and confirm that the cart count changes to 1',
+);
+
+// Using the shorthand .ai() alias
+await agent.ai(
+  'Click the login button at the top of the page, then enter "test@example.com" in the username field',
+);
+
+// Using abortSignal to enforce a 30-second timeout
+const controller = new AbortController();
+setTimeout(() => controller.abort('timeout'), 30000);
+await agent.aiAct('Fill in the form and submit', {
+  abortSignal: controller.signal,
+});
+
+// Enable deepThink planning mode for complex multi-step tasks
+await agent.aiAct(
+  'Complete the GitHub account registration form with the region set to "Canada". Ensure no fields are missed and all fields pass validation. Fill in the fields without submitting the form, and finally return the values filled in',
+  { deepThink: true },
+);
+```
+
+<a id="aiact-deepthink"></a>
+
+**`deepThink` planning mode**
+
+`deepThink` controls the internal planning strategy of `aiAct`:
+
+- By default (`false` or `'unset'`), `aiAct` plans the next step and locates the target element in a single model request.
+- When set to `true`, `aiAct` focuses on task decomposition and separates high-level task planning from element localization into distinct model calls. This improves stability on complex tasks at the cost of additional model calls and latency.
+
+Note that `deepThink` only controls Midscene's planning pipeline, not the underlying model's native reasoning mode; see [Model-native reasoning](../model-config#model-native-reasoning) for the corresponding environment variables.
+
+<a id="upload-files-from-an-aiact-prompt"></a>
+
+**Upload files from an `aiAct` prompt**
+
+To let `aiAct` upload files referenced directly in a natural-language prompt, pass `fileChooserAllowedDir` (recommended: your test suite's `fixtures` directory). Midscene resolves both relative and absolute paths and verifies that they stay within the authorized directory before configuring the file chooser:
+
+```typescript
+const agent = new PlaywrightAgent(page);
+
+await agent.aiAct(
+  'First click the "Upload avatar" button and upload avatar.png. Then click the "Upload cover" button and upload cover.png. After uploading, confirm that the avatar displays a cat and the cover displays a beach.',
+  { fileChooserAllowedDir: './fixtures' },
+);
+```
+
+When uploading multiple files in a single `aiAct` call, state each relative file path alongside the specific upload action in the prompt (each planned upload replaces the previous file chooser path). Do not combine prompt-specified file paths with `options.fileChooserAccept`, as file chooser configurations planned by the model will overwrite `options.fileChooserAccept`.
+
+This feature is supported on Web pages (Playwright, Puppeteer, and Chrome Bridge). When using Chrome Bridge for local file uploads, make sure **Allow access to file URLs** is enabled in `chrome://extensions` > Midscene > **Details**.
+
+## Instant interactions {#instant-interactions}
+
+### `aiTap()` {#agentaitap}
+
+Tap a specified element.
+
+- Type
+
+```typescript
+function aiTap(locate: string | object, options?: object): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to tap, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+    - `fileChooserAccept?: string | string[]` — File path(s) to supply when tapping triggers a file chooser dialog (accepts a single path or an array of paths). Supported on Web pages only (Playwright, Puppeteer, or Chrome Bridge).
+      - **Note**: If the target file input does not accept multiple files (lacks the `multiple` attribute) and multiple paths are passed, an error is thrown.
+      - **Note**: If a file chooser is triggered when `fileChooserAccept` is not set, the dialog is ignored so the page can continue operating normally.
+      - **Note**: Chrome Bridge mode does not support directory upload inputs (`webkitdirectory` / `directory`); use Playwright for directory uploads.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.aiTap('The login button at the top of the page');
+
+// Enable deepLocate to accurately locate the element
+await agent.aiTap('The login button at the top of the page', {
+  deepLocate: true,
+});
+
+// File upload: tap the upload button and select files
+await agent.aiTap('Choose file button', { fileChooserAccept: ['./document.pdf'] });
+await agent.aiTap('Upload images', { fileChooserAccept: ['./image1.jpg', './image2.png'] });
+```
+
+### `aiDoubleClick()` {#agentaidoubleclick}
+
+Double-click a specified element.
+
+- Type
+
+```typescript
+function aiDoubleClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to double-click, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.aiDoubleClick('The file name at the top of the page');
+
+// Enable deepLocate to accurately locate the element
+await agent.aiDoubleClick('The file name at the top of the page', {
+  deepLocate: true,
+});
+```
+
+### `aiMiddleClick()` {#agentaimiddleclick}
+
+> Supported on Web pages and desktop (`@midscene/computer`) only; not supported on mobile devices (Android, iOS, or HarmonyOS).
+
+Middle-click a specified element. The resulting behavior depends on the application.
+
+- Type
+
+```typescript
+function aiMiddleClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to middle-click, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.aiMiddleClick('The link in the search results');
+
+// Enable deepLocate to accurately locate the element
+await agent.aiMiddleClick('The link in the search results', {
+  deepLocate: true,
+});
+```
+
+### `aiRightClick()` {#agentairightclick}
+
+> Supported on Web pages and desktop (`@midscene/computer`) only; not supported on mobile devices (Android, iOS, or HarmonyOS).
+
+Right-click a specified element. Note that Midscene cannot interact with the browser's native OS-level context menu after right-clicking; use this method for elements that listen for `contextmenu` events and render custom context menus.
+
+- Type
+
+```typescript
+function aiRightClick(locate: string | object, options?: object): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to right-click, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.aiRightClick('The file name at the top of the page');
+
+// Enable deepLocate to accurately locate the element
+await agent.aiRightClick('The file name at the top of the page', {
+  deepLocate: true,
+});
+```
+
+### `aiHover()` {#agentaihover}
+
+> Supported on Web pages and desktop (`@midscene/computer`) only; not supported on mobile devices (Android, iOS, or HarmonyOS).
+
+Move the mouse pointer over a specified element.
+
+- Type
+
+```typescript
+function aiHover(locate: string | object, options?: object): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to hover over, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.aiHover('The version number of the current page');
+```
+
+### `aiLongPress()` {#agentailongpress}
+
+Long-press (press and hold) a specified element, commonly used to open context menus, enter multi-select mode, or trigger other long-press gestures.
+
+- Type
+
+```typescript
+function aiLongPress(
+  locate: string | object,
+  opt?: {
+    duration?: number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to long-press, or an [image-enabled prompt](#prompting-with-images).
+  - `opt?: object` — Optional configuration:
+    - `duration?: number` — Hold duration in milliseconds. Defaults: Android `2000`, iOS `1000`, Web `500` (on HarmonyOS, the system long-press duration is always used and this option is ignored).
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Long-press an article to open its context menu
+await agent.aiLongPress('the first article on the homepage');
+
+// Long-press with a custom hold duration
+await agent.aiLongPress('the message bubble', { duration: 2000 });
+```
+
+:::info Platform support
+
+- Supported on **Android**, **iOS**, **HarmonyOS**, and **Web** (Chromium-based browsers via touch events). On HarmonyOS, `duration` is ignored because the underlying `uitest` API does not support custom hold durations.
+
+:::
+
+### `aiInput()` {#agentaiinput}
+
+Enter text into a specified input field.
+
+- Type
+
+```typescript
+// Recommended: locate first, followed by options (including value)
+function aiInput(
+  locate: string | object,
+  opt: {
+    value: string | number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+    autoDismissKeyboard?: boolean;
+    keyboardTypeDelay?: number;
+    inputStrategy?: 'legacy' | 'sequential' | 'bulk';
+    mode?: 'replace' | 'clear' | 'typeOnly';
+  },
+): Promise<void>;
+
+// Legacy signature (backward compatible)
+function aiInput(
+  value: string | number,
+  locate: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- Parameters:
+
+  **Recommended usage:**
+  - `locate: string | object` — Natural-language description of the target input field, or an [image-enabled prompt](#prompting-with-images).
+  - `opt: object` — Configuration:
+    - `value: string | number` — **Required.** Text to enter:
+      - When `mode` is `'replace'` (default): Clears existing content in the input field before entering `value`.
+      - When `mode` is `'typeOnly'`: Types `value` directly without clearing existing content first.
+      - When `mode` is `'clear'`: Ignores `value` and only clears the input field.
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+    - `autoDismissKeyboard?: boolean` — Whether to automatically dismiss the on-screen keyboard after text input (supported on Android, iOS, and HarmonyOS only). Default: `true`.
+    - `keyboardTypeDelay?: number` — Delay in milliseconds between keystrokes (must be a finite non-negative number). Whether this option takes effect in `'legacy'` mode depends on the platform's existing input path (see the table below); `'legacy'` paths that support delay send characters one Unicode code point at a time when set to a positive value. Useful when an input field drops characters during fast typing.
+    - `inputStrategy?: 'legacy' | 'sequential' | 'bulk'` — Text dispatch strategy. Default: `'legacy'`:
+      - `'legacy'` (default): Preserves each platform's historical default input behavior so existing tests behave identically after upgrading.
+      - `'sequential'`: Always sends characters one Unicode code point at a time (even when `keyboardTypeDelay` is omitted or `0`).
+      - `'bulk'`: Sends the entire string in a single platform input call when supported. On Web, `'replace'` mode selects the existing text and calls `insertText`, firing a single insertion `input` event (instead of a clear event followed by per-character `input` events); on other platforms, Midscene makes a single call to the underlying input backend (though the OS or driver may still dispatch multiple events to the application).
+      - `'bulk'` requires `keyboardTypeDelay` to be omitted or set to `0` (passing a positive value throws an error; negative or non-finite values throw an error under all strategies). Action-level options override Device or Agent defaults, so you can pass `keyboardTypeDelay: 0` on a single `aiInput` call to use `'bulk'` when a positive delay is configured globally.
+    - `mode?: 'replace' | 'clear' | 'typeOnly'` — Input mode. Default: `'replace'`:
+      - `'replace'`: Clear the input field first, then enter the new text.
+      - `'typeOnly'`: Enter the text directly without clearing the field first.
+      - `'clear'`: Clear the input field without entering new text.
+
+  Platform-specific behavior under the default `inputStrategy: 'legacy'`:
+
+  | Platform | `'legacy'` behavior |
+  | --- | --- |
+  | Web / Playwright / Puppeteer | In `'replace'` mode, clears the existing value and waits for the DOM to settle, then passes the full string to `keyboard.type(value)`; a positive `keyboardTypeDelay` is handled by the browser driver. |
+  | Chrome Bridge | Follows the Web clear-then-type flow and sends text through the remote keyboard primitive; `'legacy'` CDP typing is always zero-delay, and Bridge resolves the strategy on the CLI side before forwarding. |
+  | Android | Non-ASCII or shell-sensitive text uses a single yadb call (ignoring `keyboardTypeDelay` for backward compatibility); pure ASCII via native `adb input text` sends the full segment by default and switches to one call per Unicode code point when `keyboardTypeDelay > 0`. |
+  | iOS | Uses a single WDA `typeText` call by default; switches to one `typeRawKeys` call per Unicode code point when `keyboardTypeDelay > 0`. |
+  | HarmonyOS | Uses a single HDC `inputText` call by default; switches to one call per Unicode code point when `keyboardTypeDelay > 0`. |
+  | Local Computer | Uses clipboard paste when `keyboardTypeDelay` is omitted or `0`; switches to real keyboard events once per Unicode code point when `keyboardTypeDelay > 0`. |
+  | RDP Computer | Uses a single backend `typeText` call when `keyboardTypeDelay` is omitted or `0`; switches to one backend call per Unicode code point when `keyboardTypeDelay > 0`. |
+
+  **Legacy usage (deprecated, retained for backward compatibility):**
+  - `value: string | number` — Text to enter.
+  - `locate: string | object` — Natural-language description of the target element, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration (same type as `opt` in the recommended signature).
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Recommended
+await agent.aiInput('The search input box', { value: 'Hello World' });
+
+// Legacy signature (not recommended)
+await agent.aiInput('Hello World', 'The search input box');
+```
+
+:::note Signature update
+
+Prefer the new signature `aiInput(locate, opt)` with the locate prompt first. The legacy signature `aiInput(value, locate, options)` remains supported for backward compatibility, but new code should use `aiInput(locate, opt)`.
+
+:::
+
+### `aiClearInput()` {#agentaiclearinput}
+
+Clear the contents of a specified input field. Useful when you need clearing as a standalone step (for example, to test empty-field validation messages or to separate clearing and typing into distinct steps).
+
+- Type
+
+```typescript
+function aiClearInput(
+  locate: string | object,
+  opt?: {
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the input field to clear, or an [image-enabled prompt](#prompting-with-images).
+  - `opt?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Clear the search box
+await agent.aiClearInput('the search input field');
+
+// Clear and then type a new value as separate steps
+await agent.aiClearInput('the email input');
+await agent.aiInput('the email input', { value: 'user@example.com' });
+```
+
+:::info Choosing between `aiClearInput` and `aiInput`
+
+`aiInput(locate, { value: '...' })` already clears the field before typing by default (`mode: 'replace'`). Only call `aiClearInput` when you specifically need clearing as an isolated step.
+
+:::
+
+### `aiKeyboardPress()` {#agentaikeyboardpress}
+
+Press a specified keyboard key or key combination.
+
+- Type
+
+```typescript
+// Recommended: locate first, followed by options (including keyName)
+function aiKeyboardPress(
+  locate: string | object | undefined,
+  opt: {
+    keyName: string;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+
+// Legacy signature (backward compatible)
+function aiKeyboardPress(
+  key: string,
+  locate?: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- Parameters:
+
+  **Recommended usage:**
+  - `locate: string | object | undefined` — Optional natural-language description of the target element, or an [image-enabled prompt](#prompting-with-images). Pass `undefined` to send the key press directly to the currently focused element without AI localization or a preliminary click.
+  - `opt: object` — Configuration:
+    - `keyName: string` — **Required.** Key name to press (such as `'Enter'`, `'Tab'`, or `'Escape'`; use `aiInput()` to enter regular text). Web and desktop (`Computer`) devices support modifier shortcuts joined with `'+'` (such as `'Control+A'` or `'Shift+Enter'`); see the [shared key-name definitions](https://github.com/web-infra-dev/midscene/blob/main/packages/shared/src/us-keyboard-layout.ts) for candidate key names on non-mobile platforms (actual support varies by platform). Built-in Android, iOS, and HarmonyOS devices support single keys only (HarmonyOS supports common control keys plus `A`–`Z` and `0`–`9`, and does not treat shifted characters without dedicated key codes such as `'?'` as key names); passing unsupported keys or key combinations on mobile throws an error.
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+  **Legacy usage (deprecated, retained for backward compatibility):**
+  - `key: string` — Key name to press (such as `'Enter'`, `'Tab'`, or `'Escape'`).
+  - `locate?: string | object` — Optional natural-language description of the target element, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration (same type as `opt` in the recommended signature).
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Recommended
+await agent.aiKeyboardPress('The search input box', { keyName: 'Enter' });
+await agent.aiKeyboardPress('The search input box', { keyName: 'Control+A' });
+
+// Send a key press directly to the currently focused element (no location or click)
+await agent.aiKeyboardPress(undefined, { keyName: 'Control+X' });
+
+// Legacy signature (not recommended)
+await agent.aiKeyboardPress('Enter', 'The search input box');
+```
+
+:::note Signature update
+
+Prefer the new signature `aiKeyboardPress(locate, opt)` with the optional locate prompt first. Pass `undefined` as the first argument when the key press should act on the current focus without locating or clicking an element (a valid model configuration is still validated before execution, even though no localization request is sent). The legacy signature `aiKeyboardPress(key, locate, options)` remains supported for backward compatibility.
+
+:::
+
+### `aiScroll()` {#agentaiscroll}
+
+Scroll the page or a specified scrollable container.
+
+- Type
+
+```typescript
+// Recommended: locate first, followed by scroll options
+function aiScroll(
+  locate: string | object | undefined,
+  opt: {
+    scrollType?: 'singleAction' | 'scrollToBottom' | 'scrollToTop' | 'scrollToRight' | 'scrollToLeft';
+    direction?: 'down' | 'up' | 'left' | 'right';
+    distance?: number | null;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+
+// Legacy signature (backward compatible)
+function aiScroll(
+  scrollParam: PlanningActionParamScroll,
+  locate?: string | object,
+  options?: object,
+): Promise<void>;
+```
+
+- Parameters:
+
+  **Recommended usage:**
+  - `locate: string | object | undefined` — Optional natural-language description of the scroll target, or an [image-enabled prompt](#prompting-with-images). When `undefined`, mobile platforms perform the default center-screen swipe gesture described below, while Web and desktop platforms scroll at the current pointer position.
+  - `opt: object` — Configuration:
+    - `scrollType?: 'singleAction' | 'scrollToBottom' | 'scrollToTop' | 'scrollToRight' | 'scrollToLeft'` — Scroll behavior type. Default: `'singleAction'`.
+    - `direction?: 'down' | 'up' | 'right' | 'left'` — Takes effect only when `scrollType` is `'singleAction'`, specifying **which direction of off-screen content to bring into view** (rather than the direction the visible content moves). For example, `'down'` scrolls down the page to reveal content below the current viewport. Default: `'down'`.
+    - `distance?: number | null` — Scroll distance in pixels; pass `null` to let Midscene choose the distance automatically.
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+  **Legacy usage (deprecated, retained for backward compatibility):**
+  - `scrollParam: PlanningActionParamScroll` — Object containing `scrollType`, `direction`, and `distance`.
+  - `locate?: string | object` — Optional natural-language description of the target element, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration (same type as `opt` in the recommended signature).
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Recommended
+await agent.aiScroll('The form panel', {
+  scrollType: 'singleAction',
+  direction: 'up',
+  distance: 100,
+});
+
+// Legacy signature (not recommended)
+await agent.aiScroll(
+  { scrollType: 'singleAction', direction: 'up', distance: 100 },
+  'The form panel',
+);
+```
+
+<a id="mobile-scrolling"></a>
+
+**Mobile scrolling behavior**
+
+Android, iOS, and HarmonyOS share the same default swipe gesture: swiping across the central 70% of the screen along its centerline over roughly one second.
+
+This default distance is designed to keep part of the previous screen in view for continuous reading. Note that finger travel distance does not strictly equal content displacement (lists may continue scrolling due to inertia after release, and paged views may snap to the next page).
+
+| Parameter combination | Behavior |
+| --- | --- |
+| Neither `locate` nor `distance` | Performs the default full-screen center swipe gesture above. |
+| `distance` only | Swipes from the center of the screen by the specified `distance`. |
+| `locate` only | Swipes starting from the located element using a default distance derived from the screen size. |
+| Both `locate` and `distance` | Swipes starting from the located element by the specified `distance`. |
+| Scroll to an edge | Set `scrollType` to `'scrollToTop'`, `'scrollToBottom'`, etc. (very long lists may require multiple calls to reach the end). |
+
+Keep `distance` within the available screen dimensions; an excessive distance can cause the gesture to fail. When scrolling inside a dialog or a smaller scrollable container, pass both `locate` and an appropriate `distance`:
+
+```typescript
+await agent.aiScroll('The list inside the dialog', { direction: 'down', distance: 100 });
+```
+
+If you need a fast fling gesture or exact start/end coordinates, use the platform `Swipe` action (which accepts a `duration`); `aiScroll` is designed for browsing content.
+
+:::note Signature update
+
+Prefer the new signature `aiScroll(locate, opt)` with the optional locate prompt first. The legacy signature `aiScroll(scrollParam, locate, options)` remains supported for backward compatibility.
+
+:::
+
+### `aiPinch()` {#agentaipinch}
+
+Perform a two-finger pinch or spread gesture to zoom out or in. Supported on Android, iOS, and Chromium-based Web browsers.
+
+- Type
+
+```typescript
+function aiPinch(
+  locate: string | object | undefined,
+  opt: {
+    direction: 'in' | 'out';
+    distance?: number;
+    duration?: number;
+    deepLocate?: boolean;
+    xpath?: string;
+    cacheable?: boolean;
+  },
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `locate: string | object | undefined` — Optional natural-language description of the target element to zoom, or an [image-enabled prompt](#prompting-with-images). When `undefined`, the pinch gesture is performed at the center of the screen.
+  - `opt: object` — Configuration:
+    - `direction: 'in' | 'out'` — **Required.** `'in'` pinches two fingers together (zoom out); `'out'` spreads two fingers apart (zoom in).
+    - `distance?: number` — Distance each finger moves in pixels. Default: one quarter of the shorter screen dimension.
+    - `duration?: number` — Gesture duration in milliseconds. Default: `500`.
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Zoom in on the map (spread fingers apart)
+await agent.aiPinch('the map area', { direction: 'out', distance: 200 });
+
+// Zoom out at the center of the screen (pinch fingers together)
+await agent.aiPinch(undefined, { direction: 'in' });
+
+// Zoom in with a custom gesture duration
+await agent.aiPinch('the image', { direction: 'out', distance: 300, duration: 1000 });
+```
+
+:::info Platform support
+
+- **Android**: Implemented via the [yadb](https://github.com/ysbing/yadb) `-pinch` command.
+- **iOS**: Implemented via the W3C Actions API with dual touch pointers.
+- **Web**: Implemented via CDP touch events (Puppeteer and Playwright require `enableTouchEventsInActionSpace: true`, and Playwright support is limited to Chromium-based browsers).
+- **HarmonyOS**: Not supported (the underlying `uitest` framework does not provide multi-touch APIs).
+
+:::
+
+<a id="data-extraction"></a>
+
+## Data extraction {#extraction-location-assertion}
+
+### `aiAsk()` {#agentaiask}
+
+Ask the AI model a question about the current UI and return its answer as a string.
+
+`aiAsk()` shares the same underlying query and return behavior as `aiString()`, though they can still be configured with separate Agent-level contexts via `aiContexts.aiAsk` and `aiContexts.aiString`.
+
+- Type
+
+```typescript
+function aiAsk(prompt: string | object, options?: object): Promise<string>;
+```
+
+- Parameters:
+
+  - `prompt: string | object` — Natural-language question, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (commonly used to extract attributes invisible in screenshots, such as image or link URLs; set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<string>` — Resolves to the text answer from the AI model.
+
+- Examples:
+
+```typescript
+const result = await agent.aiAsk('What should I focus on testing on this page?');
+console.log(result);
+```
+
+To extract structured data (such as objects or arrays) instead of a free-form string, use `aiQuery()` below.
+
+### `aiQuery()` {#agentaiquery}
+
+Extract structured data from the current UI. Describe the desired data and its return format in `dataDemand` (supporting strings, numbers, booleans, objects, or arrays), and Midscene returns a matching value.
+
+- Type
+
+```typescript
+function aiQuery<T>(dataDemand: string | object, options?: object): Promise<T>;
+```
+
+- Parameters:
+
+  - `dataDemand: string | object` — Description of the data to extract and its expected structure (can be a key-value object or a string with type annotations).
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (commonly used to extract attributes invisible in screenshots, such as image or link URLs; set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<T>` — Resolves to a value matching the structure declared in `dataDemand` (such as a string, number, JSON object, or array).
+
+- Examples:
+
+```typescript
+const dataA = await agent.aiQuery({
+  time: 'The date and time displayed in the top-left corner, string',
+  userInfo: 'User information in the format {name: string}',
+  tableFields: 'An array of table field names, string[]',
+  tableDataRecord:
+    'Table records in the format {id: string, [fieldName]: string}[]',
+});
+
+// You can also describe the expected return format using a plain string:
+
+// dataB is an array of strings
+const dataB = await agent.aiQuery('string[], list of task names');
+
+// dataC is an array of objects
+const dataC = await agent.aiQuery(
+  '{name: string, age: string}[], table data records',
+);
+
+// Enable domIncluded to extract DOM attributes not visible in screenshots (such as avatarUrl)
+const dataD = await agent.aiQuery(
+  '{name: string, age: string, avatarUrl: string}[], table data records',
+  { domIncluded: true },
+);
+```
+
+In addition to `aiQuery()`, Midscene provides three shorthand methods—`aiBoolean()`, `aiNumber()`, and `aiString()`—for extracting primitive values directly.
+
+### `aiBoolean()` {#agentaiboolean}
+
+Extract a boolean value from the current UI.
+
+- Type
+
+```typescript
+function aiBoolean(prompt: string | object, options?: object): Promise<boolean>;
+```
+
+- Parameters:
+
+  - `prompt: string | object` — Natural-language description of the condition or boolean value to extract, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<boolean>` — Resolves to the boolean returned by the AI model.
+
+- Examples:
+
+```typescript
+const boolA = await agent.aiBoolean('Whether there is a login dialog');
+
+// Enable domIncluded to inspect DOM attributes
+const boolB = await agent.aiBoolean('Whether the login button has a link', {
+  domIncluded: true,
+});
+```
+
+### `aiNumber()` {#agentainumber}
+
+Extract a numeric value from the current UI.
+
+- Type
+
+```typescript
+function aiNumber(prompt: string | object, options?: object): Promise<number>;
+```
+
+- Parameters:
+
+  - `prompt: string | object` — Natural-language description of the target number, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<number>` — Resolves to the number returned by the AI model.
+
+- Examples:
+
+```typescript
+const numberA = await agent.aiNumber('The remaining points of the account');
+
+// Enable domIncluded to extract a numeric DOM attribute
+const numberB = await agent.aiNumber(
+  'The value attribute of the remaining points element',
+  { domIncluded: true },
+);
+```
+
+### `aiString()` {#agentaistring}
+
+Extract a string value from the current UI.
+
+`aiString()` shares the same underlying query and return behavior as `aiAsk()`, though they can still be configured with separate Agent-level contexts via `aiContexts.aiString` and `aiContexts.aiAsk`.
+
+- Type
+
+```typescript
+function aiString(prompt: string | object, options?: object): Promise<string>;
+```
+
+- Parameters:
+
+  - `prompt: string | object` — Natural-language description of the target text, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<string>` — Resolves to the string returned by the AI model.
+
+- Examples:
+
+```typescript
+const stringA = await agent.aiString('The name of the first item in the list');
+
+// Enable domIncluded to extract a link URL from DOM attributes
+const stringB = await agent.aiString('The link of the first item in the list', {
+  domIncluded: true,
+});
+```
+
+## Element location {#element-location}
+
+<a id="more-apis"></a>
+
+### `aiLocate()` {#agentailocate}
+
+Locate an element on the current UI using natural language and return its coordinates.
+
+- Type
+
+```typescript
+function aiLocate(
+  locate: string | object,
+  options?: object,
+): Promise<{
+  rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  center: [number, number];
+  dpr?: number; // Web only: device pixel ratio
+}>;
+```
+
+- Parameters:
+
+  - `locate: string | object` — Natural-language description of the element to locate, or an [image-enabled prompt](#prompting-with-images).
+  - `options?: object` — Optional configuration:
+    - `deepLocate?: boolean` — Whether to enable [Deep Locate](#deep-locate-deeplocate) (the legacy `deepThink` alias remains supported). Default: `false`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+    - `xpath?: string` — XPath of the target element. When provided, Midscene tries the XPath first before falling back to the cache and AI model. Default: `undefined`.
+    - `cacheable?: boolean` — Whether this call can use the [cache](../caching.mdx). Default: `true`.
+
+- Return value:
+
+  - Resolves to a location object:
+    - `center: [number, number]`: Center coordinates of the located element in physical screenshot pixels. Prefer `center` when you need a reliable click coordinate.
+    - `rect`: Bounding box of the matched element under models that support bounding-box grounding. Under models that only support point grounding (such as AutoGLM), `rect` falls back to a small `8x8` box around the center point—avoid relying on `rect` for exact element dimensions.
+    - `dpr?: number`: Web-only compatibility field indicating the ratio of physical screenshot pixels to logical CSS pixels (not guaranteed on other platforms).
+
+- Examples:
+
+```typescript
+const locateInfo = await agent.aiLocate(
+  'The login button at the top of the page',
+);
+console.log(locateInfo);
+```
+
+## Assertions and waiting {#assertions-waiting}
+
+### `aiAssert()` {#agentaiassert}
+
+Verify an assertion described in natural language against the current UI. If the assertion fails, the SDK throws an error containing both the optional `errorMsg` and the detailed reason provided by the AI model.
+
+- Type
+
+```typescript
+function aiAssert(
+  assertion: string | object,
+  errorMsg?: string,
+  options?: object,
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `assertion: string | object` — Natural-language description of the expected condition, or an [image-enabled prompt](#prompting-with-images).
+  - `errorMsg?: string` — Custom error message prepended if the assertion fails.
+  - `options?: object` — Optional configuration:
+    - `domIncluded?: boolean | 'visible-only'` — Whether to send a simplified DOM tree to the model (set to `'visible-only'` to include only visible elements). Default: `false`.
+    - `screenshotIncluded?: boolean` — Whether to send a screenshot of the current UI to the model. Default: `true`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<void>` — Resolves when the assertion passes; throws an error containing `errorMsg` and the AI model's explanation when it fails.
+
+- Example:
+
+```typescript
+await agent.aiAssert('The price of "Sauce Labs Onesie" is 7.99');
+```
+
+:::info
+
+For assertions that require strict, deterministic value checks, you can also extract structured data with `aiQuery()` first and validate it using your test runner's native `expect`:
+
+```typescript
+const items = await agent.aiQuery(
+  '{name: string, price: number}[], return product names and prices',
+);
+const onesieItem = items.find((item) => item.name === 'Sauce Labs Onesie');
+expect(onesieItem).toBeTruthy();
+expect(onesieItem.price).toBe(7.99);
+```
+
+:::
+
+### `aiWaitFor()` {#agentaiwaitfor}
+
+Poll until a condition described in natural language becomes true on the UI. To avoid excessive model calls, consecutive checks are started at least `checkIntervalMs` apart.
+
+- Type
+
+```typescript
+function aiWaitFor(
+  assertion: string,
+  options?: {
+    timeoutMs?: number;
+    checkIntervalMs?: number;
+    context?: string;
+  },
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `assertion: string` — Natural-language description of the condition to wait for.
+  - `options?: object` — Optional configuration:
+    - `timeoutMs?: number` — Maximum time window in milliseconds for starting a new check. As long as a check starts within this window, Midscene waits for it to finish; if the condition is still not met and the window has elapsed, a timeout error is thrown. Default: `15000`.
+    - `checkIntervalMs?: number` — Minimum interval in milliseconds between the start of consecutive checks. Default: `3000`.
+    - `context?: string` — Additional context for this call. See [`context` and `aiContexts` precedence](#per-call-context).
+
+- Return value:
+
+  - `Promise<void>` — Resolves once the condition is met; throws an error if it times out.
+
+- Examples:
+
+```typescript
+// Basic usage
+await agent.aiWaitFor(
+  'At least one headphone product is displayed on the page',
+);
+
+// Custom timeout and check interval
+await agent.aiWaitFor('The shopping cart icon shows a quantity of 2', {
+  timeoutMs: 30000,      // Wait up to 30 seconds
+  checkIntervalMs: 5000, // Check every 5 seconds
+});
+```
+
+:::info
+
+Each `aiWaitFor()` check invokes the AI model and consumes tokens. When your application or framework exposes a deterministic readiness signal, prefer awaiting that signal directly.
+
+:::
+
+**Comparison of waiting mechanisms**
+
+| Mechanism | Use case |
+| --- | --- |
+| [`agent.aiWaitFor(condition)`](#agentaiwaitfor) | Wait for a visible UI condition at a specific step using AI. |
+| [`browserAgent.waitForNewPage(action)`](../sdk/playwright#wait-for-new-page) | Attach a listener before running `action`, then wait for and return the newly opened page (Playwright / Puppeteer). |
+| [`waitForActionReady`](#action-ready) | Globally customize when to proceed after every atomic action completes. |
+
+For other in-app events, `await` your application's Promise or underlying browser / device APIs directly (for one-time events, subscribe before triggering the action).
+
+## Continuous observation {#observation-waiting}
+
+### `startObserving()` {#agentstartobserving}
+
+`startObserving()` continuously captures screen frames, making it ideal for verifying transient UI states such as toast notifications, banners, or page transitions.
+
+Typical workflow: call `startObserving()` to begin recording, perform your UI actions, and then call `observer.stop()` to obtain a `UIObservation` instance, which you can query or assert against.
+
+```typescript
+function startObserving(options?: {
+  intervalMs?: number; // Sampling interval (default: 1,000 ms, minimum: 200 ms)
+  maxFrames?: number;  // Maximum retained frames (default: 30)
+  watchdogMs?: number; // Maximum recording duration (default: 300,000 ms; 0 disables the limit)
+}): Promise<UIObserver>;
+```
+
+`UIObserver` provides:
+
+- `observer.bufferedFrameCount: number` — Number of frames currently buffered during recording.
+- `observer.stop(): Promise<UIObservation>` — Stops recording and returns a `UIObservation` instance.
+
+`UIObservation` holds the captured frames (frozen once `stop()` is called). You can invoke `aiQuery()`, `aiBoolean()`, `aiNumber()`, `aiString()`, `aiAsk()`, and `aiAssert()` on `UIObservation`. Because these methods inspect recorded image frames rather than the live page DOM, `domIncluded` is not supported (rejected by TypeScript at compile time and throws at runtime).
+
+`UIObservation` also exposes `frameCount`, `startedAt`, and `endedAt`. When finished, call `observation.dispose()` to delete temporary frame files on disk (`agent.destroy()` also cleans up any remaining frame files).
+
+```typescript
+const observer = await agent.startObserving();
+await agent.aiAct('submit the form');
+const observation = await observer.stop();
+await observation.aiAssert('a success toast appeared during submission');
+const toastCount = await observation.aiNumber(
+  'how many success toasts appeared?',
+);
+await observation.dispose();
+```
+
+Sampling and resource management:
+
+- **Frame sources**: Midscene uses a continuous stream when available—scrcpy on Android (`scrcpyConfig.enabled`), WDA MJPEG on iOS (`wdaMjpegFrameSource.enabled`), and CDP Screencast on Web. When no stream is available, it falls back to periodic screenshots (which samples more slowly on mobile).
+- **Memory and disk usage**: To avoid holding all images in memory, Data URL frames are written to temporary files as they are sampled, while other frame handles are decoded and written to disk in small batches when `stop()` is called. Frame files are read only when a query or assertion runs.
+- **Frame limits**: Up to `maxFrames` observed frames plus the final screenshot are sent to the model. Increase `intervalMs` to sample less frequently, or reduce `maxFrames` to cap the frame count. Observed frames appear in the report timeline with an `Observed` badge.
+- **iOS frame quality**: On iOS, observed frames come from the lower-resolution MJPEG stream, while the final screenshot retains full resolution.
+
+<a id="runyaml"></a>
+
+## Workflow execution {#workflow-context}
+
+### `runYaml()` {#agentrunyaml}
+
+Parse and execute a YAML automation script (running only its `tasks` section), returning the results of all `aiQuery` steps in the script.
+
+- Type
+
+```typescript
+function runYaml(yamlScriptContent: string): Promise<{ result: any }>;
+```
+
+- Parameters:
+
+  - `yamlScriptContent: string` — YAML script content string.
+
+- Return value:
+
+  - Returns `{ result: any }`, where `result` contains the outputs of all `aiQuery` steps in the script.
+
+- Example:
+
+```typescript
+const { result } = await agent.runYaml(`
+tasks:
+  - name: search weather
+    flow:
+      - ai: input 'weather today' in input box, click search button
+      - sleep: 3000
+
+  - name: query weather
+    flow:
+      - aiQuery: "the result shows the weather info, {description: string}"
+`);
+console.log(result);
+```
+
+:::info
+
+For full YAML script syntax and configuration, see [Automate with scripts in YAML](../automate-with-scripts-in-yaml).
+
+:::
+
+### `runGherkinScenario()` {#agentrungherkinscenario}
+
+Execute a single Gherkin scenario by mapping its steps to Midscene Agent calls.
+
+:::caution Beta
+
+Available since Midscene v1.10 and currently in Beta; the API may change in future releases.
+
+:::
+
+- Type
+
+```typescript
+function runGherkinScenario(
+  scenarioText: string,
+  options?: {
+    context?: string;
+    abortSignal?: AbortSignal;
+    deepThink?: 'unset' | true | false;
+    deepLocate?: boolean;
+  },
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `scenarioText: string` — A single Gherkin scenario string, or a sequence of Gherkin steps without the `Scenario:` header line.
+  - `options?: object` — Optional runtime configuration:
+    - `context?: string` — Additional AI context applied to every step in this scenario run (takes precedence over `aiContexts[apiName]` and `aiContexts.default` on the Agent).
+    - `abortSignal?: AbortSignal` — Optional signal to abort the scenario run.
+    - `deepThink?: 'unset' | true | false` — Forwarded to the underlying `aiAct` calls for `Given` and `When` steps.
+    - `deepLocate?: boolean` — Forwarded to the underlying `aiAct` calls for `Given` and `When` steps.
+
+- Return value:
+
+  - `Promise<void>` — Resolves when all steps complete; if a step fails, the thrown error includes the Gherkin line number, original step text, and the Midscene action being executed.
+
+- Example:
+
+```typescript
+await agent.runGherkinScenario(`
+Scenario: Add a todo item
+  Given the todo page is open
+  When I add a todo item named "Buy milk"
+  Then the todo list should contain "Buy milk"
+`);
+```
+
+For supported syntax rules, limitations, caching behavior, and YAML integration, see [BDD-style scripts with Gherkin](../advanced/bdd-style-scripts-with-gherkin).
+
+## Context management {#context-management}
+
+`setAIContext()` dynamically updates the background context provided to the AI model; `freezePageContext()` and `unfreezePageContext()` control whether subsequent calls reuse a single captured page snapshot (including its screenshot).
+
+### `setAIContext()` {#agentsetaicontext}
+
+Dynamically set the Agent-level shared fallback context or the context for a specific API.
+
+- Type
+
+```typescript
+function setAIContext(
+  target: 'default' | AiApiName,
+  context: string | undefined,
+): void;
+```
+
+- Parameters:
+
+  - `target` — Pass `'default'` to set the shared fallback context across all AI methods, or pass a specific API name (such as `'aiAct'`, `'aiTap'`, `'aiQuery'`, or `'aiAssert'`).
+  - `context` — Background context provided to the AI model (such as domain facts, rules, constraints, or output format requirements). For a specific API `target`, pass `''` to explicitly block the shared `aiContexts.default`, or pass `undefined` to clear the API-specific override and inherit `aiContexts.default` again; for the `'default'` target, pass `undefined` to remove the shared fallback.
+
+- Example:
+
+```typescript
+agent.setAIContext('default', 'Prices are displayed in USD.');
+agent.setAIContext('aiQuery', 'Return monetary values without currency symbols.');
+agent.setAIContext('aiQuery', '');        // Explicitly ignore aiContexts.default for aiQuery
+agent.setAIContext('aiQuery', undefined); // Inherit aiContexts.default again for aiQuery
+```
+
+<a id="agentsetaiactcontext"></a>
+
+**`setAIActContext()` (deprecated)**
+
+Sets the background context for subsequent `agent.aiAct()` or `agent.ai()` calls (does not affect instant interaction methods such as `aiTap()`). Equivalent to `agent.setAIContext('aiAct', context)` and overwrites any existing `aiContexts.aiAct` value; use `agent.setAIContext('aiAct', context)` in new code.
+
+- Type
+
+```typescript
+function setAIActContext(aiActContext: string): void;
+```
+
+- Parameters:
+
+  - `aiActContext: string` — Background knowledge sent to the AI model. For guidance on writing effective context, see [Provide application knowledge to a GUI Agent](../provide-application-knowledge-to-gui-agent).
+
+- Example:
+
+```typescript
+agent.setAIActContext('Close the cookie consent dialog first if it exists');
+```
+
+:::info
+
+Both `agent.setAIActContext()` and the older `agent.setAIActionContext()` are retained only for backward compatibility; use `agent.setAIContext('aiAct', context)` in new code.
+
+:::
+
+### `freezePageContext()` {#agentfreezepagecontext}
+
+Freeze the current page context so subsequent operations reuse a single captured snapshot instead of capturing screenshots and page state repeatedly. Useful when running a batch of concurrent read-only queries against a static screen.
+
+Usage constraints:
+- Use this only when page context capture is a confirmed performance bottleneck.
+- Call `agent.unfreezePageContext()` as soon as you need live page state again.
+- **Do not run interaction methods** (such as clicks or typing) while the context is frozen—the model will not see UI updates and will act on stale snapshot data.
+
+- Type
+
+```typescript
+function freezePageContext(): Promise<void>;
+```
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+// Freeze the page context so concurrent queries share one snapshot
+await agent.freezePageContext();
+
+const results = await Promise.all([
+  agent.aiQuery('Username input box value'),
+  agent.aiQuery('Password input box value'),
+  agent.aiLocate('Login button'),
+]);
+console.log(results);
+
+// Unfreeze the page context so subsequent operations read live state
+await agent.unfreezePageContext();
+```
+
+:::info
+
+In the execution report's Insight tab, steps that reuse a frozen snapshot are marked with a 🧊 icon.
+
+:::
+
+### `unfreezePageContext()` {#agentunfreezepagecontext}
+
+Unfreeze the page context and resume capturing live page state before each operation.
+
+- Type
+
+```typescript
+function unfreezePageContext(): Promise<void>;
+```
+
+- Return value:
+
+  - `Promise<void>`
+
+## JavaScript execution {#javascript-execution}
+
+### `evaluateJavaScript()` {#agentevaluatejavascript}
+
+> Available on Web Agents only.
+
+Evaluate a JavaScript expression in the controlled web page's context and return the result.
+
+- Type
+
+```typescript
+function evaluateJavaScript(script: string): Promise<any>;
+```
+
+- Parameters:
+
+  - `script: string` — JavaScript expression string to evaluate.
+
+- Return value:
+
+  - Returns the evaluated result of the JavaScript expression.
+
+- Example:
+
+```typescript
+const result = await agent.evaluateJavaScript('document.title');
+console.log(result);
+```
+
+## Reports and usage {#reporting-metrics-lifecycle}
+
+<a id="reportfile"></a>
+
+<a id="properties"></a>
+
+### `reportFile` {#agentreportfile}
+
+Path to the current report file (`string | null | undefined`).
+
+This property has no value before the first report update, or when report generation is disabled (`generateReport: false`), when the Agent runs in a browser environment without file-system access, or when the Agent has not executed any tasks.
+
+Even after a path is assigned, subsequent operations may continue updating the report. Always call [`await agent.destroy()`](#agentdestroy) before reading or consuming the final report file so that all pending writes are flushed and `.reportFile` is updated with the finalized path.
+
+<a id="log-screenshot"></a>
+<a id="agentlogscreenshot"></a>
+
+### `recordToReport()` {#agentrecordtoreport}
+
+Record a custom entry in the execution report (capturing a fresh screenshot by default, or attaching caller-supplied screenshots).
+
+- Type
+
+```typescript
+interface RecordToReportOptions {
+  content?: string;
+  /** @deprecated Use screenshots instead. */
+  screenshotBase64?: string;
+  screenshots?: {
+    /**
+     * PNG/JPEG Data URI, or raw PNG Base64 string.
+     */
+    base64: string;
+    description?: string;
+  }[];
+}
+
+function recordToReport(
+  title?: string,
+  options?: RecordToReportOptions,
+): Promise<void>;
+```
+
+- Parameters:
+
+  - `title?: string` — Title for the report entry. Default: `'untitled'`.
+  - `options?: RecordToReportOptions` — Optional configuration:
+    - `content?: string` — Text description for the entry.
+    - `screenshots?: Array<{ base64: string; description?: string }>` — One or more external screenshots to attach to this report entry (when set, Midscene does not capture a new screenshot automatically). `base64` accepts a PNG / JPEG Data URI (such as `data:image/png;base64,...`) or a raw Base64 body (treated as PNG).
+
+- Compatibility:
+
+  The legacy single-screenshot option `screenshotBase64?: string` remains supported for backward compatibility, but new code should use `screenshots: [{ base64 }]` (do not pass both `screenshots` and `screenshotBase64`).
+
+- Return value:
+
+  - `Promise<void>`
+
+- Examples:
+
+```typescript
+await agent.recordToReport('Login page', {
+  content: 'User A',
+});
+
+const before = await page.screenshot({ encoding: 'base64' });
+const after = await page.screenshot({ encoding: 'base64' });
+await agent.recordToReport('Checkout comparison', {
+  content: 'Compare the state before and after submit.',
+  screenshots: [
+    {
+      base64: `data:image/png;base64,${before}`,
+      description: 'Before submit',
+    },
+    {
+      base64: `data:image/png;base64,${after}`,
+      description: 'After submit',
+    },
+  ],
+});
+```
+
+<a id="llm-usage-metrics"></a>
+
+### `metrics` {#agentmetrics}
+
+Midscene automatically tracks token usage for every LLM call. You can read the accumulated usage snapshot at runtime via the `agent.metrics` getter, which is useful for cost observability with platforms like Langfuse.
+
+- Type
+
+```typescript
+interface UsageBucket {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  calls: number;
+}
+
+interface MidsceneUsageMetrics {
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCachedInput: number;
+  totalTimeCostMs: number;
+  calls: number;
+  // Breakdown by call intent: `planning`, `insight`, `default`
+  byIntent: Record<string, UsageBucket>;
+  // Breakdown by model name
+  byModel: Record<string, UsageBucket>;
+}
+```
+
+- Example
+
+```typescript
+await agent.aiAct('search for headphones');
+const usage = agent.metrics;
+console.log(usage.totalTokens, usage.byIntent, usage.byModel);
+```
+
+### `onLLMUsage` {#onllmusage-option}
+
+For real-time usage tracking after each model call, pass an `onLLMUsage` callback when constructing the Agent. It is invoked once per LLM call as soon as usage data is returned, receiving raw usage details (token counts, model name, `intent`, request ID, etc.):
+
+```typescript
+const agent = new PuppeteerAgent(page, {
+  onLLMUsage: (usage) => {
+    langfuse.event({ name: usage.intent, value: usage.total_tokens });
+  },
+});
+```
+
+### `_unstableLogContent()` {#agent_unstablelogcontent}
+
+Retrieve the internal log object associated with the current report. Note that the structure of this object is internal and may change in future releases.
+
+- Type
+
+```typescript
+function _unstableLogContent(): object;
+```
+
+- Return value:
+
+  - Returns an object containing the current execution log data.
+
+- Examples:
+
+```typescript
+const logContent = agent._unstableLogContent();
+console.log(logContent);
+```
+
+## Lifecycle {#lifecycle}
+
+### `destroy()` {#agentdestroy}
+
+Finalize the Agent's execution report and release resources held by the Agent.
+
+- Type
+
+```typescript
+function destroy(): Promise<void>;
+```
+
+- Behavior:
+  - Stops any active `UIObserver`.
+  - Calls the optional `destroy()` method on the underlying Device / Interface and waits for cleanup to complete.
+  - Flushes and finalizes the report, then updates `agent.reportFile` with the final path (or `undefined` if no report was generated).
+  - Idempotent: calling `destroy()` again after the first call completes is a no-op.
+  - If underlying Device cleanup throws an error, Midscene still attempts to finalize the report before rethrowing the cleanup error.
+
+Treat the Agent instance as disposed after calling `destroy()` and do not invoke further methods on it.
+
+:::warning Cleanup scope
+
+`agent.destroy()` stops the Agent, finalizes its report, and releases control resources held internally by Midscene. It generally does not close external browser tabs or disconnect physical devices, though some platforms terminate automated sessions or virtual displays they started. See the "Lifecycle" section of each platform's SDK guide for platform-specific cleanup behavior.
+
+:::
+
+## Report merging utilities {#reporting-utilities}
+
+<a id="report-merging-tool"></a>
+
+When multiple automation workflows or test cases each generate their own report, use `ReportMergingTool` to combine them into a single summary report (output as either a standalone HTML file or a directory containing `index.html` and external screenshot assets).
+
+### `new ReportMergingTool()`
+
+Create a `ReportMergingTool` instance.
+
+- Example:
+
+```typescript
+import { ReportMergingTool } from '@midscene/core/report';
+
+const reportMergingTool = new ReportMergingTool();
+```
+
+### `.append()`
+
+Append a workflow's report entry to the merge queue after the workflow finishes.
+
+- Type
+
+```typescript
+type SkippedReportFileAttributes = Omit<
+  ReportFileAttributes,
+  'testStatus'
+> & {
+  testStatus: 'skipped';
+};
+
+type ReportFileWithAttributes =
+  | {
+      reportFilePath: string;
+      reportAttributes: ReportFileAttributes;
+    }
+  | {
+      reportFilePath?: undefined;
+      reportAttributes: SkippedReportFileAttributes;
+    };
+
+function append(reportInfo: ReportFileWithAttributes): void;
+```
+
+- Parameters:
+
+  - `reportInfo: ReportFileWithAttributes` — Report entry to append:
+    - `reportFilePath: string | undefined` — Path to the source report file (typically `agent.reportFile`). May be omitted only when `reportAttributes.testStatus` is `'skipped'`; for any other status, a missing path causes `append()` to throw an error.
+    - `reportAttributes: object` — Workflow or test case metadata:
+      - `testId: string`: Unique identifier.
+      - `testTitle: string`: Title.
+      - `testDescription: string`: Description.
+      - `testDuration: number`: Execution duration in milliseconds.
+      - `testStatus: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted'`: Execution status.
+
+- Return value:
+
+  - `void`
+
+- Example:
+
+```typescript
+import type { TestStatus } from '@midscene/core';
+
+// Collect reports in your test runner's afterEach hook (assuming each test owns its Agent)
+afterEach(async (ctx) => {
+  let workflowStatus: TestStatus = 'passed';
+  if (ctx.task.result?.state === 'skip') {
+    workflowStatus = 'skipped';
+  } else if (ctx.task.result?.errors?.[0]?.message.includes('timed out')) {
+    workflowStatus = 'timedOut';
+  } else if (ctx.task.result?.state === 'fail') {
+    workflowStatus = 'failed';
+  }
+
+  // Finalize the report with destroy() before reading agent.reportFile
+  await agent.destroy();
+  const reportFilePath = agent.reportFile;
+  const reportAttributes = {
+    testId: ctx.task.name,
+    testTitle: ctx.task.name,
+    testDescription: 'Automation workflow description',
+    testDuration: Date.now() - startTime,
+  };
+
+  if (!reportFilePath) {
+    if (workflowStatus !== 'skipped') {
+      throw new Error('Midscene report was not generated');
+    }
+
+    reportMergingTool.append({
+      reportAttributes: {
+        ...reportAttributes,
+        testStatus: 'skipped',
+      },
+    });
+    return;
+  }
+
+  reportMergingTool.append({
+    reportFilePath,
+    reportAttributes: {
+      ...reportAttributes,
+      testStatus: workflowStatus,
+    },
+  });
+});
+```
+
+Note: Make sure every report-producing Agent has completed `await agent.destroy()` before calling `.mergeReports()`.
+
+### `.mergeReports()`
+
+Merge all appended reports into a single combined report.
+
+- Type
+
+```typescript
+function mergeReports(
+  reportFileName?: 'AUTO' | string,
+  opts?: {
+    rmOriginalReports?: boolean;
+    overwrite?: boolean;
+    outputDir?: string;
+    outputFormat?: 'single-html' | 'html-and-external-assets';
+  },
+): string | null;
+```
+
+- Parameters:
+
+  - `reportFileName?: 'AUTO' | string` — Output name for the merged report. Default: `'AUTO'` (auto-generated by Midscene); custom names do not need a `.html` suffix.
+  - `opts?: object` — Optional configuration:
+    - `rmOriginalReports?: boolean` — Whether to delete the original source report files after merging. Default: `false`.
+    - `overwrite?: boolean` — Whether to overwrite an existing file at the target path. Default: `false`.
+    - `outputDir?: string` — Output directory for the merged report (relative paths are resolved against the current working directory). Default: `midscene_run/report/`.
+    - `outputFormat` — `'single-html'` (default) or `'html-and-external-assets'`, independent of the source formats.
+
+- Return value:
+
+  - Returns the entry HTML path of the merged report, or `null` if no reports were appended.
+  - With `'single-html'` (default), the output path is `<outputDir>/<reportFileName>.html`.
+  - With `'html-and-external-assets'`, the output path is `<outputDir>/<reportFileName>/index.html`. Keep the entire report directory together when sharing and view it over HTTP.
+
+- Examples:
+
+```typescript
+// Basic usage: auto-generated file name
+afterAll(() => {
+  reportMergingTool.mergeReports();
+});
+
+// Custom file name
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report');
+});
+
+// Merge and delete original source reports
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    rmOriginalReports: true,
+  });
+});
+
+// Overwrite an existing report file
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    overwrite: true,
+  });
+});
+
+// Output to a custom directory
+afterAll(() => {
+  reportMergingTool.mergeReports('my-automation-report', {
+    outputDir: './test-results',
+  });
+});
+```
+
+### `.clear()`
+
+Clear the list of appended reports (useful when reusing the same `ReportMergingTool` instance across multiple merge batches).
+
+- Type
+
+```typescript
+function clear(): void;
+```
+
+- Return value:
+
+  - `void`
+
+- Example:
+
+```typescript
+reportMergingTool.mergeReports('first-batch');
+reportMergingTool.clear(); // Clear the queue before the next batch
+```
+
+## `exportReportArtifact()`
+
+Export one Agent or Test report to the specified format. The input report remains unchanged.
+
+```ts
+import { exportReportArtifact } from '@midscene/core/report';
+
+const reportPath = await exportReportArtifact({
+  reportPath: './reports/run/index.html',
+  outputDir: './delivery',
+  reportFileName: 'run', // without .html
+  outputFormat: 'single-html', // default; or 'html-and-external-assets'
+  overwrite: false, // default
+});
+```
+
+The same operation is available through the CLI:
+
+```bash
+pnpm exec midscene report-tool --action export --htmlPath ./reports/run/index.html --outputDir ./delivery --outputName run --outputFormat single-html
+```
+
+## Runtime configuration {#runtime-configuration}
+
+### Environment variables {#environment-variables}
+
+The following environment variables control global runtime behavior (rather than model request parameters) and cannot be passed inside an Agent's `modelConfig` object:
+
+| Variable | Type | Default | Description |
+| --- | --- | --- | --- |
+| `MIDSCENE_RUN_DIR` | `string` | `midscene_run` | Root directory for reports, logs, model-call records, and other run artifacts (accepts an absolute path or a path relative to the current working directory). |
+| `MIDSCENE_PREFERRED_LANGUAGE` | `string` | Auto-detected from system time zone: `Chinese` when time zone is `Asia/Shanghai`, otherwise `English` | Preferred language for model reasoning and status messages (guided via system prompts; actual output depends on model capabilities and context). |
+| `MIDSCENE_PLAYGROUND_HOST` | `string` | `127.0.0.1` | Network interface address bound by the local Playground server. Set this to a reachable interface IP when connecting from a remote device, VM, container, or another machine on your LAN (setting `0.0.0.0` listens on all interfaces—use only on trusted networks). |
+| `DEBUG` | `string` | Unset | Enables debug log output for matching namespaces; see [Debug logs](#debug-logs) below. |
+
+### Debug logs {#debug-logs}
+
+Set the `DEBUG` environment variable to print debug logs in the terminal:
+
+| Value | Description |
+| --- | --- |
+| `midscene:ai:profile:stats` | Prints model call latency and token usage in a comma-separated format. |
+| `midscene:ai:profile:detail` | Prints detailed token usage breakdown logs. |
+| `midscene:ai:call` | Prints raw AI request and response details. |
+| `midscene:android:adb` | Prints Android `adb` command execution details. |
+| `midscene:*` | Prints all Midscene debug logs. |
+
+Even when `DEBUG` is unset, Midscene writes log files under `<MIDSCENE_RUN_DIR>/log`. Note that log files may contain prompts, model outputs, or screenshots—review and redact sensitive data before sharing, and do not commit them to public repositories.
+
+For model connectivity verification, call recording, and tracing integrations, see [Model advanced configuration and debugging](../model-config).
+
+**See also**
+
+- [Model advanced configuration and debugging](../model-config)
+- [Caching](../caching)

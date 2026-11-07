@@ -1,0 +1,166 @@
+import SdkCommonMethods from './common/sdk-common-methods.mdx';
+import { SdkPrerequisites, PackageManagerTabs } from '@theme';
+
+# 接入 Playwright Test
+
+借助 `PlaywrightAiFixture`，你可以在已有的 Playwright Test 项目中直接使用 Midscene 的视觉交互与断言能力。Playwright Test 负责组织和运行测试，Midscene 负责操作页面并生成执行报告。
+
+## 使用前准备
+
+<SdkPrerequisites lang="zh" mode="playwright" />
+
+## 1. 安装依赖与配置项目
+
+<PackageManagerTabs command="install @midscene/web dotenv --save-dev" />
+
+在已有的 `playwright.config.ts` 中加入以下配置，并保留项目原有的其他配置和 reporter：
+
+```typescript title="playwright.config.ts"
+import 'dotenv/config';
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 90_000,
+  use: { browserName: 'chromium' },
+  reporter: [
+    ['list'],
+    ['@midscene/web/playwright-reporter'],
+  ],
+});
+```
+
+`dotenv/config` 用于从项目的 `.env` 文件加载模型配置（Chrome 插件 Playground 中的配置不会自动同步到测试进程）。由于模型调用耗时较长，建议适当调大 `timeout`，具体数值可根据实际用例调整。
+
+## 2. 创建 fixture {#第二步扩展-test-实例}
+
+新建 `e2e/fixture.ts`，通过 `PlaywrightAiFixture` 扩展 Playwright 的 `test`：
+
+```typescript title="e2e/fixture.ts"
+import { test as base } from '@playwright/test';
+import {
+  PlaywrightAiFixture,
+  type PlayWrightAiFixtureType,
+} from '@midscene/web/playwright';
+
+export const test = base.extend<PlayWrightAiFixtureType>(
+  PlaywrightAiFixture(),
+);
+```
+
+在需要使用 Midscene 的测试文件中，从 `./fixture` 导入 `test`；`expect` 仍从 `@playwright/test` 导入。
+
+## 3. 编写测试
+
+```typescript title="e2e/todo.spec.ts"
+import { expect } from '@playwright/test';
+import { test } from './fixture';
+
+test('add a todo', async ({ page, aiAct, aiAssert }) => {
+  await page.goto('https://todomvc.com/examples/react/dist/');
+  await expect(page).toHaveTitle(/TodoMVC/);
+
+  await aiAct('Add a todo named Try Midscene');
+  await aiAssert('The todo list contains Try Midscene');
+});
+```
+
+Playwright 的 `page`、`expect` 可以与 Midscene 的 AI 方法在同一测试中配合使用。在这个示例中，Playwright 负责打开页面并校验标题，Midscene 负责添加待办事项并断言页面结果。除 `aiAct` 和 `aiAssert` 外，fixture 还提供 `aiTap`、`aiInput`、`aiQuery`、`aiWaitFor` 等方法，详见 [Agent API 参考](./reference/index.mdx#interaction-methods)。
+
+## 4. 运行测试与查看报告
+
+（可选）运行前可先验证模型配置是否可用：
+
+```bash
+pnpm dlx @midscene/test@latest model verify
+```
+
+在项目目录下运行测试：
+
+```bash
+pnpm exec playwright test e2e/todo.spec.ts
+```
+
+测试结束后，Midscene reporter 会在终端输出报告路径（默认保存在 `midscene_run/report/` 下）。在浏览器中打开生成的 HTML 报告，即可查看各步骤的截图、AI 执行过程和断言结果，方便回溯执行细节或排查失败原因。
+
+## 常用方法
+
+<SdkCommonMethods />
+
+## 进一步配置
+
+### Agent 参数 {#agent-options}
+
+创建 fixture 时可以传入 Agent 参数：
+
+```typescript title="e2e/fixture.ts"
+import { test as base } from '@playwright/test';
+import {
+  PlaywrightAiFixture,
+  type PlayWrightAiFixtureType,
+} from '@midscene/web/playwright';
+
+export const test = base.extend<PlayWrightAiFixtureType>(
+  PlaywrightAiFixture({
+    waitForNetworkIdleTimeout: 2000,
+    replanningCycleLimit: 30,
+  }),
+);
+```
+
+此处还支持传入 `waitAfterAction`、`modelConfig` 等其他 Agent 选项；而 `testId`、`reportFileName`、`groupName`、`groupDescription` 等测试与报告元数据会根据当前用例信息自动生成，无需手动配置。平台参数见 [Playwright SDK 配置](./sdk/playwright#web-options)，共享参数见[通用 Agent 配置](./reference/#agent-options)。
+
+### 操作指定页面
+
+fixture 注入的 AI 方法默认作用于 Playwright 提供的 `page`。如果需要在同一测试中操作其他 `Page` 实例（例如通过 `context.newPage()` 新建的页面），可以使用 `agentForPage` 获取该页面对应的 Agent：
+
+```typescript
+import { test } from './fixture';
+
+test('inspect another page', async ({ context, agentForPage }) => {
+  const page = await context.newPage();
+  await page.goto('https://todomvc.com/examples/react/dist/');
+
+  const agent = await agentForPage(page);
+  await agent.aiAssert('The page contains a todo input');
+});
+```
+
+关于新标签页打开与页面跳转的处理方式，请参阅 [Web / Playwright SDK](./sdk/playwright#关于在新标签页打开)。
+
+### 生命周期
+
+在单个测试用例内，fixture 会按页面（`Page`）创建并复用 Agent。当页面关闭或测试结束时，fixture 会自动调用 `agent.destroy()` 并收集报告，因此无需手动销毁由 fixture 管理的 Agent；浏览器上下文（`BrowserContext`）和页面的生命周期仍由 Playwright 管理。
+
+如果你绕过 fixture、直接通过 `new PlaywrightAgent(page)` 创建了 Agent，则需要手动调用 `agent.destroy()` 进行清理，详见[独立脚本的生命周期说明](./sdk/standalone#生命周期与资源所有权)。
+
+### 报告选项
+
+在 `playwright.config.ts` 中为 reporter 传入配置项：
+
+```typescript
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  reporter: [
+    ['list'],
+    ['@midscene/web/playwright-reporter', {
+      type: 'merged',
+      outputFormat: 'single-html',
+    }],
+  ],
+});
+```
+
+- `type`：`'merged'`（默认）将所有用例合并为一份报告；`'separate'` 为每个用例生成独立的报告。
+- `outputFormat`：`'single-html'`（默认）将执行数据和截图内联到一个 HTML，支持离线打开；`'html-and-external-assets'` 将执行数据和截图保存为外部文件。
+
+使用 `'html-and-external-assets'` 模式时，需保持 HTML 文件与资源目录的相对路径不变，并通过本地 HTTP 服务预览报告（不支持直接通过 `file://` 协议打开）：
+
+```bash
+pnpm dlx serve midscene_run/report
+```
+
+启动后在浏览器中访问终端输出的服务地址即可。分享或归档此类报告时，请将 HTML 文件与对应的资源目录一并打包。
+
+完整的示例工程可参考 [Playwright Test 示例项目](https://github.com/web-infra-dev/midscene-example/tree/main/playwright-testing-demo)。

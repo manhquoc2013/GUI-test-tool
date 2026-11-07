@@ -1,0 +1,249 @@
+import GetCdpUrl from './common/get-cdp-url.mdx';
+
+# Web / Puppeteer SDK
+
+`@midscene/web/puppeteer` provides Agents bound to a Puppeteer page or Browser. Both inherit the base Agent’s [AI methods](./reference/#interaction-methods) and accept Web configuration options.
+
+## Imports and API overview
+
+```typescript
+import {
+  PuppeteerPageAgent,
+  PuppeteerAgent,
+  PuppeteerBrowserAgent,
+} from '@midscene/web/puppeteer';
+```
+
+| API | Scope | Purpose |
+| --- | --- | --- |
+| `PuppeteerPageAgent` | One `Page` | Operate on the same page throughout its lifetime |
+| `PuppeteerAgent` | One `Page` | Compatibility alias for `PuppeteerPageAgent`, with identical behavior |
+| `PuppeteerBrowserAgent` | One `Browser` | Switch between pages; subsequent AI operations use the active page |
+
+In the signatures below, `Page` and `Browser` come from `puppeteer`. Option types come from `@midscene/web/puppeteer`.
+
+<a id="about-opening-in-a-new-tab"></a>
+
+<a id="web-quick-start"></a>
+
+<a id="web-connect-to-a-remote-puppeteer-browser"></a>
+
+## `PuppeteerPageAgent` {#puppeteer-agent}
+
+```typescript
+new PuppeteerPageAgent(page: Page, options?: PuppeteerPageAgentOpt)
+```
+
+- `page`: required, an existing Puppeteer page. Throws when omitted.
+- `options`: optional, accepts [shared Agent options](./reference/#agent-options) and [Web options](#web-options).
+
+```typescript
+const agent = new PuppeteerPageAgent(page, {
+  forceSameTabNavigation: false,
+});
+await agent.aiAct('Click the login button');
+```
+
+The Agent stays bound to the supplied page. By default, `forceSameTabNavigation: true` intercepts `window.open` and links with `target="_blank"` to open them in the current page. Set it to `false` to preserve new tabs; the Agent will not automatically switch to them.
+
+## `PuppeteerBrowserAgent` {#puppeteer-browser-agent}
+
+```typescript
+new PuppeteerBrowserAgent(
+  browser: Browser,
+  initialPage: Page,
+  options?: PuppeteerBrowserAgentOpt,
+)
+```
+
+- `browser`: required, the Browser used to listen for, list, and create pages.
+- `initialPage`: required, the initial active page. Use a page from this browser.
+- `options`: optional, accepts shared Agent options, Web options, and the dedicated options below.
+
+Throws when `browser` or `initialPage` is omitted. Browser Agent does not accept `forceSameTabNavigation`; even passing `false` through JavaScript throws an error.
+
+### `PuppeteerBrowserAgent.create()`
+
+```typescript
+PuppeteerBrowserAgent.create(
+  browser: Browser,
+  options?: PuppeteerBrowserAgentCreateOpt,
+): Promise<PuppeteerBrowserAgent>
+```
+
+Creates an Agent asynchronously. The initial page is selected in this order: `options.initialPage` → `(await browser.pages())[0]` → `await browser.newPage()`.
+
+```typescript
+const agent = await PuppeteerBrowserAgent.create(browser, {
+  autoFollowNewPage: true,
+});
+```
+
+### Dedicated options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `autoFollowNewPage` | `boolean` | `false` | Automatically make newly created browser pages active |
+| `newPageTimeout` | `number` | `5000` | Default timeout for `waitForNewPage()`, in milliseconds |
+| `initialPage` | `Page` | Automatically selected | Initial active page; available only in `create()` |
+
+## Page management APIs
+
+These properties and methods belong only to `PuppeteerBrowserAgent`.
+
+### `activePage`
+
+```typescript
+agent.activePage: Page
+```
+
+Read-only property returning the Puppeteer page used by current AI operations. Use `setActivePage()` to switch pages.
+
+### `pages()`
+
+```typescript
+agent.pages(): Promise<Page[]>
+```
+
+Returns the pages in the bound browser without changing the active page.
+
+### `newPage()`
+
+```typescript
+agent.newPage(): Promise<Page>
+```
+
+Creates a page in the bound browser’s default BrowserContext, makes it active, and returns it.
+
+### `setActivePage()`
+
+```typescript
+agent.setActivePage(page: Page): Promise<void>
+```
+
+Makes the supplied page active and attempts to bring it to the foreground. Throws for an invalid or closed page. Supply a page from the bound browser.
+
+### `waitForNewPage()`
+
+```typescript
+agent.waitForNewPage(
+  action?: () => Promise<unknown> | unknown,
+  options?: { timeout?: number },
+): Promise<Page>
+```
+
+Registers a browser `targetcreated` listener (for page targets only) before running the optional `action`, then returns the new page it observes. `options.timeout` overrides `newPageTimeout` for this call, in milliseconds. Throws on timeout or if `action` fails.
+
+This method does not itself switch the active page. With `autoFollowNewPage: true`, the independent page listener still switches automatically. Keep that option `false` to control switching explicitly:
+
+```typescript
+const agent = await PuppeteerBrowserAgent.create(browser, {
+  autoFollowNewPage: false,
+});
+const newPage = await agent.waitForNewPage(
+  () => agent.aiTap('Open details'),
+  { timeout: 10000 },
+);
+await agent.setActivePage(newPage);
+await agent.aiAssert('The details page is open');
+```
+
+## Configuration options {#web-options}
+
+Both Agents also accept [shared Agent options](./reference/#agent-options), including model, report, and cache settings.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `forceSameTabNavigation` | `boolean` | `true` | Page Agent only; opens new-tab links in the current page |
+| `waitForNavigationTimeout` | `number` | `5000` | Timeout for waiting for the page’s `html` element, in milliseconds; `0` skips the check. Execution continues after timeout; this does not guarantee application readiness |
+| `waitForNetworkIdleTimeout` | `number` | `2000` | Post-action network-idle timeout in milliseconds; requires at most two in-flight requests for `200` consecutive milliseconds. `0` skips the check; execution continues after timeout |
+| `enableTouchEventsInActionSpace` | `boolean` | `false` | Adds touch gestures to the action space |
+| `keyboardTypeDelay` | `number` | Unset | Per-character input delay in milliseconds; must be finite and non-negative. In legacy mode, Puppeteer’s `page.keyboard.type` handles positive delays. When unset, uses the underlying driver’s default |
+| `inputStrategy` | `'legacy' \| 'sequential' \| 'bulk'` | `'legacy'` | Text input strategy; `sequential` sends individual Unicode code points, while `bulk` inserts the full text at once |
+| `forceChromeSelectRendering` | `boolean` | `true` | Injects `base-select` styling so native `select` options appear in screenshots; requires Puppeteer ≥ `24.6.0` and browser support for this styling |
+| `customActions` | `DeviceAction[]` | Unset | Adds [custom actions](./integrate-with-any-interface) to the planner |
+| `beforeInvokeAction` | `(actionName: string, param: any) => Promise<void>` | Unset | Callback before an action |
+| `afterInvokeAction` | `(actionName: string, param: any) => Promise<void>` | Unset | Callback after an action |
+| `testRunner` | `PuppeteerPageAgentOpt['testRunner']` | Unset | Supplies base URL and cookie settings to Midscene Test’s Puppeteer Nodes |
+
+`inputStrategy: 'bulk'` requires `keyboardTypeDelay` to be omitted or set to `0`. Use `'sequential'` for delayed input. To wait for application readiness, use `aiWaitFor()` or Puppeteer’s own waiting APIs.
+
+## Lifecycle {#lifecycle}
+
+```typescript
+agent.destroy(): Promise<void>
+```
+
+Both Agents support `destroy()`: it waits for associated operations, cleans up Agent-owned resources, calls the internal Device’s `destroy()`, and finishes report processing. Browser Agent also removes its `targetcreated` listener for automatic page following.
+
+The Puppeteer Device’s `destroy()` does not close the supplied Page, BrowserContext, or Browser, or explicitly disconnect a remote browser. The caller manages these Puppeteer resources. Pages and browsers remain usable after the Agent is destroyed.
+
+```typescript
+try {
+  await agent.aiAct('Submit the form');
+} finally {
+  await agent.destroy();
+  // The caller closes page, context, or browser according to resource ownership.
+}
+```
+
+## Browser support and limitations
+
+Chrome / Chromium is recommended. Midscene’s Puppeteer integration depends on CDP for touch gestures and some interactions. Support for other browsers or protocols in Puppeteer itself does not imply support in Midscene.
+
+### Remote browsers
+
+Agents accept existing Puppeteer pages, with the same construction API as local browsers. For example, after connecting over CDP:
+
+```typescript
+import puppeteer from 'puppeteer';
+import { PuppeteerPageAgent } from '@midscene/web/puppeteer';
+
+const browser = await puppeteer.connect({ browserWSEndpoint: cdpWsUrl });
+const page = (await browser.pages())[0] ?? await browser.newPage();
+const agent = new PuppeteerPageAgent(page);
+```
+
+The caller manages the connection and authentication. Use `browser.disconnect()` to disconnect Puppeteer from a remote browser while leaving the browser process running; `browser.close()` closes the browser.
+
+<GetCdpUrl />
+
+## FAQ
+
+### Puppeteer installation is slow or gets stuck
+
+Puppeteer downloads a browser binary during `postinstall`. If that download is slow or blocked, installation can appear to hang.
+
+```bash
+# Skip browser download first so dependency installation can finish
+PUPPETEER_SKIP_DOWNLOAD=true pnpm install
+
+# Then download Chrome from a mirror
+# This example uses https://registry.npmmirror.com
+# Different mirror providers may use different base-url rules
+pnpm exec puppeteer browsers install chrome --base-url="https://registry.npmmirror.com/-/binary/chrome-for-testing"
+```
+
+### Cannot click the dropdown
+
+If the dropdown options do not appear in the report screenshot after you click the field, the page is usually using a native `select` element. In that case, the expanded dropdown is rendered by the operating system instead of inside the webpage.
+
+Midscene enables `forceChromeSelectRendering` by default to force Chrome to render the dropdown; set it to `false` to opt out. For the detailed explanation and how to confirm the issue, see [Playwright FAQ — Cannot click the dropdown](./sdk/playwright#cannot-click-the-dropdown).
+
+### The webpage continues to flash when running in headed mode
+
+This is caused by a mismatch between the viewport's `deviceScaleFactor` and the system pixel ratio. Set `deviceScaleFactor` to `0` to automatically use the device pixel ratio:
+
+```typescript
+await page.setViewport({
+  width: 1280,
+  height: 720,
+  deviceScaleFactor: 0,
+});
+```
+
+For more details, see [Playwright FAQ — The webpage continues to flash](./sdk/playwright#the-webpage-continues-to-flash-when-running-in-headed-mode).
+
+### Customize the network timeout
+
+Use `waitForNavigationTimeout` and `waitForNetworkIdleTimeout` to adjust or disable the built-in checks. See [Configuration options](#web-options).

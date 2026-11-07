@@ -1,0 +1,323 @@
+import { useMemo, useState } from "react";
+import { ParametersState } from "../types";
+import { WorkflowParameterEditPanel } from "./WorkflowParameterEditPanel";
+import { MixerVerticalIcon, PlusIcon } from "@radix-ui/react-icons";
+import { Button } from "@/components/ui/button";
+import { GarbageIcon } from "@/components/icons/GarbageIcon";
+import { useNodes, useReactFlow } from "@xyflow/react";
+import { useWorkflowHasChangesStore } from "@/store/WorkflowHasChangesStore";
+import { useWorkflowParametersStore } from "@/store/WorkflowParametersStore";
+import { refuseMutationDuringYamlCommit } from "@/store/WorkflowYamlEditorStore";
+import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  WorkflowEditorParameterType,
+  WorkflowEditorParameterTypes,
+} from "../../types/workflowTypes";
+import {
+  getAffectedBlocks,
+  getLabelForWorkflowParameterType,
+  removeJinjaReferenceFromNodes,
+  removeKeyFromNodesParameterKeys,
+} from "../workflowEditorUtils";
+import { renameParameterInNodes, replaceParameter } from "../parameterEdits";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AffectedBlocksNotice } from "../AffectedBlocksNotice";
+import { inputDeleteTarget } from "../jinjaReferences";
+import { AppNode } from "../nodes";
+import { cn } from "@/util/utils";
+import { useStudioNarrow } from "../../studio/useStudioNarrow";
+
+const WORKFLOW_EDIT_PANEL_WIDTH = 20 * 16;
+const WORKFLOW_EDIT_PANEL_GAP = 1 * 16;
+
+interface Props {
+  onMouseDownCapture?: () => void;
+}
+
+function WorkflowParametersPanel({ onMouseDownCapture }: Props) {
+  const setHasChanges = useWorkflowHasChangesStore(
+    (state) => state.setHasChanges,
+  );
+  const {
+    parameters: workflowParameters,
+    setParametersFromUser: setWorkflowParameters,
+  } = useWorkflowParametersStore();
+  const [operationPanelState, setOperationPanelState] = useState<{
+    active: boolean;
+    operation: "add" | "edit";
+    parameter?: ParametersState[number] | null;
+    type: WorkflowEditorParameterType;
+  }>({
+    active: false,
+    operation: "add",
+    parameter: null,
+    type: "workflow",
+  });
+  const [deleteDialogState, setDeleteDialogState] = useState<{
+    open: boolean;
+    parameterKey: string | null;
+  }>({
+    open: false,
+    parameterKey: null,
+  });
+  const nodes = useNodes<AppNode>();
+  const { setNodes } = useReactFlow();
+  // A phone has no room beside the panel, so the form opens over it.
+  const narrow = useStudioNarrow();
+
+  const parameterToDelete = workflowParameters.find(
+    (p) => p.key === deleteDialogState.parameterKey,
+  );
+  const affectedBlocksForDelete = useMemo(
+    () =>
+      parameterToDelete
+        ? getAffectedBlocks(nodes, inputDeleteTarget(parameterToDelete))
+        : [],
+    [nodes, parameterToDelete],
+  );
+
+  const handleDeleteParameter = (parameter: ParametersState[number]) => {
+    if (refuseMutationDuringYamlCommit()) return;
+    const target = inputDeleteTarget(parameter);
+    setWorkflowParameters(
+      workflowParameters.filter((p) => p.key !== parameter.key),
+    );
+    setHasChanges(true);
+    setNodes((nodes) =>
+      target.parameterKeys.reduce(
+        (updated, key) => removeKeyFromNodesParameterKeys(updated, key),
+        removeJinjaReferenceFromNodes(nodes, target.jinjaKeys),
+      ),
+    );
+    setDeleteDialogState({ open: false, parameterKey: null });
+  };
+
+  return (
+    <div
+      className="relative z-10 w-[min(25rem,calc(100vw-2.5rem))] rounded-xl border border-border bg-background p-5 shadow-xl"
+      onMouseDownCapture={() => onMouseDownCapture?.()}
+    >
+      <div className="space-y-4">
+        <header>
+          <h1 className="text-lg">Inputs</h1>
+          <span className="text-sm text-muted-foreground">
+            Create placeholder values that you can link in nodes. You will be
+            prompted to fill them in before running your agent.
+          </span>
+        </header>
+        <Button
+          className="w-full"
+          onClick={() => {
+            if (refuseMutationDuringYamlCommit()) return;
+            setOperationPanelState({
+              active: true,
+              operation: "add",
+              type: WorkflowEditorParameterTypes.Workflow,
+            });
+          }}
+        >
+          <PlusIcon className="mr-2 h-6 w-6" />
+          Add Input
+        </Button>
+
+        <ScrollArea>
+          <ScrollAreaViewport className="max-h-96">
+            <section className="space-y-2">
+              {workflowParameters.map((parameter) => {
+                return (
+                  <div
+                    key={parameter.key}
+                    className="flex items-center justify-between gap-2 overflow-hidden rounded-md bg-slate-elevation1 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="min-w-0 max-w-[12rem] truncate text-sm">
+                              {parameter.key}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {parameter.key}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      {parameter.parameterType === "workflow" ? (
+                        <span className="shrink-0 text-sm text-muted-foreground">
+                          {getLabelForWorkflowParameterType(parameter.dataType)}
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-sm text-muted-foreground">
+                          {parameter.parameterType === "onepassword" ||
+                          parameter.parameterType === "secret" ||
+                          parameter.parameterType === "creditCardData"
+                            ? "credential"
+                            : parameter.parameterType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <MixerVerticalIcon
+                        className="cursor-pointer"
+                        onClick={() => {
+                          if (refuseMutationDuringYamlCommit()) return;
+                          setOperationPanelState({
+                            active: true,
+                            operation: "edit",
+                            parameter: parameter,
+                            type:
+                              parameter.parameterType === "context"
+                                ? WorkflowEditorParameterTypes.Context
+                                : WorkflowEditorParameterTypes.Workflow,
+                          });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (refuseMutationDuringYamlCommit()) return;
+                          const affected = getAffectedBlocks(
+                            nodes,
+                            inputDeleteTarget(parameter),
+                          );
+                          if (affected.length === 0) {
+                            handleDeleteParameter(parameter);
+                            return;
+                          }
+                          setDeleteDialogState({
+                            open: true,
+                            parameterKey: parameter.key,
+                          });
+                        }}
+                      >
+                        <GarbageIcon className="size-4 cursor-pointer text-destructive-foreground text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          </ScrollAreaViewport>
+        </ScrollArea>
+      </div>
+      <ConfirmDialog
+        open={deleteDialogState.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteDialogState({ open: false, parameterKey: null });
+          }
+        }}
+        title={`Delete input "${deleteDialogState.parameterKey}"?`}
+        description="This input will be deleted from the agent."
+        reversible
+        onConfirm={() => {
+          if (parameterToDelete) {
+            handleDeleteParameter(parameterToDelete);
+          }
+        }}
+      >
+        <AffectedBlocksNotice affectedBlocks={affectedBlocksForDelete} />
+      </ConfirmDialog>
+      {operationPanelState.active && (
+        <div
+          className="absolute"
+          style={
+            narrow
+              ? { top: 0, left: 0, right: 0 }
+              : {
+                  top: 0,
+                  left:
+                    -1 * (WORKFLOW_EDIT_PANEL_WIDTH + WORKFLOW_EDIT_PANEL_GAP),
+                }
+          }
+        >
+          {operationPanelState.operation === "add" && (
+            <div
+              className={cn(
+                "rounded-xl border border-border bg-background p-5 px-2 shadow-xl",
+                narrow ? "w-full" : "w-80",
+              )}
+            >
+              <WorkflowParameterEditPanel
+                type={operationPanelState.type}
+                onSave={(parameter) => {
+                  if (refuseMutationDuringYamlCommit()) return;
+                  setWorkflowParameters([...workflowParameters, parameter]);
+                  setHasChanges(true);
+                  setOperationPanelState({
+                    active: false,
+                    operation: "add",
+                    type: "workflow",
+                  });
+                }}
+                onClose={() => {
+                  setOperationPanelState({
+                    active: false,
+                    operation: "add",
+                    type: "workflow",
+                  });
+                }}
+              />
+            </div>
+          )}
+          {operationPanelState.operation === "edit" &&
+            operationPanelState.parameter && (
+              <div
+                className={cn(
+                  "rounded-xl border border-border bg-background p-5 px-2 shadow-xl",
+                  narrow ? "w-full" : "w-80",
+                )}
+              >
+                <WorkflowParameterEditPanel
+                  key={operationPanelState.parameter?.key}
+                  type={operationPanelState.type}
+                  initialValues={operationPanelState.parameter}
+                  onSave={(editedParameter) => {
+                    if (refuseMutationDuringYamlCommit()) return;
+                    setHasChanges(true);
+                    const oldKey = operationPanelState.parameter?.key ?? "";
+                    setWorkflowParameters(
+                      replaceParameter(
+                        workflowParameters,
+                        oldKey,
+                        editedParameter,
+                      ),
+                    );
+                    setNodes((nodes) =>
+                      renameParameterInNodes(
+                        nodes,
+                        oldKey,
+                        editedParameter.key,
+                      ),
+                    );
+                    setOperationPanelState({
+                      active: false,
+                      operation: "edit",
+                      parameter: null,
+                      type: "workflow",
+                    });
+                  }}
+                  onClose={() => {
+                    setOperationPanelState({
+                      active: false,
+                      operation: "edit",
+                      parameter: null,
+                      type: "workflow",
+                    });
+                  }}
+                />
+              </div>
+            )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { WorkflowParametersPanel };

@@ -1,0 +1,221 @@
+from collections.abc import Sequence
+from enum import StrEnum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
+
+from skyvern.constants import ERROR_CODE_REASONING_MAX_LENGTH
+
+
+class ErrorType(StrEnum):
+    USER_DEFINED_ERROR = "USER_DEFINED_ERROR"
+    SYSTEM_DEFINED_ERROR = "SYSTEM_DEFINED_ERROR"
+
+
+class UserDefinedError(BaseModel):
+    error_code: str
+    reasoning: str
+    confidence_float: float = Field(..., ge=0, le=1)
+    error_type: Literal[ErrorType.USER_DEFINED_ERROR] = ErrorType.USER_DEFINED_ERROR
+    # Private so no LLM or API payload can set it; only SkyvernDefinedError.to_user_defined_error does.
+    _skyvern_defined: bool = PrivateAttr(default=False)
+
+    @property
+    def is_skyvern_defined(self) -> bool:
+        return self._skyvern_defined
+
+    @field_validator("reasoning")
+    @classmethod
+    def _bound_reasoning(cls, value: str) -> str:
+        # reasoning is LLM-authored and reaches the customer over the task webhook, in a column that
+        # appends rather than replaces. Truncate rather than reject: dropping the error would lose
+        # the error_code, which is the half callers act on, to save the narration tail.
+        # rstrip because _strict_user_defined_error_payload drops any reasoning that is not
+        # strip()-clean, so a cut landing on whitespace would discard the whole row.
+        # NOT a universal guarantee: model_copy(update=...) skips field validators, so a caller
+        # rebuilding reasoning that way must bound it itself.
+        if len(value) <= ERROR_CODE_REASONING_MAX_LENGTH:
+            return value
+        cut = value[:ERROR_CODE_REASONING_MAX_LENGTH]
+        # Fall back to the un-stripped slice rather than emptying it: the payload check drops an
+        # empty reasoning too, which loses the error_code this truncation exists to preserve.
+        return cut.rstrip() or cut
+
+    def __repr__(self) -> str:
+        return f"{self.reasoning}(error_code={self.error_code}, confidence_float={self.confidence_float})"
+
+
+def filter_to_user_defined_codes(
+    errors: list[UserDefinedError],
+    error_code_mapping: dict[str, str] | None,
+) -> tuple[list[UserDefinedError], list[str]]:
+    """Drop LLM-returned errors whose code is not a key in error_code_mapping.
+
+    LLM-based error surfacing prompts occasionally hallucinate codes from the
+    failure_categories taxonomy (e.g. LLM_REASONING_ERROR) and place them in
+    the user-defined errors field. Returns (kept, dropped_codes) so callers
+    can log the drop with their own task/step context.
+    """
+    if not error_code_mapping:
+        return [], [error.error_code for error in errors]
+    kept: list[UserDefinedError] = []
+    dropped: list[str] = []
+    for error in errors:
+        key = resolve_error_code_mapping_key(error.error_code, error_code_mapping)
+        if key is None:
+            dropped.append(error.error_code)
+        else:
+            kept.append(error if key == error.error_code else error.model_copy(update={"error_code": key}))
+    return kept, dropped
+
+
+def resolve_error_code_mapping_key(code: object, error_code_mapping: dict[str, str] | None) -> str | None:
+    """Return the error_code_mapping key that `code` names: an exact match, else the only case-insensitive one."""
+    if not isinstance(code, str) or not error_code_mapping:
+        return None
+    if code in error_code_mapping:
+        return code
+    matches = [key for key in error_code_mapping if key.lower() == code.lower()]
+    return matches[0] if len(matches) == 1 else None
+
+
+BROWSER_DOWNLOAD_PARTIAL_FAILURE_CODE = "BROWSER_DOWNLOAD_PARTIAL_FAILURE"
+BROWSER_DOWNLOAD_LIMIT_EXCEEDED_CODE = "BROWSER_DOWNLOAD_LIMIT_EXCEEDED"
+BROWSER_DOWNLOAD_FAILED_CODE = "BROWSER_DOWNLOAD_FAILED"
+BROWSER_DOWNLOAD_FAILED_REASON = "The requested browser download could not be saved."
+
+
+def drop_unsolicited_download_errors(
+    errors: list[dict[str, Any]],
+    *,
+    downloaded_files: Sequence[object] | None,
+) -> list[dict[str, Any]]:
+    """Keep the unsolicited-download failure only when a file lookup confirms that none landed.
+
+    ``None`` means the caller never fetched the files, so it cannot support the failure's no-file claim.
+    """
+    if downloaded_files is not None and not downloaded_files:
+        return errors
+    return [error for error in errors if error.get("error_code") != BROWSER_DOWNLOAD_PARTIAL_FAILURE_CODE]
+
+
+def drop_requested_download_failure_reasons(reasons: list[str], *, materialized_a_file: bool) -> list[str]:
+    """Keep the requested-download capture failure only while no file landed for that request.
+
+    A portal can serve an error page or session gate next to the real file, and the refused capture
+    outlives the download because the file often arrives by a route the interceptor never accounts for.
+    A cap breach keeps its own reason, and so does a file lost after it was saved.
+    """
+    if not materialized_a_file:
+        return reasons
+    return [reason for reason in reasons if reason != BROWSER_DOWNLOAD_FAILED_REASON]
+
+
+class SkyvernDefinedError(BaseModel):
+    error_code: str
+    reasoning: str
+    error_type: Literal[ErrorType.SYSTEM_DEFINED_ERROR] = ErrorType.SYSTEM_DEFINED_ERROR
+
+    def __repr__(self) -> str:
+        return f"{self.reasoning}(error_code={self.error_code})"
+
+    def to_user_defined_error(self) -> UserDefinedError:
+        error = UserDefinedError(error_code=self.error_code, reasoning=self.reasoning, confidence_float=1.0)
+        error._skyvern_defined = True
+        return error
+
+
+class ReachMaxStepsError(SkyvernDefinedError):
+    error_code: str = "REACH_MAX_STEPS"
+    reasoning: str = "The agent has reached the maximum number of steps."
+
+
+class ReachMaxRetriesError(SkyvernDefinedError):
+    error_code: str = "REACH_MAX_RETRIES"
+    reasoning: str = "The agent has reached the maximum number of retries. It might be an issue with the agent. Please reach out to the Skyvern team for support."
+
+
+class GetTOTPVerificationCodeError(SkyvernDefinedError):
+    error_code: str = "OTP_ERROR"
+    reasoning: str = (
+        "Failed to get TOTP verification code. Please confirm the TOTP functionality is working correctly on your side."
+    )
+
+    def __init__(self, *, reason: str | None = None) -> None:
+        reasoning = f"Failed to get TOTP verification code. Reason: {reason}" if reason else self.reasoning
+        super().__init__(reasoning=reasoning)
+
+
+class TimeoutGetTOTPVerificationCodeError(SkyvernDefinedError):
+    error_code: str = "OTP_TIMEOUT"
+    reasoning: str = "Timeout getting TOTP verification code."
+
+
+class TOTPExpiredError(SkyvernDefinedError):
+    error_code: str = "OTP_EXPIRED"
+    reasoning: str = "TOTP verification code has expired during multi-field input sequence."
+
+
+class OTPOutcomeUnconfirmedError(SkyvernDefinedError):
+    error_code: str = "OTP_OUTCOME_UNCONFIRMED"
+    reasoning: str = (
+        "The one-time code was entered, but the site did not confirm whether it was accepted before the page load "
+        "timeout. The same code was not entered again."
+    )
+
+
+class MissingTOTPSourceError(SkyvernDefinedError):
+    error_code: str = "MISSING_TOTP_SOURCE"
+    reasoning: str = (
+        "MFA was required but no TOTP source is configured. Configure one of: a totp_verification_url or "
+        "totp_identifier on the login block (or run override), or attach a credential parameter whose "
+        "credential stores a TOTP secret."
+    )
+
+
+ANTI_BOT_ERROR_CODE = "ANTI_BOT_ERROR"
+# The service-specific code reported alongside ANTI_BOT_ERROR when the qualifying evidence names that service.
+ANTI_BOT_SERVICE_ERROR_CODES: dict[str, str] = {
+    "recaptcha": "RECAPTCHA_ERROR",
+    "hcaptcha": "HCAPTCHA_ERROR",
+    "cloudflare_turnstile": "CLOUDFLARE_TURNSTILE_ERROR",
+    # Cloudflare challenged or blocked; which Cloudflare product or rule did is not known.
+    "cloudflare": "CLOUDFLARE_ERROR",
+}
+ANTI_BOT_SYSTEM_ERROR_CODES = frozenset({ANTI_BOT_ERROR_CODE, *ANTI_BOT_SERVICE_ERROR_CODES.values()})
+_ANTI_BOT_SERVICE_NAMES = {
+    "recaptcha": "reCAPTCHA",
+    "hcaptcha": "hCaptcha",
+    "cloudflare_turnstile": "Cloudflare Turnstile",
+    "cloudflare": "Cloudflare",
+}
+
+
+def anti_bot_system_errors(services: Sequence[str | None]) -> list[SkyvernDefinedError]:
+    """The general anti-bot error, then one per distinct supported service, for qualified failure evidence; empty
+    when there is none. An unrecognized or unknown service reports the general error alone."""
+    if not services:
+        return []
+    errors = [
+        SkyvernDefinedError(
+            error_code=ANTI_BOT_ERROR_CODE,
+            reasoning="A bot-protection block or unresolved challenge was recorded during this failed attempt.",
+        )
+    ]
+    for service in dict.fromkeys(s for s in services if s in ANTI_BOT_SERVICE_ERROR_CODES):
+        errors.append(
+            SkyvernDefinedError(
+                error_code=ANTI_BOT_SERVICE_ERROR_CODES[service],
+                reasoning=f"A {_ANTI_BOT_SERVICE_NAMES[service]} block or unresolved challenge was recorded during "
+                "this failed attempt.",
+            )
+        )
+    return errors
+
+
+def is_anti_bot_system_error(error: object) -> bool:
+    return (
+        isinstance(error, dict)
+        and error.get("error_type") == ErrorType.SYSTEM_DEFINED_ERROR.value
+        and error.get("error_code") in ANTI_BOT_SYSTEM_ERROR_CODES
+    )
