@@ -71,6 +71,11 @@ class RunProgressServiceTest {
             RunProgressService.caseStarted(cr);
             cr.setStatus("PASSED");
             RunProgressService.caseFinished(cr);
+            for (int i = 0; i < 50 && n.get() < 3; i++) {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException ignored) {}
+            }
             assertTrue(n.get() >= 3);
         } finally {
             RunProgressService.removeListener(listener);

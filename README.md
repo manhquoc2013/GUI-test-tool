@@ -23,6 +23,12 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
 
 ## Features
 
+- **Modern Pro IDE UI/UX Redesign** — Ergonomic, productivity-first desktop workspace inspired by VS Code, IntelliJ, and Linear:
+  - **Multi-Tab Document Bar System**: Work with multiple open Suites, Reports, Explorer, and AI Assistant simultaneously with dirty state tracking (`● Chưa lưu`), tab switching, and close handling.
+  - **Dynamic Breadcrumb Navigation**: Real-time context tracking in header (`Dự án > Nhóm > Suite > Case`) so you always know where you are.
+  - **Explorer with Inline Hover Actions & Filter Chips**: Quick actions appear right on hover (`[▶️ Chạy]`, `[+ Thêm]`, `[✏️ Sửa]`, `[📋 Sao chép]`), plus instant search and status chips (`[Tất cả]`, `[🟢 Hoạt động]`, `[📝 Nháp]`, `[⚪ Ngừng]`).
+  - **Consolidated Workspace Action Bar**: Single-row action bar grouping Case title & status badge, Start URL field, `[🔴 Ghi hình]`, `[▶️ Chạy case]`, `[▶️ Chạy suite]`, `[✨ AI Hỗ trợ]`, `[💾 Lưu code]`, and layout toggles.
+  - **Side-by-Side Split View for Code & Asserts**: Inspect and modify test scripts and assertions simultaneously with `[◫ Chia đôi]` or collapse into `[🗖 Toàn màn hình Code]`.
 - **AI Assistant with OpenAI Integration** — Built-in AI assistant powered by OpenAI models (`gpt-4o`, `gpt-4o-mini`, `o3-mini`, `o1`) or compatible endpoints (Azure, OpenRouter, LocalAI, Ollama):
   - **Natural language test generation**: Describe your test scenarios in plain text, and AI generates full Playwright Java scripts and structured assertions.
   - **Multi-format document parsing**: Upload requirements or specifications directly from `.txt`, `.md`, `.json`, `.csv`, Word (`.docx`), PDF (`.pdf`), and UI screenshots/mockups (`.png`, `.jpg`).

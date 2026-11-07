@@ -34,14 +34,28 @@ public class ViewNavigator {
     }
 
     private static StackPane contentArea;
+    private static TabManager tabManager;
     private static final Map<Page, Node> pageCache = new HashMap<>();
     private static final Map<Page, Object> controllerCache = new HashMap<>();
     private static Page currentPage;
 
     public static void init(StackPane content) {
+        init(content, null);
+    }
+
+    public static void init(StackPane content, TabManager tm) {
         contentArea = content;
+        tabManager = tm;
         pageCache.clear();
         controllerCache.clear();
+    }
+
+    public static void setTabManager(TabManager tm) {
+        tabManager = tm;
+    }
+
+    public static TabManager getTabManager() {
+        return tabManager;
     }
 
     public static void navigateTo(Page page) {
@@ -58,7 +72,19 @@ public class ViewNavigator {
                 pageCache.put(page, node);
                 controllerCache.put(page, loader.getController());
             }
-            showPage(node);
+            if (tabManager != null) {
+                String tabId = "PAGE_" + page.name();
+                String icon = switch (page) {
+                    case EXPLORER -> "🧭";
+                    case REPORTS -> "📊";
+                    case AI_ASSISTANT -> "🤖";
+                    default -> "📄";
+                };
+                boolean closable = (page != Page.EXPLORER);
+                tabManager.openTab(tabId, page.title, icon, node, closable, null, controllerCache.get(page));
+            } else {
+                showPage(node);
+            }
             currentPage = page;
             onPageShown(page);
         } catch (Exception e) {
@@ -107,10 +133,25 @@ public class ViewNavigator {
     public static SuiteWorkspacePageController navigateToWorkspace(String groupPath, String suiteName, Path suiteDir) {
         if (contentArea == null) return null;
         try {
+            String tabId = "SUITE:" + (suiteDir != null ? suiteDir.toString() : suiteName);
+            if (tabManager != null && tabManager.hasTab(tabId)) {
+                tabManager.selectTab(tabId);
+                TabManager.StudioTab tab = tabManager.getTab(tabId);
+                if (tab != null && tab.getController() instanceof SuiteWorkspacePageController c) {
+                    return c;
+                }
+            }
+
             FXMLLoader loader = new FXMLLoader(ViewNavigator.class.getResource("/fxml/suite_workspace_page.fxml"));
             Node node = loader.load();
             SuiteWorkspacePageController ctrl = loader.getController();
-            showPage(node);
+
+            if (tabManager != null) {
+                tabManager.openTab(tabId, suiteName, "📋", node, true, null, ctrl);
+            } else {
+                showPage(node);
+            }
+
             currentPage = null;
             MainShellController shell = MainShellController.getInstance();
             if (shell != null) {
@@ -158,11 +199,27 @@ public class ViewNavigator {
     public static ReportDetailPageController navigateToReportDetail(String runId) {
         if (contentArea == null) return null;
         try {
+            String tabId = "REPORT:" + runId;
+            if (tabManager != null && tabManager.hasTab(tabId)) {
+                tabManager.selectTab(tabId);
+                TabManager.StudioTab tab = tabManager.getTab(tabId);
+                if (tab != null && tab.getController() instanceof ReportDetailPageController c) {
+                    return c;
+                }
+            }
+
             FXMLLoader loader = new FXMLLoader(ViewNavigator.class.getResource("/fxml/report_detail_page.fxml"));
             Node node = loader.load();
             ReportDetailPageController ctrl = loader.getController();
             ctrl.loadReport(runId);
-            showPage(node);
+
+            if (tabManager != null) {
+                String title = "Báo cáo " + (runId.length() > 8 ? runId.substring(runId.length() - 8) : runId);
+                tabManager.openTab(tabId, title, "📊", node, true, null, ctrl);
+            } else {
+                showPage(node);
+            }
+
             currentPage = Page.REPORT_DETAIL;
             return ctrl;
         } catch (Exception e) {

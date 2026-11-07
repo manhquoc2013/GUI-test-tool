@@ -2,9 +2,7 @@
 
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
-<?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.StackPane?>
-<?import javafx.scene.control.ToolBar?>
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.CheckBox?>
@@ -12,8 +10,6 @@
 <?import javafx.scene.control.ListView?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
-<?import javafx.scene.control.TabPane?>
-<?import javafx.scene.control.Tab?>
 <?import javafx.scene.control.SplitPane?>
 <?import javafx.scene.control.Separator?>
 <?import javafx.geometry.Insets?>
@@ -22,31 +18,42 @@
       fx:controller="com.studio.controller.SuiteWorkspacePageController"
       styleClass="workspace-page">
 
-    <!-- Row 1: navigation -->
-    <HBox styleClass="page-toolbar" spacing="10" alignment="CENTER_LEFT">
-        <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
+    <!-- Unified Consolidated Action Bar -->
+    <HBox styleClass="workspace-action-bar" spacing="10" alignment="CENTER_LEFT">
+        <padding><Insets top="8" right="12" bottom="8" left="12"/></padding>
         <Button text="◀️ Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
-        <Separator orientation="VERTICAL"/>
+        <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
         <Label fx:id="breadcrumbLabel" text="Suite: " styleClass="breadcrumb"/>
-        <HBox HBox.hgrow="ALWAYS"/>
-        <Label fx:id="selectedCaseHint" text="👆 Chọn một case bên trái" styleClass="toolbar-label"/>
+        <Label fx:id="selectedCaseHint" text="👆 Chọn một case bên trái" styleClass="workspace-case-badge"/>
+
+        <HBox HBox.hgrow="ALWAYS" alignment="CENTER_LEFT" spacing="8">
+            <Label text="🌐 URL:" styleClass="field-label-sm"/>
+            <TextField fx:id="startUrlField" promptText="https://example.com — dùng khi ghi hình / chạy"
+                       HBox.hgrow="ALWAYS" styleClass="url-field"/>
+        </HBox>
+
+        <HBox spacing="6" alignment="CENTER_RIGHT" styleClass="workspace-btn-group">
+            <Button text="🔴 Ghi hình" fx:id="recordBtn" onAction="#startRecord" styleClass="toolbar-btn-record"/>
+            <Button text="▶️ Chạy case" fx:id="runCaseBtn" onAction="#runCase" styleClass="toolbar-btn-run-case"/>
+            <Button text="▶️ Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
+            <Button text="✨ AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
+            <Button text="💾 Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
+            <Button text="◫ Chia đôi" fx:id="toggleSplitBtn" onAction="#toggleSplitLayout" styleClass="btn-layout-toggle"/>
+        </HBox>
+
+        <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
+        <HBox spacing="8" alignment="CENTER_RIGHT">
+            <CheckBox fx:id="stopOnFirstFailureCheck" text="⏹️ Dừng khi lỗi" styleClass="workspace-check"/>
+            <CheckBox fx:id="shareContextCheck" text="🧩 Chung context" selected="true" styleClass="workspace-check"/>
+        </HBox>
     </HBox>
 
-    <!-- Row 2: actions -->
-    <HBox styleClass="page-toolbar" spacing="8" alignment="CENTER_RIGHT">
-        <padding><Insets top="4" right="10" bottom="6" left="10"/></padding>
-        <HBox HBox.hgrow="ALWAYS"/>
-        <Button text="▶️ Chạy suite" fx:id="runSuiteBtn" onAction="#runSuite" styleClass="toolbar-btn-run"/>
-        <CheckBox fx:id="stopOnFirstFailureCheck" text="⏹️ Dừng khi lỗi đầu tiên"/>
-        <CheckBox fx:id="shareContextCheck" text="🧩 Dùng chung ngữ cảnh" selected="true"/>
-    </HBox>
-
-    <SplitPane dividerPositions="0.28" VBox.vgrow="ALWAYS">
-        <VBox styleClass="case-list-panel">
+    <SplitPane fx:id="mainSplitPane" dividerPositions="0.25" VBox.vgrow="ALWAYS">
+        <!-- Left: Case list panel -->
+        <VBox styleClass="case-list-panel" minWidth="200" prefWidth="260">
             <HBox styleClass="section-header-row" spacing="8" alignment="CENTER_LEFT">
-                <padding><Insets top="8" right="8" bottom="4" left="8"/></padding>
-                <Label text="🎯 Danh sách Case" styleClass="section-header"/>
-                <HBox HBox.hgrow="ALWAYS"/>
+                <padding><Insets top="8" right="8" bottom="6" left="8"/></padding>
+                <Label text="🎯 Danh sách Case" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                 <Button text="🎯 Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
             </HBox>
             <HBox spacing="8" alignment="CENTER_LEFT">
@@ -55,8 +62,11 @@
             </HBox>
             <ListView fx:id="caseListView" VBox.vgrow="ALWAYS" styleClass="case-list"/>
         </VBox>
+
+        <!-- Right: Workspace Main Content -->
         <VBox spacing="0" VBox.vgrow="ALWAYS">
             <StackPane VBox.vgrow="ALWAYS" styleClass="workspace-main">
+                <!-- Suite Info Panel (when no case selected) -->
                 <VBox fx:id="suiteInfoPanel" styleClass="suite-info-panel" spacing="14" visible="true" managed="true">
                     <padding><Insets top="24" right="28" bottom="24" left="28"/></padding>
                     <Label text="📋 Thông tin Suite" styleClass="suite-info-heading"/>
@@ -68,44 +78,48 @@
                     <Label fx:id="suiteInfoStatus" styleClass="preview-status" visible="false" managed="false"/>
                     <Label fx:id="suiteInfoStats" styleClass="preview-stats" wrapText="true"/>
                     <Label text="Mô tả" styleClass="field-label"/>
-                    <Label fx:id="suiteInfoDesc" styleClass="preview-desc" wrapText="true"
-                           text="Chưa có mô tả"/>
-                    <Label text="👆 Suite phải Đang hoạt động mới hiện nút Chạy. Chọn case bên trái để mở Code / Asserts."
+                    <Label fx:id="suiteInfoDesc" styleClass="preview-desc" wrapText="true" text="Chưa có mô tả"/>
+                    <Label text="💡 Chọn một case bên trái để mở Code Editor và Asserts song song, hoặc ấn Ghi hình."
                            styleClass="toolbar-label" wrapText="true"/>
                     <HBox spacing="8" alignment="CENTER_LEFT">
                         <Button text="🎯 Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
                     </HBox>
                 </VBox>
-                <TabPane fx:id="workspaceTabs" VBox.vgrow="ALWAYS" styleClass="workspace-tabs"
-                         visible="false" managed="false">
-                    <Tab fx:id="codeTab" text="📝 Code" closable="false">
-                        <VBox spacing="0" VBox.vgrow="ALWAYS">
-                            <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row code-editor-toolbar">
-                                <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
-                                <Label text="🔗 URL" styleClass="field-label"/>
-                                <TextField fx:id="startUrlField" promptText="URL case — dùng khi ghi hình"
-                                           HBox.hgrow="ALWAYS" styleClass="url-field"/>
-                                <Button text="✨ AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-secondary"/>
-                                <Button text="💾 Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
-                            </HBox>
-                            <TextArea fx:id="codeEditor" styleClass="code-editor" wrapText="false"
-                                      editable="true" VBox.vgrow="ALWAYS"
-                                      promptText="// Chọn một test case, rồi Ghi hình hoặc sửa code tại đây"/>
-                        </VBox>
-                    </Tab>
-                    <Tab text="☑️ Asserts" closable="false">
-                        <VBox spacing="8" styleClass="asserts-panel">
-                            <padding><Insets top="10" right="10" bottom="10" left="10"/></padding>
-                            <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
-                                <TextField fx:id="assertSearchField" promptText="🔍 Tìm assert…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
-                                <ComboBox fx:id="assertTypeFilter" prefWidth="180" promptText="🔍 Lọc theo loại"/>
-                                <Button text="☑️ Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn"/>
-                            </HBox>
-                            <ListView fx:id="assertListView" VBox.vgrow="ALWAYS" styleClass="assert-list"/>
-                        </VBox>
-                    </Tab>
-                </TabPane>
+
+                <!-- Side-by-Side View: Code Editor (Left) + Assertions Catalog (Right) -->
+                <SplitPane fx:id="workspaceSplitPane" dividerPositions="0.62" VBox.vgrow="ALWAYS"
+                           styleClass="workspace-split" visible="false" managed="false">
+                    <!-- Left: Code Editor -->
+                    <VBox fx:id="codePanel" spacing="0" styleClass="code-panel">
+                        <HBox styleClass="editor-header-bar" spacing="8" alignment="CENTER_LEFT">
+                            <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
+                            <Label text="📝 Playwright Test Code" styleClass="editor-title-label"/>
+                            <Label fx:id="codeDirtyLabel" text="● Chưa lưu" styleClass="code-dirty-tag" visible="false" managed="false"/>
+                            <HBox HBox.hgrow="ALWAYS"/>
+                            <Label fx:id="codeStatsLabel" text="Java Playwright Script" styleClass="editor-stats-label"/>
+                        </HBox>
+                        <TextArea fx:id="codeEditor" styleClass="code-editor" wrapText="false"
+                                  editable="true" VBox.vgrow="ALWAYS"
+                                  promptText="// Chọn một test case, rồi Ghi hình hoặc sửa code tại đây"/>
+                    </VBox>
+
+                    <!-- Right: Asserts Catalog & Manager -->
+                    <VBox fx:id="assertsPanel" spacing="8" styleClass="asserts-panel">
+                        <padding><Insets top="8" right="10" bottom="10" left="10"/></padding>
+                        <HBox spacing="8" alignment="CENTER_LEFT" styleClass="asserts-header-row">
+                            <Label text="☑️ Danh mục Asserts" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                            <Button text="➕ Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn"/>
+                        </HBox>
+                        <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
+                            <TextField fx:id="assertSearchField" promptText="🔍 Tìm assert…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
+                            <ComboBox fx:id="assertTypeFilter" prefWidth="150" promptText="Loại assert"/>
+                        </HBox>
+                        <ListView fx:id="assertListView" VBox.vgrow="ALWAYS" styleClass="assert-list"/>
+                    </VBox>
+                </SplitPane>
             </StackPane>
+
+            <!-- Bottom: Terminal Panel -->
             <VBox fx:id="terminalPanel" styleClass="terminal-panel" visible="false" managed="false">
                 <HBox styleClass="terminal-header" spacing="4">
                     <Label text="⌨️ Terminal" styleClass="terminal-title"/>

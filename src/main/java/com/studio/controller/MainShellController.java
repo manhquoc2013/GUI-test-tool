@@ -13,6 +13,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseEvent;
@@ -39,6 +40,9 @@ public class MainShellController implements Initializable {
 
     @FXML private StackPane contentArea;
     @FXML private StackPane shellStack;
+    @FXML private HBox tabContainer;
+    @FXML private ScrollPane tabScrollPane;
+    @FXML private Label headerBreadcrumb;
     @FXML private VBox sidebar;
     @FXML private Button navExplorerBtn;
     @FXML private Button navReportsBtn;
@@ -67,6 +71,7 @@ public class MainShellController implements Initializable {
     private boolean helpVisible = false;
     private String activeSuiteName;
     private Path activeSuiteDir;
+    private TabManager tabManager;
 
     public static MainShellController getInstance() {
         return instance;
@@ -77,7 +82,13 @@ public class MainShellController implements Initializable {
         instance = this;
         ToastService.setToastContainer(toastContainer);
         StatusBarService.setStatusLabel(statusLabel);
-        ViewNavigator.init(contentArea);
+        if (tabContainer != null) {
+            tabManager = new TabManager(tabContainer, contentArea);
+            tabManager.setOnTabSelectedListener(this::updateBreadcrumbForTab);
+            ViewNavigator.init(contentArea, tabManager);
+        } else {
+            ViewNavigator.init(contentArea);
+        }
         ViewNavigator.navigateTo(ViewNavigator.Page.EXPLORER);
         setActiveNavButton(navExplorerBtn);
         setActiveWorkspace(null, null);
@@ -635,8 +646,44 @@ public class MainShellController implements Initializable {
     private void setActiveNavButton(Button active) {
         navExplorerBtn.getStyleClass().remove("active");
         navReportsBtn.getStyleClass().remove("active");
-        if (!active.getStyleClass().contains("active")) {
+        if (navAiBtn != null) {
+            navAiBtn.getStyleClass().remove("active");
+        }
+        if (active != null && !active.getStyleClass().contains("active")) {
             active.getStyleClass().add("active");
         }
+    }
+
+    private void updateBreadcrumbForTab(TabManager.StudioTab tab) {
+        if (tab == null) return;
+        String id = tab.getId();
+        if ("PAGE_EXPLORER".equals(id)) {
+            setBreadcrumb("Dự án > 🧭 Khám phá");
+            setActiveNavButton(navExplorerBtn);
+        } else if ("PAGE_REPORTS".equals(id)) {
+            setBreadcrumb("Dự án > 📊 Báo cáo");
+            setActiveNavButton(navReportsBtn);
+        } else if ("PAGE_AI_ASSISTANT".equals(id)) {
+            setBreadcrumb("Dự án > 🤖 Trợ lý AI");
+            setActiveNavButton(navAiBtn);
+        } else if (id.startsWith("SUITE:")) {
+            setBreadcrumb("Dự án > 📋 " + tab.getTitle());
+            setActiveNavButton(null);
+        } else if (id.startsWith("REPORT:")) {
+            setBreadcrumb("Dự án > 📊 Báo cáo > " + tab.getTitle());
+            setActiveNavButton(navReportsBtn);
+        } else {
+            setBreadcrumb("Dự án > " + tab.getTitle());
+        }
+    }
+
+    public void setBreadcrumb(String text) {
+        if (headerBreadcrumb != null) {
+            headerBreadcrumb.setText(text != null ? text : "Dự án");
+        }
+    }
+
+    public TabManager getTabManager() {
+        return tabManager;
     }
 }

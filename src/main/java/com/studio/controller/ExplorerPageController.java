@@ -52,6 +52,10 @@ public class ExplorerPageController {
     @FXML private Button runNodeBtn;
     @FXML private ComboBox<String> statusFilter;
     @FXML private TextField searchField;
+    @FXML private Button chipAll;
+    @FXML private Button chipActive;
+    @FXML private Button chipDraft;
+    @FXML private Button chipInactive;
     @FXML private Label previewName;
     @FXML private Label previewType;
     @FXML private Label previewStatus;
@@ -221,8 +225,14 @@ public class ExplorerPageController {
 
         projectTree.setCellFactory(tv -> {
             TreeCell<Object> cell = new TreeCell<>() {
-                private final HBox row = new HBox(8);
+                private final HBox row = new HBox(6);
                 private final Label nameLabel = new Label();
+                private final HBox actionsBox = new HBox(3);
+                private final Button runBtn = new Button("▶");
+                private final Button openBtn = new Button("📂");
+                private final Button addBtn = new Button("+");
+                private final Button editBtn = new Button("✏");
+                private final Button copyBtn = new Button("📋");
                 private final Label statusLabel = new Label();
 
                 {
@@ -231,9 +241,36 @@ public class ExplorerPageController {
                     nameLabel.getStyleClass().add("tree-row-name");
                     nameLabel.setMaxWidth(Double.MAX_VALUE);
                     HBox.setHgrow(nameLabel, Priority.ALWAYS);
+
+                    actionsBox.setAlignment(Pos.CENTER_RIGHT);
+                    actionsBox.getStyleClass().add("tree-cell-actions");
+                    actionsBox.setVisible(false);
+                    actionsBox.setManaged(false);
+
+                    for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn)) {
+                        btn.getStyleClass().add("tree-action-btn");
+                        btn.setFocusTraversable(false);
+                        btn.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, javafx.event.Event::consume);
+                        btn.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_CLICKED, javafx.event.Event::consume);
+                    }
+                    runBtn.getStyleClass().add("tree-action-run");
+                    runBtn.setTooltip(new Tooltip("Chạy ngay"));
+                    openBtn.setTooltip(new Tooltip("Mở trong Workspace"));
+                    addBtn.setTooltip(new Tooltip("Thêm mục mới"));
+                    editBtn.setTooltip(new Tooltip("Chỉnh sửa"));
+                    copyBtn.setTooltip(new Tooltip("Sao chép"));
+
+                    actionsBox.getChildren().addAll(runBtn, openBtn, addBtn, editBtn, copyBtn);
+
                     statusLabel.getStyleClass().add("tree-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
-                    row.getChildren().addAll(nameLabel, statusLabel);
+                    row.getChildren().addAll(nameLabel, actionsBox, statusLabel);
+
+                    hoverProperty().addListener((obs, wasHovered, isHovered) -> {
+                        boolean show = isHovered && !isEmpty() && getItem() != null;
+                        actionsBox.setVisible(show);
+                        actionsBox.setManaged(show);
+                    });
                 }
 
                 @Override
@@ -251,6 +288,8 @@ public class ExplorerPageController {
                     if (empty || item == null) {
                         setText(null);
                         setGraphic(null);
+                        actionsBox.setVisible(false);
+                        actionsBox.setManaged(false);
                         return;
                     }
                     nameLabel.setText(String.valueOf(item));
@@ -273,6 +312,53 @@ public class ExplorerPageController {
                                 UiMotion.startPulse(statusLabel);
                             }
                         }
+
+                        // Wire inline actions
+                        boolean isGroup = "group".equals(ref.type);
+                        boolean isSuite = "suite".equals(ref.type);
+                        boolean isCase = "case".equals(ref.type);
+                        boolean isRoot = isRootItem(treeItem);
+
+                        runBtn.setVisible(true);
+                        runBtn.setManaged(true);
+                        runBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            runSelected();
+                        });
+
+                        openBtn.setVisible(isSuite || isCase);
+                        openBtn.setManaged(isSuite || isCase);
+                        openBtn.setOnAction(e -> openWorkspaceForRef(ref));
+
+                        addBtn.setVisible(isGroup || isSuite);
+                        addBtn.setManaged(isGroup || isSuite);
+                        addBtn.setTooltip(new Tooltip(isGroup ? "Thêm Suite" : "Thêm Case"));
+                        addBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            if (isGroup) {
+                                addSuite();
+                            } else if (isSuite) {
+                                addCase();
+                            }
+                        });
+
+                        editBtn.setVisible(!isRoot);
+                        editBtn.setManaged(!isRoot);
+                        editBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            editSelectedEntity();
+                        });
+
+                        copyBtn.setVisible(isSuite || isCase);
+                        copyBtn.setManaged(isSuite || isCase);
+                        copyBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            copyItem();
+                        });
                     }
                     statusLabel.setText(statusText);
                     statusLabel.setVisible(!statusText.isEmpty());
@@ -839,7 +925,69 @@ public class ExplorerPageController {
     private void setupStatusFilter() {
         statusFilter.getItems().addAll(filterOptions);
         statusFilter.setValue(StatusDisplay.ALL_LABEL);
-        statusFilter.setOnAction(e -> refreshTree());
+        statusFilter.setOnAction(e -> {
+            syncFilterChipsWithCombo(statusFilter.getValue());
+            refreshTree();
+        });
+    }
+
+    @FXML
+    public void filterChipAll() {
+        setFilterChipActive(chipAll);
+        if (statusFilter != null) {
+            statusFilter.setValue(StatusDisplay.ALL_LABEL);
+        }
+        refreshTree();
+    }
+
+    @FXML
+    public void filterChipActive() {
+        setFilterChipActive(chipActive);
+        if (statusFilter != null) {
+            statusFilter.setValue(StatusDisplay.label("ACTIVE"));
+        }
+        refreshTree();
+    }
+
+    @FXML
+    public void filterChipDraft() {
+        setFilterChipActive(chipDraft);
+        if (statusFilter != null) {
+            statusFilter.setValue(StatusDisplay.label("DRAFT"));
+        }
+        refreshTree();
+    }
+
+    @FXML
+    public void filterChipInactive() {
+        setFilterChipActive(chipInactive);
+        if (statusFilter != null) {
+            statusFilter.setValue(StatusDisplay.label("INACTIVE"));
+        }
+        refreshTree();
+    }
+
+    private void setFilterChipActive(Button activeChip) {
+        for (Button chip : List.of(chipAll, chipActive, chipDraft, chipInactive)) {
+            if (chip != null) {
+                chip.getStyleClass().remove("active");
+            }
+        }
+        if (activeChip != null && !activeChip.getStyleClass().contains("active")) {
+            activeChip.getStyleClass().add("active");
+        }
+    }
+
+    private void syncFilterChipsWithCombo(String val) {
+        if (val == null || StatusDisplay.isAll(val)) {
+            setFilterChipActive(chipAll);
+        } else if (val.contains("Đang hoạt động") || val.contains("Active")) {
+            setFilterChipActive(chipActive);
+        } else if (val.contains("Bản nháp") || val.contains("Draft")) {
+            setFilterChipActive(chipDraft);
+        } else if (val.contains("Không hoạt động") || val.contains("Inactive")) {
+            setFilterChipActive(chipInactive);
+        }
     }
 
     private void setupSearchFilter() {

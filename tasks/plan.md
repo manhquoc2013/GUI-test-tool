@@ -1,28 +1,29 @@
-# Implementation Plan: Post-Run Reporting & Evidence System
+# Implementation Plan: Modern Pro IDE UI/UX Redesign
 
 ## Slices of Delivery
 
-- [x] **Slice 1: AI Assistant & Document Parsing (Completed)**
-  - Tích hợp OpenAI model, document parser (docx, pdf, images), dialog cài đặt & workspace AI prompt.
+- [ ] **Slice 1: Multi-Tab Document Bar System**
+  - Tạo `TabManager.java` quản lý các tab tài liệu (Explorer, Suites, Reports, AI).
+  - Cập nhật `main_shell.fxml` và `MainShellController.java` để hiển thị thanh Tab Bar (VS Code / IntelliJ style) với icon, title, close button `✕` và dirty indicator.
+  - Tích hợp breadcrumb động (`Dự án > Nhóm > Suite > Case`) trên Header Bar.
 
-- [x] **Slice 2: Standalone HTML Report Generation Service**
-  - Tạo `HtmlReportService.java` sinh báo cáo HTML tự chứa (standalone, single-file HTML).
-  - Tích hợp biểu đồ tiến độ, thống kê Pass/Fail/Skip, danh sách case, chi tiết từng Assertion.
-  - Nhúng ảnh chụp màn hình bằng chứng dưới dạng Base64 data URLs.
-  - Unit tests cho `HtmlReportServiceTest`.
+- [ ] **Slice 2: Tree Optimization with Inline Hover Actions & Instant Filters**
+  - Cập nhật `explorer_page.fxml` bổ sung thanh tìm kiếm nhanh và các chip lọc trạng thái (`Tất cả`, `Hoạt động`, `Nháp`, `Ngừng`).
+  - Nâng cấp `ExplorerPageController.java` với `TreeCell` tùy biến có nút thao tác nhanh khi di chuột (`[▶️]`, `[+ Case]`, `[✏️]`, `[📋]`).
 
-- [x] **Slice 3: Auto-Navigation to Report & Evidence on Test Completion**
-  - Cập nhật `SuiteWorkspacePageController.java` (`runCaseTarget`, `runSuite`): tự động mở `ViewNavigator.navigateToReportDetail(report.getRunId())`.
-  - Cập nhật `ExplorerPageController.java` (`runTargetItem`, `runAll`): tự động mở `ViewNavigator.navigateToReportDetail(report.getRunId())`.
+- [ ] **Slice 3: Workspace Action Bar & Side-by-Side Code/Asserts View**
+  - Thiết kế lại `suite_workspace_page.fxml`:
+    - Gom Action Bar tập trung: URL + Nút Mở Browser + Record + Run + AI + Save.
+    - Bố cục SplitPane linh hoạt: Code Editor bên trái, Assertions Checklist bên phải (hoặc chuyển đổi Tabbed/Side-by-side).
+  - Cập nhật `SuiteWorkspacePageController.java` để điều khiển giao diện mới.
 
-- [x] **Slice 4: Enhanced Report Detail & Evidence Viewer UI**
-  - Cập nhật `report_detail_page.fxml` & `ReportDetailPageController.java`:
-    - Thêm nút "🌐 Xuất HTML" (`exportHtmlBtn`).
-    - Thêm cột "📸 Bằng chứng" vào `casesTable` cho phép xem nhanh ảnh chụp màn hình.
-    - Cải thiện hiển thị ảnh chụp màn hình bằng chứng, hỗ trợ phóng to và mở với trình xem ảnh hệ thống.
-    - Hỗ trợ Playwright trace button nếu có file trace.
-  - Cập nhật `ReportsPageController.java` (danh sách lịch sử): thêm nút xuất HTML nhanh.
+- [ ] **Slice 4: Modern Pro IDE Design Tokens & Visual Polish**
+  - Cập nhật `studio.css`:
+    - Tab bar styling (active tab highlight, tab hover, close button styling).
+    - Tree cell inline action styling (hiện mượt mà khi hover).
+    - Unified button groups, input fields, badges, và status indicators.
+    - Chuẩn hóa typography, contrast (>= 4.5:1), touch targets (>= 44px).
 
-- [x] **Slice 5: Verification & Full Suite Run**
-  - Chạy toàn bộ test suites (`mvn test`).
+- [ ] **Slice 5: Verification & Full Suite Run**
+  - Chạy toàn bộ test suites Maven (`mvn test`).
   - Cập nhật tài liệu `README.md` & `tasks/learnings.md`.

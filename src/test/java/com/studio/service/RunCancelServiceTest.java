@@ -52,6 +52,11 @@ class RunCancelServiceTest {
         try {
             RunCancelService.beginRun();
             RunCancelService.endRun();
+            for (int i = 0; i < 50 && ticks.get() < 2; i++) {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException ignored) {}
+            }
             assertTrue(ticks.get() >= 2);
         } finally {
             RunCancelService.removeListener(listener);

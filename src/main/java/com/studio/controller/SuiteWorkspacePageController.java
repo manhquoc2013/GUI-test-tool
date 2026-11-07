@@ -43,8 +43,11 @@ public class SuiteWorkspacePageController {
     @FXML private CheckBox shareContextCheck;
     @FXML private Button backBtn;
     @FXML private Button addCaseBtn;
+    @FXML private Button recordBtn;
+    @FXML private Button runCaseBtn;
     @FXML private Button runSuiteBtn;
     @FXML private Button saveBtn;
+    @FXML private Button toggleSplitBtn;
     @FXML private Button clearTerminalBtn;
     @FXML private Button hideTerminalBtn;
     @FXML private Button aiAssistBtn;
@@ -59,6 +62,11 @@ public class SuiteWorkspacePageController {
     @FXML private VBox terminalPanel;
     @FXML private TabPane workspaceTabs;
     @FXML private Tab codeTab;
+    @FXML private SplitPane workspaceSplitPane;
+    @FXML private VBox codePanel;
+    @FXML private VBox assertsPanel;
+    @FXML private Label codeDirtyLabel;
+    @FXML private Label codeStatsLabel;
     @FXML private VBox suiteInfoPanel;
     @FXML private Label suiteInfoTitle;
     @FXML private Label suiteInfoStatus;
@@ -211,8 +219,11 @@ public class SuiteWorkspacePageController {
             assertTypeFilter.setOnAction(e -> refreshAssertsList());
             if (backBtn != null) backBtn.setOnAction(e -> goBack());
             addCaseBtn.setOnAction(e -> addNewCase());
+            if (recordBtn != null) recordBtn.setOnAction(e -> startRecord());
+            if (runCaseBtn != null) runCaseBtn.setOnAction(e -> runCase());
             runSuiteBtn.setOnAction(e -> runSuite());
             if (saveBtn != null) saveBtn.setOnAction(e -> saveCode());
+            if (toggleSplitBtn != null) toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
             clearTerminalBtn.setOnAction(e -> clearTerminal());
             hideTerminalBtn.setOnAction(e -> hideTerminal());
             addAssertBtn.setOnAction(e -> openAssertBuilder());
@@ -539,6 +550,31 @@ public class SuiteWorkspacePageController {
 
     private void updateCaseActionButtons() {
         updateRunSuiteVisibility();
+        boolean hasCase = selectedCase != null;
+        boolean suiteActive = StatusDisplay.isActive(suiteStatus()) && !BusyButtons.isBusy();
+        boolean hasUrl = hasStartUrlForCase(selectedCase);
+
+        if (recordBtn != null) {
+            recordBtn.setDisable(!hasCase || !hasUrl || BusyButtons.isBusy());
+            recordBtn.setVisible(hasCase);
+            recordBtn.setManaged(hasCase);
+        }
+        if (runCaseBtn != null) {
+            boolean caseRunnable = hasCase && StatusDisplay.isRunnable(selectedCase.getStatus());
+            runCaseBtn.setDisable(!hasCase || !suiteActive || !caseRunnable || BusyButtons.isBusy());
+            runCaseBtn.setVisible(hasCase);
+            runCaseBtn.setManaged(hasCase);
+        }
+        if (aiAssistBtn != null) {
+            aiAssistBtn.setDisable(!hasCase || BusyButtons.isBusy());
+        }
+        if (saveBtn != null) {
+            saveBtn.setDisable(!hasCase || BusyButtons.isBusy());
+        }
+        if (toggleSplitBtn != null) {
+            toggleSplitBtn.setVisible(hasCase);
+            toggleSplitBtn.setManaged(hasCase);
+        }
         if (caseListView != null) {
             caseListView.refresh();
         }
@@ -598,9 +634,14 @@ public class SuiteWorkspacePageController {
             workspaceTabs.setVisible(false);
             workspaceTabs.setManaged(false);
         }
+        if (workspaceSplitPane != null) {
+            workspaceSplitPane.setVisible(false);
+            workspaceSplitPane.setManaged(false);
+        }
         if (startUrlField != null) {
             startUrlField.setDisable(true);
         }
+        updateCaseActionButtons();
     }
 
     private void showCaseWorkspaceMode() {
@@ -612,8 +653,42 @@ public class SuiteWorkspacePageController {
             workspaceTabs.setVisible(true);
             workspaceTabs.setManaged(true);
         }
+        if (workspaceSplitPane != null) {
+            workspaceSplitPane.setVisible(true);
+            workspaceSplitPane.setManaged(true);
+        }
         if (startUrlField != null) {
             startUrlField.setDisable(false);
+        }
+        updateCaseActionButtons();
+    }
+
+    private boolean isSplitLayout = true;
+
+    @FXML
+    public void toggleSplitLayout() {
+        if (workspaceSplitPane == null) return;
+        isSplitLayout = !isSplitLayout;
+        if (isSplitLayout) {
+            workspaceSplitPane.setDividerPositions(0.62);
+            if (assertsPanel != null) {
+                assertsPanel.setVisible(true);
+                assertsPanel.setManaged(true);
+            }
+            if (toggleSplitBtn != null) {
+                toggleSplitBtn.setText("◫ Chia đôi");
+                toggleSplitBtn.setTooltip(new Tooltip("Thu gọn Asserts để mở rộng Code"));
+            }
+        } else {
+            workspaceSplitPane.setDividerPositions(1.0);
+            if (assertsPanel != null) {
+                assertsPanel.setVisible(false);
+                assertsPanel.setManaged(false);
+            }
+            if (toggleSplitBtn != null) {
+                toggleSplitBtn.setText("🗖 Toàn màn hình");
+                toggleSplitBtn.setTooltip(new Tooltip("Hiện Asserts song song với Code"));
+            }
         }
     }
 
@@ -1236,6 +1311,20 @@ public class SuiteWorkspacePageController {
         saveBtn.setText(dirty ? "💾 Lưu code *" : "💾 Lưu code");
         if (codeTab != null) {
             codeTab.setText(dirty ? "📝 Code *" : "📝 Code");
+        }
+        if (codeDirtyLabel != null) {
+            codeDirtyLabel.setVisible(dirty);
+            codeDirtyLabel.setManaged(dirty);
+        }
+        if (codeStatsLabel != null && codeEditor != null) {
+            String text = codeEditor.getText();
+            int lines = (text == null || text.isEmpty()) ? 0 : text.split("\r\n|\r|\n", -1).length;
+            codeStatsLabel.setText(lines + " dòng · Java Script");
+        }
+        TabManager tm = ViewNavigator.getTabManager();
+        if (tm != null && suitePath != null) {
+            String tabId = "SUITE:" + suitePath.toString();
+            tm.setDirty(tabId, dirty);
         }
     }
 

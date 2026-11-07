@@ -1737,3 +1737,277 @@
     -fx-font-size: 11px;
     -fx-text-fill: #565f89;
 }
+
+
+/* ============================================================
+   === MODERN PRO IDE UI/UX REDESIGN STYLES ===
+   ============================================================ */
+
+/* --- Dynamic Breadcrumb in Header --- */
+.header-breadcrumb-box {
+    -fx-padding: 2 8;
+    -fx-background-color: #1a1b26;
+    -fx-background-radius: 6;
+    -fx-border-color: #24283b;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.header-breadcrumb-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #7dcfff;
+}
+.header-separator {
+    -fx-background-color: #2a2b3d;
+}
+
+/* --- Multi-Tab Document Bar System (VS Code / Linear style) --- */
+.tab-strip-bar {
+    -fx-background-color: #16161e;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 1 0;
+    -fx-min-height: 36px;
+    -fx-pref-height: 36px;
+    -fx-max-height: 36px;
+}
+.tab-scroll-pane {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+}
+.tab-scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+.tab-container {
+    -fx-padding: 0 4;
+}
+.tab-item {
+    -fx-background-color: #1a1b26;
+    -fx-text-fill: #9aa5ce;
+    -fx-cursor: hand;
+    -fx-border-color: transparent #24283b transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 7 14 7 12;
+    -fx-alignment: center-left;
+}
+.tab-item:hover {
+    -fx-background-color: #24283b;
+}
+.tab-item.active {
+    -fx-background-color: #1f2335;
+    -fx-border-color: #7aa2f7 #24283b transparent transparent;
+    -fx-border-width: 2 1 0 0;
+}
+.tab-icon {
+    -fx-font-size: 13px;
+    -fx-padding: 0 4 0 0;
+}
+.tab-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: 500;
+    -fx-text-fill: #c0caf5;
+}
+.tab-item.active .tab-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+}
+.tab-dirty-dot {
+    -fx-font-size: 8px;
+    -fx-text-fill: #ff9e64;
+    -fx-padding: 0 2 0 4;
+}
+.tab-close-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #565f89;
+    -fx-font-size: 10px;
+    -fx-cursor: hand;
+    -fx-padding: 2 4;
+    -fx-background-radius: 4;
+}
+.tab-close-btn:hover {
+    -fx-background-color: #f7768e;
+    -fx-text-fill: #ffffff;
+}
+
+/* --- Explorer Instant Search & Status Filter Chips --- */
+.tree-header-box {
+    -fx-border-color: #24283b;
+    -fx-border-width: 0 0 1 0;
+    -fx-background-color: #16161e;
+}
+.filter-chips-box {
+    -fx-padding: 2 4;
+}
+.filter-chip {
+    -fx-background-color: #24283b;
+    -fx-text-fill: #9aa5ce;
+    -fx-font-size: 11px;
+    -fx-cursor: hand;
+    -fx-padding: 3 8;
+    -fx-background-radius: 12;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+}
+.filter-chip:hover {
+    -fx-background-color: #3b4261;
+    -fx-text-fill: #c0caf5;
+}
+.filter-chip.active {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #1a1b26;
+    -fx-font-weight: bold;
+    -fx-border-color: #7aa2f7;
+}
+
+/* --- Explorer Tree Cell Hover Action Buttons --- */
+.tree-cell-actions {
+    -fx-padding: 0 4 0 0;
+}
+.tree-action-btn {
+    -fx-background-color: #24283b;
+    -fx-text-fill: #c0caf5;
+    -fx-font-size: 11px;
+    -fx-cursor: hand;
+    -fx-padding: 2 6;
+    -fx-background-radius: 4;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+}
+.tree-action-btn:hover {
+    -fx-background-color: #3b4261;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #7aa2f7;
+}
+.tree-action-run {
+    -fx-text-fill: #9ece6a;
+}
+.tree-action-run:hover {
+    -fx-background-color: #9ece6a;
+    -fx-text-fill: #1a1b26;
+}
+
+/* --- Consolidated Workspace Action Bar --- */
+.workspace-action-bar {
+    -fx-background-color: #16161e;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 1 0;
+}
+.action-bar-sep {
+    -fx-background-color: #2a2b3d;
+}
+.workspace-case-badge {
+    -fx-background-color: #1f2335;
+    -fx-text-fill: #7dcfff;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 10;
+    -fx-background-radius: 6;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.field-label-sm {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #9aa5ce;
+}
+.workspace-btn-group {
+    -fx-padding: 0 4;
+}
+.toolbar-btn-record {
+    -fx-background-color: #f7768e;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-padding: 6 12;
+    -fx-background-radius: 6;
+}
+.toolbar-btn-record:hover {
+    -fx-background-color: #db4b4b;
+}
+.toolbar-btn-run-case {
+    -fx-background-color: #9ece6a;
+    -fx-text-fill: #1a1b26;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-padding: 6 12;
+    -fx-background-radius: 6;
+}
+.toolbar-btn-run-case:hover {
+    -fx-background-color: #73daca;
+}
+.btn-ai-assist {
+    -fx-background-color: #bb9af7;
+    -fx-text-fill: #1a1b26;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-padding: 6 12;
+    -fx-background-radius: 6;
+}
+.btn-ai-assist:hover {
+    -fx-background-color: #9d7cd8;
+    -fx-text-fill: #ffffff;
+}
+.btn-layout-toggle {
+    -fx-background-color: #24283b;
+    -fx-text-fill: #c0caf5;
+    -fx-cursor: hand;
+    -fx-padding: 6 10;
+    -fx-background-radius: 6;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.btn-layout-toggle:hover {
+    -fx-background-color: #3b4261;
+}
+.workspace-check {
+    -fx-text-fill: #c0caf5;
+    -fx-font-size: 11px;
+}
+
+/* --- Workspace Side-by-Side Split View --- */
+.workspace-split {
+    -fx-background-color: transparent;
+}
+.workspace-split > .split-pane-divider {
+    -fx-background-color: #2a2b3d;
+    -fx-padding: 0 2 0 2;
+}
+.workspace-split > .split-pane-divider:hover {
+    -fx-background-color: #7aa2f7;
+}
+.code-panel {
+    -fx-background-color: #16161e;
+}
+.editor-header-bar {
+    -fx-background-color: #1a1b26;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 1 0;
+}
+.editor-title-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #c0caf5;
+}
+.code-dirty-tag {
+    -fx-background-color: #ff9e64;
+    -fx-text-fill: #1a1b26;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 1 6;
+    -fx-background-radius: 4;
+}
+.editor-stats-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #565f89;
+}
+.asserts-panel {
+    -fx-background-color: #16161e;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 0 1;
+}
+.asserts-header-row {
+    -fx-padding: 2 0;
+}

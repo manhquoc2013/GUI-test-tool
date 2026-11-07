@@ -16,10 +16,14 @@
             stylesheets="@../css/studio.css"
             styleClass="root-pane">
     <top>
-        <HBox styleClass="header-bar" spacing="10" alignment="CENTER_LEFT">
+        <HBox styleClass="header-bar" spacing="12" alignment="CENTER_LEFT">
             <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
             <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
             <Label text="🦾 Playwright Automation Studio" styleClass="app-title"/>
+            <Separator orientation="VERTICAL" styleClass="header-separator"/>
+            <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
+                <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>
+            </HBox>
             <HBox HBox.hgrow="ALWAYS"/>
             <Button fx:id="stopRunBtn" text="⏹ Dừng" styleClass="header-stop-btn" onAction="#stopRun"
                     visible="false" managed="false"/>
@@ -53,39 +57,49 @@
         </VBox>
     </left>
     <center>
-        <StackPane fx:id="shellStack" styleClass="shell-stack">
-            <StackPane fx:id="contentArea" styleClass="content-area">
-                <Label text="👆 Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
-            </StackPane>
+        <VBox spacing="0" styleClass="center-vbox">
+            <!-- Multi-tab Document Bar (VS Code style) -->
+            <HBox styleClass="tab-strip-bar" alignment="CENTER_LEFT" spacing="0">
+                <ScrollPane fx:id="tabScrollPane" fitToHeight="true" vbarPolicy="NEVER" hbarPolicy="AS_NEEDED"
+                            HBox.hgrow="ALWAYS" styleClass="tab-scroll-pane">
+                    <HBox fx:id="tabContainer" spacing="2" alignment="CENTER_LEFT" styleClass="tab-container"/>
+                </ScrollPane>
+            </HBox>
 
-            <!-- Help: overlay + right drawer (hidden by default) -->
-            <StackPane fx:id="helpLayer" styleClass="help-layer" visible="false" managed="false"
-                       mouseTransparent="false">
-                <Region fx:id="helpScrim" styleClass="help-scrim" maxWidth="Infinity" maxHeight="Infinity"/>
-                <VBox fx:id="helpDrawer" styleClass="help-drawer"
-                      StackPane.alignment="CENTER_RIGHT" spacing="0" maxHeight="Infinity">
-                    <HBox styleClass="help-drawer-header" spacing="8" alignment="CENTER_LEFT">
-                        <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
-                        <Label text="❓ Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
-                               maxWidth="Infinity"/>
-                        <Button fx:id="helpCloseBtn" text="✖️" styleClass="icon-btn" onAction="#hideHelp"
-                                focusTraversable="false"/>
-                    </HBox>
-                    <Separator/>
-                    <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="help-drawer-scroll">
-                        <VBox fx:id="helpContent" spacing="12" styleClass="help-drawer-body">
-                            <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
-                        </VBox>
-                    </ScrollPane>
+            <StackPane fx:id="shellStack" styleClass="shell-stack" VBox.vgrow="ALWAYS">
+                <StackPane fx:id="contentArea" styleClass="content-area">
+                    <Label text="👆 Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
+                </StackPane>
+
+                <!-- Help: overlay + right drawer (hidden by default) -->
+                <StackPane fx:id="helpLayer" styleClass="help-layer" visible="false" managed="false"
+                           mouseTransparent="false">
+                    <Region fx:id="helpScrim" styleClass="help-scrim" maxWidth="Infinity" maxHeight="Infinity"/>
+                    <VBox fx:id="helpDrawer" styleClass="help-drawer"
+                          StackPane.alignment="CENTER_RIGHT" spacing="0" maxHeight="Infinity">
+                        <HBox styleClass="help-drawer-header" spacing="8" alignment="CENTER_LEFT">
+                            <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
+                            <Label text="❓ Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
+                                   maxWidth="Infinity"/>
+                            <Button fx:id="helpCloseBtn" text="✖️" styleClass="icon-btn" onAction="#hideHelp"
+                                    focusTraversable="false"/>
+                        </HBox>
+                        <Separator/>
+                        <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="help-drawer-scroll">
+                            <VBox fx:id="helpContent" spacing="12" styleClass="help-drawer-body">
+                                <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
+                            </VBox>
+                        </ScrollPane>
+                    </VBox>
+                </StackPane>
+
+                <VBox fx:id="toastContainer" styleClass="toast-container" pickOnBounds="false"
+                      maxWidth="380" maxHeight="Infinity" alignment="BOTTOM_RIGHT"
+                      StackPane.alignment="BOTTOM_RIGHT">
+                    <padding><Insets top="12" right="12" bottom="48" left="12"/></padding>
                 </VBox>
             </StackPane>
-
-            <VBox fx:id="toastContainer" styleClass="toast-container" pickOnBounds="false"
-                  maxWidth="380" maxHeight="Infinity" alignment="BOTTOM_RIGHT"
-                  StackPane.alignment="BOTTOM_RIGHT">
-                <padding><Insets top="12" right="12" bottom="48" left="12"/></padding>
-            </VBox>
-        </StackPane>
+        </VBox>
     </center>
     <bottom>
         <HBox styleClass="status-bar" spacing="8">

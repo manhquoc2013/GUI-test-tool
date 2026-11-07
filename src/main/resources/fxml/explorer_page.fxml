@@ -31,7 +31,16 @@
     </ToolBar>
     <SplitPane dividerPositions="0.55" VBox.vgrow="ALWAYS">
         <VBox styleClass="tree-panel">
-            <Label text="📁 Cây dự án  ·  Nhóm → Suite → Case" styleClass="tree-hint"/>
+            <HBox styleClass="tree-header-box" alignment="CENTER_LEFT" spacing="6">
+                <padding><Insets top="6" right="8" bottom="6" left="8"/></padding>
+                <Label text="📁 Cây dự án" styleClass="tree-hint" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <HBox fx:id="statusFilterChips" spacing="4" alignment="CENTER_RIGHT" styleClass="filter-chips-box">
+                    <Button fx:id="chipAll" text="Tất cả" styleClass="filter-chip, active" onAction="#filterChipAll"/>
+                    <Button fx:id="chipActive" text="🟢 Hoạt động" styleClass="filter-chip" onAction="#filterChipActive"/>
+                    <Button fx:id="chipDraft" text="📝 Nháp" styleClass="filter-chip" onAction="#filterChipDraft"/>
+                    <Button fx:id="chipInactive" text="⚪ Ngừng" styleClass="filter-chip" onAction="#filterChipInactive"/>
+                </HBox>
+            </HBox>
             <TreeView fx:id="projectTree" VBox.vgrow="ALWAYS" styleClass="project-tree"/>
         </VBox>
         <ScrollPane fitToWidth="true" styleClass="preview-scroll">
