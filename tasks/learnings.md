@@ -187,3 +187,24 @@
   - Danh mục ngôn ngữ được quản lý động qua `languages.json`. Thêm ngôn ngữ mới không cần sửa mã nguồn Java.
   - Chuỗi bản dịch lưu trữ trong `export_{code}.properties` (chuẩn UTF-8 không cần unicode escape).
   - `I18nService` tự động fallback về tiếng Việt (mặc định) nếu ngôn ngữ mới chưa hoàn thiện toàn bộ key, đảm bảo an toàn tuyệt đối khi vận hành.
+
+## Proactive Resource Reclamation & OS Memory Release Architecture
+
+### 1. Centralized Resource Management (`ResourceReleaseService.java`)
+- **App Lifecycle & Window Management**:
+  - `primaryStage.setOnCloseRequest(...)` và `App.stop()` được liên kết chặt chẽ với `ResourceReleaseService.releaseAllOnShutdown()`, đảm bảo khi đóng cửa sổ thì mọi tiến trình con (Playwright node driver, Chromium browser, H2 database connection) đều được đóng sạch sẽ.
+  - Khi người dùng thu nhỏ cửa sổ (minimize / iconified), `releaseIdleResources()` tự động kích hoạt để thu dọn cache tạm, thực hiện H2 checkpoint và yêu cầu JVM uncommit các trang bộ nhớ heap rỗng trả về cho OS.
+  - Đăng ký `Runtime.getRuntime().addShutdownHook(...)` như một chốt an toàn cuối cùng.
+
+### 2. Elimination of Memory and Disk Leaks
+- **Harness Artifacts Cleanup**:
+  - `TestRunnerService` tạo các file Java/Class tạm thời tại `work/harness/<runId>`. Trước đây thư mục này không được dọn dẹp, gây phình đĩa cứng. Đã thêm cơ chế `deleteQuietly(harnessDir)` trong khối `finally` ngay khi hoàn tất lưu báo cáo.
+  - `releaseAfterTestRun()` và `releaseAfterExport()` giải phóng workbook POI và các đối tượng DOM lớn, sau đó kích hoạt GC để OS thu hồi RAM ngay lập tức.
+- **Codegen Child Process Guard**:
+  - `SuiteWorkspacePageController` lưu vết `activeCodegenProcess` vào `AtomicReference`.
+  - Hàm `abortActiveCodegen()` duyệt qua toàn bộ cây tiến trình (`p.toHandle().descendants().forEach(ProcessHandle::destroyForcibly)`) để dập tắt triệt để các tiến trình node/chromium mồ côi nếu người dùng thoát hoặc đóng ứng dụng đột ngột.
+- **Shared Connection & Daemon Thread Pool**:
+  - `OpenAiClient` tái sử dụng `HttpClient` singleton thay vì tạo mới selector thread pool trên mỗi request.
+  - Toàn bộ background worker threads trong `ThemeService`, `AiCasePromptDialog`, `BusyButtons` đều được đặt cờ `setDaemon(true)` để không cản trở JVM shutdown.
+- **Embedded Database Reclamation**:
+  - `DatabaseManager.shutdown()` chạy `SHUTDOWN COMPACT` để defrag file H2, flush toàn bộ dirty pages và nhả lock file.
