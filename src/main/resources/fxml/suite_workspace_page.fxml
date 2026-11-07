@@ -85,6 +85,7 @@
                                 <Label text="🔗 URL" styleClass="field-label"/>
                                 <TextField fx:id="startUrlField" promptText="URL case — dùng khi ghi hình"
                                            HBox.hgrow="ALWAYS" styleClass="url-field"/>
+                                <Button text="✨ AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-secondary"/>
                                 <Button text="💾 Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
                             </HBox>
                             <TextArea fx:id="codeEditor" styleClass="code-editor" wrapText="false"

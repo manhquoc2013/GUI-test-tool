@@ -47,6 +47,7 @@ public class SuiteWorkspacePageController {
     @FXML private Button saveBtn;
     @FXML private Button clearTerminalBtn;
     @FXML private Button hideTerminalBtn;
+    @FXML private Button aiAssistBtn;
     @FXML private Button addAssertBtn;
     @FXML private TextArea codeEditor;
     @FXML private TextArea terminalOutput;
@@ -69,6 +70,7 @@ public class SuiteWorkspacePageController {
     private Path suitePath;
     private TestCase selectedCase;
     private final ProjectStore projectStore = new ProjectStore();
+    private final SettingsStore settingsStore = new SettingsStore();
     private final ReportStore reportStore = new ReportStore();
     private boolean controlsWired;
     private String lastSavedCode = "";
@@ -1119,6 +1121,29 @@ public class SuiteWorkspacePageController {
         if (!saveCodeInternal(true)) {
             // toast already shown on error / no case
         }
+    }
+
+    @FXML
+    public void openAiCaseAssistant() {
+        if (selectedCase == null) {
+            ToastService.warn("⚠️ Hãy chọn một test case để AI hỗ trợ.");
+            return;
+        }
+        String currentCode = codeEditor != null ? codeEditor.getText() : "";
+        AiCasePromptDialog.show(selectedCase, currentCode, suitePath, projectStore, settingsStore,
+                (newScript, newAsserts) -> {
+                    if (newScript != null && !newScript.isBlank() && codeEditor != null) {
+                        setEditorText(newScript, true);
+                        markCodeClean(newScript);
+                    }
+                    if (newAsserts != null) {
+                        selectedCase.setAssertions(new java.util.ArrayList<>(newAsserts));
+                        refreshAssertsList();
+                    }
+                    if (selectedCase.getStartUrl() != null && startUrlField != null) {
+                        startUrlField.setText(selectedCase.getStartUrl());
+                    }
+                });
     }
 
     /** @return true if saved or nothing to save; false on failure / no case */

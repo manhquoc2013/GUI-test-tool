@@ -1,5 +1,6 @@
 package com.studio.store;
 
+import com.studio.model.AiConfig;
 import com.studio.util.StudioPaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -19,6 +20,7 @@ public class SettingsStore {
         private boolean headlessDefault = false;
         private boolean shareContextDefault = true;
         private boolean stopOnFirstFailureDefault = false;
+        private AiConfig aiConfig = new AiConfig();
 
         public Settings() {
         }
@@ -53,6 +55,17 @@ public class SettingsStore {
 
         public void setStopOnFirstFailureDefault(boolean stopOnFirstFailureDefault) {
             this.stopOnFirstFailureDefault = stopOnFirstFailureDefault;
+        }
+
+        public AiConfig getAiConfig() {
+            if (aiConfig == null) {
+                aiConfig = new AiConfig();
+            }
+            return aiConfig;
+        }
+
+        public void setAiConfig(AiConfig aiConfig) {
+            this.aiConfig = aiConfig != null ? aiConfig : new AiConfig();
         }
     }
 

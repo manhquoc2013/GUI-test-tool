@@ -42,6 +42,8 @@ public class MainShellController implements Initializable {
     @FXML private VBox sidebar;
     @FXML private Button navExplorerBtn;
     @FXML private Button navReportsBtn;
+    @FXML private Button navAiBtn;
+    @FXML private Button settingsBtn;
     @FXML private Label activeSuiteLabel;
     @FXML private Label sidebarSuiteSectionLabel;
     @FXML private HBox sidebarActiveSuiteRow;
@@ -167,9 +169,11 @@ public class MainShellController implements Initializable {
         body.getChildren().add(bodyText(
                 "🧭 Khám phá — quản lý cây dự án (Nhóm → Suite → Case)\n"
                         + "📊 Báo cáo — xem lịch sử các lần chạy test\n"
+                        + "🤖 Trợ lý AI — chat phân tích spec/ảnh và sinh test cases tự động bằng OpenAI\n"
                         + "▶️ Chạy tất cả — chạy toàn bộ project\n"
                         + "📌 Suite đang mở — nhớ suite Workspace gần nhất; click mở lại, ✕ để bỏ\n"
                         + "⏹ Dừng — hiện trên thanh trên khi đang chạy; hủy ngay lượt chạy\n"
+                        + "⚙️ Cài đặt — cấu hình OpenAI API key, endpoint và mô hình\n"
                         + "❓ Trợ giúp — mở/đóng ngăn hướng dẫn này\n"
                         + "☰ — thu gọn / mở rộng thanh bên"));
 
@@ -362,6 +366,12 @@ public class MainShellController implements Initializable {
             }
             navExplorerBtn.setText("🧭 Khám phá");
             navReportsBtn.setText("📊 Báo cáo");
+            if (navAiBtn != null) {
+                navAiBtn.setText("🤖 Trợ lý AI");
+                clearTooltip(navAiBtn);
+                VBox.setMargin(navAiBtn, Insets.EMPTY);
+                navAiBtn.setAlignment(Pos.CENTER_LEFT);
+            }
             runAllBtn.setText("▶️ Chạy tất cả");
             clearTooltip(navExplorerBtn);
             clearTooltip(navReportsBtn);
@@ -396,8 +406,15 @@ public class MainShellController implements Initializable {
                 sidebar.setMinWidth(SIDEBAR_COLLAPSED);
                 sidebar.setMaxWidth(SIDEBAR_COLLAPSED);
             }
+            Insets iconGutter = new Insets(0, 6, 0, 6);
             navExplorerBtn.setText("🧭");
             navReportsBtn.setText("📊");
+            if (navAiBtn != null) {
+                navAiBtn.setText("🤖");
+                installTip(navAiBtn, "Trợ lý AI");
+                VBox.setMargin(navAiBtn, iconGutter);
+                navAiBtn.setAlignment(Pos.CENTER);
+            }
             runAllBtn.setText("▶️");
             installTip(navExplorerBtn, "Khám phá");
             installTip(navReportsBtn, "Báo cáo");
@@ -416,7 +433,6 @@ public class MainShellController implements Initializable {
             sidebarActiveSuite.setText(activeSuiteName != null && !activeSuiteName.isBlank() ? "📋" : "⭕");
             installTip(sidebarActiveSuite, suiteTip);
             // Symmetric gutters so emoji icons sit in the visual center of the 56px rail
-            Insets iconGutter = new Insets(0, 6, 0, 6);
             VBox.setMargin(navExplorerBtn, iconGutter);
             VBox.setMargin(navReportsBtn, iconGutter);
             if (sidebarActiveSuiteRow != null) {
@@ -534,6 +550,18 @@ public class MainShellController implements Initializable {
         hideHelp();
         ViewNavigator.navigateTo(ViewNavigator.Page.REPORTS);
         setActiveNavButton(navReportsBtn);
+    }
+
+    @FXML
+    private void showAiAssistant() {
+        hideHelp();
+        ViewNavigator.navigateTo(ViewNavigator.Page.AI_ASSISTANT);
+        setActiveNavButton(navAiBtn);
+    }
+
+    @FXML
+    public void openSettings() {
+        AiSettingsDialog.show(new SettingsStore());
     }
 
     @FXML

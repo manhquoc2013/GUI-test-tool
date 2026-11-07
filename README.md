@@ -13,7 +13,7 @@
 
 The application presents a three-panel layout:
 
-- **Left sidebar** — navigation between Explorer and Reports views, active suite indicator, and Run All trigger.
+- **Left sidebar** — navigation between Explorer, Reports, and AI Assistant views, active suite indicator, and Run All trigger.
 - **Center content** — the active page: Explorer (tree of Groups → Suites → Cases), Suite Workspace (code editor, Record/Play controls, terminal), or Reports (run history and detail).
 - **Toast overlay** — real-time feedback for every action (CRUD, Record, Run, Export) in success/info/warn/error styles.
 
@@ -23,6 +23,12 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
 
 ## Features
 
+- **AI Assistant with OpenAI Integration** — Built-in AI assistant powered by OpenAI models (`gpt-4o`, `gpt-4o-mini`, `o3-mini`, `o1`) or compatible endpoints (Azure, OpenRouter, LocalAI, Ollama):
+  - **Natural language test generation**: Describe your test scenarios in plain text, and AI generates full Playwright Java scripts and structured assertions.
+  - **Multi-format document parsing**: Upload requirements or specifications directly from `.txt`, `.md`, `.json`, `.csv`, Word (`.docx`), PDF (`.pdf`), and UI screenshots/mockups (`.png`, `.jpg`).
+  - **One-click Import & Update**: Preview generated cases and import them directly into any Group/Suite or update the active Case.
+  - **In-Workspace AI Assist**: Quick prompt modal inside Suite Workspace (`✨ AI Hỗ trợ`) to refine scripts or add assertions on the fly.
+  - **Flexible Configuration**: Configure API Key (or fallback to `OPENAI_API_KEY` env var), custom Base URL, temperature, and test connection latency with one click.
 - **Visual test tree management** — Organize tests in a three-level hierarchy: **Group → Suite → Case**. Inline CRUD with rename, delete, duplicate, and drag-and-drop reorder.
 - **Record browser interactions** — Record via Playwright codegen in Chromium, Firefox, WebKit, Chrome, or Edge. Close the browser and the **Assertion Builder** opens automatically.
 - **46 assertion types** — Catalog of assertions across 8 categories (page content, elements, images/media, file/downloads, tables, forms, page/network state, custom JS). Visual builder with status management (DRAFT / ACTIVE / INACTIVE).

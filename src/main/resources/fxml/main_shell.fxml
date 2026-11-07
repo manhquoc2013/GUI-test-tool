@@ -24,6 +24,7 @@
             <Button fx:id="stopRunBtn" text="⏹ Dừng" styleClass="header-stop-btn" onAction="#stopRun"
                     visible="false" managed="false"/>
             <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
+            <Button fx:id="settingsBtn" text="⚙️ Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
             <Button fx:id="helpBtn" text="❓ Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
         </HBox>
     </top>
@@ -32,6 +33,7 @@
             <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
             <Button fx:id="navExplorerBtn" text="🧭 Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
             <Button fx:id="navReportsBtn" text="📊 Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
+            <Button fx:id="navAiBtn" text="🤖 Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
             <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
             <Label fx:id="sidebarSuiteSectionLabel" text="📌 SUITE ĐANG MỞ" styleClass="sidebar-section-label">
                 <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>

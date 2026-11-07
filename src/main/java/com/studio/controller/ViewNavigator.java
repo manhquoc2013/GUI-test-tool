@@ -21,7 +21,8 @@ public class ViewNavigator {
     public enum Page {
         EXPLORER("Explorer", "/fxml/explorer_page.fxml"),
         REPORTS("Reports", "/fxml/reports_page.fxml"),
-        REPORT_DETAIL("Report Detail", "/fxml/report_detail_page.fxml");
+        REPORT_DETAIL("Report Detail", "/fxml/report_detail_page.fxml"),
+        AI_ASSISTANT("AI Assistant", "/fxml/ai_assistant_page.fxml");
 
         public final String title;
         public final String fxmlPath;
@@ -89,6 +90,12 @@ public class ViewNavigator {
             ReportsPageController reports = getController(Page.REPORTS, ReportsPageController.class);
             if (reports != null) {
                 reports.reloadQuiet();
+            }
+        } else if (page == Page.AI_ASSISTANT) {
+            AiAssistantPageController ai = getController(Page.AI_ASSISTANT, AiAssistantPageController.class);
+            if (ai != null) {
+                ai.refreshModelIndicator();
+                ai.reloadTargets();
             }
         }
     }
