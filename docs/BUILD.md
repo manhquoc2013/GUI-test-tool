@@ -13,8 +13,16 @@ Verify your environment:
 
 ```bash
 java -version        # Should show 26
-mvn -version         # Should show 3.9+
+mvn -version         # Should show 3.9+ AND "Java version: 26"
 ```
+
+> Maven runs on the JDK that `JAVA_HOME` (or the first JDK on `PATH`) points to, which is **not** necessarily the one `java -version` reports in every shell. If `mvn -version` shows 17 or 21, Maven is running on the wrong JDK even though Java 26 is installed.
+>
+> The build fails fast with `Build requires JDK 26 …` (maven-enforcer) when it detects a JDK older than the compiler release. Point `JAVA_HOME` at a JDK 26 install, e.g. on macOS:
+>
+> ```bash
+> export JAVA_HOME="$(/usr/libexec/java_home -v 26)"
+> ```
 
 ---
 

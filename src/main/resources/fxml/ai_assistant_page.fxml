@@ -82,7 +82,7 @@
                     <Button text="📎 Đính kèm tài liệu / Ảnh" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary"/>
                     <Button text="❌ Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false"/>
                     <HBox HBox.hgrow="ALWAYS"/>
-                    <ProgressIndicator fx:id="generationProgress" prefSize="20" prefHeight="20" visible="false" managed="false"/>
+                    <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
                     <Button text="🚀 Gửi yêu cầu (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run"/>
                 </HBox>
             </VBox>
