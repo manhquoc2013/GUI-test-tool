@@ -1,5 +1,37 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.2.0
+
+**Release date:** 2026-11-08
+
+Phiên bản **Test Studio v2.2.0** nâng cấp mạnh mẽ năng lực tự động hóa với Động cơ Tự phục hồi Playwright Locators tối ưu hóa (Optimized Self-Healing Execution Engine), Hộp thoại Trợ lý AI & dịch vụ sinh kịch bản kiểm thử tự động, cùng hệ thống Mô hình Khẳng định (Assertion Models) và Động cơ Xác thực Runtime Playwright bền bỉ.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.2.0 (Key Highlights)
+
+#### 1. Động cơ Tự phục hồi Playwright Locators tối ưu (Optimized Self-Healing Engine)
+- **Fast-path Locator Execution**: Tự động chuyển thẳng qua locator gốc khi phần tử còn hợp lệ, loại bỏ hoàn toàn độ trễ và chi phí tính toán khi chạy test bình thường.
+- **Đa chiến lược phục hồi Heuristic (<30ms)**: Tự động loại bỏ các định dạng ID động sinh ngẫu nhiên, chuẩn hóa văn bản, ánh xạ ARIA role và đối sánh mờ thuộc tính (attribute fuzzy match).
+- **HealedLocatorWrapper & Event Listener**: Bọc trong suốt Playwright Locator, kích hoạt cơ chế tự vá lỗi khi phần tử bị biến đổi giao diện và phát sự kiện phục hồi cho giao diện và nhật ký.
+- **Bộ nhớ đệm tự phục hồi (Self-Healing Cache)**: Lưu trữ các chiến lược phục hồi thành công kèm thời gian sống (TTL) và theo dõi tỷ lệ hit rate.
+
+#### 2. Hộp thoại Trợ lý AI & Sinh Kịch bản Tự động (AI Case Prompt Dialog & Test Generation)
+- **Hộp thoại sinh test case trực quan (AiCasePromptDialog)**: Tạo ca kiểm thử từ mô tả ngôn ngữ tự nhiên, tùy chọn phong cách viết và đội ngũ chuyên gia AI chuyên sâu.
+- **Cơ chế phân tích phản hồi AI 3 tầng siêu bền bỉ (3-Tier Robust Parser)**:
+  - *Tier 1*: Phân tích cấu trúc JSON chuẩn.
+  - *Tier 2*: Tự động bóc tách từ khối Markdown code block / fenced block.
+  - *Tier 3*: Phục hồi bằng biểu thức chính quy (Regex Repair) khi model trả về định dạng khiếm khuyết.
+- **Tự động sinh mã Playwright Java & Ma trận dữ liệu**: Sinh trọn gói kịch bản kiểm thử Playwright Java hoàn chỉnh, cấu trúc bộ dữ liệu mẫu (Data Schema) và các bước NLP tương ứng.
+
+#### 3. Mô hình Khẳng định & Động cơ Xác thực Runtime Bền bỉ (Assertion Models & StudioRuntime)
+- **Mô hình Assertion chuẩn hóa**: Hỗ trợ 46 loại assertion trải rộng trên 8 nhóm kiểm thử, phân định rõ trạng thái hoạt động (DRAFT, ACTIVE, INACTIVE) và quy tắc đối soát.
+- **Tầng khẳng định StudioAssertions & StudioRuntime**: Cung cấp hàm kiểm tra runtime thống nhất, hỗ trợ Soft Assertion chấm điểm độ bao phủ, kiểm tra phần tử hiển thị/trạng thái DOM và chuẩn đoán lỗi chi tiết.
+- **Trình biên dịch mã Assertions (AssertCodeGenerator)**: Tự động chuyển đổi mô hình assertion thành câu lệnh Playwright Java kiểm thử native.
+- **Cơ chế đối soát kết quả (Reconciliation)**: Liên kết trực tiếp kết quả chạy runtime với danh sách assertions trong ca kiểm thử, cập nhật trạng thái Pass/Fail/Skip chính xác lên báo cáo.
+
+---
+
 ## Test Studio v2.1.0
 
 **Release date:** 2026-11-08

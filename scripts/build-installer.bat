@@ -6,7 +6,7 @@ cd /d "%DIR%"
 
 set APP_NAME=TestStudio
 set APP_DISPLAY_NAME=Test Studio
-set VERSION=2.1.0
+set VERSION=2.2.0
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out
@@ -113,32 +113,38 @@ if not exist "%APP_IMAGE_DIR%\browsers\chromium*" (
 echo   ^✓ Bundled Chromium verified in: %APP_IMAGE_DIR%\browsers
 
 echo [6/6] Compiling Windows Setup Installer...
-set ISCC_EXE=
-if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set ISCC_EXE=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe
-if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set ISCC_EXE=%ProgramFiles%\Inno Setup 6\ISCC.exe
-where ISCC.exe >nul 2>&1 && set ISCC_EXE=ISCC.exe
+set "ISCC_EXE="
+if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+where iscc >nul 2>&1 && set "ISCC_EXE=iscc"
+where ISCC.exe >nul 2>&1 && set "ISCC_EXE=ISCC.exe"
 
-if defined ISCC_EXE (
-  echo   Using Inno Setup: %ISCC_EXE%
-  "%ISCC_EXE%" scripts\installer.iss
-  if %ERRORLEVEL% neq 0 (
-    echo ERROR: Inno Setup compilation failed!
-    exit /b %ERRORLEVEL%
-  )
-  echo =================================================================
-  echo  BUILD SUCCESSFUL!
-  echo  Setup Installer (.exe): %DIST_DIR%\TestStudio-%VERSION%-windows-x64-Setup.exe
-  echo =================================================================
-) else (
-  echo   Inno Setup not detected. Generating standard installer via jpackage...
-  jpackage --type exe --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
-  if %ERRORLEVEL% neq 0 (
-    echo   jpackage exe failed, trying msi...
-    jpackage --type msi --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
-  )
-  echo =================================================================
-  echo  BUILD SUCCESSFUL!
-  echo  Check output in: %DIST_DIR%\
-  echo =================================================================
+if not defined ISCC_EXE goto NO_INNO
+
+echo   Using Inno Setup: "%ISCC_EXE%"
+"%ISCC_EXE%" scripts\installer.iss
+if %ERRORLEVEL% neq 0 (
+  echo ERROR: Inno Setup compilation failed!
+  exit /b %ERRORLEVEL%
 )
+echo =================================================================
+echo  BUILD SUCCESSFUL!
+echo  Setup Installer: %DIST_DIR%\TestStudio-%VERSION%-windows-x64-Setup.exe
+echo =================================================================
+goto BUILD_DONE
+
+:NO_INNO
+echo   Inno Setup not detected. Generating standard installer via jpackage...
+jpackage --type exe --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
+if %ERRORLEVEL% neq 0 (
+  echo   jpackage exe failed, trying msi...
+  jpackage --type msi --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
+)
+echo =================================================================
+echo  BUILD SUCCESSFUL!
+echo  Check output in: %DIST_DIR%\
+echo =================================================================
+
+:BUILD_DONE
 

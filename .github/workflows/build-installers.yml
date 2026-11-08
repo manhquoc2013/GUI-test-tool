@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Installer version tag (e.g. v2.1.0)'
+        description: 'Installer version tag (e.g. v2.2.0)'
         required: false
-        default: '2.1.0'
+        default: '2.2.0'
 
 permissions:
   contents: write
@@ -68,7 +68,9 @@ jobs:
           node-version: '20'
 
       - name: Install Inno Setup
-        run: choco install innosetup --yes
+        run: |
+          choco install innosetup --yes
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
 
       - name: Build Windows Setup EXE
         shell: cmd
