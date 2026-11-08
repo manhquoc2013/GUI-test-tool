@@ -225,7 +225,6 @@ public class DatabaseManager {
             CREATE INDEX IF NOT EXISTS idx_tc_name ON test_cases(name);
             CREATE INDEX IF NOT EXISTS idx_reports_start ON run_reports(started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_chat_suite ON ai_chat_messages(suite_key, created_at);
-            CREATE INDEX IF NOT EXISTS idx_chat_session_id ON ai_chat_messages(session_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_chat_sessions ON ai_chat_sessions(suite_key, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_assertions_case ON test_assertions(case_id);
             """;

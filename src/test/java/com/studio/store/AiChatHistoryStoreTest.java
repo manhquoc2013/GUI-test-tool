@@ -83,5 +83,68 @@ public class AiChatHistoryStoreTest {
         assertEquals("// Case A original code", Files.readString(caseA));
         assertFalse(Files.exists(caseB), "Newly created CaseB.java must be deleted on rollback");
     }
+
+    @Test
+    public void testMultiSessionManagement(@TempDir Path suiteDir) throws IOException {
+        AiChatHistoryStore store = new AiChatHistoryStore();
+
+        // 1. Create session 1
+        AiChatSession s1 = store.createNewSession(suiteDir, "Session 1 - Auth Flow");
+        s1.addMessage(new AiChatMessage("user", "Hello 1"));
+        store.saveSession(suiteDir, s1);
+
+        // 2. Create session 2
+        AiChatSession s2 = store.createNewSession(suiteDir, "Session 2 - Dashboard");
+        s2.addMessage(new AiChatMessage("user", "Hello 2"));
+        store.saveSession(suiteDir, s2);
+
+        // 3. List sessions
+        List<com.studio.model.AiChatSessionMeta> list = store.listSessions(suiteDir);
+        assertEquals(2, list.size());
+
+        // 4. Rename session 1
+        store.renameSession(suiteDir, s1.getId(), "Session 1 - Renamed");
+        AiChatSession loadedS1 = store.loadSession(suiteDir, s1.getId());
+        assertEquals("Session 1 - Renamed", loadedS1.getTitle());
+
+        // 5. Delete session 2
+        store.deleteSession(suiteDir, s2.getId());
+        List<com.studio.model.AiChatSessionMeta> listAfterDelete = store.listSessions(suiteDir);
+        assertEquals(1, listAfterDelete.size());
+        assertEquals(s1.getId(), listAfterDelete.get(0).getId());
+    }
+
+    @Test
+    public void testLegacyMigration(@TempDir Path suiteDir) throws IOException {
+        AiChatHistoryStore store = new AiChatHistoryStore();
+
+        // Write legacy .ai_chat.json directly
+        Path legacyFile = suiteDir.resolve(".ai_chat.json");
+        String legacyJson = """
+            {
+              "suiteKey": "OldSuite",
+              "summary": "Old summary",
+              "messages": [
+                {
+                  "id": "msg-old-1",
+                  "role": "user",
+                  "content": "Old message from v2.3.0",
+                  "estimatedTokens": 10
+                }
+              ]
+            }
+            """;
+        Files.writeString(legacyFile, legacyJson, StandardCharsets.UTF_8);
+
+        // Listing sessions should trigger auto-migration
+        List<com.studio.model.AiChatSessionMeta> sessions = store.listSessions(suiteDir);
+        assertFalse(sessions.isEmpty());
+
+        // Load the migrated session
+        AiChatSession migrated = store.loadSession(suiteDir, sessions.get(0).getId());
+        assertNotNull(migrated);
+        assertEquals(1, migrated.getMessages().size());
+        assertEquals("Old message from v2.3.0", migrated.getMessages().get(0).getContent());
+    }
 }
 
