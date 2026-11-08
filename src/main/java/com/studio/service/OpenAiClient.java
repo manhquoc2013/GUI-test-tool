@@ -221,12 +221,14 @@ public class OpenAiClient {
         }
 
         String targetUrl = baseUrl + "/chat/completions";
-        int requestedMaxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : 4096;
+        int requestedMaxTokens = config.getMaxTokens();
 
         ObjectNode root = mapper.createObjectNode();
         root.put("model", config.getEffectiveModel());
         root.put("temperature", config.getTemperature());
-        root.put("max_tokens", requestedMaxTokens);
+        if (requestedMaxTokens > 0) {
+            root.put("max_tokens", requestedMaxTokens);
+        }
 
         ArrayNode messagesNode = root.putArray("messages");
         for (ChatMessage msg : messages) {
@@ -251,8 +253,9 @@ public class OpenAiClient {
         }
 
         String requestBody = mapper.writeValueAsString(root);
+        String maxTokensDesc = requestedMaxTokens > 0 ? String.valueOf(requestedMaxTokens) : "không giới hạn (mặc định model)";
         AiLoggingService.info("AI-REQUEST", "Gửi yêu cầu tới " + config.getEffectiveModel() + " (" + targetUrl
-                + ") | max_tokens=" + requestedMaxTokens + " | temp=" + config.getTemperature()
+                + ") | max_tokens=" + maxTokensDesc + " | temp=" + config.getTemperature()
                 + " | messages=" + messages.size());
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -284,6 +287,22 @@ public class OpenAiClient {
             int promptTokens = usage.path("prompt_tokens").asInt(0);
             int compTokens = usage.path("completion_tokens").asInt(0);
             String content = choice0.path("message").path("content").asText("");
+
+            // Xử lý các mô hình có suy luận (DeepSeek R1/V3/V4, Qwen, v.v.) khi nội dung nằm ở reasoning_content
+            if (content.isBlank()) {
+                JsonNode reasoningNode = choice0.path("message").path("reasoning_content");
+                if (reasoningNode.isMissingNode() || reasoningNode.isNull() || reasoningNode.asText("").isBlank()) {
+                    reasoningNode = choice0.path("message").path("reasoning");
+                }
+                if (!reasoningNode.isMissingNode() && !reasoningNode.isNull()) {
+                    String reasoning = reasoningNode.asText("");
+                    if (!reasoning.isBlank()) {
+                        AiLoggingService.warn("AI-RESPONSE", "Mô hình trả về reasoning_content (" + reasoning.length()
+                                + " ký tự) trong khi content chính rỗng. Đang trích xuất nội dung từ reasoning.");
+                        content = reasoning;
+                    }
+                }
+            }
 
             AiLoggingService.info("AI-RESPONSE", "Thành công HTTP 200 sau " + latency + "ms | finish_reason=" + finishReason
                     + " | prompt_tokens=" + promptTokens + " | completion_tokens=" + compTokens + " | output_chars=" + content.length());

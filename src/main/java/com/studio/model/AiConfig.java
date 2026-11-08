@@ -9,7 +9,7 @@ public class AiConfig {
     public static final String DEFAULT_BASE_URL = "https://api.openai.com/v1";
     public static final String DEFAULT_MODEL = "gpt-4o";
     public static final double DEFAULT_TEMPERATURE = 0.2;
-    public static final int DEFAULT_MAX_TOKENS = 4096;
+    public static final int DEFAULT_MAX_TOKENS = 0; // 0 = Không giới hạn (model default / tối đa của vendor)
 
     private String apiKey = "";
     private String baseUrl = DEFAULT_BASE_URL;
@@ -71,7 +71,7 @@ public class AiConfig {
     }
 
     public void setMaxTokens(int maxTokens) {
-        this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+        this.maxTokens = Math.max(0, maxTokens);
     }
 
     @JsonIgnore

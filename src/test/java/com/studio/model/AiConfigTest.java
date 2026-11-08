@@ -12,8 +12,18 @@ class AiConfigTest {
         assertEquals(AiConfig.DEFAULT_BASE_URL, config.getBaseUrl());
         assertEquals("gpt-4o", config.getModel());
         assertEquals(0.2, config.getTemperature());
-        assertEquals(4096, config.getMaxTokens());
+        assertEquals(0, config.getMaxTokens());
         assertEquals("", config.getApiKey());
+    }
+
+    @Test
+    void testZeroMaxTokensMeansUnlimited() {
+        AiConfig config = new AiConfig();
+        config.setMaxTokens(0);
+        assertEquals(0, config.getMaxTokens());
+
+        config.setMaxTokens(-10);
+        assertEquals(0, config.getMaxTokens());
     }
 
     @Test

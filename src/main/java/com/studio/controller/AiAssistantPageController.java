@@ -363,7 +363,15 @@ public class AiAssistantPageController implements Initializable {
         int promptTokens = tokenOptimizer.estimateTokens(promptInputArea.getText());
         int historyTokens = currentSession != null ? currentSession.calculateTotalTokens() : 0;
         int total = promptTokens + historyTokens;
-        tokenUsageBadge.setText("Tokens: ~" + total + " / 4,000 (Prompt: ~" + promptTokens + ")");
+        int maxLimit = 0;
+        try {
+            AiConfig aiConfig = settingsStore != null ? settingsStore.load().getAiConfig() : null;
+            if (aiConfig != null) {
+                maxLimit = aiConfig.getMaxTokens();
+            }
+        } catch (Exception ignored) {}
+        String limitStr = maxLimit > 0 ? " / " + String.format("%,d", maxLimit) : " / ∞";
+        tokenUsageBadge.setText("Tokens: ~" + total + limitStr + " (Prompt: ~" + promptTokens + ")");
     }
 
     @FXML

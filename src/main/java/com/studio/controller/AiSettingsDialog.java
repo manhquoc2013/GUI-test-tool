@@ -373,11 +373,17 @@ public class AiSettingsDialog {
         // Max Tokens
         Label maxTokensLabel = new Label("Max Tokens:");
         maxTokensLabel.getStyleClass().add("field-label");
-        Spinner<Integer> maxTokensSpinner = new Spinner<>(512, 32768, aiConfig.getMaxTokens() > 0 ? aiConfig.getMaxTokens() : 4096, 512);
+        int initialTokens = Math.max(0, aiConfig.getMaxTokens());
+        Spinner<Integer> maxTokensSpinner = new Spinner<>(0, 131072, initialTokens, 1024);
         maxTokensSpinner.setEditable(true);
         HBox.setHgrow(maxTokensSpinner, Priority.ALWAYS);
+
+        Label maxTokensHint = new Label("0 = Không giới hạn (bỏ trần token, khuyên dùng cho DeepSeek & reasoning models)");
+        maxTokensHint.getStyleClass().add("settings-hint-label");
+
+        VBox maxTokensBox = new VBox(4, maxTokensSpinner, maxTokensHint);
         aiGrid.add(maxTokensLabel, 0, aiRow);
-        aiGrid.add(maxTokensSpinner, 1, aiRow);
+        aiGrid.add(maxTokensBox, 1, aiRow);
         aiRow++;
 
         // Test connection
@@ -518,7 +524,7 @@ public class AiSettingsDialog {
                         maxTokensSpinner.commitValue();
                     } catch (Exception ignored) {}
                     Integer tokens = maxTokensSpinner.getValue();
-                    cfg.setMaxTokens(tokens != null && tokens > 0 ? tokens : 4096);
+                    cfg.setMaxTokens(tokens != null && tokens >= 0 ? tokens : 0);
 
                     store.save(finalSettings);
                     if (!selectedTheme.equalsIgnoreCase(ThemeService.getCurrentTheme())) {

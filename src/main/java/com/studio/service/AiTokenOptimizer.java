@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  */
 public class AiTokenOptimizer {
 
-    public static final int DEFAULT_MAX_CONTEXT_TOKENS = 4096;
+    public static final int DEFAULT_MAX_CONTEXT_TOKENS = 32768;
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
@@ -233,7 +233,8 @@ public class AiTokenOptimizer {
         int currentUserTokens = estimateTokens(userMessageText) + 4;
         usedTokens += currentUserTokens;
 
-        int remainingBudget = Math.max(500, maxTokens - usedTokens);
+        int contextLimit = maxTokens > 0 ? maxTokens : DEFAULT_MAX_CONTEXT_TOKENS;
+        int remainingBudget = Math.max(1000, contextLimit - usedTokens);
 
         // 3. Sliding Window over History
         List<OpenAiClient.ChatMessage> historyMessages = new ArrayList<>();
@@ -256,7 +257,7 @@ public class AiTokenOptimizer {
             for (int i = history.size() - 1; i >= startIdx; i--) {
                 AiChatMessage msg = history.get(i);
                 int msgTokens = estimateMessageTokens(msg);
-                if (usedTokens + msgTokens > maxTokens && !windowMessages.isEmpty()) {
+                if (usedTokens + msgTokens > contextLimit && !windowMessages.isEmpty()) {
                     break; // Prune if exceeding budget
                 }
                 usedTokens += msgTokens;
