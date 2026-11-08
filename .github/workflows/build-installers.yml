@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Installer version tag (e.g. v2.2.0)'
+        description: 'Installer version tag (e.g. v2.3.0)'
         required: false
-        default: '2.2.0'
+        default: '2.3.0'
 
 permissions:
   contents: write

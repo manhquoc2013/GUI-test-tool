@@ -1,5 +1,33 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.3.0
+
+**Release date:** 2026-11-08
+
+Phiên bản **Test Studio v2.3.0** nâng cấp toàn diện trải nghiệm trí tuệ nhân tạo tương tác với Thẻ câu hỏi làm rõ yêu cầu (Interactive Clarification Cards), Trợ lý tư vấn & đánh giá chất lượng kịch bản đàm thoại (Conversational Intelligence & Project Advisor), Cơ chế kiểm duyệt thực thi đồng bộ (Harmonized Execution Guard) và Bộ nút xóa phổ quát đa bề mặt.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.3.0 (Key Highlights)
+
+#### 1. Thẻ tương tác làm rõ yêu cầu AI (Interactive Clarification Cards)
+- **Phân tích độ mơ hồ (Ambiguity Analyzer)**: Tự động phát hiện khi câu lệnh kiểm thử của người dùng quá ngắn, thiếu tiền đề hoặc tiêu chí xác minh; ngăn chặn hoàn toàn việc AI đoán mò hay sinh kịch bản sơ sài.
+- **Thẻ lựa chọn trực quan trong Chat (Clarification Card)**: Hiển thị danh sách câu hỏi đa chiều (Phạm vi Happy/Negative/BVA, Tiền đề tài khoản, Tiêu chí Assertion) với các chip tùy chọn bo tròn và ô nhập tự do.
+- **Tăng cường câu lệnh một chạm (Prompt Augmentation)**: Tổng hợp các lựa chọn làm rõ thành câu lệnh đặc tả chuẩn Agency-Agents và kích hoạt sinh bộ test cases chi tiết.
+
+#### 2. Trợ lý đàm thoại & Cố vấn chất lượng dự án (Conversational Project Advisor)
+- **Tìm kiếm kịch bản toàn cục (`searchCases`)**: Tìm nhanh test case trên toàn bộ cây thư mục theo tên, suite, nhóm, URL hoặc mã nguồn Java.
+- **Đánh giá & chấm điểm kịch bản theo chuẩn Agency-Agents (`evaluateCase`)**: Kiểm toán chất lượng kịch bản Playwright, xếp hạng từ A đến D, phát hiện lỗi `Thread.sleep`/`waitForTimeout`, thiếu assertion, selector mong manh và xuất mã sửa chữa tối ưu.
+- **Phân tích khoảng trống kiểm thử (`analyzeSuiteGaps`)**: Đánh giá độ bao phủ của Test Suite, phát hiện các nhánh kịch bản còn thiếu (Happy path, Negative validation, Boundary value, Security auth).
+- **Tư vấn kỹ thuật đối thoại (`CHAT_ADVICE`)**: Trả lời câu hỏi kỹ thuật Playwright/QA trực tiếp dạng Markdown đàm thoại tự nhiên, không ép schema JSON.
+
+#### 3. Bộ nút xóa phổ quát & Cơ chế kiểm duyệt thực thi đồng bộ
+- **Bộ nút xóa hoàn chỉnh**: Hỗ trợ xóa Nhóm, Suite và Case tại thanh công cụ Explorer, hàng TreeCell inline, bảng xem trước Preview và Suite Workspace.
+- **Đồng bộ điều kiện Runnable**: Đảm bảo cả Explorer Tree và Workspace đều kiểm tra điều kiện ca kiểm thử phải có assertion hoạt động trước khi chạy, tránh tình trạng skip 100% trong runner.
+- **Khắc phục đích chọn trên Preview Pane**: Giải quyết dứt điểm lỗi mất tham chiếu mục khi cây thư mục bị xóa lựa chọn.
+
+---
+
 ## Test Studio v2.2.0
 
 **Release date:** 2026-11-08

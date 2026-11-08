@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.3.0] — 2026-11-08
+
+### Added
+
+- **Interactive AI Clarification Cards & In-Chat Ambiguity Analyzer**:
+  - `AiAmbiguityAnalyzer`: detects vague or underspecified user prompts and synthesizes interactive multi-choice question cards (`AiClarificationQuestion`).
+  - Native in-chat clarification card UI with selectable chip buttons and custom input fields.
+  - One-click prompt augmentation merging user selections into comprehensive multi-scenario Playwright specifications.
+- **Conversational Test Intelligence & Project Advisor**:
+  - `AiProjectAdvisorService`: conversational intelligence engine covering global test case search, Agency-Agents quality audit, and suite gap analysis.
+  - Quality evaluation grading test cases (A-D) based on zero hard-sleep, web-first assertions, and locator resilience standards.
+  - Test Suite Gap Analysis detecting missing Happy paths, Negative validation, and Boundary value edge cases.
+  - Dedicated conversational QA routing (`CHAT_ADVICE`) returning Markdown explanations without enforcing rigid JSON schemas.
+- **Universal Delete Controls & Harmonized Execution Guards**:
+  - Full-surface deletion capabilities across Project Explorer (toolbar, inline row actions, preview panel) and Suite Workspace (action bar, context menu, suite info).
+  - Synchronized runnable execution guard requiring active test status and active assertions before triggering runs, eliminating silent skips.
+- **Preview Pane Target Resolver**:
+  - Resilient target resolution referencing `currentPreviewRef` when project tree selection is cleared or reloaded.
+
+### Fixed
+
+- Method `getDefaultOption()` missing in `AiClarificationQuestion`.
+- Virtual root path resolution prepending `/Project/` in `AiProjectAdvisorService`.
+- Chatbot advice JSON parsing errors on conversational Playwright inquiries.
+
+---
+
 ## [2.2.0] — 2026-11-08
 
 ### Added

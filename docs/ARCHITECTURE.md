@@ -12,7 +12,7 @@ The application runs **in-process** — test scripts are compiled and executed w
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| Application Version | Test Studio | 2.2.0 | Desktop automation IDE |
+| Application Version | Test Studio | 2.3.0 | Desktop automation IDE |
 | Language | Java | 26 | Application core, compiler and test scripts |
 | UI Framework | JavaFX (FXML) | 26.0.1 | Desktop UI with declarative FXML layouts & Catppuccin theme |
 | Browser Automation | Playwright Java | 1.61.0 | Browser launch, page interaction, codegen |

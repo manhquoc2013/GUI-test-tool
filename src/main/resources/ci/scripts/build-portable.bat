@@ -5,7 +5,7 @@ set DIR=%~dp0..
 cd /d "%DIR%"
 
 set APP_NAME=TestStudio
-set JAR_NAME=playwright-automation-studio-2.2.0.jar
+set JAR_NAME=playwright-automation-studio-2.3.0.jar
 set DIST_ROOT=dist\%APP_NAME%
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out
