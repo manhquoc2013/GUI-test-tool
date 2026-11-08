@@ -453,3 +453,22 @@
   - Cung cấp khả năng tham số hóa dữ liệu kiểm thử độc lập khỏi logic kịch bản thông qua `TestDataProfile` và `VariableResolver`.
   - Hỗ trợ nội suy biểu thức `{{variable_name}}` và `${variable_name}` linh hoạt cho cả URL, bước kiểm thử, tham số nhập liệu và khẳng định kiểm thử (Assertions), hỗ trợ kết nối với biến môi trường hệ thống.
 
+## 18. Intelligent Test Case Priority Classification & Targeted Execution (P0-P3)
+
+### 1. Risk-Based Priority Matrix (ISTQB & ECC Standard)
+- Chuẩn hóa thang đo 4 cấp độ:
+  - `P0 (Critical / Smoke)`: Luồng sống còn, blocker (Đăng nhập, Thanh toán, Bảo mật, Đặt hàng cốt lõi). Thất bại sẽ chặn đứng bản build/release ngay lập tức.
+  - `P1 (High / Core Flow)`: Luồng nghiệp vụ cốt lõi, xác thực dữ liệu và giao dịch chính.
+  - `P2 (Medium / Regression)`: Luồng phụ, tìm kiếm, phân trang, lọc dữ liệu, xử lý lỗi ngoại lệ.
+  - `P3 (Low / Edge Case)`: Giao diện chi tiết, định dạng văn bản, tooltip, trạng thái biên hiếm gặp.
+- AI Persona `qa-planner` và `AiTestGeneratorService` tự động đánh giá ma trận rủi ro nghiệp vụ và gán nhãn P0-P3 cho từng test case khi sinh kịch bản.
+
+### 2. Database Schema Migration & Storage Integrity
+- Để đảm bảo tương thích ngược với các file database H2 đã có sẵn dữ liệu của người dùng, lệnh `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'P1'` được thực thi an toàn trước khi tạo index `idx_tc_priority`.
+- Bổ sung `ProjectStore.updateCasePriority` để ghi đè trường `priority` xuống `suite.json` độc lập, tránh hiện tượng stale object ghi đè mất các case mới thêm trong các luồng AI batch import.
+
+### 3. Targeted Execution & Reporting
+- `TestRunnerService.run(...)` hỗ trợ tham số lọc `targetPriorities`: Cho phép chạy riêng các case P0 cho Smoke Test khi tạo PR, hoặc P0+P1 cho Sanity Test trước khi đưa lên môi trường Staging.
+- Báo cáo HTML và Excel (`HtmlReportService`, `ExcelReportService`, `TestCaseExcelExportService`) hiển thị huy hiệu màu sắc trực quan (P0 đỏ, P1 cam, P2 xanh, P3 xám) cùng các nút lọc nhanh theo độ ưu tiên.
+
+

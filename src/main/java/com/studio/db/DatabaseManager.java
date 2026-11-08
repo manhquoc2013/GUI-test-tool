@@ -156,6 +156,7 @@ public class DatabaseManager {
                 script_file VARCHAR(255),
                 script_content CLOB,
                 assertions_count INT DEFAULT 0,
+                priority VARCHAR(10) DEFAULT 'P1',
                 updated_at BIGINT
             );
 
@@ -211,6 +212,10 @@ public class DatabaseManager {
 
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             stmt.execute(ddl);
+            try {
+                stmt.execute("ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'P1'");
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_tc_priority ON test_cases(priority)");
+            } catch (Exception ignored) {}
         } catch (SQLException e) {
             throw new RuntimeException("Không thể khởi tạo cơ sở dữ liệu nhúng H2: " + e.getMessage(), e);
         }

@@ -100,6 +100,26 @@ Incorporate the multi-agent orchestration, test governance, self-healing TDD, an
 - **Skills**: `skills/ai-test-suite-generator/SKILL.md`, `skills/playwright-test-healer/SKILL.md`, `skills/test-quality-gate/SKILL.md`
 - **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`
 
+## 7. Intelligent Test Case Priority Classification & Targeted Execution (P0-P3)
+
+### 7.1 Priority Matrix & Definition
+- **P0 (Critical / Smoke)**: Sống còn (Authentication, Security, Core Checkout, Payment, Blocker workflows). Failure stops deployment immediately.
+- **P1 (High / Core Flow)**: Luồng nghiệp vụ cốt lõi, xác thực trường dữ liệu quan trọng, giao dịch chính.
+- **P2 (Medium / Regression)**: Luồng phụ, tìm kiếm, lọc dữ liệu, phân trang, thông báo lỗi người dùng.
+- **P3 (Low / Edge Case)**: UI polish, định dạng văn bản, tooltip, trạng thái biên hiếm gặp.
+
+### 7.2 AI Autonomous Classification Engine
+- AI Prompt (`AiTestGeneratorService.java`) và persona `qa-planner` tự động phân tích ma trận rủi ro nghiệp vụ và gắn nhãn `priority`: `"P0" | "P1" | "P2" | "P3"` vào cấu trúc JSON của mỗi test case.
+- Tự động truyền trường `priority` từ `AiGeneratedCase` vào `TestCase` khi nhập vào Suite.
+
+### 7.3 Priority-Driven Execution & Reporting
+- **Targeted Runner Filtering**: `TestRunnerService` hỗ trợ chạy theo độ ưu tiên (chỉ chạy P0 cho Smoke Test, hoặc P0+P1 cho Sanity Test). Các test case ngoài bộ lọc được ghi nhận là SKIPPED kèm lý do rõ ràng.
+- **Visual Badges & Report Filters**:
+  - `HtmlReportService`: Hiển thị huy hiệu độ ưu tiên sắc nét (`P0` đỏ rực, `P1` cam vàng, `P2` xanh dương, `P3` xám) kèm bộ lọc chip theo Priority.
+  - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
+- **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
+
+
 ## 6. Comprehensive 3-Pillar Optimization: Midscene + Skyvern + Testsigma + Automa
 
 ### 6.1 Pillar 1: Multi-Locator Fallback Cascade & Action-Delta Healing (Testsigma + Skyvern)
@@ -133,3 +153,23 @@ Incorporate the multi-agent orchestration, test governance, self-healing TDD, an
    - Dynamic variable interpolation (`{{varName}}`, `${varName}`) across test steps, scripts, and assertion targets.
 
 - **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`
+
+## 7. Intelligent Test Case Priority Classification & Targeted Execution (P0-P3)
+
+### 7.1 Priority Matrix & Definition
+- **P0 (Critical / Smoke)**: Sống còn (Authentication, Security, Core Checkout, Payment, Blocker workflows). Failure stops deployment immediately.
+- **P1 (High / Core Flow)**: Luồng nghiệp vụ cốt lõi, xác thực trường dữ liệu quan trọng, giao dịch chính.
+- **P2 (Medium / Regression)**: Luồng phụ, tìm kiếm, lọc dữ liệu, phân trang, thông báo lỗi người dùng.
+- **P3 (Low / Edge Case)**: UI polish, định dạng văn bản, tooltip, trạng thái biên hiếm gặp.
+
+### 7.2 AI Autonomous Classification Engine
+- AI Prompt (`AiTestGeneratorService.java`) và persona `qa-planner` tự động phân tích ma trận rủi ro nghiệp vụ và gắn nhãn `priority`: `"P0" | "P1" | "P2" | "P3"` vào cấu trúc JSON của mỗi test case.
+- Tự động truyền trường `priority` từ `AiGeneratedCase` vào `TestCase` khi nhập vào Suite.
+
+### 7.3 Priority-Driven Execution & Reporting
+- **Targeted Runner Filtering**: `TestRunnerService` hỗ trợ chạy theo độ ưu tiên (chỉ chạy P0 cho Smoke Test, hoặc P0+P1 cho Sanity Test). Các test case ngoài bộ lọc được ghi nhận là SKIPPED kèm lý do rõ ràng.
+- **Visual Badges & Report Filters**:
+  - `HtmlReportService`: Hiển thị huy hiệu độ ưu tiên sắc nét (`P0` đỏ rực, `P1` cam vàng, `P2` xanh dương, `P3` xám) kèm bộ lọc chip theo Priority.
+  - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
+- **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
+

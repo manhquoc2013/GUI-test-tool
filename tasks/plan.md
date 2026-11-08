@@ -99,3 +99,14 @@
 - **Verification & TDD**:
   - Add comprehensive unit tests for each new component.
   - Run full test regression (`mvn clean test`) to verify all existing and new tests pass.
+
+## Phase 11: Test Case Priority Classification & Targeted Execution (P0-P3)
+- Create `com.studio.model.TestPriority.java` with P0, P1, P2, P3 definitions, labels, and parsing.
+- Update `TestCase.java`, `AiGeneratedCase.java`, and `CaseResult.java` with `priority` field.
+- Update `DatabaseManager.java` & `LocalDataIndexService.java` for H2 database schema and indexing.
+- Update `AiTestGeneratorService.java` prompt and case mapping for autonomous priority evaluation.
+- Update `TestRunnerService.java` with priority filtering support.
+- Update `HtmlReportService.java` with priority badges and filter chips.
+- Update `TestCaseExcelExportService.java` & `ExcelReportService.java` with priority column.
+- Update `.agents/qa-planner.md` with priority guidelines.
+- Add unit tests for `TestPriority`, targeted execution, and verify full test suite (`mvn clean test`).

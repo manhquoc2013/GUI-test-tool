@@ -11,6 +11,7 @@ public class AiGeneratedCase {
     private String name = "";
     private String description = "";
     private String startUrl = "";
+    private String priority = "P1";
     private String scriptCode = "";
     private List<Assertion> assertions = new ArrayList<>();
     private List<TestStep> testSteps = new ArrayList<>();
@@ -49,6 +50,14 @@ public class AiGeneratedCase {
 
     public void setStartUrl(String startUrl) {
         this.startUrl = startUrl != null ? startUrl : "";
+    }
+
+    public String getPriority() {
+        return priority != null ? priority : TestPriority.P1;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = TestPriority.normalize(priority);
     }
 
     public String getScriptCode() {

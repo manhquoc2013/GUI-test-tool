@@ -77,6 +77,15 @@ public class TestRunnerService {
     public RunReport run(String scope, Path scopePath, boolean headless, String browserId,
                          boolean stopOnFirstFailure, boolean shareContext,
                          Consumer<String> terminalOutput) {
+        return run(scope, scopePath, headless, browserId, stopOnFirstFailure, shareContext, terminalOutput, null);
+    }
+
+    /**
+     * Overload supporting Priority-Driven execution (e.g. running only P0 for Smoke Test).
+     */
+    public RunReport run(String scope, Path scopePath, boolean headless, String browserId,
+                         boolean stopOnFirstFailure, boolean shareContext,
+                         Consumer<String> terminalOutput, Set<String> targetPriorities) {
 
         String runId = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
 
@@ -94,6 +103,16 @@ public class TestRunnerService {
             terminal("ℹ️ Không có test case nào để chạy — bỏ qua lưu báo cáo.", terminalOutput);
             return emptyUnsavedReport(runId, scope, scopePath, browserId, headless,
                     shareContext, stopOnFirstFailure);
+        }
+
+        // Apply Priority Filtering if specified
+        if (targetPriorities != null && !targetPriorities.isEmpty()) {
+            for (CaseResult cr : allCases) {
+                if (!"SKIPPED".equals(cr.getStatus()) && !targetPriorities.contains(cr.getPriority())) {
+                    cr.setStatus("SKIPPED");
+                    cr.setSkipReason("Excluded by priority filter (" + cr.getPriority() + ")");
+                }
+            }
         }
 
         Path screenshotDir = reportStore.getScreenshotDir(runId);

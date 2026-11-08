@@ -614,6 +614,14 @@ public class ProjectStore {
         writeJsonAtomic(suiteJson, suite);
     }
 
+    public void updateCasePriority(Path suiteDir, String caseId, String priority) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+        tc.setPriority(priority);
+        writeJsonAtomic(suiteJson, suite);
+    }
+
     private TestCase requireCase(TestSuite suite, String caseId) {
         return suite.getCases().stream()
                 .filter(c -> c.getId().equals(caseId))
@@ -733,6 +741,7 @@ public class ProjectStore {
             cr.setSuiteDir(suiteDir.toAbsolutePath().normalize().toString());
             cr.setTestCaseId(tc.getId());
             cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
             if (!suiteActive) {
@@ -772,6 +781,7 @@ public class ProjectStore {
             cr.setSuiteDir(suiteDirAbs);
             cr.setTestCaseId(tc.getId());
             cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
             if ("Draft".equals(tc.getStatus())) {
@@ -813,6 +823,7 @@ public class ProjectStore {
             cr.setSuiteDir(suiteDir.toAbsolutePath().normalize().toString());
             cr.setTestCaseId(tc.getId());
             cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
             if ("Draft".equals(tc.getStatus())) {

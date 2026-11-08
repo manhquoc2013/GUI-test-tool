@@ -17,6 +17,7 @@ public class CaseResult {
     private String suiteDir;
     private String testCaseId;
     private String testCaseName;
+    private String priority = "P1";
     private String scriptFile;
     private String status;
     private String skipReason;
@@ -96,6 +97,14 @@ public class CaseResult {
 
     public void setTestCaseName(String testCaseName) {
         this.testCaseName = testCaseName;
+    }
+
+    public String getPriority() {
+        return priority != null ? priority : TestPriority.P1;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = TestPriority.normalize(priority);
     }
 
     public String getScriptFile() {

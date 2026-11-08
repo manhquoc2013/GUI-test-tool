@@ -63,7 +63,7 @@ public class ExcelReportService {
 
     /** Character widths → POI units; leave room for autofilter dropdown. */
     private static final int[] CASES_WIDTHS = {
-            6, 22, 16, 14, 12, 16, 14, 28, 28
+            6, 22, 16, 14, 10, 12, 16, 14, 28, 28
     };
     private static final int[] ASSERTS_WIDTHS = {
             18, 12, 16, 24, 16, 16, 36
@@ -198,6 +198,7 @@ public class ExcelReportService {
                 I18nService.get(lang, "export.report.cases.name"),
                 I18nService.get(lang, "export.report.cases.suite"),
                 I18nService.get(lang, "export.report.cases.group"),
+                "Priority",
                 I18nService.get(lang, "export.report.cases.status"),
                 I18nService.get(lang, "export.report.cases.skip_reason"),
                 I18nService.get(lang, "export.report.cases.duration"),
@@ -221,11 +222,12 @@ public class ExcelReportService {
             writeText(row, 1, nullToEmpty(cr.getTestCaseName()), styles, zebra, false);
             writeText(row, 2, nullToEmpty(cr.getSuiteName()), styles, zebra, false);
             writeText(row, 3, nullToEmpty(cr.getGroupPath()), styles, zebra, false);
-            writeStatus(row, 4, cr.getStatus(), styles);
-            writeText(row, 5, nullToEmpty(cr.getSkipReason()), styles, zebra, false);
-            writeDuration(row, 6, cr.getDurationMs(), styles, zebra);
-            writeScreenshot(row, 7, cr.getScreenshotPath(), styles, zebra, helper);
-            writeText(row, 8, nullToEmpty(cr.getFailureReason()), styles, zebra, false);
+            writeText(row, 4, nullToEmpty(cr.getPriority()), styles, zebra, true);
+            writeStatus(row, 5, cr.getStatus(), styles);
+            writeText(row, 6, nullToEmpty(cr.getSkipReason()), styles, zebra, false);
+            writeDuration(row, 7, cr.getDurationMs(), styles, zebra);
+            writeScreenshot(row, 8, cr.getScreenshotPath(), styles, zebra, helper);
+            writeText(row, 9, nullToEmpty(cr.getFailureReason()), styles, zebra, false);
         }
 
         int lastCol = cols.length - 1;

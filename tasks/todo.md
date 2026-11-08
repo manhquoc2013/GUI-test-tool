@@ -77,3 +77,12 @@
 - [x] Task 72: Integrate Step Group macro expansion and Variable Resolution in `TestRunnerService.java` <!-- id: 82 -->
 - [x] Task 73: Write comprehensive unit tests for all components and verify full test suite (`mvn clean test`) <!-- id: 83 -->
 - [x] Task 74: Update `tasks/learnings.md` and commit atomic changes <!-- id: 84 -->
+
+- [x] Task 75: Create `TestPriority.java` and update `TestCase`, `AiGeneratedCase`, `CaseResult` <!-- id: 85 -->
+- [x] Task 76: Update `DatabaseManager` and `LocalDataIndexService` for H2 priority schema & indexing <!-- id: 86 -->
+- [x] Task 77: Update `AiTestGeneratorService` & `.agents/qa-planner.md` for autonomous priority evaluation <!-- id: 87 -->
+- [x] Task 78: Update `TestRunnerService` with priority filtering support <!-- id: 88 -->
+- [x] Task 79: Update `HtmlReportService` with priority badges and filter chips <!-- id: 89 -->
+- [x] Task 80: Update `TestCaseExcelExportService` & `ExcelReportService` with priority column <!-- id: 90 -->
+- [x] Task 81: Add comprehensive unit tests and run full verification suite (`mvn clean test`) <!-- id: 91 -->
+- [x] Task 82: Update `tasks/learnings.md` and commit atomic changes <!-- id: 92 -->

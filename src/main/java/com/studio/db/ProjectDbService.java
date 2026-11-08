@@ -216,6 +216,9 @@ public class ProjectDbService {
         tc.setStatus(rs.getString("status"));
         tc.setStartUrl(rs.getString("start_url"));
         tc.setScriptFile(rs.getString("script_file"));
+        try {
+            tc.setPriority(rs.getString("priority"));
+        } catch (Exception ignored) {}
         return tc;
     }
 }

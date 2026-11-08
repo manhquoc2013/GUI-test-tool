@@ -176,6 +176,10 @@ public class HtmlReportService {
             .badge.failed { background: rgba(243, 139, 168, 0.2); color: var(--fail); border: 1px solid var(--fail); }
             .badge.skipped { background: rgba(249, 226, 175, 0.2); color: var(--skip); border: 1px solid var(--skip); }
             .badge.error { background: rgba(243, 139, 168, 0.3); color: var(--fail); border: 1px solid var(--fail); }
+            .badge.p0 { background: #f38ba8; color: #11111b; font-weight: 800; border: 1px solid #f38ba8; }
+            .badge.p1 { background: #fab387; color: #11111b; font-weight: 800; border: 1px solid #fab387; }
+            .badge.p2 { background: #89b4fa; color: #11111b; font-weight: 800; border: 1px solid #89b4fa; }
+            .badge.p3 { background: #a6adc8; color: #11111b; font-weight: 800; border: 1px solid #a6adc8; }
             .case-name { font-weight: 600; font-size: 15px; color: #fff; }
             .case-suite { font-size: 12px; color: var(--text-muted); }
             .case-duration { font-size: 12px; color: var(--text-muted); }
@@ -351,6 +355,12 @@ public class HtmlReportService {
             sb.append("<button class=\"btn-filter\" onclick=\"filterCases('skipped', this)\">")
               .append(I18nService.get(effectiveLang, "export.html.filter_skipped")).append(" (").append(skipped).append(")</button>\n");
         }
+        sb.append("<span style=\"font-size:13px; color:var(--text-muted); margin-left:12px; margin-right:4px;\">Priority:</span>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCasesByPriority('all', this)\">All</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCasesByPriority('p0', this)\">P0</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCasesByPriority('p1', this)\">P1</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCasesByPriority('p2', this)\">P2</button>\n");
+        sb.append("<button class=\"btn-filter\" onclick=\"filterCasesByPriority('p3', this)\">P3</button>\n");
         sb.append("</div>\n");
 
         // Cases List
@@ -363,11 +373,14 @@ public class HtmlReportService {
                 case "SKIPPED" -> "skipped";
                 default -> "error";
             };
+            String priority = cr.getPriority() != null ? cr.getPriority().toUpperCase() : "P1";
 
-            sb.append("<div class=\"case-card\" data-status=\"").append(status.toLowerCase()).append("\">\n");
+            sb.append("<div class=\"case-card\" data-status=\"").append(status.toLowerCase())
+              .append("\" data-priority=\"").append(priority.toLowerCase()).append("\">\n");
             sb.append("<div class=\"case-header\" onclick=\"toggleCaseBody(this)\">\n");
             sb.append("<div class=\"case-title-row\">\n");
             sb.append("<span class=\"badge ").append(badgeClass).append("\">").append(status).append("</span>\n");
+            sb.append("<span class=\"badge ").append(priority.toLowerCase()).append("\">").append(priority).append("</span>\n");
             if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
                 sb.append("<span class=\"badge\" style=\"background:#0284c7; color:#fff;\">✨ Auto-Healed (")
                   .append(cr.getHealedSteps().size()).append(")</span>\n");
@@ -514,6 +527,18 @@ public class HtmlReportService {
                 var cards = document.querySelectorAll('.case-card');
                 cards.forEach(function(card) {
                     if (status === 'all' || card.getAttribute('data-status') === status) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            }
+            function filterCasesByPriority(priority, btn) {
+                document.querySelectorAll('.btn-filter').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var cards = document.querySelectorAll('.case-card');
+                cards.forEach(function(card) {
+                    if (priority === 'all' || card.getAttribute('data-priority') === priority) {
                         card.style.display = 'block';
                     } else {
                         card.style.display = 'none';

@@ -75,7 +75,8 @@ class ExcelReportServiceTest {
             Row hCases = sCases.getRow(0);
             assertEquals("STT", hCases.getCell(0).getStringCellValue());
             assertEquals("Tên Test Case", hCases.getCell(1).getStringCellValue());
-            assertEquals("Trạng thái", hCases.getCell(4).getStringCellValue());
+            assertEquals("Priority", hCases.getCell(4).getStringCellValue());
+            assertEquals("Trạng thái", hCases.getCell(5).getStringCellValue());
         }
     }
 
@@ -103,7 +104,8 @@ class ExcelReportServiceTest {
             Row hCases = sCases.getRow(0);
             assertEquals("#", hCases.getCell(0).getStringCellValue());
             assertEquals("Case Name", hCases.getCell(1).getStringCellValue());
-            assertEquals("Status", hCases.getCell(4).getStringCellValue());
+            assertEquals("Priority", hCases.getCell(4).getStringCellValue());
+            assertEquals("Status", hCases.getCell(5).getStringCellValue());
         }
     }
 

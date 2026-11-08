@@ -70,6 +70,8 @@ class HtmlReportServiceTest {
         assertTrue(html.contains("ELEMENT_VISIBLE"));
         assertTrue(html.contains("data:image/png;base64,")); // Embedded screenshot
         assertTrue(html.contains("Element not visible: .error-box"));
+        assertTrue(html.contains("data-priority=\"p1\""));
+        assertTrue(html.contains("Priority:"));
     }
 
     @Test

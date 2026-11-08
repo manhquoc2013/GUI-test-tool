@@ -145,7 +145,14 @@ public class AiTestGeneratorService {
            - NEVER include empty try-catch blocks or swallow exceptions in `scriptCode`.
            - Always cover boundary scenarios (empty fields, max length, invalid formats) in `testDataSets`.
 
-        7. **Response Format**:
+        7. **Test Case Priority Evaluation (P0 - P3)**:
+           - You MUST evaluate and classify each test case into an appropriate priority tier based on business impact:
+             - "P0" (Critical / Smoke): Blocker workflows (Authentication, Core Checkout, Payment, Security).
+             - "P1" (High / Core Flow): Essential business workflows, primary CRUD, and major validations.
+             - "P2" (Medium / Regression): Secondary workflows, search/filtering, pagination, error handling.
+             - "P3" (Low / Edge Case): UI polish, formatting, tooltips, rare edge scenarios.
+
+        8. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
@@ -153,6 +160,7 @@ public class AiTestGeneratorService {
             {
               "name": "Case_Identifier_Name",
               "description": "Mô tả mục tiêu kịch bản",
+              "priority": "P0 | P1 | P2 | P3",
               "startUrl": "https://example.com/target",
               "preconditions": [
                 "Tài khoản kiểm thử đã được kích hoạt"
@@ -441,6 +449,7 @@ public class AiTestGeneratorService {
                 String safeName = sanitizeCaseName(rawName);
                 ac.setName(safeName);
                 ac.setDescription(cNode.path("description").asText(""));
+                ac.setPriority(cNode.path("priority").asText("P1"));
                 String startUrl = cNode.path("startUrl").asText("");
                 ac.setStartUrl(startUrl);
 
@@ -664,6 +673,11 @@ public class AiTestGeneratorService {
                 projectStore.updateCaseStepsAndData(suiteDir, targetCase.getId(), genCase.getTestSteps(), genCase.getTestDataSets());
                 targetCase.setTestSteps(new ArrayList<>(genCase.getTestSteps()));
                 targetCase.setTestDataSets(new ArrayList<>(genCase.getTestDataSets()));
+            }
+
+            if (genCase.getPriority() != null) {
+                targetCase.setPriority(genCase.getPriority());
+                projectStore.updateCasePriority(suiteDir, targetCase.getId(), genCase.getPriority());
             }
 
             applied.add(targetCase);

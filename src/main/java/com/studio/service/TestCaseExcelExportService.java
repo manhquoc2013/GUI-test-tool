@@ -208,7 +208,7 @@ public final class TestCaseExcelExportService {
         row.groupPath = groupPath != null && !groupPath.isBlank() ? groupPath : "Root";
         row.suiteName = suiteName != null && !suiteName.isBlank() ? suiteName : "Default Suite";
         row.status = tc.getStatus() != null && !tc.getStatus().isBlank() ? tc.getStatus() : "Draft";
-        row.priority = "P2 (Medium)";
+        row.priority = com.studio.model.TestPriority.getLabel(tc.getPriority());
         row.preconditions = tc.getStartUrl() != null && !tc.getStartUrl().isBlank()
                 ? I18nService.get(lang, "export.tc.preconditions.url", tc.getStartUrl())
                 : I18nService.get(lang, "export.tc.preconditions.default");
@@ -469,7 +469,13 @@ public final class TestCaseExcelExportService {
             // 5: Độ ưu tiên
             Cell c5 = row.createCell(5);
             c5.setCellValue(safeCellText(c.priority));
-            c5.setCellStyle(styles.priorityMedium);
+            org.apache.poi.ss.usermodel.CellStyle pStyle = styles.priorityMedium;
+            if (c.priority != null && (c.priority.contains("P0") || c.priority.contains("P1"))) {
+                pStyle = styles.priorityHigh;
+            } else if (c.priority != null && c.priority.contains("P3")) {
+                pStyle = styles.priorityLow;
+            }
+            c5.setCellStyle(pStyle);
 
             // 6: Trạng thái
             Cell c6 = row.createCell(6);

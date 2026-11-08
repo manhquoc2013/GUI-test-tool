@@ -16,6 +16,7 @@ public class TestCase {
     private String description;
     private String scriptFile;
     private String status = "Draft";
+    private String priority = "P1";
     /** Start URL used for codegen / re-record; persisted in suite.json. */
     private String startUrl = "";
     /** Empty / null = inherit suite then Playwright Chromium. */
@@ -77,6 +78,14 @@ public class TestCase {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getPriority() {
+        return priority != null ? priority : TestPriority.P1;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = TestPriority.normalize(priority);
     }
 
     public String getStartUrl() {

@@ -300,8 +300,8 @@ public class LocalDataIndexService {
                                    String suiteId, String scriptContent) throws SQLException {
         String sql = """
             MERGE INTO test_cases (id, suite_id, group_name, suite_name, name, description, status,
-                                   start_url, script_file, script_content, assertions_count, updated_at)
-            KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   start_url, script_file, script_content, assertions_count, updated_at, priority)
+            KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         int assertCount = tc.getAssertions() != null ? tc.getAssertions().size() : 0;
 
@@ -318,6 +318,7 @@ public class LocalDataIndexService {
             ps.setString(10, scriptContent != null ? scriptContent : "");
             ps.setInt(11, assertCount);
             ps.setLong(12, System.currentTimeMillis());
+            ps.setString(13, tc.getPriority() != null ? tc.getPriority() : "P1");
             ps.executeUpdate();
         }
 
