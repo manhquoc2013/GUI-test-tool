@@ -26,7 +26,7 @@ Bộ tài liệu này mô tả **đúng trạng thái hiện tại của mã ngu
 9. [Trợ lý AI](#9-trợ-lý-ai)
 10. [Cài đặt, dọn dẹp dữ liệu & chủ đề](#10-cài-đặt-dọn-dẹp-dữ-liệu--chủ-đề)
 11. [Ngăn trợ giúp trong ứng dụng](#11-ngăn-trợ-giúp-trong-ứng-dụng)
-12. [Chạy trên dòng lệnh & tích hợp CI](#12-chạy-trên-dòng-lệnh--tích-hợp-ci)
+12. [Chạy trên dòng lệnh, đóng gói & tích hợp CI](#12-chạy-trên-dòng-lệnh-đóng-gói--tích-hợp-ci)
 13. [Cấu trúc dữ liệu & đường dẫn](#13-cấu-trúc-dữ-liệu--đường-dẫn)
 14. [Mẹo sử dụng](#14-mẹo-sử-dụng)
 15. [Xử lý sự cố](#15-xử-lý-sự-cố)
@@ -245,6 +245,19 @@ Trong lúc chạy: thanh trạng thái hiện `Đang chạy…`, nút **⏹ Dừ
 
 Nút **Xuất Excel** trong Workspace xuất danh sách case của suite hiện tại (kèm bước và assertion) ra file `.xlsx`.
 
+### 6.6. Động cơ Tự phục hồi Playwright Tối ưu (Optimized Self-Healing Engine)
+
+Trong kiểm thử E2E, selector phần tử web rất dễ bị gãy do ID sinh động (`#btn-submit-89312`), hash class thay đổi sau mỗi lần build Webpack/Vite (`.button__3x9a`), hoặc cấu trúc phân cấp DOM thay đổi nhẹ.
+
+Test Studio tích hợp động cơ tự phục hồi thông minh `OptimizedSelfHealingExecutor`:
+- **Fast-path Execution**: Khi selector gốc vẫn tìm thấy phần tử, Playwright thực thi ngay lập tức mà không phát sinh bất kỳ độ trễ hay chi phí tính toán nào.
+- **Đa chiến lược Heuristic tức thời (<30ms)**: Khi locator gặp lỗi `PlaywrightException`:
+  1. *Lọc bỏ ID động*: Chuyển `#input-username-9821` thành `[id^='input-username']`.
+  2. *Chuẩn hóa văn bản*: Tìm kiếm text mờ không phân biệt hoa thường và loại bỏ khoảng trắng thừa.
+  3. *Ánh xạ vai trò ARIA & Thuộc tính ngữ nghĩa*: Tìm theo `data-testid`, `aria-label`, placeholder, role (`button`, `textbox`).
+- **Bộ bọc trong suốt `HealedLocatorWrapper`**: Bọc Playwright Locator trong suốt, tự động phục hồi và phát sự kiện `HealedEvent` để ghi nhận selector thay thế vào kết quả chạy và nhật ký.
+- **Bộ nhớ đệm tự phục hồi (Self-Healing Cache)**: Lưu lại selector đã vá thành công kèm thời gian sống (TTL), giúp các bước kiểm thử kế tiếp trong phiên chạy tái sử dụng ngay tức thì (<1ms).
+
 ---
 
 ## 7. Assertion Builder — 46 loại kiểm tra
@@ -291,9 +304,16 @@ Nhấn **Thêm** để đưa assertion vào danh sách (chọn một dòng để
 
 Cột phải lọc theo 8 nhóm: `Văn bản`, `Phần tử`, `URL`, `Tiêu đề`, `Bảng`, `Form`, `Lưu trữ`, `Tuỳ chỉnh`. Mỗi dòng hiển thị nhãn loại + giá trị rút gọn + locator kèm chấm trạng thái (🟢 hoạt động / 🟡 nháp / ⚪ ngừng).
 
-### 7.4. Soft-assert
+### 7.4. Soft-assert & Điểm số bao phủ
 
-Trong một case, **mọi assertion ACTIVE đều được thực thi** dù có cái trước đó thất bại. Kết quả từng assertion (đạt / sai / bỏ qua + lý do) được ghi vào report; case chỉ PASSED khi tất cả assertion ACTIVE đều đạt.
+Trong một case, **mọi assertion ACTIVE đều được thực thi** dù có assertion trước đó thất bại. Kết quả từng assertion (đạt / sai / bỏ qua kèm lý do) được ghi nhận chi tiết; case chỉ PASSED khi tất cả assertion ACTIVE đều đạt.
+
+### 7.5. Đối soát kết quả runtime (Reconciliation)
+
+Tầng kiểm thử `StudioAssertions` và `StudioRuntime` thực hiện:
+- Biên dịch 46 loại assertion từ giao diện thành mã kiểm tra Java native thông qua `AssertCodeGenerator`.
+- Tự động đối soát (Reconciliation) giữa các điều kiện assertion định nghĩa trong `suite.json` với dữ liệu thực tế thu được trong quá trình chạy.
+- Ghi nhận trạng thái chính xác (`PASSED`, `FAILED`, `SKIPPED`) và giá trị thực tế/kỳ vọng vào mô hình `AssertResult` để hiển thị trực tiếp trên báo cáo lượt chạy.
 
 ---
 
@@ -329,6 +349,17 @@ Cột: **Mã chạy**, **Phạm vi** (Case / Suite / Group / All), **Mục tiêu
 
 File xuất mặc định nằm trong `data/exports/`; hộp thoại lưu cho phép chọn nơi khác. Báo cáo Excel có thể chọn **ngôn ngữ** (Việt / Anh) trước khi xuất.
 
+### 8.4. Chuẩn đoán lỗi có cấu trúc & Các bước tái hiện
+
+Báo cáo kiểm thử tự động loại bỏ stack trace kỹ thuật thô và thay thế bằng các thông tin trực quan:
+- **Phân loại lỗi chuẩn hóa**:
+  - `LocatorNotFound`: Không tìm thấy phần tử giao diện sau khi đã kích hoạt toàn bộ chiến lược tự phục hồi.
+  - `Timeout`: Thao tác vượt quá ngưỡng thời gian chờ cấu hình.
+  - `AssertionFailure`: Điều kiện khẳng định không thỏa mãn (ví dụ: văn bản không khớp, giá trị sai lệch).
+  - `NavigationError` / `NetworkError`: Lỗi kết nối mạng, tải trang thất bại hoặc mã phản hồi HTTP lỗi.
+- **Các bước tái hiện (Reproduction Steps)**: Tự động tổng hợp chuỗi thao tác dẫn đến thời điểm lỗi, giúp lập trình viên và QA tái hiện sự cố nhanh chóng.
+- **Báo cáo đa định dạng**: Toàn bộ thông tin lỗi cấu trúc và bằng chứng ảnh chụp được tích hợp hoàn chỉnh trên cả file HTML độc lập và file Excel ISTQB.
+
 ---
 
 ## 9. Trợ lý AI
@@ -353,13 +384,30 @@ Mở bằng `Trợ lý AI` ở thanh bên.
 4. Gửi yêu cầu (`Enter` hoặc `Ctrl/Cmd + Enter`).
 5. Xem trước các tab kết quả, chỉnh nếu cần, rồi bấm **Nhập vào Suite** để tạo case và kịch bản.
 
-### 9.3. AI Hỗ trợ trong Workspace
+### 9.3. Hộp thoại Sinh Test Case Trực quan (AiCasePromptDialog)
 
-Nút **AI Hỗ trợ** trong thanh hành động mở hộp thoại nhỏ với ngữ cảnh của case đang mở, thuận tiện để tinh chỉnh kịch bản, thay locator dễ vỡ hoặc sinh thêm assertion; kết quả áp dụng vào case hiện tại sau khi bạn xác nhận.
+Bấm nút **✨ AI Hỗ trợ** trong thanh hành động Workspace (hoặc tạo ca kiểm thử mới từ prompt) để mở hộp thoại `AiCasePromptDialog`:
+- Nhập mô tả kịch bản kiểm thử bằng ngôn ngữ tự nhiên (tiếng Việt hoặc tiếng Anh).
+- Tùy chọn đội ngũ chuyên gia AI chuyên sâu (Agency-Agents Roster) phù hợp với mục tiêu kiểm thử:
+  - 🎭 **QA Architect**: Thiết kế kịch bản chuẩn Playwright E2E, bao quát luồng nghiệp vụ chính (Happy Path).
+  - 🛡️ **Security Specialist**: Kiểm thử bảo mật giao diện, form injection, phân quyền, dữ liệu nhạy cảm.
+  - 🔬 **Edge-case Analyst**: Tìm kiếm các trường hợp biên, giá trị cực đại/cực tiểu, luồng hủy ngang và dữ liệu lỗi.
+  - 📊 **Test Data Engineer**: Xây dựng ma trận bộ dữ liệu kiểm thử (Test Data Schema) đa dạng.
+- **Bộ phân tích phản hồi 3 tầng siêu bền bỉ (3-Tier Robust Parser)**:
+  - *Tier 1*: Phân tích cấu trúc JSON chuẩn.
+  - *Tier 2*: Tự động bóc tách từ khối Markdown code block / fenced block.
+  - *Tier 3*: Tự vá lỗi bằng biểu thức chính quy (Regex Repair) khi model trả về định dạng khiếm khuyết.
+- Tự động sinh trọn bộ: Mã Playwright Java chạy được ngay + Ma trận dữ liệu mẫu + Danh sách bước NLP tương ứng.
 
 ### 9.4. Quét Live DOM
 
 Nút **Quét Live DOM** trích xuất cấu trúc trang đang chạy để AI chọn locator ổn định thay vì đoán theo ảnh.
+
+### 9.5. Bộ chuyển đổi tài liệu hybrid MarkItDown (Multi-Format Document Ingestion)
+
+Trợ lý AI tích hợp bộ chuyển đổi tài liệu đa định dạng `MarkdownConverterEngine`:
+- Hỗ trợ nhập tài liệu đặc tả yêu cầu, tài liệu nghiệp vụ từ định dạng Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`), PowerPoint (`.pptx`), và HTML.
+- Tự động trích xuất và chuẩn hóa văn bản thành Markdown cấu trúc cao để đưa vào ngữ cảnh prompt AI mà không làm tràn giới hạn token.
 
 ---
 
@@ -392,6 +440,8 @@ Nút **Sáng/Tối** đổi giao diện tức thời (không cần khởi độn
 
 ## 11. Ngăn trợ giúp trong ứng dụng
 
+### 11.1. Tóm tắt thao tác nhanh
+
 Nút **Trợ giúp** (❓) mở ngăn bên phải (khoảng 2/3 chiều rộng) — bản tóm tắt thao tác dùng ngay trong lúc làm việc:
 
 ![Ngăn trợ giúp bên phải (chủ đề Tối)](images/07-help-drawer.png)
@@ -400,22 +450,42 @@ Nút **Trợ giúp** (❓) mở ngăn bên phải (khoảng 2/3 chiều rộng) 
 
 Các mục: Giới thiệu · Thanh bên & thanh trên · Explorer · Workspace · Ghi hình · Chạy test · Assertion Builder · Báo cáo & xuất Excel · Mẹo nhanh. Bấm ra ngoài hoặc `✕` để đóng.
 
+### 11.2. Trình xem Hướng dẫn Sử dụng Tích hợp (In-App User Guide Viewer)
+
+Trong ngăn Trợ giúp (Help Drawer), bấm nút **"Xem toàn bộ hướng dẫn"** để mở trình duyệt cẩm nang người dùng:
+- Hiển thị toàn bộ hướng dẫn sử dụng Markdown ngay bên trong giao diện ứng dụng mà không cần mở trình duyệt web bên ngoài.
+- **Hỗ trợ song ngữ**: Chuyển đổi linh hoạt giữa Tiếng Việt và English.
+- **Mục lục điều hướng nhanh (TOC)**: Nhấp chuột vào bất kỳ đề mục nào để cuộn ngay đến phần tương ứng.
+- **Ảnh chụp giao diện theo chủ đề**: Toàn bộ ảnh chụp màn hình minh họa tự động hiển thị theo chủ đề Sáng hoặc Tối (Catppuccin Mocha) và được nhúng sẵn ngoại tuyến trong ứng dụng.
+
 ---
 
-## 12. Chạy trên dòng lệnh & tích hợp CI
+## 12. Chạy trên dòng lệnh, đóng gói & tích hợp CI
 
-Workflow có sẵn trong `src/main/resources/ci/.github/workflows` (bản triển khai nằm ở `.github/workflows`):
+### 12.1. Đóng gói bộ cài đặt ngoại tuyến (Offline Installers)
 
-- `ci.yml` — biên dịch và chạy unit test (JUnit 5) khi push/PR.
-- `release-portable.yml` — chỉ chạy khi tạo tag `v*`: build ma trận macOS / Windows / Linux và đính gói portable vào Release.
+Ứng dụng hỗ trợ đóng gói đầy đủ JRE 26, Node.js LTS, Playwright CLI và Chromium offline:
 
-Lệnh cục bộ:
+| Hệ điều hành | Định dạng | Lệnh đóng gói | Đặc điểm |
+|---|---|---|---|
+| **macOS** | `.dmg` | `./scripts/build-installer.sh` | File cài đặt kéo-thả vào Applications (hỗ trợ Apple Silicon ARM64 và Intel x64) |
+| **Windows** | Setup `.exe` | `scripts\build-installer.bat` | Bộ cài Wizard Inno Setup với shortcut Desktop, Start Menu và trình gỡ cài đặt |
+| **Multi-platform** | `.zip` (Portable) | `scripts/build-portable.sh` / `.bat` | Thư mục ứng dụng portable tự chứa, chạy trực tiếp không cần cài đặt |
+
+### 12.2. Lệnh dòng lệnh cục bộ
 
 ```bash
-mvn -q -DskipTests compile      # biên dịch
-mvn test                        # unit test
-bash scripts/build-portable.sh  # gói portable
+mvn -q -DskipTests compile      # Biên dịch mã nguồn
+mvn test                        # Chạy toàn bộ 260 unit & integration test
+bash scripts/build-installer.sh # Đóng gói DMG cho macOS
+scripts\build-installer.bat     # Đóng gói Windows Setup (.exe)
 ```
+
+### 12.3. Tự động hóa CI/CD (GitHub Actions)
+
+- `ci.yml` — Biên dịch và chạy bộ test khi push/PR lên nhánh `main`.
+- `release-portable.yml` — Đóng gói bản Portable đa nền tảng (macOS, Windows, Linux) khi gắn tag release `v*`.
+- `build-installers.yml` — Tự động build bộ cài đặt ngoại tuyến (macOS `.dmg` & Windows Setup `.exe`) khi phát hành phiên bản mới.
 
 ---
 

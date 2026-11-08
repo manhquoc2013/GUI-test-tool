@@ -42,7 +42,7 @@ Output in `target/classes/`.
 mvn -DskipTests package
 ```
 
-Produces `target/playwright-automation-studio-1.0.0.jar`.
+Produces `target/playwright-automation-studio-2.2.0.jar`.
 
 ### Run the application
 
@@ -53,6 +53,32 @@ mvn javafx:run
 The JavaFX Maven plugin (`org.openjfx:javafx-maven-plugin:0.0.8`) handles module path resolution automatically. The application launches at 1200×800 with the Catppuccin Mocha dark theme.
 
 In dev mode, `APP_HOME` resolves to the Maven project root (where `pom.xml` lives). All runtime data goes into `data/` and `work/` at that root.
+
+---
+
+## Offline Installers (DMG & Setup EXE)
+
+In addition to portable archives, Test Studio provides native offline installers for macOS and Windows. These bundle a dedicated JRE 26, Node.js LTS, Playwright CLI, and offline Chromium, requiring zero network connection or pre-installed software on the client machine.
+
+### macOS Drag-and-Drop DMG Installer
+
+```bash
+bash scripts/build-installer.sh
+```
+
+- Produces: `dist/TestStudio-2.2.0-mac-<arch>.dmg`
+- Bundles a complete `.app` bundle, embedded JRE 26, Node.js, and offline Chromium.
+- Provides standard `/Applications` drag-and-drop link and icon branding.
+
+### Windows Offline Setup Wizard (.exe)
+
+```cmd
+scripts\build-installer.bat
+```
+
+- Produces: `dist\TestStudio-2.2.0-windows-x64-Setup.exe`
+- Uses Inno Setup 6 (with automatic fallback to `jpackage --type exe`).
+- Creates Start Menu entries, optional Desktop shortcut, and registered Windows uninstaller.
 
 ---
 
@@ -139,10 +165,17 @@ Quy trình CI/CD hoàn toàn tự động cho 3 nền tảng (**macOS**, **Windo
 **Quy trình thực thi:**
 1. Setup JDK 26 (Temurin) + Node.js 22.
 2. Kiểm tra công cụ jpackage.
-3. Chạy toàn bộ bộ kiểm thử tự động (**162 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
+3. Chạy toàn bộ bộ kiểm thử tự động (**260 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
 4. Chạy `scripts/build-portable.sh` / `scripts/build-portable.bat` để đóng gói jpackage app-image kèm JRE nhúng, Node.js và Playwright Chromium.
 5. Upload artifacts của 3 hệ điều hành lên GitHub Actions.
 6. Job `publish` gom toàn bộ 3 file ZIP và đính kèm vào mục Assets của GitHub Release chính thức.
+
+### `.github/workflows/build-installers.yml`
+
+Quy trình tự động xây dựng và xuất bản bộ cài đặt offline native:
+- **macOS DMG**: Đóng gói tệp `.dmg` kéo-thả cho kiến trúc Apple Silicon và Intel x64.
+- **Windows Setup**: Tự động cài đặt Inno Setup và biên dịch tệp Setup `.exe` hoàn chỉnh.
+- Tự động kích hoạt khi có tag release `v*` hoặc publish release.
 
 ### Required permissions
 - `contents: write` để tự động tạo và tải assets lên GitHub Releases.

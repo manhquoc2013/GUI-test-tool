@@ -23,6 +23,25 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
 
 ## Features
 
+- **Optimized Self-Healing Execution Engine** — Intelligent runtime locator recovery:
+  - **Fast-Path Zero-Overhead Execution**: Directly dispatches to healthy Playwright locators without latency penalty.
+  - **Sub-30ms Heuristic Recovery**: Dynamically fixes broken locators (strips dynamic IDs, normalizes text, maps ARIA roles and fuzzy attributes) with zero AI cost.
+  - **HealedLocatorWrapper & Event Notifications**: Transparently wraps Playwright Locators, persists healed selectors, and notifies the runner.
+  - **Self-Healing Strategy Cache**: Caches verified recovery strategies with TTL for instant (<1ms) subsequent hits.
+- **In-App User Guide Viewer** — Comprehensive bilingual manual embedded directly into the Help Drawer:
+  - **Instant Chapter Navigation**: Interactive Table of Contents jumping directly to sections.
+  - **Theme-Adaptive Offline Media**: Offline-bundled screenshots rendering automatically in Dark (Catppuccin) or Light mode.
+  - **Bilingual Support**: Toggle seamlessly between Vietnamese and English documentation.
+- **Structured Test Error Reporting & Reproduction Steps** — Diagnostic-first test outcomes:
+  - Replaces raw technical stack traces with structured error classifications (`LocatorNotFound`, `Timeout`, `AssertionFailure`, `NavigationError`, `NetworkError`).
+  - Auto-synthesizes clear, step-by-step reproduction instructions and locates the exact failing step.
+  - Exportable to standalone HTML reports and ISTQB/IEEE 829-compliant Excel spreadsheets.
+- **Multi-Format Document Ingestion (MarkItDown Hybrid)** — Ingest business requirements and test specs:
+  - Normalizes PDF, Word (`.docx`), Excel (`.xlsx`), PowerPoint (`.pptx`), and HTML into structured Markdown for LLM prompt context.
+- **Offline Installers & Portable Packaging**:
+  - Native macOS `.dmg` drag-and-drop installer with bundled JRE 26, Node.js, and offline Chromium (Apple Silicon & Intel).
+  - Native Windows Setup `.exe` wizard installer (Inno Setup) with desktop shortcuts and clean uninstallation.
+  - Standalone multi-platform portable archives (`.zip`).
 - **Modern Pro IDE UI/UX Redesign** — Ergonomic, productivity-first desktop workspace inspired by VS Code, IntelliJ, and Linear:
   - **Multi-Tab Document Bar System**: Work with multiple open Suites, Reports, Explorer, and AI Assistant simultaneously with dirty state tracking (`● Chưa lưu`), tab switching, and close handling.
   - **Dynamic Breadcrumb Navigation**: Real-time context tracking in header (`Dự án > Nhóm > Suite > Case`) so you always know where you are.

@@ -12,15 +12,16 @@ The application runs **in-process** — test scripts are compiled and executed w
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| Language | Java | 26 | Application and test scripts |
-| UI Framework | JavaFX (FXML) | 26.0.1 | Desktop UI with declarative FXML layouts |
+| Application Version | Test Studio | 2.2.0 | Desktop automation IDE |
+| Language | Java | 26 | Application core, compiler and test scripts |
+| UI Framework | JavaFX (FXML) | 26.0.1 | Desktop UI with declarative FXML layouts & Catppuccin theme |
 | Browser Automation | Playwright Java | 1.61.0 | Browser launch, page interaction, codegen |
-| JSON | Jackson | 2.18.2 | Serialization of project data and reports |
-| Excel Export | Apache POI | 5.5.1 | Report export to `.xlsx` |
-| Build | Maven | 3.9+ | Compilation, dependency management, JavaFX plugin |
-| CI/CD | GitHub Actions | — | Build verification and portable release packaging |
-| Portable Bundling | jpackage + Node.js | — | Self-contained application images |
-| CSS Theme | Catppuccin Mocha | — | Dark theme for all UI |
+| Embedded Database | H2 Database | 2.3.232 | Dual persistence, in-memory cache & fast queries |
+| Document Ingestion | PDFBox & Apache POI | 3.0.4 / 5.5.1 | Multi-format requirement parser (PDF, Word, Excel, PPTX) |
+| JSON Serialization | Jackson | 2.18.2 | Serialization of project trees, suites, and reports |
+| Build & Tooling | Maven & jpackage | 3.9+ / JDK 26 | Compilation, dependency management, app-image packaging |
+| Installer Packaging | Inno Setup & hdiutil | 6.x / macOS | Native Windows Setup (.exe) and macOS (.dmg) installers |
+| CI/CD Automation | GitHub Actions | — | Multi-platform build matrix, testing & release delivery |
 
 ---
 
@@ -30,58 +31,81 @@ The application runs **in-process** — test scripts are compiled and executed w
 com.studio/
 ├── App.java                              # JavaFX Application entry point
 │
-├── model/                                # Data models (8 classes)
+├── model/                                # Data models
 │   ├── TestGroup.java                    # Group node (can be nested)
 │   ├── TestSuite.java                    # Suite node (contains cases)
-│   ├── TestCase.java                     # Individual test case (holds per-case assertions)
+│   ├── TestCase.java                     # Individual test case (holds per-case assertions & steps)
 │   ├── Assertion.java                    # Assertion definition (type, value, status, 46 types)
 │   ├── CaseResult.java                   # Per-case run outcome
 │   ├── AssertResult.java                 # Per-assertion run outcome
 │   ├── RunReport.java                    # Full run report (all cases)
-│   └── HealedStepMeta.java               # Self-healing audit metadata (action, old/new selector, method)
+│   ├── HealedStepMeta.java               # Self-healing audit metadata
+│   ├── StepGroup.java                    # Reusable step group model
+│   └── TestDataProfile.java              # Test data matrix & profile model
 │
-├── store/                                # Filesystem persistence (3 classes)
-│   ├── ProjectStore.java                 # Group/Suite/Case CRUD + tree load + case collection
+├── store/                                # Persistence & Data stores
+│   ├── ProjectStore.java                 # Group/Suite/Case CRUD + atomic disk JSON + H2 cache
 │   ├── ReportStore.java                  # Run report read/write/delete
-│   └── SettingsStore.java                # User preferences (browser, headless, etc.)
+│   ├── SettingsStore.java                # User preferences (browser, AI configs, encrypted keys)
+│   ├── StepGroupStore.java               # Step group CRUD and persistence
+│   ├── TestDataProfileStore.java         # Test data profiles storage
+│   └── AiChatHistoryStore.java           # AI chat conversations and prompt histories
 │
-├── service/                              # Business logic (8 classes)
-│   ├── TestRunnerService.java            # Run orchestration — all 4 scopes, compile, execute
+├── service/                              # Business logic & domain services
+│   ├── TestRunnerService.java            # Run orchestration — all 4 scopes, compilation, execution & reconciliation
 │   ├── SharedBrowserSession.java         # In-process Playwright browser context lifecycle
-│   ├── AssertCodeGenerator.java          # 46 assert types → soft-assert Java code block with healing
-│   ├── ScriptHarnessTransformer.java     # Rewrites codegen output with StudioRuntime.healLocator
+│   ├── AssertCodeGenerator.java          # 46 assert types → soft-assert Java code block
+│   ├── ScriptHarnessTransformer.java     # Rewrites codegen output with StudioRuntime & healing wrappers
 │   ├── ExcelReportService.java           # 3-sheet Excel export (Summary, Cases, Asserts)
-│   ├── AssertResultsScorer.java          # Reads assert-results JSON to determine pass/fail
+│   ├── TestCaseExcelExportService.java   # ISTQB / IEEE test case documentation export
+│   ├── HtmlReportService.java            # Standalone single-file HTML report with embedded screenshots
+│   ├── AssertResultsScorer.java          # Reads assert-results to determine pass/fail & scores
+│   ├── AiTestGeneratorService.java       # Resilient 3-tier parsing & specialist prompt generation
+│   ├── UserGuideService.java             # In-app bilingual Markdown user guide reader
+│   ├── MarkdownConverterEngine.java      # MarkItDown hybrid document ingestion (PDF, Word, Excel, PPTX, HTML)
+│   ├── LiveDomScanner.java               # Active page DOM structure extractor with LRU cache
+│   ├── ResourceReleaseService.java       # Operating system heap uncommit & native memory management
+│   ├── DataCleanupService.java           # Historical run, screenshot & log storage reclamation
+│   ├── ThemeService.java                 # Catppuccin Mocha & Light theme runtime manager
+│   ├── I18nService.java                  # Bilingual localization service (Tiếng Việt & English)
+│   ├── RunCancelService.java             # Non-blocking hard cancellation coordination
+│   ├── RunProgressService.java           # Live progress & step tracker
 │   ├── ToastService.java                 # Non-blocking toast notifications
 │   └── StatusBarService.java             # Bottom status bar text management
 │
-├── controller/                           # FXML controllers (8 classes)
-│   ├── MainShellController.java          # Shell: sidebar toggle, navigation, toast host, help drawer
-│   ├── ExplorerPageController.java       # Tree CRUD, drag-drop, run buttons, preview panel
-│   ├── SuiteWorkspacePageController.java # Code editor, Record/Run, terminal, assert management
-│   ├── ReportsPageController.java        # Report list with filters
-│   ├── ReportDetailPageController.java   # Per-report detail with case expansion, Excel export, heal drawer
+├── controller/                           # FXML controllers & view components
+│   ├── MainShellController.java          # Shell: sidebar toggle, navigation, toast host, header breadcrumbs
+│   ├── ExplorerPageController.java       # Tree CRUD, drag-drop reorder, hover actions, filter chips
+│   ├── SuiteWorkspacePageController.java # Code editor, Record/Run, terminal, split view, assert list
+│   ├── ReportsPageController.java        # Report history list with scope & status filters
+│   ├── ReportDetailPageController.java   # Per-report detail with structured error diagnostics & evidence modal
 │   ├── AssertBuilderPopupController.java # Assertion creation/modification modal (46 types)
 │   ├── EntityFormDialog.java             # Create/Edit modals for Group, Suite, Case entities
-│   └── ViewNavigator.java                # Static page navigation + FXML cache
+│   ├── AiAssistantPageController.java    # AI chat workspace, prompt presets, document attachments & case import
+│   ├── AiCasePromptDialog.java           # Modal dialog for prompt-based test generation & specialist routing
+│   ├── UserGuideViewerController.java    # Embedded Markdown guide viewer with TOC navigation
+│   ├── HelpDrawerController.java         # Collapsible quick help side-drawer
+│   ├── TabManager.java                   # Multi-tab document workspace system
+│   └── ViewNavigator.java                # Static page navigation + FXML caching
 │
-├── runtime/                              # In-process runtime & self-healing engine (4 classes)
-│   ├── StudioRuntime.java                # Thread-local Page + BrowserContext + healLocator helper
+├── runtime/                              # In-process runtime, assertions & self-healing engine
+│   ├── StudioRuntime.java                # Thread-local Page + BrowserContext + locator healing entry point
+│   ├── StudioAssertions.java             # Unified runtime assertions layer with soft-scoring
+│   ├── OptimizedSelfHealingExecutor.java # Fast-path locator execution & multi-strategy recovery engine
+│   ├── HealedLocatorWrapper.java         # Transparent Playwright Locator proxy with event notifications
 │   ├── EnhancedDomExtractor.java         # Deep interactive DOM extractor (Shadow DOM + Iframe traversal)
-│   ├── HeuristicHealer.java              # Rule-based zero-cost locator repair (<30ms, dynamic ID, text, aria)
-│   └── OptimizedSelfHealingExecutor.java # 5-tier self-healing orchestrator with Dynamic Proxy Locator
+│   ├── HeuristicHealer.java              # Fast rule-based locator repair (<30ms, dynamic ID, text, role)
+│   └── VlmHealer.java                    # Multimodal visual locator fallback for complex UI
 │
-└── util/                                 # Utilities (9 classes)
+└── util/                                 # Utilities & Helpers
     ├── StudioPaths.java                  # APP_HOME resolution + directory structure
     ├── BrowserDetector.java              # Cross-platform browser discovery
     ├── StringEscapeUtil.java             # Java string escaping for code generation
-    ├── DialogTheme.java                  # Dark scrim + click-outside-to-dismiss for all dialogs
-    ├── BusyButtons.java                  # Async button states during long-running operations
-    ├── RunTargetResolve.java             # Browser/headless resolution: case → suite → default
-    ├── StatusDisplay.java                # Icons + CSS classes + Vietnamese labels for statuses
-    ├── StudioIcons.java                  # Emoji icon constants for UI labels
-    ├── AssertTypeDisplay.java            # 46 assertion type categories + filter combo
-    └── EntityTime.java                   # Timestamp helpers: ISO-8601 store, HH:mm:ss dd/MM/yyyy display
+    ├── SecuritySanitizer.java            # Sensitive data redaction for logs, toasts, and exceptions
+    ├── ApiKeyCipher.java                 # Machine-bound AES-256-GCM encryption for stored API keys
+    ├── VariableResolver.java             # Dynamic variable substitution (${url}, ${timestamp})
+    ├── UiIcons.java                      # Vector SVG icons & graphical helpers
+    └── UiTooltips.java                   # Ergonomic UI tooltip helpers
 ```
 
 ---
