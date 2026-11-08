@@ -119,8 +119,10 @@ if [ ! -f "/tmp/${NODE_ARCHIVE}" ]; then
   curl -L -o "/tmp/${NODE_ARCHIVE}" "${NODE_URL}"
 fi
 
-echo "  Extracting Node.js..."
-tar -xzf "/tmp/${NODE_ARCHIVE}" -C /tmp/
+if [ ! -d "/tmp/node-v${NODE_VERSION}-${OS}-${ARCH}" ]; then
+  echo "  Extracting Node.js..."
+  tar -xzf "/tmp/${NODE_ARCHIVE}" -C /tmp/
+fi
 rm -rf "${NODE_DIR:?}/"*
 cp -R /tmp/node-v${NODE_VERSION}-${OS}-${ARCH}/* "${NODE_DIR}/"
 chmod -R +x "${NODE_DIR}/bin" 2>/dev/null || true

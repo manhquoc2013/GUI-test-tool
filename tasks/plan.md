@@ -239,3 +239,20 @@
 - **Slice 5: Verification & Regression Tests**:
   - Run regression tests (`mvn test`) and verify scripts syntax and execution.
 
+## Phase 15: System Review Remediations & Build Optimizations
+- **Slice 1: Linux Installer Offline Bundle Guard (`scripts/build-installer-linux.sh`)**:
+  - Prioritize staged distribution directory containing offline Chromium browsers and Node.js (`dist/TestStudio/TestStudio`).
+  - Add explicit verification for `browsers/` directory prior to `jpackage --type deb`.
+- **Slice 2: Inno Setup Non-Admin & Process Execution Hardening (`scripts/installer.iss`)**:
+  - Change `Root: HKLM` to `Root: HKA` in `[Registry]` section to support both admin and user-level installations without elevation errors.
+  - Use `ExpandConstant('{cmd}')` and `ExpandConstant('{sys}\taskkill.exe')` for safe, deterministic process detection and termination.
+  - Remove dead `AppMutex=TestStudioAppMutex` directive and update `SPEC.md`.
+- **Slice 3: Node.js Extraction Caching & CI Template Sync**:
+  - Cache extracted Node.js archive in `/tmp` across `build-portable.sh` and `build-installer.sh`.
+  - Sync CI script templates in `src/main/resources/ci/scripts/`.
+- **Slice 4: Verification & Full Regression**:
+  - Run `mvn test` (all 288 tests must pass).
+  - Test shell script syntax with `bash -n`.
+  - Update `tasks/learnings.md` and `tasks/todo.md`.
+
+

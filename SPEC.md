@@ -19,7 +19,7 @@ Fulfill user specification for automated dual-package generation across CI/CD:
      - Maintain stable `AppId={{5E973B1B-6FE8-4A1E-8B52-3A65C9D780E2}` and `UsePreviousAppDir=yes`, automatically detecting existing install location (`{app}`) and overwriting binaries in-place without prompting.
    - **System Version & Registry Synchronization**:
      - Update Windows Registry `Uninstall` information (`DisplayVersion`, `DisplayName`, `Publisher`, `InstallLocation`).
-     - Write application metadata under `HKLM\Software\Test Studio`: `CurrentVersion`, `InstallLocation`, `LastUpdated`.
+     - Write application metadata under `HKA\Software\Test Studio` (supporting both HKLM and HKCU without elevation errors): `CurrentVersion`, `InstallLocation`, `LastUpdated`.
      - Dynamically pass version from `pom.xml` (`/DMyAppVersion=<version>`) to Inno Setup, eliminating hardcoded version numbers.
 
 ---
@@ -28,16 +28,15 @@ Fulfill user specification for automated dual-package generation across CI/CD:
 
 ### 2.1 Windows Inno Setup Engine (`scripts/installer.iss`)
 - **Mutex & Application Guard**:
-  - `AppMutex=TestStudioAppMutex`
   - `CloseApplications=yes`
-  - `[Code]` block: `IsAppRunning('TestStudio.exe')`, `KillApp('TestStudio.exe')`, and interactive confirmation in `InitializeSetup()`.
+  - `[Code]` block: `IsAppRunning('TestStudio.exe')`, `KillApp('TestStudio.exe')` via `ExpandConstant('{cmd}')` and `ExpandConstant('{sys}\taskkill.exe')`, and interactive confirmation in `InitializeSetup()`.
 - **In-Place Upgrade Directives**:
   - `UsePreviousAppDir=yes`
   - `DirExistsWarning=no`
   - `[Files] Flags: ignoreversion recursesubdirs createallsubdirs`
 - **System Version Registry**:
-  - Writes to `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}` (managed by Inno Setup).
-  - Explicit entries in `HKLM\Software\{#MyAppName}` for `CurrentVersion`, `InstallLocation`, `Publisher`, `LastUpdated`.
+  - Writes to `HKA\Software\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}` (managed by Inno Setup).
+  - Explicit entries in `HKA\Software\{#MyAppName}` for `CurrentVersion`, `InstallLocation`, `Publisher`, `LastUpdated`.
 
 ### 2.2 Windows Build Script (`scripts/build-installer.bat`)
 - Evaluates `VERSION` dynamically from `pom.xml` via `mvn help:evaluate`.

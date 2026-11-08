@@ -620,18 +620,19 @@
   - Không nhồi nhét hay lặp lại thông tin của các phiên bản cũ vào release body/thông báo phát hành, vì toàn bộ lịch sử thay đổi đã được quản lý và lưu trữ tập trung tại `docs/RELEASE_NOTES.md` và `CHANGELOG.md`.
   - Tích hợp `scripts/extract-release-notes.py` và cấu hình CI workflow `release-portable.yml` để tự động bóc tách đúng phần ghi chú của phiên bản hiện hành đưa vào GitHub Release.
 
-### 12. Unified CI/CD Dual Release & In-Place Upgrading Architecture
-- **Dual Artifact Strategy per Release**:
-  - Mỗi lần phát hành CI/CD đều tự động tạo đồng thời 2 định dạng:
-    1. *Bản Portable (ZIP)*: giải nén chạy ngay, không cần quyền Admin.
-    2. *Bản Cài đặt (Installer)*: Setup `.exe` (Windows Inno Setup), `.dmg` (macOS), `.deb` (Linux Debian).
-  - Cả 2 định dạng trên cả 3 hệ điều hành (tổng cộng 6 artifacts) được đóng gói và đính kèm vào cùng một GitHub Release duy nhất.
-- **Active Process Shutdown & In-Place Override on Windows (Inno Setup)**:
-  - Sử dụng hàm Pascal `InitializeSetup` kết hợp `tasklist` kiểm tra `TestStudio.exe`: nếu ứng dụng đang chạy, hiển thị hộp thoại xác nhận nhắc người dùng đóng; khi người dùng đồng ý (hoặc ở chế độ silent install), tự động gọi `taskkill /F /IM TestStudio.exe /T` trước khi giải nén file.
-  - Thiết lập `UsePreviousAppDir=yes`, `DirExistsWarning=no`, `Flags: ignoreversion recursesubdirs createallsubdirs` để cài đè trực tiếp vào thư mục cũ mà không gây lỗi khóa file (`ERROR_SHARING_VIOLATION`).
-  - Ghi nhận thông tin phiên bản mới vào Windows Registry `Uninstall` key và `HKLM\Software\Test Studio` (`CurrentVersion`, `InstallLocation`, `LastUpdated`), giúp Windows Add/Remove Programs cập nhật phiên bản tức thì.
-- **Dynamic Version Resolution Across All Build Scripts**:
-  - Toàn bộ các script đóng gói (`build-installer.bat`, `build-installer.sh`, `build-installer-linux.sh`, `build-portable.bat`, `build-portable.sh`) tự động truy vấn `project.version` trực tiếp từ `pom.xml`, loại bỏ hoàn toàn việc hardcode phiên bản.
+### 13. Inno Setup Multi-Privilege Registry & System Binary Execution
+- **HKA Registry Root for Dual Admin/User Installations**:
+  - Khi Inno Setup cho phép người dùng tùy chọn chế độ cài đặt (`PrivilegesRequiredOverridesAllowed=dialog`), tuyệt đối không dùng trực tiếp `Root: HKLM` cho các khóa registry ứng dụng.
+  - Sử dụng `Root: HKA` (Inno Setup 6+): tự động trỏ vào `HKLM` nếu người dùng cài đặt ở quyền Administrator, hoặc trỏ vào `HKCU` nếu người dùng cài đặt ở quyền thường (Non-Admin / Current User), loại bỏ hoàn toàn lỗi Access Denied hoặc đòi quyền nâng cấp không cần thiết.
+- **Safe System Binary Resolution**:
+  - Trong Pascal Script `[Code]`, tránh gọi `Exec('cmd.exe', ...)` hoặc `Exec('taskkill.exe', ...)`.
+  - Luôn sử dụng `ExpandConstant('{cmd}')` và `ExpandConstant('{sys}\taskkill.exe')` để đảm bảo lệnh thực thi luôn tìm đúng file binary hệ thống Windows chính thức, ngăn chặn rủi ro PATH hijacking hoặc biến môi trường bị thiếu sót.
+
+### 14. Linux Debian Packaging Offline Dependency Verification
+- **App-Image Directory Precedence**:
+  - Khi đóng gói file `.deb` bằng `jpackage --type deb --app-image <DIR>`, `jpackage` sẽ sao chép toàn bộ cây thư mục bên trong `<DIR>` vào `/opt/<package_name>/`.
+  - Cần bảo đảm `<DIR>` là thư mục đã tích hợp đầy đủ các phụ thuộc ngoại vi (`browsers/`, `tools/node/`). Script đóng gói Linux cần ưu tiên kiểm tra `dist/${APP_NAME}/${APP_NAME}/browsers` thay vì `target/jpackage-out/` vốn chỉ chứa app-image sơ khai chưa có Playwright Chromium.
+
 
 
 

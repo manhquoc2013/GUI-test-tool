@@ -26,7 +26,6 @@ DirExistsWarning=no
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 RestartApplications=no
-AppMutex=TestStudioAppMutex
 AllowNoIcons=yes
 OutputDir=..\dist
 OutputBaseFilename=TestStudio-{#MyAppVersion}-windows-x64-Setup
@@ -57,10 +56,10 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKLM; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "CurrentVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
-Root: HKLM; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletekeyifempty
-Root: HKLM; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "Publisher"; ValueData: "{#MyAppPublisher}"; Flags: uninsdeletekeyifempty
-Root: HKLM; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "LastUpdated"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "CurrentVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "Publisher"; ValueData: "{#MyAppPublisher}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\{#MyAppName}"; ValueType: string; ValueName: "LastUpdated"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
@@ -70,14 +69,14 @@ function IsAppRunning(const FileName: string): Boolean;
 var
   ResultCode: Integer;
 begin
-  Result := Exec('cmd.exe', '/c tasklist /FI "IMAGENAME eq ' + FileName + '" | find /I "' + FileName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  Result := Exec(ExpandConstant('{cmd}'), '/c tasklist /FI "IMAGENAME eq ' + FileName + '" | find /I "' + FileName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 procedure KillApp(const FileName: string);
 var
   ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/F /IM ' + FileName + ' /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + FileName + ' /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function InitializeSetup(): Boolean;

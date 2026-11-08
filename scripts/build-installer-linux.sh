@@ -30,19 +30,20 @@ if ! command -v jpackage >/dev/null 2>&1; then
   exit 1
 fi
 
-APP_IMAGE_DIR="target/jpackage-out/${APP_NAME}"
-if [ ! -d "${APP_IMAGE_DIR}" ]; then
-  if [ -d "dist/${APP_NAME}/${APP_NAME}" ]; then
-    APP_IMAGE_DIR="dist/${APP_NAME}/${APP_NAME}"
-  else
-    echo "Staging application bundle via build-portable.sh..."
-    bash scripts/build-portable.sh
-    APP_IMAGE_DIR="dist/${APP_NAME}/${APP_NAME}"
-  fi
+# Resolve application bundle with bundled offline browsers and runtime
+APP_IMAGE_DIR=""
+if [ -d "dist/${APP_NAME}/${APP_NAME}/browsers" ]; then
+  APP_IMAGE_DIR="dist/${APP_NAME}/${APP_NAME}"
+elif [ -d "target/jpackage-out/${APP_NAME}/browsers" ]; then
+  APP_IMAGE_DIR="target/jpackage-out/${APP_NAME}"
+else
+  echo "Staging complete application bundle via build-portable.sh..."
+  bash scripts/build-portable.sh
+  APP_IMAGE_DIR="dist/${APP_NAME}/${APP_NAME}"
 fi
 
-if [ ! -d "${APP_IMAGE_DIR}" ]; then
-  echo "ERROR: Could not find application image at ${APP_IMAGE_DIR}"
+if [ ! -d "${APP_IMAGE_DIR}" ] || [ ! -d "${APP_IMAGE_DIR}/browsers" ]; then
+  echo "ERROR: Application image at ${APP_IMAGE_DIR} does not contain bundled offline browsers."
   exit 1
 fi
 
@@ -71,3 +72,4 @@ echo "================================================================="
 echo " Linux Installer (.deb) created successfully in ${DIST_DIR}/"
 ls -la "${DIST_DIR}"/*.deb || true
 echo "================================================================="
+

@@ -154,3 +154,11 @@
 - [x] 14.6 Run full test regression suite (`mvn test`) and verify scripts syntax <!-- id: 1406 -->
 - [x] 14.7 Update `tasks/learnings.md`, check all todo items, and commit <!-- id: 1407 -->
 
+## Phase 15: System Review Remediations & Build Optimizations
+- [x] 15.1 Fix `scripts/build-installer-linux.sh` to prioritize offline bundle directory with browsers and verify integrity <!-- id: 1501 -->
+- [x] 15.2 Fix `scripts/installer.iss` to use `HKA` registry root, `ExpandConstant` for system binaries, and remove dead mutex directive <!-- id: 1502 -->
+- [x] 15.3 Add Node.js extraction caching in `scripts/build-portable.sh` and `scripts/build-installer.sh` <!-- id: 1503 -->
+- [x] 15.4 Sync CI template scripts in `src/main/resources/ci/scripts/` and update `SPEC.md` <!-- id: 1504 -->
+- [x] 15.5 Run full test regression (`mvn test`), verify script syntax (`bash -n`), and update documentation <!-- id: 1505 -->
+
+

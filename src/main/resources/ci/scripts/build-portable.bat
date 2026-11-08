@@ -108,10 +108,17 @@ echo   Bundled Chromium verified in: %BUNDLE_ROOT%\browsers
 echo Step 7: Creating launcher...
 (
 echo @echo off
+echo setlocal
 echo set APP_HOME=%%~dp0
 echo set PLAYWRIGHT_BROWSERS_PATH=%%APP_HOME%%browsers
 echo set PATH=%%APP_HOME%%tools\node;%%PATH%%
 echo "%%APP_HOME%%%APP_NAME%.exe" %%*
+echo if %%ERRORLEVEL%% neq 0 (
+echo   echo.
+echo   echo [ERROR] %APP_NAME% exited with code %%ERRORLEVEL%%.
+echo   echo Check data\logs\startup-error.log for diagnostic details.
+echo   pause
+echo )
 ) > "%DIST_ROOT%\run.bat"
 
 (
