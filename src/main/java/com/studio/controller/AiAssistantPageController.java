@@ -925,6 +925,8 @@ public class AiAssistantPageController implements Initializable {
         final String detectedTargetUrl = promptUrl;
         String domContext = liveDomJson;
         final AiConfig effectiveAiConfig = aiConfig;
+        final AiChatSession targetSession = currentSession;
+        final String targetSessionId = targetSession.getId();
 
         Thread thread = new Thread(() -> {
             try {
@@ -950,7 +952,7 @@ public class AiAssistantPageController implements Initializable {
 
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
                         effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
-                        currentSession.getMessages(),
+                        targetSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status)),
                         activeSkill,
                         suiteDir);
@@ -968,41 +970,46 @@ public class AiAssistantPageController implements Initializable {
                     }
                     assistantMsg.setGeneratedCasesSnapshot(result.getCases());
                     assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
-                    currentSession.addMessage(assistantMsg);
+                    targetSession.addMessage(assistantMsg);
 
                     // Persist updated history
                     try {
-                        chatHistoryStore.saveSession(suiteDir, currentSession);
-                        refreshSessionsList(currentSession.getId());
+                        chatHistoryStore.saveSession(suiteDir, targetSession);
                     } catch (IOException ignored) {
                     }
 
-                    renderMessageBubble(assistantMsg, true);
-                    updateTokenUsageDisplay();
+                    boolean isCurrentActive = currentSession != null && targetSessionId.equals(currentSession.getId());
+                    if (isCurrentActive) {
+                        renderMessageBubble(assistantMsg, true);
+                        updateTokenUsageDisplay();
 
-                    resultSummaryLabel.setText(result.getSummary());
+                        resultSummaryLabel.setText(result.getSummary());
 
-                    currentGeneratedCases.clear();
-                    currentGeneratedCases.addAll(result.getCases());
+                        currentGeneratedCases.clear();
+                        currentGeneratedCases.addAll(result.getCases());
 
-                    generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                    rawResponseViewer.setText(result.getRawResponse());
+                        generatedCasesListView.getItems().setAll(currentGeneratedCases);
+                        rawResponseViewer.setText(result.getRawResponse());
 
-                    if (!currentGeneratedCases.isEmpty()) {
-                        applyToSuiteBtn.setDisable(false);
-                        generatedCasesListView.getSelectionModel().select(0);
-                        ToastService.success("✨ Đã sinh " + currentGeneratedCases.size() + " test cases thành công!");
-                    } else {
-                        applyToSuiteBtn.setDisable(true);
-                        showCaseDetail(null);
-                        if (!result.isClarification()) {
-                            ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent())
-                                    ? "Đã tìm thấy test cases phù hợp."
-                                    : "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case."
-                                            : "CHAT_ADVICE".equals(result.getIntent()) ? "Đã phản hồi tư vấn kỹ thuật."
-                                                    : "Đã phản hồi yêu cầu."));
+                        if (!currentGeneratedCases.isEmpty()) {
+                            applyToSuiteBtn.setDisable(false);
+                            generatedCasesListView.getSelectionModel().select(0);
+                            ToastService.success("✨ Đã sinh " + currentGeneratedCases.size() + " test cases thành công!");
+                        } else {
+                            applyToSuiteBtn.setDisable(true);
+                            showCaseDetail(null);
+                            if (!result.isClarification()) {
+                                ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent())
+                                        ? "Đã tìm thấy test cases phù hợp."
+                                        : "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case."
+                                                : "CHAT_ADVICE".equals(result.getIntent()) ? "Đã phản hồi tư vấn kỹ thuật."
+                                                        : "Đã phản hồi yêu cầu."));
+                            }
                         }
+                    } else {
+                        ToastService.success("✨ Phiên \"" + targetSession.getTitle() + "\" đã hoàn thành sinh kịch bản!");
                     }
+                    refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                 });
             } catch (Exception ex) {
                 Platform.runLater(() -> {
@@ -1013,6 +1020,21 @@ public class AiAssistantPageController implements Initializable {
                     generationProgress.setManaged(false);
 
                     AiChatMessage errorMsg = new AiChatMessage("assistant", "❌ Lỗi: " + ex.getMessage());
+                    errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
+                    targetSession.addMessage(errorMsg);
+                    try {
+                        chatHistoryStore.saveSession(suiteDir, targetSession);
+                    } catch (IOException ignored) {
+                    }
+
+                    if (currentSession != null && targetSessionId.equals(currentSession.getId())) {
+                        renderMessageBubble(errorMsg, true);
+                        updateTokenUsageDisplay();
+                        ToastService.error("Lỗi AI: " + ex.getMessage());
+                    } else {
+                        ToastService.error("Lỗi AI ở phiên \"" + targetSession.getTitle() + "\": " + ex.getMessage());
+                    }
+                    refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                     errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
                     currentSession.addMessage(errorMsg);
                     renderMessageBubble(errorMsg, true);
