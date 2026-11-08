@@ -392,3 +392,11 @@
   - Tự động fallback về thư mục cũ (`PlaywrightAutomationStudio` / `playwright-automation-studio`) nếu thư mục mới chưa tồn tại nhưng thư mục cũ đã có sẵn dữ liệu từ trước.
 
 
+
+## 15. Multi-Agent AI Testing & Self-Healing Architecture (ECC Synthesis)
+
+### 1. Key Insights from ECC-main Analysis
+- **Decoupled Roles vs Monolithic Prompting**: Thay vì ép một AI Prompt duy nhất thực hiện từ việc hiểu PRD, sinh test steps, viết code Java Playwright, đến tự kiểm toán; mô hình tối ưu cần phân tách thành 5 tác nhân chuyên trách (`qa-planner`, `playwright-test-engineer`, `test-runner`, `test-self-healer`, `quality-auditor`).
+- **Anti-Thrashing Safety Guard**: Trong quá trình tự động sửa lỗi (self-healing), việc thử sai mù quáng dẫn đến cạn kiệt token và code bị tha hóa (code rot). Quy tắc giới hạn cứng tối đa 3 lần vá (max 3 patches per file) kèm kiểm toán `git diff forensics` giúp ngăn chặn hiện tượng trôi dạt logic và lặp vô tận.
+- **Assertion Quality & Anti-Silent Failure**: Kiểm thử chỉ có ý nghĩa khi kiểm tra được kết quả nghiệp vụ thực tế. Cấm hoàn toàn assertion rỗng hoặc các khối `try-catch` nuốt ngoại lệ mà không fail test.
+- **Dual Representation Alignment**: Kết hợp chặt chẽ các bước NLP có cấu trúc (`testSteps`), tập dữ liệu kiểm thử biên (`testDataSets`), và mã nguồn Playwright Java thực thi (`scriptCode`) đồng bộ, cho phép kiểm toán kép bởi cả con người và máy.

@@ -64,3 +64,20 @@
 - **Task E (Should fix)**: Guard against `NullPointerException` and `InvalidPathException` when parsing screenshot file labels in `ExcelReportService.java`.
 - **Task F (Nice to have)**: Centralize string, case name, and identifier sanitization into `StringEscapeUtil.java` and refactor duplicate sanitization logic.
 - **Task G (Verification)**: Add comprehensive unit tests covering all 6 fixes, run full test regression suite, update documentation, and perform atomic commits.
+
+
+## Phase 9: Multi-Agent AI Test Engineering, Self-Healing & TDD Verification (ECC)
+- Implement multi-agent persona definitions in `.agents/`:
+  - `qa-planner.md`: Spec mining, BVA, equivalence partitioning, TEST-ID generation.
+  - `playwright-test-engineer.md`: Dual representation (NLP steps + test data + Playwright Java code).
+  - `test-self-healer.md`: Failure capture, 4-phase diagnosis, anti-thrashing guard, locator/syntax healing.
+  - `quality-auditor.md`: Behavioral coverage audit, assertion quality checker, silent failure detection.
+- Implement specialized skills in `skills/`:
+  - `skills/ai-test-suite-generator/SKILL.md`: Comprehensive test generation workflow from requirements or live DOM.
+  - `skills/playwright-test-healer/SKILL.md`: Automated test execution error diagnosis and minimal-diff self-healing.
+  - `skills/test-quality-gate/SKILL.md`: Verification loop and quality audit before saving tests to suites.
+- Implement project rules in `rules/`:
+  - `rules/playwright-java-testing.md`: Playwright Java coding standards, AAA pattern, locator resilience.
+  - `rules/anti-thrashing-healing.md`: Anti-thrashing threshold (max 3 patches) and escalation protocol.
+- Integrate guidelines into `AiTestGeneratorService.java` prompt & documentation.
+- Verify full regression test suite (`mvn clean test`) to ensure zero regressions.

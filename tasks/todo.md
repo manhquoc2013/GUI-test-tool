@@ -51,3 +51,8 @@
 - [x] Task 49: Null and path safety for screenshot link labels in `ExcelReportService` <!-- id: 59 -->
 - [x] Task 50: Add targeted unit tests for all remediations & verify full suite <!-- id: 60 -->
 
+- [x] Task 51: Create Multi-Agent Personas in `.agents/` (`qa-planner.md`, `playwright-test-engineer.md`, `test-self-healer.md`, `quality-auditor.md`) <!-- id: 61 -->
+- [x] Task 52: Create Skills in `skills/` (`ai-test-suite-generator`, `playwright-test-healer`, `test-quality-gate`) <!-- id: 62 -->
+- [x] Task 53: Create Rules in `rules/` (`playwright-java-testing.md`, `anti-thrashing-healing.md`) <!-- id: 63 -->
+- [x] Task 54: Optimize `AiTestGeneratorService.java` prompt with ECC-inspired BVA, dual representation & anti-swallow assertions <!-- id: 64 -->
+- [x] Task 55: Run full test suite regression (`mvn clean test`) and update `tasks/learnings.md` <!-- id: 65 -->

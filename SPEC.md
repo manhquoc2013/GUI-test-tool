@@ -81,3 +81,21 @@ Provide turnkey native installer formats (`.dmg` for macOS, `.exe` Setup wizard 
 4. **macOS Installer (`.dmg`)**: Automated script creating a drag-and-drop installer `.dmg` with `/Applications` shortcut and `.app` bundle.
 5. **Windows Installer (`.exe`)**: Inno Setup script (`installer.iss`) and build script (`build-installer.bat`) creating a modern Setup wizard with Desktop shortcut, Start Menu shortcut, and Uninstaller.
 6. **Continuous Integration**: GitHub Actions workflow to build release installers for both macOS and Windows.
+
+
+## 5. Multi-Agent AI Test Engineering & Self-Healing Pipeline (ECC-Inspired)
+
+### 5.1 Objectives & Architecture
+Incorporate the multi-agent orchestration, test governance, self-healing TDD, and anti-thrashing mechanisms from `docs/knowledge/ECC-main`:
+1. **QA Architect & Spec Miner (`qa-planner`)**: Decomposes user stories, PRDs, and live DOM contexts into structured test matrices with durable `TEST-ID`s, Equivalence Partitioning, Boundary Value Analysis (BVA), and negative/security scenarios.
+2. **Playwright Test Engineer (`playwright-test-engineer`)**: Generates dual-representation test artifacts: declarative NLP steps (`testSteps`), parameterized test datasets (`testDataSets`), and runnable Playwright Java scripts with resilient locators (`StudioRuntime.healLocator`) and explicit wait conditions.
+3. **Sandbox Test Runner & Verifier (`test-runner`)**: Executes generated Playwright Java tests in an isolated headless container, capturing compilation outcomes, runtime traces, DOM snapshots, and execution logs.
+4. **Self-Healing Debugger (`test-self-healer`)**:
+   - Classifies errors into syntax/compiler errors (minimal diff patching), locator/DOM failures (heuristic locator healing), or business logic assertions (identifying application defects vs test script defects).
+   - **Anti-Thrashing Guard**: Halts speculative patching if a script or file is modified more than 3 times without achieving a green test, triggering forensic analysis.
+5. **Quality Gate & Coverage Auditor (`quality-auditor`)**: Audits behavioral coverage, eliminates weak assertions (e.g. `assertTrue(true)`), bans silent error swallowing (`catch (Exception e) {}`), and validates test independence.
+
+### 5.2 Artifacts, Skills & Rules
+- **Agents**: `.agents/qa-planner.md`, `.agents/playwright-test-engineer.md`, `.agents/test-self-healer.md`, `.agents/quality-auditor.md`
+- **Skills**: `skills/ai-test-suite-generator/SKILL.md`, `skills/playwright-test-healer/SKILL.md`, `skills/test-quality-gate/SKILL.md`
+- **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`

@@ -140,7 +140,12 @@ public class AiTestGeneratorService {
            - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
            - CUSTOM_JS (value: javascript expression returning boolean)
 
-        6. **Response Format**:
+        6. **Quality & Assertion Integrity (ECC Standard)**:
+           - Every generated case MUST contain specific, verifiable assertions verifying state or content.
+           - NEVER include empty try-catch blocks or swallow exceptions in `scriptCode`.
+           - Always cover boundary scenarios (empty fields, max length, invalid formats) in `testDataSets`.
+
+        7. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
