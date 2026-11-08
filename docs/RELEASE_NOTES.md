@@ -1,5 +1,34 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.3.1
+
+**Release date:** 2026-11-08
+
+Phiên bản vá **Test Studio v2.3.1** hoàn thiện hệ thống phát hành kép đa nền tảng (Unified Dual Release CI/CD), khắc phục tính toàn vẹn của gói cài đặt ngoại tuyến Linux Debian (.deb), củng cố bộ cài đặt Windows Inno Setup với cơ chế ghi Registry đa đặc quyền (HKA) và bảo đảm an toàn thực thi tiến trình hệ thống.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.3.1 (Key Highlights)
+
+#### 1. Hệ thống phát hành kép tự động trên CI/CD (Unified Dual Release Pipeline)
+- **Xuất bản đồng thời 6 gói cài đặt trên 3 nền tảng**: Tự động build và upload cả bản Portable (ZIP) và bản Cài đặt (Windows Inno Setup `.exe`, macOS `.dmg`, Linux Debian `.deb`) trong cùng một GitHub Release.
+- **Trích xuất thông tin phát hành mục tiêu**: Tự động bóc tách đúng phần ghi chú của phiên bản hiện tại đưa vào GitHub Release thông qua công cụ `scripts/extract-release-notes.py`, không nhồi nhét hay lặp lại các phiên bản cũ.
+
+#### 2. Khắc phục gói cài đặt ngoại tuyến Linux Debian (.deb)
+- **Tích hợp đầy đủ trình duyệt offline**: Điều chỉnh đường dẫn app-image ưu tiên gói đã chuẩn bị đầy đủ Chromium và Node.js runtime (`dist/TestStudio/TestStudio/browsers`), đảm bảo ứng dụng sau khi cài từ file `.deb` chạy ngay lập tức mà không cần kết nối mạng.
+- **Kiểm định toàn vẹn trước khi đóng gói**: Tự động kiểm tra sự tồn tại của thư mục `browsers/` trước khi gọi `jpackage --type deb`, ngăn ngừa hoàn toàn các bản phát hành thiếu dependency.
+
+#### 3. Củng cố bộ cài đặt Inno Setup Windows (.exe)
+- **Hỗ trợ cài đặt Non-Admin & Admin mượt mà**: Chuyển khóa cấu hình Registry từ `HKLM` sang `HKA` (HKA auto-switch), giúp người dùng cài đặt cho bản thân (Current User) không bị lỗi phân quyền hay xung đột UAC.
+- **Thực thi binary hệ thống an toàn tuyệt đối**: Sử dụng `ExpandConstant('{cmd}')` và `ExpandConstant('{sys}\taskkill.exe')` để đóng ứng dụng đang chạy trước khi ghi đè, loại bỏ hoàn toàn rủi ro PATH hijacking.
+- **Cập nhật in-place mượt mà**: Giữ nguyên thư mục cài đặt cũ (`UsePreviousAppDir=yes`), tự động đóng ứng dụng với `taskkill` và cập nhật thông tin phiên bản mới trong Windows Add/Remove Programs.
+
+#### 4. Tối ưu hiệu năng Build & Đồng bộ tài nguyên CI
+- **Bộ nhớ đệm giải nén Node.js**: Tận dụng thư mục đã giải nén trong `/tmp`, rút ngắn thời gian đóng gói liên tiếp giữa các script.
+- **Đồng bộ hóa tài nguyên**: Cập nhật toàn bộ các script đóng gói và workflow mới nhất vào `src/main/resources/ci/`.
+
+---
+
 ## Test Studio v2.3.0
 
 **Release date:** 2026-11-08

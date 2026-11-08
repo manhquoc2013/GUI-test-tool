@@ -7,7 +7,7 @@ cd /d "%DIR%"
 set APP_NAME=TestStudio
 set VERSION=
 for /f "usebackq delims=" %%v in (`mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2^>nul`) do set VERSION=%%v
-if not defined VERSION set VERSION=2.3.0
+if not defined VERSION set VERSION=2.3.1
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set DIST_ROOT=dist\%APP_NAME%
 set JPACKAGE_INPUT=target\jpackage-input

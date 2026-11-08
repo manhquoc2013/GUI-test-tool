@@ -6,8 +6,8 @@ cd "$DIR"
 
 APP_NAME="TestStudio"
 APP_DISPLAY_NAME="Test Studio"
-VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.0')"
-if [ -z "${VERSION}" ]; then VERSION="2.3.0"; fi
+VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.1')"
+if [ -z "${VERSION}" ]; then VERSION="2.3.1"; fi
 DIST_DIR="dist"
 
 echo "================================================================="

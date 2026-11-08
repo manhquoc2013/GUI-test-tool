@@ -6,7 +6,7 @@ Bộ tài liệu này mô tả **đúng trạng thái hiện tại của mã ngu
 
 | | |
 |---|---|
-| Phiên bản | 2.3.0 (`pom.xml`) |
+| Phiên bản | 2.3.1 (`pom.xml`) |
 | Nền tảng | JavaFX 26.0.1 · Playwright Java 1.61.0 · JDK 26+ |
 | Chủ đề | Tối (Catppuccin Mocha) / Sáng — đổi bằng nút *Sáng/Tối* ở góc trên phải |
 | Ngôn ngữ giao diện | Tiếng Việt |

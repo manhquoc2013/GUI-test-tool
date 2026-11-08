@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.3.1] — 2026-11-08
+
+### Added
+
+- **Unified Multi-Platform Dual Release CI/CD**:
+  - Automated build and publication of both Portable ZIPs and Native Installers across Windows, macOS, and Linux in a single GitHub Release.
+  - Dedicated Debian `.deb` installer packaging via `scripts/build-installer-linux.sh`.
+  - Version-targeted release notes extraction via `scripts/extract-release-notes.py`.
+
+### Fixed & Hardened
+
+- **Linux Debian Package Offline Bundle**:
+  - Prioritized complete distribution staging with offline Playwright Chromium browsers and Node.js runtime, ensuring `.deb` installs work completely offline.
+  - Added integrity validation for the `browsers/` directory before invoking `jpackage --type deb`.
+- **Windows Inno Setup Multi-Privilege & Path Security**:
+  - Switched Registry root from `HKLM` to `HKA` to seamlessly support both Administrator and Current User (Non-Admin) installation modes without UAC elevation conflicts.
+  - Enforced deterministic system path resolution in Pascal scripts using `ExpandConstant('{cmd}')` and `ExpandConstant('{sys}\taskkill.exe')`.
+  - Cleaned up redundant mutex configuration and verified active process detection and prompt-to-close handling.
+- **Build Performance & Template Synchronization**:
+  - Added archive extraction caching for Node.js in `/tmp` across `build-portable.sh` and `build-installer.sh`.
+  - Synchronized all packaging scripts and templates to `src/main/resources/ci/scripts/`.
+
+---
+
 ## [2.3.0] — 2026-11-08
 
 ### Added

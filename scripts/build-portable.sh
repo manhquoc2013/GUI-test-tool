@@ -5,8 +5,8 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
 APP_NAME="TestStudio"
-VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.0')"
-if [ -z "${VERSION}" ]; then VERSION="2.3.0"; fi
+VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.1')"
+if [ -z "${VERSION}" ]; then VERSION="2.3.1"; fi
 JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 DIST_ROOT="dist/${APP_NAME}"
 JPACKAGE_INPUT="target/jpackage-input"
