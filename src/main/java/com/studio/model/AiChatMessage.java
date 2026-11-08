@@ -23,6 +23,10 @@ public class AiChatMessage {
     private String suiteSnapshotJson;
     private String suiteSnapshotDir;
     private boolean appliedToSuite;
+    private List<AiClarificationQuestion> clarificationQuestions = new ArrayList<>();
+    private java.util.Map<String, String> clarificationAnswers = new java.util.LinkedHashMap<>();
+    private boolean clarificationAnswered;
+    private String intent;
 
     public AiChatMessage() {
         this.id = UUID.randomUUID().toString();
@@ -113,6 +117,42 @@ public class AiChatMessage {
 
     public void setAppliedToSuite(boolean appliedToSuite) {
         this.appliedToSuite = appliedToSuite;
+    }
+
+    public List<AiClarificationQuestion> getClarificationQuestions() {
+        return clarificationQuestions;
+    }
+
+    public void setClarificationQuestions(List<AiClarificationQuestion> clarificationQuestions) {
+        this.clarificationQuestions = clarificationQuestions != null ? clarificationQuestions : new ArrayList<>();
+    }
+
+    public boolean hasClarificationQuestions() {
+        return clarificationQuestions != null && !clarificationQuestions.isEmpty();
+    }
+
+    public java.util.Map<String, String> getClarificationAnswers() {
+        return clarificationAnswers;
+    }
+
+    public void setClarificationAnswers(java.util.Map<String, String> clarificationAnswers) {
+        this.clarificationAnswers = clarificationAnswers != null ? clarificationAnswers : new java.util.LinkedHashMap<>();
+    }
+
+    public boolean isClarificationAnswered() {
+        return clarificationAnswered;
+    }
+
+    public void setClarificationAnswered(boolean clarificationAnswered) {
+        this.clarificationAnswered = clarificationAnswered;
+    }
+
+    public String getIntent() {
+        return intent;
+    }
+
+    public void setIntent(String intent) {
+        this.intent = intent;
     }
 }
 
