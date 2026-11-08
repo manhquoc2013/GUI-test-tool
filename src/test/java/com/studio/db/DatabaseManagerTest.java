@@ -77,4 +77,30 @@ public class DatabaseManagerTest {
         db.shutdown();
         assertEquals(0, db.getIdlePoolSize(), "Shutdown should clear pooled connections");
     }
+
+    @Test
+    public void testConnectionAutoCommitRollbackAndResetOnClose() throws SQLException {
+        DatabaseManager db = DatabaseManager.createInMemory("db_tx_reset_test");
+
+        // 1. Check out connection and turn off auto-commit
+        try (Connection conn = db.getConnection()) {
+            conn.setAutoCommit(false);
+            assertFalse(conn.getAutoCommit());
+            try (Statement stmt = conn.createStatement()) {
+                stmt.executeUpdate("INSERT INTO test_groups (name, description, updated_at) VALUES ('RollbackGroup', 'desc', 1)");
+            }
+            // Close connection without commit -> should rollback and reset autoCommit to true
+        }
+
+        // 2. Next check out of connection should have autoCommit = true and uncommitted rows rolled back
+        try (Connection conn = db.getConnection()) {
+            assertTrue(conn.getAutoCommit(), "Connection returned to pool must have autoCommit reset to true");
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT count(*) FROM test_groups WHERE name='RollbackGroup'")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1), "Uncommitted transaction must have been rolled back upon close");
+            }
+        }
+        db.shutdown();
+    }
 }

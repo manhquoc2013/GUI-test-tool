@@ -132,8 +132,8 @@ public class LiveDomScanner {
         BrowserContext context = null;
         Page page = null;
 
-        try {
-            Browser browser = getOrCreateBrowser();
+        try (Playwright playwright = PlaywrightUtil.create();
+             Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             context = browser.newContext();
             page = context.newPage();
             page.setDefaultNavigationTimeout(timeout);
@@ -159,7 +159,6 @@ public class LiveDomScanner {
             return extracted;
         } catch (Exception e) {
             System.err.println("[LiveDomScanner] Failed to scan URL '" + normalizedUrl + "': " + e.getMessage());
-            closeSharedBrowser();
             return "[]";
         } finally {
             if (page != null) {

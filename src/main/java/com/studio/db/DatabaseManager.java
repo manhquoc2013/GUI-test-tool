@@ -88,8 +88,16 @@ public class DatabaseManager {
                 new Class<?>[]{Connection.class},
                 (proxy, method, args) -> {
                     if ("close".equals(method.getName())) {
-                        if (!isShutdown.get() && !target.isClosed() && pool.offer(target)) {
-                            return null;
+                        if (!isShutdown.get() && !target.isClosed()) {
+                            try {
+                                if (!target.getAutoCommit()) {
+                                    target.rollback();
+                                    target.setAutoCommit(true);
+                                }
+                            } catch (SQLException ignored) {}
+                            if (pool.offer(target)) {
+                                return null;
+                            }
                         }
                         target.close();
                         return null;

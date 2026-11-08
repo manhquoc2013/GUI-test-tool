@@ -10,6 +10,7 @@ import org.apache.poi.xslf.usermodel.XSLFNotes;
 import org.apache.poi.xslf.usermodel.XSLFShape;
 import org.apache.poi.xslf.usermodel.XSLFTextParagraph;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
+import org.apache.poi.xwpf.usermodel.IBodyElement;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -200,53 +201,59 @@ public class MarkdownConverterEngine {
         try (InputStream is = new FileInputStream(file.toFile());
              XWPFDocument doc = new XWPFDocument(is)) {
 
-            for (XWPFParagraph p : doc.getParagraphs()) {
-                String text = p.getText();
-                if (text == null || text.isBlank()) {
-                    continue;
+            for (IBodyElement elem : doc.getBodyElements()) {
+                if (elem instanceof XWPFParagraph p) {
+                    formatDocxParagraph(p, sb);
+                } else if (elem instanceof XWPFTable table) {
+                    sb.append(formatDocxTable(table)).append("\n\n");
                 }
-                text = text.trim();
-
-                String style = p.getStyle();
-                String prefix = "";
-                if (style != null) {
-                    String s = style.toLowerCase(Locale.ROOT);
-                    if (s.contains("heading 1") || s.equals("1")) prefix = "# ";
-                    else if (s.contains("heading 2") || s.equals("2")) prefix = "## ";
-                    else if (s.contains("heading 3") || s.equals("3")) prefix = "### ";
-                    else if (s.contains("heading 4") || s.equals("4")) prefix = "#### ";
-                }
-
-                if (prefix.isEmpty()) {
-                    if (p.getNumID() != null) {
-                        prefix = "- ";
-                    }
-                }
-
-                // Inline formatting check (bold, italic)
-                StringBuilder runSb = new StringBuilder();
-                for (XWPFRun run : p.getRuns()) {
-                    String runText = run.getText(0);
-                    if (runText == null) continue;
-                    if (run.isBold() && !prefix.startsWith("#")) {
-                        runSb.append("**").append(runText).append("**");
-                    } else if (run.isItalic()) {
-                        runSb.append("*").append(runText).append("*");
-                    } else {
-                        runSb.append(runText);
-                    }
-                }
-
-                String formattedLine = runSb.length() > 0 ? runSb.toString().trim() : text;
-                sb.append(prefix).append(formattedLine).append("\n\n");
-            }
-
-            // Tables
-            for (XWPFTable table : doc.getTables()) {
-                sb.append(formatDocxTable(table)).append("\n\n");
             }
         }
         return sb.toString().trim();
+    }
+
+    private void formatDocxParagraph(XWPFParagraph p, StringBuilder sb) {
+        String text = p.getText();
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        text = text.trim();
+
+        String style = p.getStyle();
+        String prefix = "";
+        if (style != null) {
+            String s = style.toLowerCase(Locale.ROOT);
+            if (s.contains("heading 1") || s.equals("1")) prefix = "# ";
+            else if (s.contains("heading 2") || s.equals("2")) prefix = "## ";
+            else if (s.contains("heading 3") || s.equals("3")) prefix = "### ";
+            else if (s.contains("heading 4") || s.equals("4")) prefix = "#### ";
+        }
+
+        if (prefix.isEmpty()) {
+            if (p.getNumID() != null) {
+                prefix = "- ";
+            }
+        }
+
+        // Inline formatting check (bold, italic)
+        StringBuilder runSb = new StringBuilder();
+        for (XWPFRun run : p.getRuns()) {
+            String runText = run.text();
+            if (runText == null || runText.isEmpty()) {
+                runText = run.getText(0);
+            }
+            if (runText == null) continue;
+            if (run.isBold() && !prefix.startsWith("#")) {
+                runSb.append("**").append(runText).append("**");
+            } else if (run.isItalic()) {
+                runSb.append("*").append(runText).append("*");
+            } else {
+                runSb.append(runText);
+            }
+        }
+
+        String formattedLine = runSb.length() > 0 ? runSb.toString().trim() : text;
+        sb.append(prefix).append(formattedLine).append("\n\n");
     }
 
     private String formatDocxTable(XWPFTable table) {
@@ -442,7 +449,11 @@ public class MarkdownConverterEngine {
         boolean first = true;
         int expectedCols = 0;
 
-        for (String line : lines) {
+        for (String rawLine : lines) {
+            String line = rawLine;
+            if (first && line.startsWith("\uFEFF")) {
+                line = line.substring(1);
+            }
             if (line.isBlank()) continue;
             String[] parts = line.split(Pattern.quote(delimiter), -1);
             if (first) {
@@ -497,25 +508,71 @@ public class MarkdownConverterEngine {
     // -------------------------------------------------------------
     // MarkItDown CLI Bridge
     // -------------------------------------------------------------
+    private static volatile Boolean markItDownCliAvailable = null;
+
+    public static void resetCliCacheForTests() {
+        markItDownCliAvailable = null;
+    }
+
     public boolean isMarkItDownCliAvailable() {
-        try {
-            Process p = new ProcessBuilder("markitdown", "--version").start();
-            boolean finished = p.waitFor(1, TimeUnit.SECONDS);
-            return finished && p.exitValue() == 0;
-        } catch (Exception e) {
-            return false;
+        if (markItDownCliAvailable != null) {
+            return markItDownCliAvailable;
+        }
+        synchronized (MarkdownConverterEngine.class) {
+            if (markItDownCliAvailable != null) {
+                return markItDownCliAvailable;
+            }
+            Process p = null;
+            try {
+                ProcessBuilder pb = new ProcessBuilder("markitdown", "--version");
+                pb.redirectErrorStream(true);
+                p = pb.start();
+                p.getInputStream().transferTo(OutputStream.nullOutputStream());
+                boolean finished = p.waitFor(2, TimeUnit.SECONDS);
+                if (!finished) {
+                    p.destroyForcibly();
+                    markItDownCliAvailable = false;
+                    return false;
+                }
+                markItDownCliAvailable = (p.exitValue() == 0);
+            } catch (Exception e) {
+                markItDownCliAvailable = false;
+            } finally {
+                if (p != null && p.isAlive()) {
+                    p.destroyForcibly();
+                }
+            }
+            return markItDownCliAvailable;
         }
     }
 
     public ConversionResult convertViaMarkItDownCli(Path file) throws IOException, InterruptedException {
         Path tempOutput = Files.createTempFile("markitdown_out_", ".md");
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder("markitdown", file.toAbsolutePath().toString(), "-o", tempOutput.toAbsolutePath().toString());
-            Process p = pb.start();
+            pb.redirectErrorStream(true);
+            p = pb.start();
+
+            ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
+            Thread drainThread = new Thread(() -> {
+                try {
+                    p.getInputStream().transferTo(outputCapture);
+                } catch (Exception ignored) {}
+            }, "markitdown-drain");
+            drainThread.setDaemon(true);
+            drainThread.start();
+
             boolean finished = p.waitFor(30, TimeUnit.SECONDS);
-            if (!finished || p.exitValue() != 0) {
-                throw new IOException("MarkItDown CLI failed or timed out.");
+            if (!finished) {
+                p.destroyForcibly();
+                throw new IOException("MarkItDown CLI timed out after 30 seconds.");
             }
+            if (p.exitValue() != 0) {
+                throw new IOException("MarkItDown CLI failed (exit " + p.exitValue() + "): "
+                        + outputCapture.toString(StandardCharsets.UTF_8).trim());
+            }
+
             String content = Files.readString(tempOutput, StandardCharsets.UTF_8);
             String fileName = file.getFileName().toString();
             String ext = getExtension(fileName);
@@ -525,6 +582,9 @@ public class MarkdownConverterEngine {
             String fullMd = buildFrontmatter(fileName, ext, nowStr, 1, words, tokens, "PythonMarkItDownCLI") + content;
             return new ConversionResult(fullMd, fileName, ext, words, tokens, 1, nowStr, "PythonMarkItDownCLI");
         } finally {
+            if (p != null && p.isAlive()) {
+                p.destroyForcibly();
+            }
             Files.deleteIfExists(tempOutput);
         }
     }

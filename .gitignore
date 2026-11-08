@@ -16,3 +16,7 @@ dist/
 *.mv.db
 data/*.db
 data/studio_cache*
+.ai-kit/
+.factorypath
+data/converted_docs/**
+!data/converted_docs/.gitkeep

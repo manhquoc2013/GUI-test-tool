@@ -44,4 +44,41 @@ class LiveDomScannerTest {
         assertEquals("https://example.com/api/v1",
                 LiveDomScanner.extractFirstUrl("Mở https://example.com/api/v1."));
     }
+
+    @Test
+    void testScanUrlAcrossMultipleThreadsWithoutAffinityCrash() throws InterruptedException {
+        LiveDomScanner scanner = new LiveDomScanner();
+        String html1 = "data:text/html,<html><body><button id='t1'>Thread 1</button></body></html>";
+        String html2 = "data:text/html,<html><body><button id='t2'>Thread 2</button></body></html>";
+
+        String[] results = new String[2];
+        Throwable[] errors = new Throwable[2];
+
+        Thread t1 = new Thread(() -> {
+            try {
+                results[0] = scanner.scanUrl(html1, 3000);
+            } catch (Throwable t) {
+                errors[0] = t;
+            }
+        }, "dom-worker-1");
+
+        Thread t2 = new Thread(() -> {
+            try {
+                results[1] = scanner.scanUrl(html2, 3000);
+            } catch (Throwable t) {
+                errors[1] = t;
+            }
+        }, "dom-worker-2");
+
+        t1.start();
+        t1.join();
+
+        t2.start();
+        t2.join();
+
+        assertNull(errors[0], "Worker 1 should not throw thread affinity error");
+        assertNull(errors[1], "Worker 2 should not throw thread affinity error");
+        assertNotNull(results[0]);
+        assertNotNull(results[1]);
+    }
 }

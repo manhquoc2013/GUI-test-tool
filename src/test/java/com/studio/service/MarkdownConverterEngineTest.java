@@ -174,5 +174,70 @@ class MarkdownConverterEngineTest {
         assertTrue(htmlResult.getMarkdown().contains("# Trang Đăng Nhập"));
         assertTrue(htmlResult.getMarkdown().contains("Nhập email và mật khẩu."));
     }
+
+    @Test
+    void testConvertCsvWithUtf8Bom() throws IOException {
+        Path csvFile = tempDir.resolve("bom_data.csv");
+        // Prepend UTF-8 BOM \uFEFF to the header
+        Files.writeString(csvFile, "\uFEFFTestID,Scenario,Result\nTC01,Login,Pass\nTC02,Register,Fail");
+
+        MarkdownConverterEngine.ConversionResult res = engine.convert(csvFile);
+        assertNotNull(res);
+        // Ensure \uFEFF was cleanly stripped from header
+        assertFalse(res.getMarkdown().contains("\uFEFF"));
+        assertTrue(res.getMarkdown().contains("| TestID | Scenario | Result |"));
+        assertTrue(res.getMarkdown().contains("| TC01 | Login | Pass |"));
+    }
+
+    @Test
+    void testConvertDocxInterleavedParagraphAndTableOrder() throws IOException {
+        Path docxFile = tempDir.resolve("interleaved.docx");
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream out = new FileOutputStream(docxFile.toFile())) {
+
+            // 1. Heading 1
+            XWPFParagraph h1 = doc.createParagraph();
+            h1.setStyle("Heading 1");
+            h1.createRun().setText("Section 1 Intro");
+
+            // 2. Table 1
+            XWPFTable t1 = doc.createTable(1, 2);
+            t1.getRow(0).getCell(0).setText("T1-Col1");
+            t1.getRow(0).getCell(1).setText("T1-Col2");
+
+            // 3. Heading 2
+            XWPFParagraph h2 = doc.createParagraph();
+            h2.setStyle("Heading 2");
+            h2.createRun().setText("Section 2 Details");
+
+            // 4. Table 2
+            XWPFTable t2 = doc.createTable(1, 2);
+            t2.getRow(0).getCell(0).setText("T2-Col1");
+            t2.getRow(0).getCell(1).setText("T2-Col2");
+
+            doc.write(out);
+        }
+
+        String md = engine.convertDocx(docxFile);
+        assertNotNull(md);
+
+        // Verify exact sequential order in generated markdown
+        int posH1 = md.indexOf("# Section 1 Intro");
+        int posT1 = md.indexOf("T1-Col1");
+        int posH2 = md.indexOf("## Section 2 Details");
+        int posT2 = md.indexOf("T2-Col1");
+
+        assertTrue(posH1 >= 0 && posT1 > posH1, "Table 1 must follow Section 1");
+        assertTrue(posH2 > posT1, "Section 2 must follow Table 1");
+        assertTrue(posT2 > posH2, "Table 2 must follow Section 2");
+    }
+
+    @Test
+    void testCliAvailabilityCaching() {
+        MarkdownConverterEngine.resetCliCacheForTests();
+        boolean firstCheck = engine.isMarkItDownCliAvailable();
+        boolean secondCheck = engine.isMarkItDownCliAvailable();
+        assertEquals(firstCheck, secondCheck);
+    }
 }
 

@@ -138,11 +138,21 @@ public class DataCleanupService {
             try { stats.chatBytes += Files.size(defaultChat); } catch (Exception ignored) {}
         }
 
-        // 3. Work directory
+        // 3. Work directory & converted docs directory
         Path workDir = StudioPaths.getWorkDir();
         if (Files.exists(workDir)) {
             try (var walk = Files.walk(workDir)) {
                 walk.filter(p -> !p.getFileName().toString().equals(".gitkeep") && !Files.isDirectory(p))
+                        .forEach(p -> {
+                            stats.workFilesCount++;
+                            try { stats.workBytes += Files.size(p); } catch (Exception ignored) {}
+                        });
+            } catch (Exception ignored) {}
+        }
+        Path convertedDocs = StudioPaths.getDataDir().resolve("converted_docs");
+        if (Files.exists(convertedDocs)) {
+            try (var walk = Files.walk(convertedDocs)) {
+                walk.filter(p -> !Files.isDirectory(p))
                         .forEach(p -> {
                             stats.workFilesCount++;
                             try { stats.workBytes += Files.size(p); } catch (Exception ignored) {}
@@ -256,11 +266,18 @@ public class DataCleanupService {
 
     private void cleanWorkDirectory(CleanupResult result) {
         Path workDir = StudioPaths.getWorkDir();
-        if (!Files.exists(workDir)) return;
+        cleanDirectoryFiles(workDir, result, true);
 
-        try (var walk = Files.walk(workDir)) {
+        Path convertedDocs = StudioPaths.getDataDir().resolve("converted_docs");
+        cleanDirectoryFiles(convertedDocs, result, false);
+    }
+
+    private void cleanDirectoryFiles(Path dir, CleanupResult result, boolean preserveGitKeep) {
+        if (dir == null || !Files.exists(dir)) return;
+
+        try (var walk = Files.walk(dir)) {
             walk.sorted(Comparator.reverseOrder())
-                    .filter(p -> !p.equals(workDir) && !p.getFileName().toString().equals(".gitkeep"))
+                    .filter(p -> !p.equals(dir) && (!preserveGitKeep || !p.getFileName().toString().equals(".gitkeep")))
                     .forEach(p -> {
                         try {
                             if (!Files.isDirectory(p)) {

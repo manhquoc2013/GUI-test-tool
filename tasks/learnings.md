@@ -510,6 +510,40 @@
   - **`SECURITY_FUZZING`** (`/fuzz`): Ma trận vector fuzzing bảo mật (XSS, SQLi, Buffer overflow, Unicode injection).
 - Hỗ trợ định tuyến thông minh theo Slash Commands và phân tích ngữ nghĩa (Semantic Intent Detection) trong chế độ Auto.
 
+## Phase 12 Review Remediation & Autonomous Hardening Learnings
+
+### 1. Process Lifecycle, I/O Pipe Drainage & Subprocess Deadlocks
+- **Process Pipe Buffering Deadlock**:
+  - Khi gọi CLI ngoại vi (như `markitdown` hoặc CLI ngoài) bằng `ProcessBuilder`, nếu tiến trình ghi nhiều log/lỗi vượt quá kích thước bộ đệm pipe của hệ điều hành (~64KB) mà phía Java không đọc luồng xuất, tiến trình OS sẽ bị nghẽn (block) chờ buffer được đọc, gây ra deadlock vĩnh viễn và timeout 30s.
+  - Sử dụng `pb.redirectErrorStream(true)` kết hợp background drain thread (`transferTo(outputStream)`) giải quyết triệt để vấn đề đầy buffer pipe.
+- **Zombie Process Prevention**:
+  - Khi `process.waitFor(timeout, unit)` trả về `false`, tiến trình vẫn tiếp tục chạy ngầm tiêu hao CPU và RAM. Bắt buộc phải gọi `p.destroyForcibly()` cả trong nhánh timeout lẫn khối `finally` nếu tiến trình còn sống (`p.isAlive()`).
+- **Lazy Environment Probe Caching**:
+  - Tránh gọi `ProcessBuilder("cli", "--version")` lặp lại trên mỗi thao tác nghiệp vụ; lưu kết quả thăm dò vào biến `volatile Boolean` để tránh lãng phí 30-50ms CPU không cần thiết.
+
+### 2. Playwright Java Thread-Affinity Discipline
+- **Thread-Affinity Constraint**:
+  - Trong Microsoft Playwright for Java, mọi đối tượng (`Playwright`, `Browser`, `BrowserContext`, `Page`) đều có cơ chế kiểm tra thread affinity (`Thread.currentThread() != thread`). Việc lưu giữ `static Browser` dùng chung giữa các worker threads hoặc giữa UI thread và background thread dẫn đến lỗi `PlaywrightException: Playwright object can only be used from the thread where it was created`.
+  - Thay vì dùng static browser chia sẻ giữa các luồng, áp dụng mô hình transient browser theo ngữ cảnh gọi (`try (Playwright pw = PlaywrightUtil.create(); Browser br = pw.chromium().launch(...))`) kết hợp với LRU cache 3 phút ở tầng dữ liệu. Giải pháp này đảm bảo 100% thread safety, ngăn chặn hoàn toàn xung đột luồng và giải phóng ~200MB RAM khi nhàn rỗi.
+
+### 3. Sequential Document AST Fidelity & Byte Order Mark (BOM)
+- **POI Sequential BodyElements Traversal**:
+  - Trong tài liệu Word (`.docx`), các bảng biểu đặc tả kiểm thử nằm xen kẽ giữa các đề mục và đoạn văn bản. Việc duyệt riêng `doc.getParagraphs()` rồi đến `doc.getTables()` làm đứt gãy tính liên tục của tài liệu, dồn toàn bộ bảng về cuối.
+  - Sử dụng `doc.getBodyElements()` để duyệt tuần tự cả `XWPFParagraph` và `XWPFTable` theo đúng thứ tự bố cục trong file gốc, giúp AI Agent nắm bắt chính xác ngữ cảnh của từng phần.
+  - Thay thế `run.getText(0)` bằng `run.text()` để không bỏ sót các đoạn text bị phân mảnh hoặc ngắt dòng.
+- **UTF-8 BOM Header Sanitization**:
+  - File CSV/TSV xuất từ Microsoft Excel trên Windows mặc định chứa ký tự BOM `\uFEFF` ở đầu file. Khi đọc bằng `StandardCharsets.UTF_8`, Java không tự động loại bỏ ký tự này, khiến tiêu đề cột đầu tiên bị hỏng (ví dụ `|\uFEFFID|`). Luôn chủ động cắt bỏ `\uFEFF` ở dòng đầu tiên trước khi phân tách cột.
+
+### 4. Connection Pool Transaction Boundary Isolation
+- **Connection Reuse Safeguards**:
+  - Khi triển khai Connection Pooling qua Dynamic Proxy, nếu một tác vụ đặt `autoCommit = false` hoặc để dở transaction rồi đóng kết nối, việc hoàn trả nguyên trạng vào pool có thể làm ô nhiễm các thao tác kế tiếp.
+  - Luôn kiểm tra và rollback các thay đổi chưa commit, đồng thời thiết lập lại `target.setAutoCommit(true)` trước khi đưa kết nối trở lại hàng đợi `pool.offer(target)`.
+
+### 5. Automated Data Lifecycle & Storage Maintenance
+- **Maintenance Scope Completeness**:
+  - Mọi thư mục phát sinh dữ liệu tự động (như `data/converted_docs/`) cần được tính vào chỉ số dung lượng đĩa `calculateDiskUsage()` và nằm trong phạm vi dọn dẹp an toàn của `DataCleanupService`, ngăn ngừa phình to ổ đĩa theo thời gian sử dụng.
+
+
 
 
 

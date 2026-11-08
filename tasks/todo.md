@@ -102,3 +102,12 @@
 - [x] Task 94: Write comprehensive unit tests for `MarkdownConverterEngineTest`, `DocumentParserServiceTest`, and `AiSkillTest` <!-- id: 104 -->
 - [x] Task 95: Run full test suite regression (`mvn clean test`), update `tasks/learnings.md`, and atomic git commit <!-- id: 105 -->
 
+- [x] Task 96: Fix CLI process leak, buffer deadlock & cache CLI availability in `MarkdownConverterEngine` <!-- id: 106 -->
+- [x] Task 97: Eliminate static Playwright thread affinity crash in `LiveDomScanner` <!-- id: 107 -->
+- [x] Task 98: Preserve sequential document interleaving (BodyElements) & complete text in `MarkdownConverterEngine.convertDocx` <!-- id: 108 -->
+- [x] Task 99: Add auto-commit reset and transaction rollback guard in `DatabaseManager` connection pool <!-- id: 109 -->
+- [x] Task 100: Strip UTF-8 BOM (`\uFEFF`) from CSV/TSV table headers in `MarkdownConverterEngine` <!-- id: 110 -->
+- [x] Task 101: Include `data/converted_docs/` in `DataCleanupService` disk usage and cleanup execution <!-- id: 111 -->
+- [x] Task 102: Write comprehensive unit tests for all remediations & verify 100% green test suite <!-- id: 112 -->
+- [x] Task 103: Update `tasks/learnings.md`, `tasks/plan.md`, and make atomic commit <!-- id: 113 -->
+

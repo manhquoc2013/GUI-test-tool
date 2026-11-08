@@ -104,6 +104,25 @@ public class DataCleanupServiceTest {
     }
 
     @Test
+    public void testCleanConvertedDocsDirectory() throws IOException {
+        Path convertedDocs = StudioPaths.getDataDir().resolve("converted_docs");
+        Files.createDirectories(convertedDocs);
+        Path mockDoc = convertedDocs.resolve("sample_spec_12345.md");
+        Files.writeString(mockDoc, "# Sample Converted Markdown Spec", StandardCharsets.UTF_8);
+
+        assertTrue(Files.exists(mockDoc));
+
+        DataCleanupService.DiskUsageStats statsBefore = cleanupService.calculateDiskUsage();
+        assertTrue(statsBefore.workFilesCount >= 1);
+
+        DataCleanupService.CleanupOptions options = new DataCleanupService.CleanupOptions(false, 0, false, true);
+        DataCleanupService.CleanupResult result = cleanupService.executeCleanup(options);
+
+        assertTrue(result.getDeletedWorkFilesCount() >= 1);
+        assertFalse(Files.exists(mockDoc), "Converted doc file should be deleted upon work cleanup");
+    }
+
+    @Test
     public void testCleanupAbortsWhenRunIsActive() {
         RunCancelService.beginRun();
         try {
