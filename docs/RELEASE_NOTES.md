@@ -1,5 +1,37 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.4.0
+
+**Release date:** 2026-11-08
+
+Phiên bản **Test Studio v2.4.0** là bước tiến vượt bậc trong trải nghiệm AI Testing, mang đến khả năng Quản lý đa phiên hội thoại (Multi-Session Chat Management), Thanh lịch sử thu gọn (Collapsible Sidebar), Bộ tối ưu hóa Token ngữ cảnh lớn (Large Context Token Optimization Engine), và Kiến trúc đồng bộ cơ sở dữ liệu nhúng H2 siêu tốc.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.4.0 (Key Highlights)
+
+#### 1. Quản lý đa phiên hội thoại AI (Multi-Session Chat Management)
+- **Độc lập phiên theo Suite / Workspace**: Lưu trữ lịch sử hội thoại độc lập theo từng Suite tại `.ai_chats/<sessionId>.json`. Người dùng có thể tạo không giới hạn các phiên làm việc song song để phục vụ các mục tiêu kiểm thử khác nhau.
+- **Thanh bên lịch sử tích hợp (Collapsible Left Sidebar)**:
+  - Đóng/mở linh hoạt qua nút `☰ Lịch sử` hoặc phím tắt `Ctrl+H` / `Cmd+H`.
+  - Hỗ trợ ô tìm kiếm tức thì theo tiêu đề phiên làm việc.
+  - Thao tác một chạm: Tạo phiên mới (`+ Cuộc trò chuyện mới`), Chuyển đổi phiên mượt mà, Ghim phiên lên đầu (Pin to Top), Đổi tên trực tiếp bằng đúp chuột (`double-click`) hoặc qua Menu ngữ cảnh chuột phải.
+- **Tự động đặt tên phiên thông minh**: Tự động nhận diện nội dung yêu cầu đầu tiên của người dùng để đặt tên phiên hội thoại ngắn gọn, súc tích (tối đa 28 ký tự).
+- **Chốt chặn an toàn khi xóa phiên**: Ngăn chặn người dùng vô tình xóa phiên đang trong tiến trình sinh kịch bản ngầm (`generationProgress`), triệt tiêu hoàn toàn race condition.
+
+#### 2. Bộ tối ưu hóa Token ngữ cảnh lớn (Large-Context Token Optimization Engine)
+- **Structured Progressive Rolling Summary**: Khi lịch sử hội thoại kéo dài vượt quá cửa sổ trượt, hệ thống tự động chắt lọc và tổng hợp các mục tiêu, kịch bản đã sinh và quyết định kỹ thuật thành một bản tóm tắt súc tích, duy trì trí nhớ ngữ cảnh dài hạn mà không gây tràn token.
+- **Adaptive Sliding Window Context**: Mặc định giữ 6 lượt (12 tin nhắn) gần nhất với cơ chế cưỡng chế giới hạn ngân sách token nghiêm ngặt (`Token Budget Enforcement`), tự động thu nhỏ linh hoạt để không bao giờ vượt quá giới hạn của mô hình.
+- **Bulky Code & DOM Truncation**: Tự động nén và thu gọn các khối mã Playwright dài và cây DOM cũ ở các lượt trao đổi trước, cắt giảm đến 75% lượng token tiêu thụ.
+- **Live DOM Markdown Representation**: Biến đổi JSON DOM trực tiếp thành bảng Markdown tinh gọn (Candidate Locator, Tag, Role, Text/Label) giúp mô hình nắm bắt chính xác cấu trúc trang thực tế.
+
+#### 3. Lưu trữ nguyên tử & Đồng bộ H2 Database tốc độ cao
+- **Cơ chế ghi file nguyên tử (`writeJsonAtomic`)**: Sử dụng file tạm `.tmp` và hoán đổi nguyên tử (`ATOMIC_MOVE`), bảo vệ dữ liệu hội thoại an toàn 100% trước nguy cơ cúp điện hoặc tắt máy đột ngột.
+- **Tương thích ngược tự động (Zero-Data-Loss Migration)**: Tự động di chuyển lịch sử cũ từ `.ai_chat.json` sang phiên làm việc đầu tiên ngay khi người dùng mở ứng dụng.
+- **Batch JDBC Execution**: Đồng bộ hóa tin nhắn vào bảng H2 `ai_chat_messages` thông qua JDBC Batch (`executeBatch()`), loại bỏ hoàn toàn độ trễ I/O trên UI thread.
+
+---
+
 ## Test Studio v2.3.1
 
 **Release date:** 2026-11-08

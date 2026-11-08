@@ -14,7 +14,7 @@ if not defined VERSION (
     if not defined VERSION set VERSION=%%v
   )
 )
-if not defined VERSION set VERSION=2.3.1
+if not defined VERSION set VERSION=2.4.0
 for /f "tokens=1" %%v in ("%VERSION%") do set VERSION=%%v
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set DIST_ROOT=dist\%APP_NAME%

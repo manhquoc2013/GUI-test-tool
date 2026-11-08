@@ -10,7 +10,7 @@ VERSION="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('pom.x
 if [ -z "${VERSION}" ]; then
   VERSION="$(sed -n 's/.*<version>\([0-9][^<]*\)<\/version>.*/\1/p' pom.xml 2>/dev/null | head -n 1)"
 fi
-if [ -z "${VERSION}" ]; then VERSION="2.3.1"; fi
+if [ -z "${VERSION}" ]; then VERSION="2.4.0"; fi
 JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 JPACKAGE_INPUT="target/jpackage-input"
 JPACKAGE_OUT="target/jpackage-out"

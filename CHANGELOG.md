@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.4.0] — 2026-11-08
+
+### Added
+
+- **Multi-Session AI Chat Management & Collapsible History Sidebar**:
+  - Independent persistent chat sessions scoped per Suite or global workspace stored in `.ai_chats/<sessionId>.json`.
+  - Integrated collapsible left history sidebar (`☰ Lịch sử` / shortcut `Ctrl+H` / `Cmd+H`) with real-time search filtering.
+  - Full session lifecycle: create new chat, instant session switching, inline double-click rename, pin/unpin to top, and safe deletion.
+  - Automatic intelligent conversation naming derived from first user prompt (up to 28 characters).
+  - Active session deletion protection preventing deletion while background AI generation is running.
+
+- **Large Context Token Optimization Engine**:
+  - **Structured Progressive Rolling Summary**: Automatically consolidates goals, test cases, and technical decisions from pruned turns when conversations exceed the sliding window.
+  - **Adaptive Sliding Window**: Retains recent conversational turns with hard token budget limit enforcement.
+  - **Bulky Code & DOM Truncation**: Automatically compresses lengthy Playwright scripts and DOM snapshots in historical turns, saving up to 75% tokens.
+  - **Compact DOM Representation**: Formats live interactive elements into compact Markdown tables for AI ingestion.
+
+- **Dual-Layer Persistence & Acceleration**:
+  - Embedded H2 database cache indexing for `ai_chat_sessions` and `ai_chat_messages`.
+  - High-performance Batch JDBC indexing (`indexChatMessages`) eliminating N+1 connection overhead on UI thread.
+  - Zero-data-loss auto-migration from legacy single-session `.ai_chat.json`.
+  - Atomic session serialization (`writeJsonAtomic`) preventing file corruption during power loss or abrupt exit.
+
+---
+
 ## [2.3.1] — 2026-11-08
 
 ### Added
