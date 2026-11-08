@@ -116,5 +116,91 @@ public class AiTokenOptimizerTest {
         assertTrue(formatted.contains("Sign In"));
         assertTrue(formatted.contains("Enter username"));
     }
+
+    @Test
+    public void testTruncateHistoricalContent() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+
+        String codeBlock = """
+            Here is the test code:
+            ```java
+            @Test
+            public void testLogin() {
+                page.navigate("https://example.com");
+                page.locator("#username").fill("admin");
+                page.locator("#password").fill("secret");
+                page.locator("#login").click();
+                assertThat(page.locator(".welcome")).isVisible();
+                // 50 more lines of code here...
+            }
+            ```
+            Hope this helps!
+            """;
+
+        String truncated = optimizer.truncateHistoricalContent(codeBlock, 120);
+        assertNotNull(truncated);
+        assertTrue(truncated.contains("[Đã thu gọn"));
+        assertTrue(truncated.length() < codeBlock.length(), "Code block should be truncated in historical turns");
+    }
+
+    @Test
+    public void testRollingSummaryGeneration() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+
+        List<AiChatMessage> history = new ArrayList<>();
+        AiChatMessage u1 = new AiChatMessage("user", "Hãy tạo kịch bản kiểm thử đăng ký tài khoản");
+        AiChatMessage a1 = new AiChatMessage("assistant", "Đã tạo ca kiểm thử: TC01 - Đăng ký thành công");
+        a1.setGeneratedCasesSnapshot(List.of(new com.studio.model.AiGeneratedCase("TC01 - Đăng ký thành công", "", "")));
+
+        AiChatMessage u2 = new AiChatMessage("user", "Thêm kiểm tra mật khẩu yếu");
+        AiChatMessage a2 = new AiChatMessage("assistant", "Đã tạo ca kiểm thử: TC02 - Kiểm tra mật khẩu yếu");
+
+        history.add(u1);
+        history.add(a1);
+        history.add(u2);
+        history.add(a2);
+
+        String summary = optimizer.generatePrunedSummary(history);
+        assertNotNull(summary);
+        assertTrue(summary.contains("Yêu cầu"));
+        assertTrue(summary.contains("đăng ký"));
+    }
+
+    @Test
+    public void testLargeContextTokenOptimizationBudgetEnforcement() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+
+        List<AiChatMessage> largeHistory = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            AiChatMessage msg = new AiChatMessage(i % 2 == 0 ? "user" : "assistant",
+                    "Message number " + i + " with large payload " + "x".repeat(300));
+            largeHistory.add(msg);
+        }
+
+        // Enforce strict max tokens budget of 2000 tokens
+        int maxTokensBudget = 2000;
+        List<OpenAiClient.ChatMessage> messages = optimizer.buildOptimizedMessages(
+                "You are an expert QA tester.",
+                largeHistory,
+                "Write another test case",
+                List.of(),
+                "Target Suite Info",
+                null,
+                maxTokensBudget,
+                6
+        );
+
+        assertNotNull(messages);
+        assertTrue(messages.size() > 2);
+
+        // Calculate total estimated tokens of the resulting context
+        int totalTokens = 0;
+        for (OpenAiClient.ChatMessage m : messages) {
+            totalTokens += optimizer.estimateTokens(m.getTextContent()) + 4;
+        }
+
+        assertTrue(totalTokens <= maxTokensBudget + 500,
+                "Optimized context must strictly respect token budget. Expected <= " + (maxTokensBudget + 500) + ", got: " + totalTokens);
+    }
 }
 

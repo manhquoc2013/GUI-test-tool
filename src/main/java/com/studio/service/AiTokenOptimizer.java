@@ -19,6 +19,7 @@ public class AiTokenOptimizer {
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
+    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```([a-zA-Z0-9_-]*)\\r?\\n([\\s\\S]*?)\\r?\\n```");
 
     /**
      * Heuristic token estimation for text (supports English, Vietnamese diacritics, and Code).
@@ -73,6 +74,45 @@ public class AiTokenOptimizer {
             tokens += msg.getAttachedFiles().size() * 5;
         }
         return tokens;
+    }
+
+    /**
+     * Truncate lengthy code blocks and repetitive output in historical messages to save tokens.
+     */
+    public String truncateHistoricalContent(String content, int maxChars) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+
+        String text = MULTI_NEWLINES.matcher(content).replaceAll("\n\n");
+
+        // Compress large code blocks inside historical turns
+        java.util.regex.Matcher matcher = CODE_BLOCK_PATTERN.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String lang = matcher.group(1);
+            String code = matcher.group(2);
+            if (code.length() > 140) {
+                String[] lines = code.split("\\r?\\n");
+                StringBuilder kept = new StringBuilder();
+                int linesToKeep = Math.min(3, lines.length);
+                for (int i = 0; i < linesToKeep; i++) {
+                    kept.append(lines[i]).append("\n");
+                }
+                String replacement = "```" + lang + "\n" + kept.toString().trim() +
+                        "\n    // ... [Đã thu gọn " + (lines.length - linesToKeep) + " dòng mã nguồn cũ để tối ưu context] ...\n```";
+                matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
+            } else {
+                matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(matcher.group(0)));
+            }
+        }
+        matcher.appendTail(sb);
+        text = sb.toString();
+
+        if (maxChars > 0 && text.length() > maxChars) {
+            text = text.substring(0, maxChars) + "\n... [Đã thu gọn bớt nội dung cũ để tối ưu token]";
+        }
+        return text;
     }
 
     /**
@@ -234,7 +274,6 @@ public class AiTokenOptimizer {
         usedTokens += currentUserTokens;
 
         int contextLimit = maxTokens > 0 ? maxTokens : DEFAULT_MAX_CONTEXT_TOKENS;
-        int remainingBudget = Math.max(1000, contextLimit - usedTokens);
 
         // 3. Sliding Window over History
         List<OpenAiClient.ChatMessage> historyMessages = new ArrayList<>();
@@ -242,12 +281,12 @@ public class AiTokenOptimizer {
             int maxMessages = Math.max(2, maxTurns * 2);
             int startIdx = Math.max(0, history.size() - maxMessages);
 
-            // If we have pruned messages older than the sliding window, create a summary
+            // If we have pruned messages older than the sliding window, create progressive summary
             if (startIdx > 0) {
                 List<AiChatMessage> pruned = history.subList(0, startIdx);
                 String summary = generatePrunedSummary(pruned);
                 if (!summary.isBlank()) {
-                    historyMessages.add(new OpenAiClient.ChatMessage("system", "Ngữ cảnh tóm tắt các lượt trao đổi trước:\n" + summary));
+                    historyMessages.add(new OpenAiClient.ChatMessage("system", summary));
                     usedTokens += estimateTokens(summary);
                 }
             }
@@ -256,12 +295,19 @@ public class AiTokenOptimizer {
             List<OpenAiClient.ChatMessage> windowMessages = new ArrayList<>();
             for (int i = history.size() - 1; i >= startIdx; i--) {
                 AiChatMessage msg = history.get(i);
-                int msgTokens = estimateMessageTokens(msg);
+                String content = msg.getContent() != null ? msg.getContent() : "";
+
+                // For historical messages older than the immediate last turn, truncate bulky code & outputs
+                if (i < history.size() - 2) {
+                    content = truncateHistoricalContent(content, 2000);
+                }
+
+                int msgTokens = estimateTokens(content) + 4;
                 if (usedTokens + msgTokens > contextLimit && !windowMessages.isEmpty()) {
                     break; // Prune if exceeding budget
                 }
                 usedTokens += msgTokens;
-                windowMessages.add(0, new OpenAiClient.ChatMessage(msg.getRole(), msg.getContent()));
+                windowMessages.add(0, new OpenAiClient.ChatMessage(msg.getRole(), content));
             }
 
             historyMessages.addAll(windowMessages);
@@ -275,23 +321,62 @@ public class AiTokenOptimizer {
     }
 
     /**
-     * Create a concise summary of pruned messages to retain long-term context while saving tokens.
+     * Create a structured, concise summary of pruned messages to retain long-term context while saving tokens.
      */
     public String generatePrunedSummary(List<AiChatMessage> prunedMessages) {
         if (prunedMessages == null || prunedMessages.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
-        int count = 0;
+        sb.append("Ngữ cảnh tóm tắt các lượt trao đổi trước:\n");
+
+        List<String> userRequests = new ArrayList<>();
+        List<String> generatedCases = new ArrayList<>();
+        int countUser = 0;
+
         for (AiChatMessage m : prunedMessages) {
             if ("user".equalsIgnoreCase(m.getRole())) {
-                String snippet = m.getContent();
-                if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "...";
-                sb.append("- User: ").append(snippet).append("\n");
-                count++;
-                if (count >= 5) break;
+                String snippet = m.getContent() != null ? m.getContent().trim() : "";
+                if (!snippet.isBlank()) {
+                    if (snippet.length() > 100) snippet = snippet.substring(0, 97) + "...";
+                    userRequests.add(snippet);
+                    countUser++;
+                    if (countUser >= 6) break;
+                }
+            } else if ("assistant".equalsIgnoreCase(m.getRole())) {
+                if (m.getGeneratedCasesSnapshot() != null && !m.getGeneratedCasesSnapshot().isEmpty()) {
+                    for (com.studio.model.AiGeneratedCase gc : m.getGeneratedCasesSnapshot()) {
+                        if (gc.getName() != null && !gc.getName().isBlank()) {
+                            generatedCases.add(gc.getName().trim());
+                        }
+                    }
+                } else if (m.getContent() != null && (m.getContent().contains("TC") || m.getContent().contains("Ca kiểm thử"))) {
+                    for (String line : m.getContent().split("\\r?\\n")) {
+                        String trimmed = line.trim();
+                        if (trimmed.startsWith("TC") || trimmed.contains("Ca kiểm thử") || trimmed.startsWith("- TC")) {
+                            if (trimmed.length() > 80) trimmed = trimmed.substring(0, 77) + "...";
+                            generatedCases.add(trimmed);
+                            if (generatedCases.size() >= 5) break;
+                        }
+                    }
+                }
             }
         }
+
+        if (!userRequests.isEmpty()) {
+            sb.append("• Yêu cầu & Mục tiêu:\n");
+            for (String req : userRequests) {
+                sb.append("  - ").append(req).append("\n");
+            }
+        }
+
+        if (!generatedCases.isEmpty()) {
+            sb.append("• Ca kiểm thử / Kết quả đã sinh:\n");
+            for (String c : generatedCases) {
+                sb.append("  - ").append(c).append("\n");
+            }
+        }
+
         return sb.toString().trim();
     }
 }
