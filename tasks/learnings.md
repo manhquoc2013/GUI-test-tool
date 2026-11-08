@@ -576,6 +576,33 @@
     - **Suite Workspace**: Nút `deleteBtn` (`.case-row-delete-btn`) trên từng hàng của danh sách case `caseListView`, tùy chọn "Xóa Case" trong menu ngữ cảnh chuột phải, nút "Xóa case" trên thanh công cụ Workspace, và nút "Xóa Suite" (`deleteSuiteBtn`) trong bảng thông tin Suite.
   - Tất cả các nút xóa đều tích hợp hộp thoại xác nhận chi tiết số lượng mục con bị ảnh hưởng trước khi thực thi xóa an toàn qua `projectStore.delete*` và dọn sạch file script `.java` liên quan.
 
+### 8. Interactive Clarification Card & Deep Test Generation Standards (Agency-Agents & Test Collaboration)
+- **Anti-Superficial Generation Standard**:
+  - Dựa trên tri thức kiểm thử thực chiến từ `agency-agents-main/testing/testing-test-automation-engineer.md` và `Fabric-main/data/patterns`, các kịch bản kiểm thử sơ sài (1-2 click đơn giản, 1 assertion cơ bản) được loại bỏ triệt để.
+  - Chuẩn tạo mới quy định tối thiểu 2-3 kịch bản toàn diện cho một tính năng:
+    1. *Happy Path*: Luồng chuẩn với đầy đủ dữ liệu hợp lệ.
+    2. *Negative Validation*: Luồng ngoại lệ với thông báo lỗi rõ ràng.
+    3. *Boundary & Edge Case*: Giá trị biên, ký tự đặc biệt hoặc dữ liệu cực đại.
+    - Mỗi kịch bản phải có 4-8 bước thao tác rõ ràng (`TestStep`) và 2-4 `Assertion` kiểm chứng web-first (Zero hard sleep, strict-mode disambiguation, resilient role selectors).
+- **Interactive In-Chat Clarification Flow**:
+  - `AiAmbiguityAnalyzer` phân tích câu lệnh: nếu yêu cầu mơ hồ, quá ngắn (< 140 ký tự) và chưa có tệp đính kèm hoặc Live DOM, AI không đoán mò mà chủ động đưa ra thẻ câu hỏi tương tác (`AiClarificationQuestion`).
+  - Thẻ làm rõ (`clarification-card`) được hiển thị trực tiếp trong bong bóng chat của trợ lý AI với các chip tùy chọn bo tròn và ô nhập tự do.
+  - Khi người dùng bấm "⚡ Xác nhận & Sinh Test Cases chi tiết", câu lệnh được tăng cường (`buildAugmentedPrompt`) và chuyển thẳng vào engine sinh kịch bản chi tiết, bảo toàn lịch sử và trạng thái đã làm rõ.
+- **Conversational Chatbot Intelligence**:
+  - Hỗ trợ trò chuyện và điều hướng theo 4 nhóm tác vụ qua `AiProjectAdvisorService`:
+    1. *Tìm kiếm test case*: Tìm theo tên, suite, nhóm, từ khóa, trạng thái.
+    2. *Đánh giá chất lượng test case*: Chấm điểm theo checklist Agency-Agents (0 hard sleep, web-first assertion, selector resilience) và xếp hạng A/B/C/D kèm mã sửa mẫu.
+    3. *Phân tích khoảng trống kiểm thử (Gap Analysis)*: Phát hiện các luồng thiếu (Happy path, Negative, Boundary) trong một Suite hiện có.
+    4. *Tư vấn kỹ thuật Playwright*: Giải thích best practices và cách xử lý timeout/flakiness.
+
+### 9. Preview Pane Direct Target Resolution Fix
+- **Nguyên nhân lỗi "Không đọc được mục đã chọn" và "Chỉ có thể mở suite / case trong workspace"**:
+  - Trong `ExplorerPageController`, các nút trên bảng Preview ("Sửa" `editFromPreview`, "Mở Workspace" `openWorkspace`, "Chạy Case" `runNode`) trước đây phụ thuộc vào `resolveTarget()`.
+  - Nếu người dùng bấm vào vùng Preview ngoài cây dự án hoặc cây dự án có hàng root/group đang được chọn, `resolveTarget()` trả về node được chọn trên cây hoặc `null`, khiến thao tác trên bảng Preview bị từ chối hoặc mở sai nhóm (ví dụ: dùng tên suite làm tên nhóm).
+- **Khắc phục**:
+  - `editFromPreview()` và `openWorkspace()` ưu tiên trích xuất trực tiếp `currentPreviewRef` (thực thể đang hiển thị ngay trên bảng Preview).
+  - Chuẩn hóa đường dẫn nhóm trong `openWorkspaceForRef` bằng `suiteDir.getParent().getFileName().toString()`, đảm bảo luôn mở đúng Workspace ngay cả khi đối tượng được chọn từ Case cấp con.
+
 
 
 

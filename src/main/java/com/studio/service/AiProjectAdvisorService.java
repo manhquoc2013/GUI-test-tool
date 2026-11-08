@@ -474,3 +474,4 @@ public class AiProjectAdvisorService {
         return new GapAnalysisResult(suiteName, cases.size(), covered, missingGaps, md.toString());
     }
 }
+

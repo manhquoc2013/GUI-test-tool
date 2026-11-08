@@ -58,7 +58,8 @@ public class AiAmbiguityAnalyzer {
         // 3. Gap analysis intent
         if (p.contains("thiếu test") || p.contains("khoảng trống") || p.contains("gap analysis")
                 || p.contains("gợi ý thêm case") || p.contains("còn thiếu gì")
-                || p.contains("thiếu kịch bản gì")) {
+                || p.contains("thiếu kịch bản gì") || p.contains("độ bao phủ")
+                || p.contains("độ phủ") || p.contains("coverage")) {
             return Intent.GAP_ANALYSIS;
         }
 
@@ -112,10 +113,13 @@ public class AiAmbiguityAnalyzer {
 
         String trimmed = prompt != null ? prompt.trim() : "";
 
-        // Check if prompt is already rich (e.g. contains URL, step bullets, or long detailed spec > 120 chars)
-        boolean hasUrl = trimmed.toLowerCase(Locale.ROOT).contains("http://") || trimmed.toLowerCase(Locale.ROOT).contains("https://");
+        // Check if prompt is already rich or clarified (e.g. contains clarification tags, URL, step bullets, or long detailed spec > 120 chars)
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        boolean isClarified = lower.contains("[phạm vi]") || lower.contains("[tiền điều kiện]")
+                || lower.contains("[xác minh]") || lower.contains("[scope]") || lower.contains("[precondition]");
+        boolean hasUrl = lower.contains("http://") || lower.contains("https://");
         boolean hasSteps = trimmed.contains("\n-") || trimmed.contains("\n1.") || trimmed.contains("bước 1") || trimmed.contains("step 1");
-        boolean isDetailed = trimmed.length() > 140 && (hasUrl || hasSteps);
+        boolean isDetailed = isClarified || (trimmed.length() > 140 && (hasUrl || hasSteps));
 
         if (isDetailed) {
             return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");

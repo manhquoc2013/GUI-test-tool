@@ -1,236 +1,74 @@
-# Technical Specification: Advanced AI Agent Test Generation, Automation & Script Optimization Engine
+# Technical Specification: Advanced AI Agent Test Generation, Clarification & Project Intelligence Engine
 
 ## 1. Objectives & Overview
-Upgrade the AI capabilities in Playwright Automation Studio (`GUI-test-tool`) into a state-of-the-art AI Test Engineering Agent, synthesizing best practices from:
-1. **Midscene.js**: Token-optimized interactive DOM tree extraction, multi-candidate resilient locators, visual/semantic intent mapping.
-2. **Testsigma**: Dual representation (declarative NLP test steps + runnable code), test data parameterization (equivalence partitioning & boundary analysis), assertion mapping.
-3. **Skyvern**: Agentic task decomposition (Planner -> Generator -> Validator), scratchpad reasoning, live DOM context scanning.
-4. **Automa**: Resilient wait conditions (`waitForLoadState`, `waitForSelector`), exception recovery, stable element identification.
+Upgrade the AI capabilities in Playwright Automation Studio (`GUI-test-tool`) from a single-shot generator into an autonomous, conversational QA Architect Agent inspired by:
+1. **Agency-Agents (`testing-test-automation-engineer`, `testing-reality-checker`)**: Zero hard sleeps, deterministic waits, user-facing role selectors (`getByRole`), strict-mode disambiguation, deep multi-vector assertions.
+2. **Fabric (`test-collaboration`, patterns)**: Requirements AST breakdown, boundary value analysis (BVA), equivalence partitioning, comprehensive coverage matrices.
+3. **Interactive Ambiguity Clarification**: Proactive detection of unclear requirements, presenting interactive choice cards in chat before generating code.
+4. **Conversational Test Intelligence**: Project-aware chatbot capable of searching test cases, auditing existing test scripts for flakiness and quality, analyzing coverage gaps, and offering expert Playwright guidance.
 
-## 2. Core Architecture & Enhancements
+---
+
+## 2. Architecture & Components
 
 ### 2.1 Model Layer
-- **`com.studio.model.TestStep`**:
-  - `stepNumber`: int
-  - `action`: String (e.g. `NAVIGATE`, `CLICK`, `FILL`, `SELECT`, `ASSERT_VISIBLE`, `ASSERT_TEXT`)
-  - `target`: String (selector or semantic element name)
-  - `testData`: String (input value or parameter)
-  - `description`: String (human-readable step explanation)
-  - `expectedResult`: String (verification outcome)
-- **`com.studio.model.TestDataItem`**:
-  - `scenario`: String (e.g. "Valid Inputs", "Missing Required Field", "Boundary Length")
-  - `parameters`: Map<String, String> (field-value pairs)
-  - `expectedOutcome`: String
-- **`com.studio.model.AiGeneratedCase`**:
-  - Enhanced with `List<TestStep> testSteps`
-  - Enhanced with `List<TestDataItem> testDataSets`
-  - Enhanced with `List<String> preconditions`
-- **`com.studio.model.TestCase`**:
-  - Enhanced with `List<TestStep> testSteps`
-  - Enhanced with `List<TestDataItem> testDataSets`
+- **`com.studio.model.AiClarificationQuestion`**:
+  - `id`: Unique identifier (e.g. `q1`)
+  - `question`: Question text displayed to the user
+  - `options`: List of predefined answers (e.g. `["(Khuyên dùng) Đầy đủ (Happy + Negative + Edge)", "Chỉ luồng chính"]`)
+  - `multiSelect`: Boolean (default `false`)
+  - `allowCustomInput`: Boolean (default `true`)
+  - `selectedAnswer`: User's selected or custom answer
+- **`com.studio.model.AiChatMessage`**:
+  - `clarificationQuestions`: `List<AiClarificationQuestion>`
+  - `clarificationAnswers`: `Map<String, String>`
+  - `clarificationAnswered`: `boolean`
+  - `intent`: `String` (`GENERATE_TESTS`, `CLARIFICATION`, `SEARCH_TESTS`, `EVALUATE_TEST`, `GAP_ANALYSIS`, `CHAT_ADVICE`)
 
-### 2.2 Live DOM-Aware Context Injection
-- **`LiveDomScanner` / Integration with `SharedBrowserSession` & `EnhancedDomExtractor`**:
-  - Inspects active Playwright `Page` from `SharedBrowserSession` or runs quick headless inspection for a given URL.
-  - Passes structured element list (`data-testid`, `role`, `text`, stable `id`, `name`) into AI context so generated scripts use real, accurate locators instead of hallucinated ones.
+### 2.2 Ambiguity Analysis & Clarification Engine
+- **`AiAmbiguityAnalyzer` / `AiTestGeneratorService`**:
+  - Evaluates user prompt completeness (URL, authentication state, scope, assertions, test data).
+  - If ambiguous or brief (e.g. "viết test đăng nhập", "test thanh toán"), generates a structured clarification schema (`type: "clarification"`).
+  - Automatically enriches subsequent generation prompts with user choices.
 
-### 2.3 Multi-Stage AI Agent Architecture (`AiTestGeneratorService`)
-- **Stage 1: Test Planning & Scenario Decomposition**:
-  - Analyzes PRD / user prompt / live DOM context.
-  - Synthesizes positive, negative, and edge cases with test data variations.
-- **Stage 2: Resilient Playwright Java Script Generation**:
-  - Embeds `StudioRuntime.healLocator("selector", "description")` on element interactions.
-  - Interleaves explicit Playwright wait conditions:
-    `page.waitForLoadState(LoadState.DOMCONTENTLOADED);`
-    `page.waitForLoadState(LoadState.NETWORKIDLE);`
-  - Produces structured JSON containing summary, cases, NLP `testSteps`, `testDataSets`, and Java `scriptCode`.
-- **Stage 3: Syntax & Best-Practice Validator (Linter & Auto-Fixer)**:
-  - Validates class structure, imports, balanced braces, and ensures no prohibited calls (`playwright.chromium().launch()`, `page.close()`).
-  - Auto-corrects common formatting flaws before presenting to the user.
+### 2.3 Project Intelligence & Chatbot Service (`AiProjectAdvisorService`)
+- **`searchTestCases(String query, String suiteFilter, Path projectDir)`**:
+  - Scans `ProjectStore` tree, searches cases by name, description, startUrl, or script keywords.
+  - Returns structured markdown search results with suite, case name, status, and summary.
+- **`evaluateTestCase(String caseName, Path suiteDir)`**:
+  - Inspects case script and assertions against Agency-Agents best practices:
+    - Hard sleep check (`Thread.sleep`, `waitForTimeout`).
+    - Locator resilience check (CSS nth-child vs `getByRole` / `data-testid`).
+    - Assertion depth check (web-first `assertThat` vs weak checks).
+    - Strict-mode safety (`.first()` on text selectors).
+  - Assigns grade (A/B/C/Needs Work) and specific drop-in fixes.
+- **`analyzeSuiteGaps(Path suiteDir)`**:
+  - Inspects existing cases in suite, classifies covered areas, identifies missing negative/boundary/edge cases, recommends exact test cases to add.
 
-### 2.4 Token & Context Optimizer (`AiTokenOptimizer`)
-- Compact DOM representation: Formats extracted interactive DOM into a compact markdown table/DSL, saving ~70% tokens compared to raw JSON.
-- Context budgeting: Allocates token windows across system prompt, history, attachments, DOM context, and output headroom.
+### 2.4 Deep & Exhaustive Test Generation (`AiTestGeneratorService`)
+- Enhances `SYSTEM_PROMPT` to mandate generating:
+  - Multi-scenario suites: 1 Happy Path, 1 Negative/Validation Path, 1 Boundary/Edge Case.
+  - Complete `testSteps` (stepNumber, action, target, testData, description, expectedResult).
+  - Parameterized `testDataSets` with Equivalence Partitioning & BVA values.
+  - Complete, runnable `scriptCode` with `StudioRuntime.healLocator`, strict-mode guards, and web-first assertions.
 
 ### 2.5 UI / UX Polish (`AiAssistantPageController` & FXML)
-- Dedicated "Các bước kiểm thử (Steps)" tab in preview pane with formatted NLP steps.
-- Dedicated "Dữ liệu kiểm thử (Test Data)" tab in preview pane with boundary/scenario data.
-- "Quét DOM Trình duyệt (Scan Live DOM)" toolbar action to inject active browser DOM into prompt context.
-- Updated counters and badges (`Steps (N)`, `Assertions (N)`, `Data (N)`).
+- **Interactive Clarification Card**:
+  - Rendered inline in assistant chat bubble when `clarificationQuestions` is present.
+  - Option chips with active selection highlight.
+  - Custom input text field per question.
+  - Confirm button: "⚡ Xác nhận & Sinh Test Cases chi tiết".
+- **Enhanced Chat Capabilities**:
+  - Seamless chatbot conversation (search, review, gap analysis) without showing empty case list or disabling controls.
+  - Quick action chips for Search, Audit, Gap Analysis, and Clarified Generation.
 
-## 3. MarkItDown Ingestion & Agency-Agents Specialist Roster
+---
 
-### 3.1 Hybrid Document-to-Markdown Engine (`MarkdownConverterEngine`)
-- **Pure Java High-Fidelity Conversion**:
-  - Apache POI `.xlsx` / `.xls`: Converts all sheets into standard Markdown tables with sheet headers, aligned columns, and cell format rendering.
-  - Apache POI `.docx`: Converts headings (`Heading 1-4` -> `#`, `##`, `###`), bullet/numbered lists, inline bold/italics, code blocks, and tables.
-  - Apache POI `.pptx`: Extracts slides, slide titles, bullet points, presenter notes into structured slide markdown.
-  - Apache PDFBox `.pdf`: Strips and structures text into clean sectioned Markdown with page markers.
-  - Native text / CSV / TSV / JSON / HTML: Converts into formatted code fences or aligned Markdown tables.
-- **YAML Frontmatter Metadata**:
-  - Automatically prepends document metadata (`source_file`, `source_type`, `converted_at`, `word_count`, `estimated_tokens`, `sheets_or_pages`).
-- **MarkItDown Python/CLI Adapter**:
-  - Checks if `markitdown` CLI or python module is available; provides optional delegation for advanced OCR/media formats while safely falling back to native Java.
-- **Auto-Conversion & Persistence**:
-  - When user attaches any document (`.docx`, `.xlsx`, `.pptx`, `.pdf`, `.csv`, `.json`, etc.), the system automatically converts it into clean Markdown and persists to `data/converted_docs/<sanitized_name>_<timestamp>.md`.
-  - Injected into the AI prompt as structured Markdown, maximizing reasoning accuracy and eliminating hallucinated context.
-
-### 3.2 Agency-Agents Specialist Roster Integration
-- Ported from `msitarzewski/agency-agents`:
-  - **`UNIVERSAL_DOCUMENT_COMPILER`**: Schema-agnostic AST document compiler that ingests converted markdown, decomposes requirements, and maps out functional test matrices.
-  - **`TEST_AUTOMATION_ENGINEER`**: Deterministic Playwright engineer with zero tolerance for `sleep()`, strict auto-waiting, user-facing role locators, and failure artifacts.
-  - **`ACCESSIBILITY_AUDITOR`**: WCAG 2.1 AA and Section 508 accessibility testing specialist (contrast, keyboard navigation, ARIA, touch targets).
-  - **`FAILURE_RCA`**: Root Cause Analysis and flake elimination specialist.
-  - **`SECURITY_FUZZING`**: Input fuzzing, injection matrices, and boundary attacks.
-  - **`EXHAUSTIVE_UNIT_TEST`**: High-coverage parameterized unit tests.
-- **Interactive UI**:
-  - Multi-agent dropdown in `AiAssistantPageController`.
-  - Slash command routing: `/doc`, `/compiler`, `/e2e`, `/playwright`, `/a11y`, `/rca`, `/fuzz`, `/unit`.
-  - One-click "Xem Markdown" preview dialog for all attached documents.
-
-
-### 2.6 Security & Storage Encryption (`ApiKeyCipher` & `SecuritySanitizer`)
-- **Encryption at Rest**: AES-256-GCM encryption with machine-bound PBKDF2WithHmacSHA256 entropy (deterministic sorted network interfaces and OS metadata) in `settings.json` and H2 database.
-- **Leak-Proof Export & Import**: Automatic API key masking (`sk-••••...`) on settings export, and preservation of existing local keys on import.
-- **Log & Output Sanitization**: Active redaction of sensitive credentials and tokens in terminal output and UI error notifications.
-
-## 3. Verification & Testing Strategy
-- Unit tests for `TestStep` and `TestDataItem` models & JSON serialization.
-- Unit tests for `AiTestGeneratorService` multi-stage prompt generation, DOM context formatting, and JSON response parsing.
-- Unit tests for `ScriptValidator` / syntax auto-fixing.
-- Unit tests for `AiAssistantPageController` tab bindings and live DOM scan integration.
-- Unit tests for `ApiKeyCipherTest`, `SettingsSecurityTest`, `SecuritySanitizerTest`.
-- Regression verification: All 138+ tests must PASS.
-
-## 4. Full Offline Native Installers (macOS .dmg and Windows .exe Setup)
-
-### 4.1 Objective
-Provide turnkey native installer formats (`.dmg` for macOS, `.exe` Setup wizard for Windows) that are 100% self-contained and offline-ready:
-1. **Zero Host Java Prerequisite**: Embedded OpenJDK 26 runtime created via `jpackage` with all required JavaFX & compiler modules.
-2. **Offline Browsers & Node Runtime**: Bundled Node.js LTS and Playwright Chromium binaries offline.
-3. **Data Safety & Clean Permissions**: `StudioPaths` dynamically identifies portable vs installed mode. When installed in system folders (`/Applications` on macOS, `Program Files` on Windows), writable user data (`data/`, `work/`) is safely anchored in standard OS user application data directories (`~/Library/Application Support/PlaywrightAutomationStudio` on macOS, `%APPDATA%\PlaywrightAutomationStudio` on Windows) while static binaries (`browsers`, `tools`) are loaded directly from the installation package.
-4. **macOS Installer (`.dmg`)**: Automated script creating a drag-and-drop installer `.dmg` with `/Applications` shortcut and `.app` bundle.
-5. **Windows Installer (`.exe`)**: Inno Setup script (`installer.iss`) and build script (`build-installer.bat`) creating a modern Setup wizard with Desktop shortcut, Start Menu shortcut, and Uninstaller.
-6. **Continuous Integration**: GitHub Actions workflow to build release installers for both macOS and Windows.
-
-
-## 5. Multi-Agent AI Test Engineering & Self-Healing Pipeline (ECC-Inspired)
-
-### 5.1 Objectives & Architecture
-Incorporate the multi-agent orchestration, test governance, self-healing TDD, and anti-thrashing mechanisms from `docs/knowledge/ECC-main`:
-1. **QA Architect & Spec Miner (`qa-planner`)**: Decomposes user stories, PRDs, and live DOM contexts into structured test matrices with durable `TEST-ID`s, Equivalence Partitioning, Boundary Value Analysis (BVA), and negative/security scenarios.
-2. **Playwright Test Engineer (`playwright-test-engineer`)**: Generates dual-representation test artifacts: declarative NLP steps (`testSteps`), parameterized test datasets (`testDataSets`), and runnable Playwright Java scripts with resilient locators (`StudioRuntime.healLocator`) and explicit wait conditions.
-3. **Sandbox Test Runner & Verifier (`test-runner`)**: Executes generated Playwright Java tests in an isolated headless container, capturing compilation outcomes, runtime traces, DOM snapshots, and execution logs.
-4. **Self-Healing Debugger (`test-self-healer`)**:
-   - Classifies errors into syntax/compiler errors (minimal diff patching), locator/DOM failures (heuristic locator healing), or business logic assertions (identifying application defects vs test script defects).
-   - **Anti-Thrashing Guard**: Halts speculative patching if a script or file is modified more than 3 times without achieving a green test, triggering forensic analysis.
-5. **Quality Gate & Coverage Auditor (`quality-auditor`)**: Audits behavioral coverage, eliminates weak assertions (e.g. `assertTrue(true)`), bans silent error swallowing (`catch (Exception e) {}`), and validates test independence.
-
-### 5.2 Artifacts, Skills & Rules
-- **Agents**: `.agents/qa-planner.md`, `.agents/playwright-test-engineer.md`, `.agents/test-self-healer.md`, `.agents/quality-auditor.md`
-- **Skills**: `skills/ai-test-suite-generator/SKILL.md`, `skills/playwright-test-healer/SKILL.md`, `skills/test-quality-gate/SKILL.md`
-- **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`
-
-## 7. Intelligent Test Case Priority Classification & Targeted Execution (P0-P3)
-
-### 7.1 Priority Matrix & Definition
-- **P0 (Critical / Smoke)**: Sống còn (Authentication, Security, Core Checkout, Payment, Blocker workflows). Failure stops deployment immediately.
-- **P1 (High / Core Flow)**: Luồng nghiệp vụ cốt lõi, xác thực trường dữ liệu quan trọng, giao dịch chính.
-- **P2 (Medium / Regression)**: Luồng phụ, tìm kiếm, lọc dữ liệu, phân trang, thông báo lỗi người dùng.
-- **P3 (Low / Edge Case)**: UI polish, định dạng văn bản, tooltip, trạng thái biên hiếm gặp.
-
-### 7.2 AI Autonomous Classification Engine
-- AI Prompt (`AiTestGeneratorService.java`) và persona `qa-planner` tự động phân tích ma trận rủi ro nghiệp vụ và gắn nhãn `priority`: `"P0" | "P1" | "P2" | "P3"` vào cấu trúc JSON của mỗi test case.
-- Tự động truyền trường `priority` từ `AiGeneratedCase` vào `TestCase` khi nhập vào Suite.
-
-### 7.3 Priority-Driven Execution & Reporting
-- **Targeted Runner Filtering**: `TestRunnerService` hỗ trợ chạy theo độ ưu tiên (chỉ chạy P0 cho Smoke Test, hoặc P0+P1 cho Sanity Test). Các test case ngoài bộ lọc được ghi nhận là SKIPPED kèm lý do rõ ràng.
-- **Visual Badges & Report Filters**:
-  - `HtmlReportService`: Hiển thị huy hiệu độ ưu tiên sắc nét (`P0` đỏ rực, `P1` cam vàng, `P2` xanh dương, `P3` xám) kèm bộ lọc chip theo Priority.
-  - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
-- **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
-
-## 8. Data-Driven Variable Profiles & Dynamic Locator Promotion Architecture
-
-### 8.1 Test Data Profile Persistence & Pipeline (`TestDataProfileStore`)
-- **Dedicated Store**: Lưu trữ và quản lý tập trung các bộ dữ liệu tham số hóa tại `data/test-data/<id>.json` với cơ chế ghi nguyên tử (`writeJsonAtomic`).
-- **Layered Variable Resolution**: Khi thực thi test case, biến được hợp nhất theo thứ tự ưu tiên:
-  1. Profile Variables (`TestDataProfile.variables`)
-  2. Case-Specific Parameters (`TestCase.testDataSets[0].parameters`)
-  3. Context Resolvers (`VariableResolver.resolve` cho script, assertions, testSteps).
-- **Environment Variable Isolation**: Ràng buộc tra cứu biến môi trường hệ điều hành qua tiền tố tường minh `ENV.` (e.g. `{{ENV.BASE_URL}}`), ngăn ngừa rò rỉ thông tin máy local.
-
-### 8.2 Dynamic Locator Candidate Promotion
-- Khi `MultiLocatorCascade` tìm thấy một selector fallback ăn khớp trên trang sống (`count == 1 && isVisible()`), selector này được tự động thăng hạng (promote) thành `primary` trong `MultiLocatorProfile`.
-- Trạng thái thăng hạng được ghi nhận tức thời vào `LOCATE_CACHE` và đồng bộ lưu xuống mã nguồn kịch bản `.java` cũng như các assertions/steps trong `suite.json`.
-
-
-
-## 6. Comprehensive 3-Pillar Optimization: Midscene + Skyvern + Testsigma + Automa
-
-### 6.1 Pillar 1: Multi-Locator Fallback Cascade & Action-Delta Healing (Testsigma + Skyvern)
-1. **Multi-Locator Fallback Cascade (`MultiLocatorProfile` & `MultiLocatorCascade`)**:
-   - Represents elements with an ordered cascade of strategies: Primary (`data-testid`/`id`), Alt CSS, Alt XPath, Alt Role/Aria, Alt Text.
-   - Sub-15ms in-browser evaluation of candidate locators before incurring heavy LLM/VLM costs.
-   - Automatic promotion & persistence: When a fallback matches uniquely, it updates the primary selector in memory and persists the fix to the test file.
-2. **Action-Delta State Verification (`ActionDeltaVerifier`)**:
-   - Compares pre-action vs post-action state (URL changes, DOM mutation count, modal emergence, interactive state).
-   - Detects "phantom clicks" (actions that succeeded at Playwright level but triggered 0 page state changes due to overlays or unattached handlers).
-   - Automatically executes resilient recovery actions: scroll element into view, dismiss obstructing overlays, dispatchEvent click fallback, or keyboard triggers.
-
-### 6.2 Pillar 2: Interactive Run Visualizer & Semantic AI Assertions (Midscene.js)
-1. **Semantic AI Assertions (`aiAssert` / `AI_SEMANTIC_ASSERT`)**:
-   - Extends assertion catalogue (`AssertionType.AI_SEMANTIC_ASSERT`) and generator (`AssertCodeGenerator`).
-   - Allows testers to express high-level visual/semantic verifications (e.g. "Giỏ hàng hiển thị đúng 2 sản phẩm", "Trang không có banner báo lỗi đỏ").
-   - Evaluates page screenshot + distilled DOM via strict prompt schema returning structured boolean verdict + rationale.
-2. **Interactive Run Visualizer (`visualizer.html` / Dump Inspection)**:
-   - Midscene-inspired visual inspector generated in `HtmlReportService` and standalone report exports:
-     - Visual overlay of tested elements and bounding boxes on step screenshots.
-     - Self-healing decision tree & timeline (failed selector, candidates evaluated, healed match, latency).
-     - Semantic assertion breakdown cards with AI explanations.
-
-### 6.3 Pillar 3: Reusable Step Groups & Test Data Profiles (Automa + Testsigma)
-1. **Reusable Step Groups (`StepGroup` & `StepGroupStore`)**:
-   - Enables defining modular test sequences (e.g. "Standard Login", "Checkout Flow", "Clear Cart") once under `data/step-groups/`.
-   - Reusable across multiple TestSuites and TestCases with macro inclusion `@include("login-flow")` and unified execution.
-2. **Test Data Profiles (TDP) & Variable Pipeline (`TestDataProfile` & `VariableResolver`)**:
-   - Decouples test logic from dynamic test parameters (URLs, credentials, test vectors).
-   - Supports CSV / JSON data-driven execution with iteration tracking.
-   - Dynamic variable interpolation (`{{varName}}`, `${varName}`) across test steps, scripts, and assertion targets.
-
-- **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`
-
-## 7. Intelligent Test Case Priority Classification & Targeted Execution (P0-P3)
-
-### 7.1 Priority Matrix & Definition
-- **P0 (Critical / Smoke)**: Sống còn (Authentication, Security, Core Checkout, Payment, Blocker workflows). Failure stops deployment immediately.
-- **P1 (High / Core Flow)**: Luồng nghiệp vụ cốt lõi, xác thực trường dữ liệu quan trọng, giao dịch chính.
-- **P2 (Medium / Regression)**: Luồng phụ, tìm kiếm, lọc dữ liệu, phân trang, thông báo lỗi người dùng.
-- **P3 (Low / Edge Case)**: UI polish, định dạng văn bản, tooltip, trạng thái biên hiếm gặp.
-
-### 7.2 AI Autonomous Classification Engine
-- AI Prompt (`AiTestGeneratorService.java`) và persona `qa-planner` tự động phân tích ma trận rủi ro nghiệp vụ và gắn nhãn `priority`: `"P0" | "P1" | "P2" | "P3"` vào cấu trúc JSON của mỗi test case.
-- Tự động truyền trường `priority` từ `AiGeneratedCase` vào `TestCase` khi nhập vào Suite.
-
-### 7.3 Priority-Driven Execution & Reporting
-- **Targeted Runner Filtering**: `TestRunnerService` hỗ trợ chạy theo độ ưu tiên (chỉ chạy P0 cho Smoke Test, hoặc P0+P1 cho Sanity Test). Các test case ngoài bộ lọc được ghi nhận là SKIPPED kèm lý do rõ ràng.
-- **Visual Badges & Report Filters**:
-  - `HtmlReportService`: Hiển thị huy hiệu độ ưu tiên sắc nét (`P0` đỏ rực, `P1` cam vàng, `P2` xanh dương, `P3` xám) kèm bộ lọc chip theo Priority.
-  - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
-- **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
-
-## 8. Data-Driven Variable Profiles & Dynamic Locator Promotion Architecture
-
-### 8.1 Test Data Profile Persistence & Pipeline (`TestDataProfileStore`)
-- **Dedicated Store**: Lưu trữ và quản lý tập trung các bộ dữ liệu tham số hóa tại `data/test-data/<id>.json` với cơ chế ghi nguyên tử (`writeJsonAtomic`).
-- **Layered Variable Resolution**: Khi thực thi test case, biến được hợp nhất theo thứ tự ưu tiên:
-  1. Profile Variables (`TestDataProfile.variables`)
-  2. Case-Specific Parameters (`TestCase.testDataSets[0].parameters`)
-  3. Context Resolvers (`VariableResolver.resolve` cho script, assertions, testSteps).
-- **Environment Variable Isolation**: Ràng buộc tra cứu biến môi trường hệ điều hành qua tiền tố tường minh `ENV.` (e.g. `{{ENV.BASE_URL}}`), ngăn ngừa rò rỉ thông tin máy local.
-
-### 8.2 Dynamic Locator Candidate Promotion
-- Khi `MultiLocatorCascade` tìm thấy một selector fallback ăn khớp trên trang sống (`count == 1 && isVisible()`), selector này được tự động thăng hạng (promote) thành `primary` trong `MultiLocatorProfile`.
-- Trạng thái thăng hạng được ghi nhận tức thời vào `LOCATE_CACHE` và đồng bộ lưu xuống mã nguồn kịch bản `.java` cũng như các assertions/steps trong `suite.json`.
-
-
+## 3. Testing & Verification Strategy
+1. **Unit Tests**:
+   - `AiAmbiguityAnalyzerTest`: Test ambiguity detection and question structure.
+   - `AiProjectAdvisorServiceTest`: Test case search, case evaluation grading, and gap analysis.
+   - `AiClarificationFlowTest`: Test interactive answer serialization and augmented prompt building.
+2. **Regression & Suite Verification**:
+   - Ensure all 269 existing tests pass without regressions.
+   - Verify UI rendering in JavaFX test harnesses.

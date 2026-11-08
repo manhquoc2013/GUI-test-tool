@@ -40,8 +40,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.function.Supplier;
+import javafx.beans.property.SimpleStringProperty;
 
 /**
  * Controller for the dedicated AI Assistant screen.
@@ -614,6 +619,19 @@ public class AiAssistantPageController implements Initializable {
         clearAttachments();
         updateTokenUsageDisplay();
 
+        executePromptInternal(prompt, docsSnapshot, activeSkill);
+    }
+
+    private void executePromptInternal(String prompt, List<DocumentParserService.ParsedDocument> docsSnapshot,
+                                       com.studio.model.AiSkill activeSkill) {
+        SettingsStore.Settings settings;
+        try {
+            settings = settingsStore.load();
+        } catch (IOException e) {
+            settings = new SettingsStore.Settings();
+        }
+        AiConfig aiConfig = settings.getAiConfig();
+
         sendBtn.setDisable(true);
         sendBtn.setText("Đang sinh kịch bản...");
         generationProgress.setVisible(true);
@@ -647,8 +665,7 @@ public class AiAssistantPageController implements Initializable {
         Thread thread = new Thread(() -> {
             try {
                 String activeDomContext = domContext;
-                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM
-                // ngầm!
+                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM ngầm!
                 if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
                         && detectedTargetUrl != null) {
                     Platform.runLater(() -> updateThinkingStatus(
@@ -670,7 +687,8 @@ public class AiAssistantPageController implements Initializable {
                         effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
                         currentSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status)),
-                        activeSkill);
+                        activeSkill,
+                        suiteDir);
 
                 Platform.runLater(() -> {
                     removeThinkingBubble();
@@ -680,6 +698,9 @@ public class AiAssistantPageController implements Initializable {
                     generationProgress.setManaged(false);
 
                     AiChatMessage assistantMsg = new AiChatMessage("assistant", result.getSummary());
+                    if (result.isClarification()) {
+                        assistantMsg.setClarificationQuestions(result.getQuestions());
+                    }
                     assistantMsg.setGeneratedCasesSnapshot(result.getCases());
                     assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
                     currentSession.addMessage(assistantMsg);
@@ -707,6 +728,11 @@ public class AiAssistantPageController implements Initializable {
                         ToastService.success("✨ Đã sinh " + currentGeneratedCases.size() + " test cases thành công!");
                     } else {
                         applyToSuiteBtn.setDisable(true);
+                        showCaseDetail(null);
+                        if (!result.isClarification()) {
+                            ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent()) ? "Đã tìm thấy test cases phù hợp." :
+                                    "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case." : "Đã phản hồi yêu cầu."));
+                        }
                     }
                 });
             } catch (Exception ex) {
@@ -1067,6 +1093,11 @@ public class AiAssistantPageController implements Initializable {
 
         bubble.getChildren().addAll(header, contentLabel);
 
+        if (msg.hasClarificationQuestions()) {
+            VBox clarificationCard = buildClarificationCard(msg);
+            bubble.getChildren().add(clarificationCard);
+        }
+
         // If applied to suite, show indicator badge
         if (msg.isAppliedToSuite()) {
             HBox appliedBadge = new HBox(4);
@@ -1089,6 +1120,149 @@ public class AiAssistantPageController implements Initializable {
         if (scrollToBottom) {
             Platform.runLater(() -> chatScroll.setVvalue(1.0));
         }
+    }
+
+    private VBox buildClarificationCard(AiChatMessage msg) {
+        VBox card = new VBox(8);
+        card.getStyleClass().add("clarification-card");
+
+        Label cardTitle = new Label("💡 Cần làm rõ một số điểm mờ để sinh Test Case tối ưu:");
+        cardTitle.getStyleClass().add("clarification-card-title");
+        card.getChildren().add(cardTitle);
+
+        boolean isAnswered = msg.isClarificationAnswered();
+        Map<String, String> answers = msg.getClarificationAnswers() != null
+                ? new LinkedHashMap<>(msg.getClarificationAnswers())
+                : new LinkedHashMap<>();
+
+        Map<String, Supplier<String>> valueSuppliers = new LinkedHashMap<>();
+
+        for (AiClarificationQuestion q : msg.getClarificationQuestions()) {
+            VBox qBox = new VBox(6);
+            qBox.getStyleClass().add("clarification-qbox");
+
+            Label qLabel = new Label(q.getQuestion());
+            qLabel.getStyleClass().add("clarification-qlabel");
+            qLabel.setWrapText(true);
+            qBox.getChildren().add(qLabel);
+
+            FlowPane chipsPane = new FlowPane(6, 6);
+            List<Button> chipButtons = new ArrayList<>();
+            String initialAnswer = answers.getOrDefault(q.getId(), q.getDefaultOption());
+            SimpleStringProperty selectedVal = new SimpleStringProperty(initialAnswer);
+
+            TextField customInput = new TextField();
+            customInput.setPromptText("Hoặc tự nhập yêu cầu...");
+            customInput.getStyleClass().add("clarification-custom-input");
+
+            for (String opt : q.getOptions()) {
+                Button chip = new Button(opt);
+                chip.getStyleClass().add("clarification-chip");
+                if (opt.equals(selectedVal.get())) {
+                    chip.getStyleClass().add("clarification-chip-selected");
+                }
+                if (!isAnswered) {
+                    chip.setOnAction(e -> {
+                        selectedVal.set(opt);
+                        customInput.clear();
+                        for (Button b : chipButtons) {
+                            b.getStyleClass().remove("clarification-chip-selected");
+                        }
+                        chip.getStyleClass().add("clarification-chip-selected");
+                    });
+                } else {
+                    chip.setDisable(true);
+                }
+                chipButtons.add(chip);
+                chipsPane.getChildren().add(chip);
+            }
+
+            if (!isAnswered) {
+                customInput.textProperty().addListener((obs, oldV, newV) -> {
+                    if (newV != null && !newV.isBlank()) {
+                        for (Button b : chipButtons) {
+                            b.getStyleClass().remove("clarification-chip-selected");
+                        }
+                        selectedVal.set(newV.trim());
+                    }
+                });
+            } else {
+                customInput.setDisable(true);
+                String ans = answers.get(q.getId());
+                if (ans != null && !q.getOptions().contains(ans)) {
+                    customInput.setText(ans);
+                }
+            }
+
+            qBox.getChildren().addAll(chipsPane, customInput);
+            card.getChildren().add(qBox);
+
+            valueSuppliers.put(q.getId(), () -> {
+                String typed = customInput.getText() != null ? customInput.getText().trim() : "";
+                if (!typed.isEmpty()) {
+                    return typed;
+                }
+                return selectedVal.get();
+            });
+        }
+
+        if (!isAnswered) {
+            HBox actionRow = new HBox(8);
+            actionRow.setAlignment(Pos.CENTER_RIGHT);
+
+            Button confirmBtn = new Button("⚡ Xác nhận & Sinh Test Cases chi tiết");
+            confirmBtn.getStyleClass().add("clarification-confirm-btn");
+            confirmBtn.setOnAction(e -> {
+                Map<String, String> collected = new LinkedHashMap<>();
+                valueSuppliers.forEach((id, sup) -> {
+                    String v = sup.get();
+                    if (v != null && !v.isBlank()) {
+                        collected.put(id, v);
+                    }
+                });
+
+                msg.setClarificationAnswers(collected);
+                msg.setClarificationAnswered(true);
+
+                // Find original prompt
+                String originalPrompt = "";
+                List<AiChatMessage> msgs = currentSession.getMessages();
+                int idx = msgs.indexOf(msg);
+                for (int i = (idx >= 0 ? idx - 1 : msgs.size() - 1); i >= 0; i--) {
+                    if ("user".equalsIgnoreCase(msgs.get(i).getRole())) {
+                        originalPrompt = msgs.get(i).getContent();
+                        break;
+                    }
+                }
+
+                Path suiteDir = getSelectedSuiteDir();
+                try {
+                    chatHistoryStore.saveSession(suiteDir, currentSession);
+                } catch (IOException ignored) {}
+
+                String augmented = aiGenerator.getAmbiguityAnalyzer().buildAugmentedPrompt(originalPrompt, collected);
+
+                // Refresh UI to show chips disabled and badge
+                renderChatHistory();
+
+                // Add user confirmation bubble and execute
+                AiChatMessage userConfirm = new AiChatMessage("user", "Đã xác nhận lựa chọn chi tiết:\n" + augmented);
+                userConfirm.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userConfirm));
+                currentSession.addMessage(userConfirm);
+                renderMessageBubble(userConfirm, true);
+
+                executePromptInternal(augmented, List.of(), com.studio.model.AiSkill.AUTO);
+            });
+
+            actionRow.getChildren().add(confirmBtn);
+            card.getChildren().add(actionRow);
+        } else {
+            Label answeredLbl = new Label("✓ Đã xác nhận làm rõ và đang xử lý theo các lựa chọn trên.");
+            answeredLbl.getStyleClass().add("clarification-answered-badge");
+            card.getChildren().add(answeredLbl);
+        }
+
+        return card;
     }
 
     private void handleUndoMessage(AiChatMessage targetMsg) {

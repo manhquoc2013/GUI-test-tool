@@ -128,10 +128,11 @@
 
 
 ## Phase 12: Interactive Clarification, Conversational Intelligence & Deep Test Generation
-- [ ] 12.1 Create `AiClarificationQuestion.java` model and update `AiChatMessage.java` with clarification & intent properties
-- [ ] 12.2 Create `AiProjectAdvisorService.java` for test case search, quality audit (Agency-Agents checklist), and gap analysis
-- [ ] 12.3 Create `AiAmbiguityAnalyzer.java` and upgrade `AiTestGeneratorService.java` (SYSTEM_PROMPT, multi-scenario generation, intent routing)
-- [ ] 12.4 Update `AiAssistantPageController.java` to render interactive clarification card in chat, handle user answers, and support conversational chatbot queries
-- [ ] 12.5 Add CSS styling in `studio.css` for clarification cards, option chips, and interactive answer controls
-- [ ] 12.6 Add unit and integration tests (`AiAmbiguityAnalyzerTest`, `AiProjectAdvisorServiceTest`, `AiClarificationFlowTest`)
-- [ ] 12.7 Run full test suite (`mvn test`) and verify 0 failures / 0 regressions
+- [x] 12.1 Create `AiClarificationQuestion.java` model and update `AiChatMessage.java` with clarification & intent properties
+- [x] 12.2 Create `AiProjectAdvisorService.java` for test case search, quality audit (Agency-Agents checklist), and gap analysis
+- [x] 12.3 Create `AiAmbiguityAnalyzer.java` and upgrade `AiTestGeneratorService.java` (SYSTEM_PROMPT, multi-scenario generation, intent routing)
+- [x] 12.4 Update `AiAssistantPageController.java` to render interactive clarification card in chat, handle user answers, and support conversational chatbot queries
+- [x] 12.5 Add CSS styling in `studio.css` and `studio-light.css` for clarification cards, option chips, and interactive answer controls
+- [x] 12.6 Add unit and integration tests (`AiAmbiguityAnalyzerTest`, `AiProjectAdvisorServiceTest`, `AiClarificationFlowTest`)
+- [x] 12.7 Fix Preview Pane buttons ("Sửa", "Mở Workspace", "Chạy Case") resolving directly from `currentPreviewRef` instead of stale tree selection
+- [x] 12.8 Run full test suite (`mvn test`) and verify 280/280 passing (0 failures, 0 regressions)

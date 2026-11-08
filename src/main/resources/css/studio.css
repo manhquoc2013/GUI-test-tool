@@ -1782,6 +1782,87 @@
 .ai-file-chip-remove:hover {
     -fx-text-fill: #f7768e;
 }
+
+/* AI Clarification Card & Interactive Controls (Agency-Agents & Test Collaboration Standard) */
+.clarification-card {
+    -fx-background-color: #1a1b26;
+    -fx-background-radius: 8px;
+    -fx-border-color: #414868;
+    -fx-border-radius: 8px;
+    -fx-border-width: 1px;
+    -fx-padding: 12px;
+    -fx-spacing: 8px;
+}
+.clarification-card-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #7aa2f7;
+}
+.clarification-qbox {
+    -fx-padding: 4px 0;
+    -fx-spacing: 6px;
+}
+.clarification-qlabel {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #e0af68;
+}
+.clarification-chip {
+    -fx-background-color: #24283b;
+    -fx-text-fill: #c0caf5;
+    -fx-font-size: 11px;
+    -fx-background-radius: 14px;
+    -fx-border-color: #565f89;
+    -fx-border-radius: 14px;
+    -fx-border-width: 1px;
+    -fx-padding: 4px 10px;
+    -fx-cursor: hand;
+}
+.clarification-chip:hover {
+    -fx-background-color: #2f354f;
+    -fx-border-color: #7aa2f7;
+}
+.clarification-chip-selected {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #1a1b26;
+    -fx-font-weight: bold;
+    -fx-border-color: #7aa2f7;
+}
+.clarification-chip-selected:hover {
+    -fx-background-color: #89b4fa;
+}
+.clarification-custom-input {
+    -fx-background-color: #16161e;
+    -fx-text-fill: #c0caf5;
+    -fx-prompt-text-fill: #565f89;
+    -fx-font-size: 11px;
+    -fx-border-color: #414868;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+    -fx-padding: 4px 8px;
+}
+.clarification-custom-input:focused {
+    -fx-border-color: #7aa2f7;
+}
+.clarification-confirm-btn {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #1a1b26;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 6px;
+    -fx-padding: 6px 14px;
+    -fx-cursor: hand;
+}
+.clarification-confirm-btn:hover {
+    -fx-background-color: #89b4fa;
+}
+.clarification-answered-badge {
+    -fx-font-size: 11px;
+    -fx-text-fill: #73daca;
+    -fx-font-style: italic;
+    -fx-padding: 4px 0 0 0;
+}
+
 .ai-thinking-bubble {
     -fx-background-color: #1e2030;
     -fx-border-color: #3d59a1;

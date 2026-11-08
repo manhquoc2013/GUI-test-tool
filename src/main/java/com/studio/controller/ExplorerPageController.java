@@ -1604,11 +1604,26 @@ public class ExplorerPageController {
 
     @FXML
     public void editFromPreview() {
-        TreeItem<Object> target = currentPreviewItem != null && getNodeRef(currentPreviewItem) != null
-                ? currentPreviewItem
-                : resolveTarget();
-        if (target != null && projectTree != null && projectTree.getSelectionModel() != null) {
-            projectTree.getSelectionModel().select(target);
+        NodeRef ref = currentPreviewRef;
+        if (ref == null) {
+            TreeItem<Object> target = currentPreviewItem != null && getNodeRef(currentPreviewItem) != null
+                    ? currentPreviewItem
+                    : resolveTarget();
+            ref = resolveNodeRef(target);
+        }
+        if (ref != null) {
+            try {
+                if ("group".equals(ref.type)) {
+                    editGroup(ref);
+                } else if ("suite".equals(ref.type)) {
+                    editSuite(ref);
+                } else if ("case".equals(ref.type)) {
+                    editCase(ref);
+                }
+            } catch (IOException e) {
+                ToastService.error("❌ Không thể sửa: " + e.getMessage());
+            }
+            return;
         }
         editSelectedEntity();
     }
@@ -2119,11 +2134,14 @@ public class ExplorerPageController {
 
     @FXML
     public void openWorkspace() {
-        TreeItem<Object> selected = resolveTarget();
-        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
-            selected = currentPreviewItem;
+        NodeRef ref = currentPreviewRef;
+        if (ref == null) {
+            TreeItem<Object> selected = resolveTarget();
+            if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+                selected = currentPreviewItem;
+            }
+            ref = resolveNodeRef(selected);
         }
-        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null || (!"suite".equals(ref.type) && !"case".equals(ref.type))) {
             ToastService.warn("⚠️ Chỉ có thể mở suite / case trong workspace");
             return;
@@ -2145,10 +2163,11 @@ public class ExplorerPageController {
             return;
         }
         String suiteName = suite.getName() != null ? suite.getName() : suiteDir.getFileName().toString();
+        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : ref.parentName;
         String caseToSelect = "case".equals(ref.type) ? ref.name : null;
 
         SuiteWorkspacePageController ctrl = ViewNavigator.navigateToWorkspace(
-                ref.parentName, suiteName, suiteDir);
+                groupName, suiteName, suiteDir);
         if (ctrl != null) {
             ctrl.loadSuite(suite, suiteDir, caseToSelect);
         }
