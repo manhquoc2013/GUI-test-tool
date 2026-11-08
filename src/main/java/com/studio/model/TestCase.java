@@ -25,6 +25,7 @@ public class TestCase {
     private Boolean headless;
     private String createdAt;
     private String updatedAt;
+    private String testDataProfileId;
     private List<Assertion> assertions = new ArrayList<>();
     private List<TestStep> testSteps = new ArrayList<>();
     private List<TestDataItem> testDataSets = new ArrayList<>();
@@ -167,5 +168,13 @@ public class TestCase {
 
     public void setTestDataSets(List<TestDataItem> testDataSets) {
         this.testDataSets = testDataSets != null ? testDataSets : new ArrayList<>();
+    }
+
+    public String getTestDataProfileId() {
+        return testDataProfileId;
+    }
+
+    public void setTestDataProfileId(String testDataProfileId) {
+        this.testDataProfileId = testDataProfileId;
     }
 }

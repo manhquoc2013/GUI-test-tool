@@ -41,6 +41,7 @@ public class TestRunnerService {
     private final SettingsStore settingsStore;
     private final OpenAiClient openAiClient;
     private final StepGroupStore stepGroupStore;
+    private final com.studio.store.TestDataProfileStore testDataProfileStore;
     private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore) {
@@ -55,11 +56,19 @@ public class TestRunnerService {
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore,
                              SettingsStore settingsStore, OpenAiClient openAiClient,
                              StepGroupStore stepGroupStore) {
+        this(projectStore, reportStore, settingsStore, openAiClient, stepGroupStore, new com.studio.store.TestDataProfileStore());
+    }
+
+    public TestRunnerService(ProjectStore projectStore, ReportStore reportStore,
+                             SettingsStore settingsStore, OpenAiClient openAiClient,
+                             StepGroupStore stepGroupStore,
+                             com.studio.store.TestDataProfileStore testDataProfileStore) {
         this.projectStore = projectStore;
         this.reportStore = reportStore;
         this.settingsStore = settingsStore != null ? settingsStore : new SettingsStore();
         this.openAiClient = openAiClient != null ? openAiClient : new OpenAiClient();
         this.stepGroupStore = stepGroupStore != null ? stepGroupStore : new StepGroupStore();
+        this.testDataProfileStore = testDataProfileStore != null ? testDataProfileStore : new com.studio.store.TestDataProfileStore();
     }
 
     /**
@@ -263,6 +272,12 @@ public class TestRunnerService {
 
                 // Resolve variables (Automa-inspired) and expand reusable step groups (Testsigma-inspired)
                 Map<String, String> activeVariables = new HashMap<>();
+                String profileId = runningCase != null && runningCase.getTestDataProfileId() != null && !runningCase.getTestDataProfileId().isBlank()
+                        ? runningCase.getTestDataProfileId()
+                        : (suite != null ? suite.getTestDataProfileId() : null);
+                if (profileId != null && testDataProfileStore != null) {
+                    testDataProfileStore.findById(profileId).ifPresent(p -> activeVariables.putAll(p.getVariables()));
+                }
                 if (runningCase != null && runningCase.getTestDataSets() != null && !runningCase.getTestDataSets().isEmpty()) {
                     TestDataItem firstItem = runningCase.getTestDataSets().get(0);
                     if (firstItem.getParameters() != null) {

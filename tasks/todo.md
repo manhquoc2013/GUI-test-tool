@@ -86,3 +86,10 @@
 - [x] Task 80: Update `TestCaseExcelExportService` & `ExcelReportService` with priority column <!-- id: 90 -->
 - [x] Task 81: Add comprehensive unit tests and run full verification suite (`mvn clean test`) <!-- id: 91 -->
 - [x] Task 82: Update `tasks/learnings.md` and commit atomic changes <!-- id: 92 -->
+
+- [x] Task 83: Create `TestDataProfileStore.java` for persistent test data sets and variable profiles <!-- id: 93 -->
+- [x] Task 84: Bind `testDataProfileId` in `TestSuite`, `TestCase`, and wire variable resolution in `TestRunnerService` <!-- id: 94 -->
+- [x] Task 85: Implement dynamic Multi-Locator Profile promotion on successful self-healing <!-- id: 95 -->
+- [x] Task 86: Harden browser process cleanup and temporary profile reclamation in `PlaywrightUtil` & `ResourceReleaseService` <!-- id: 96 -->
+- [x] Task 87: Add comprehensive unit tests for `TestDataProfileStore` & runner integration, verify 100% green test suite <!-- id: 97 -->
+- [x] Task 88: Update `SPEC.md`, `tasks/learnings.md`, and commit changes <!-- id: 98 -->

@@ -119,6 +119,21 @@ Incorporate the multi-agent orchestration, test governance, self-healing TDD, an
   - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
 - **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
 
+## 8. Data-Driven Variable Profiles & Dynamic Locator Promotion Architecture
+
+### 8.1 Test Data Profile Persistence & Pipeline (`TestDataProfileStore`)
+- **Dedicated Store**: Lưu trữ và quản lý tập trung các bộ dữ liệu tham số hóa tại `data/test-data/<id>.json` với cơ chế ghi nguyên tử (`writeJsonAtomic`).
+- **Layered Variable Resolution**: Khi thực thi test case, biến được hợp nhất theo thứ tự ưu tiên:
+  1. Profile Variables (`TestDataProfile.variables`)
+  2. Case-Specific Parameters (`TestCase.testDataSets[0].parameters`)
+  3. Context Resolvers (`VariableResolver.resolve` cho script, assertions, testSteps).
+- **Environment Variable Isolation**: Ràng buộc tra cứu biến môi trường hệ điều hành qua tiền tố tường minh `ENV.` (e.g. `{{ENV.BASE_URL}}`), ngăn ngừa rò rỉ thông tin máy local.
+
+### 8.2 Dynamic Locator Candidate Promotion
+- Khi `MultiLocatorCascade` tìm thấy một selector fallback ăn khớp trên trang sống (`count == 1 && isVisible()`), selector này được tự động thăng hạng (promote) thành `primary` trong `MultiLocatorProfile`.
+- Trạng thái thăng hạng được ghi nhận tức thời vào `LOCATE_CACHE` và đồng bộ lưu xuống mã nguồn kịch bản `.java` cũng như các assertions/steps trong `suite.json`.
+
+
 
 ## 6. Comprehensive 3-Pillar Optimization: Midscene + Skyvern + Testsigma + Automa
 
@@ -172,4 +187,19 @@ Incorporate the multi-agent orchestration, test governance, self-healing TDD, an
   - `HtmlReportService`: Hiển thị huy hiệu độ ưu tiên sắc nét (`P0` đỏ rực, `P1` cam vàng, `P2` xanh dương, `P3` xám) kèm bộ lọc chip theo Priority.
   - `ExcelReportService` & `TestCaseExcelExportService`: Bổ sung cột "Độ ưu tiên (Priority)" vào các bảng biểu tổng hợp.
 - **Database & Persistence**: Trường `priority` được lưu trong `suite.json` và đánh chỉ mục trong bảng H2 `test_cases`.
+
+## 8. Data-Driven Variable Profiles & Dynamic Locator Promotion Architecture
+
+### 8.1 Test Data Profile Persistence & Pipeline (`TestDataProfileStore`)
+- **Dedicated Store**: Lưu trữ và quản lý tập trung các bộ dữ liệu tham số hóa tại `data/test-data/<id>.json` với cơ chế ghi nguyên tử (`writeJsonAtomic`).
+- **Layered Variable Resolution**: Khi thực thi test case, biến được hợp nhất theo thứ tự ưu tiên:
+  1. Profile Variables (`TestDataProfile.variables`)
+  2. Case-Specific Parameters (`TestCase.testDataSets[0].parameters`)
+  3. Context Resolvers (`VariableResolver.resolve` cho script, assertions, testSteps).
+- **Environment Variable Isolation**: Ràng buộc tra cứu biến môi trường hệ điều hành qua tiền tố tường minh `ENV.` (e.g. `{{ENV.BASE_URL}}`), ngăn ngừa rò rỉ thông tin máy local.
+
+### 8.2 Dynamic Locator Candidate Promotion
+- Khi `MultiLocatorCascade` tìm thấy một selector fallback ăn khớp trên trang sống (`count == 1 && isVisible()`), selector này được tự động thăng hạng (promote) thành `primary` trong `MultiLocatorProfile`.
+- Trạng thái thăng hạng được ghi nhận tức thời vào `LOCATE_CACHE` và đồng bộ lưu xuống mã nguồn kịch bản `.java` cũng như các assertions/steps trong `suite.json`.
+
 

@@ -471,4 +471,19 @@
 - `TestRunnerService.run(...)` hỗ trợ tham số lọc `targetPriorities`: Cho phép chạy riêng các case P0 cho Smoke Test khi tạo PR, hoặc P0+P1 cho Sanity Test trước khi đưa lên môi trường Staging.
 - Báo cáo HTML và Excel (`HtmlReportService`, `ExcelReportService`, `TestCaseExcelExportService`) hiển thị huy hiệu màu sắc trực quan (P0 đỏ, P1 cam, P2 xanh, P3 xám) cùng các nút lọc nhanh theo độ ưu tiên.
 
+## Bài học ngày 2026-11-08: Tối Ưu Hệ Thống Toàn Diện & Dynamic Locator Promotion
+
+### 1. Test Data Profile Persistence & Dynamic Resolution
+- Xây dựng `TestDataProfileStore` lưu trữ tập trung các bộ dữ liệu tham số hóa tại `data/test-data/<id>.json` với cơ chế ghi file nguyên tử (`writeJsonAtomic`).
+- Tích hợp pipeline nội suy biến phân tầng trong `TestRunnerService`: Profile variables (`TestDataProfile`) nạp làm nền tảng, sau đó các tham số riêng của từng case (`testDataSets[0].parameters`) ghi đè lên trên.
+- Cách ly an toàn biến môi trường hệ điều hành: chỉ những token có tiền tố rõ ràng `{{ENV.VAR}}` mới được phép truy xuất `System.getenv()`, loại bỏ hoàn toàn nguy cơ rò rỉ username hay path máy local vào kịch bản test và prompt AI.
+
+### 2. Multi-Locator Promotion on Cascade Match
+- Khi `MultiLocatorCascade` tìm thấy một selector fallback ăn khớp độc nhất trên DOM (`count == 1 && isVisible()`), hệ thống tự động thăng hạng selector đó thành primary thông qua `profile.promote(candidate)`.
+- Ghi nhận vào `auditLogs` và đồng bộ lưu trực tiếp xuống file kịch bản `.java` cũng như các assertions/steps trong `suite.json`, giúp kịch bản tự học hỏi và bền bỉ hơn qua mỗi lần chạy.
+
+### 3. DOM Text Signature for Action-Delta Verification
+- Bổ sung `domSignature` (dựa trên hash độ dài nội dung DOM và cây con) vào `DeltaSnapshot`, giúp nhận biết ngay biến đổi nội dung trang (như text thông báo lỗi, cập nhật giỏ hàng) và triệt tiêu click lặp không mong muốn.
+
+
 

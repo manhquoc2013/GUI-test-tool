@@ -110,6 +110,12 @@ public class OptimizedSelfHealingExecutor {
         if (profile == null || page == null) return null;
         String candidate = MultiLocatorCascade.evaluateCascade(page, profile);
         String initialSelector = candidate != null ? candidate : profile.getPrimary();
+        if (candidate != null && !candidate.equals(profile.getPrimary())) {
+            String oldPrimary = profile.getPrimary();
+            profile.promote(candidate);
+            recordHealing(oldPrimary, candidate, "MULTI_LOCATOR_CASCADE", 0.99, actionDescription);
+            persistMutation(oldPrimary, candidate);
+        }
         return resolveLocator(initialSelector, actionDescription);
     }
 
@@ -410,22 +416,32 @@ public class OptimizedSelfHealingExecutor {
                 }
             }
 
-            // 2. Persist mutation in suite.json assertions if applicable
-            if (projectStore != null && currentSuite != null && currentCase.getAssertions() != null) {
+            // 2. Persist mutation in suite.json assertions & test steps if applicable
+            if (projectStore != null && currentSuite != null) {
                 boolean suiteModified = false;
-                for (Assertion a : currentCase.getAssertions()) {
-                    if (oldSelector.equals(a.getLocator())) {
-                        a.setLocator(newSelector);
-                        suiteModified = true;
+                if (currentCase.getAssertions() != null) {
+                    for (Assertion a : currentCase.getAssertions()) {
+                        if (oldSelector.equals(a.getLocator())) {
+                            a.setLocator(newSelector);
+                            suiteModified = true;
+                        }
+                        if (oldSelector.equals(a.getValue())) {
+                            a.setValue(newSelector);
+                            suiteModified = true;
+                        }
                     }
-                    if (oldSelector.equals(a.getValue())) {
-                        a.setValue(newSelector);
-                        suiteModified = true;
+                }
+                if (currentCase.getTestSteps() != null) {
+                    for (com.studio.model.TestStep step : currentCase.getTestSteps()) {
+                        if (oldSelector.equals(step.getTarget())) {
+                            step.setTarget(newSelector);
+                            suiteModified = true;
+                        }
                     }
                 }
                 if (suiteModified) {
                     projectStore.saveSuite(currentSuite, suiteDir);
-                    System.out.println("[Self-Healing PERSISTED] Updated suite.json assertions.");
+                    System.out.println("[Self-Healing PERSISTED] Updated suite.json assertions and test steps.");
                 }
             }
         } catch (Exception e) {

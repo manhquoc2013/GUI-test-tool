@@ -21,6 +21,7 @@ public class TestSuite {
     private Boolean headless;
     private String createdAt;
     private String updatedAt;
+    private String testDataProfileId;
     private List<TestCase> cases = new ArrayList<>();
 
     /**
@@ -154,5 +155,13 @@ public class TestSuite {
 
     public boolean hasAnyActiveAssertions() {
         return getCases().stream().anyMatch(TestCase::hasActiveAssertions);
+    }
+
+    public String getTestDataProfileId() {
+        return testDataProfileId;
+    }
+
+    public void setTestDataProfileId(String testDataProfileId) {
+        this.testDataProfileId = testDataProfileId;
     }
 }
