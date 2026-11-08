@@ -413,27 +413,37 @@ public final class DialogTheme {
                 ok.getStyleClass().add("btn-primary");
             }
             ButtonBar.setButtonData(ok, ButtonBar.ButtonData.OK_DONE);
+            ok.setMinWidth(Region.USE_PREF_SIZE);
+            ButtonBar.setButtonUniformSize(ok, false);
         }
         Button cancel = (Button) pane.lookupButton(ButtonType.CANCEL);
         if (cancel != null) {
             cancel.setText("Hủy");
             cancel.getStyleClass().add("btn-secondary");
+            cancel.setMinWidth(Region.USE_PREF_SIZE);
+            ButtonBar.setButtonUniformSize(cancel, false);
         }
         Button apply = (Button) pane.lookupButton(ButtonType.APPLY);
         if (apply != null) {
             apply.setText("Áp dụng");
             UiIcons.setGraphic(apply, UiIcons.CHECK, 13);
+            apply.setMinWidth(Region.USE_PREF_SIZE);
+            ButtonBar.setButtonUniformSize(apply, false);
         }
         Button yes = (Button) pane.lookupButton(ButtonType.YES);
         if (yes != null) {
             yes.setText("Có");
             UiIcons.setGraphic(yes, UiIcons.CHECK, 13);
             yes.getStyleClass().add("btn-primary");
+            yes.setMinWidth(Region.USE_PREF_SIZE);
+            ButtonBar.setButtonUniformSize(yes, false);
         }
         Button no = (Button) pane.lookupButton(ButtonType.NO);
         if (no != null) {
             no.setText("Không");
             no.getStyleClass().add("btn-secondary");
+            no.setMinWidth(Region.USE_PREF_SIZE);
+            ButtonBar.setButtonUniformSize(no, false);
         }
         Button close = (Button) pane.lookupButton(ButtonType.CLOSE);
         if (close != null) {
@@ -441,6 +451,7 @@ public final class DialogTheme {
             close.setMinWidth(80);
             UiIcons.setGraphic(close, UiIcons.CLOSE, 12);
             close.getStyleClass().add("btn-secondary");
+            ButtonBar.setButtonUniformSize(close, false);
         }
     }
 }

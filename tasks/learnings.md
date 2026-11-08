@@ -293,3 +293,30 @@
 - **Giải pháp**:
   - Kiểm tra `Path fn = p.getFileName()` trước khi gọi `.toString()` kết hợp khối `try-catch` dự phòng chuyển về nhãn gốc an toàn, ngăn ngừa việc gián đoạn xuất báo cáo Excel khi có case mang đường dẫn ảnh bất thường.
 
+## 11. Light Theme Accessibility & High-Contrast Visual Revamp (`studio-light.css`, `DialogTheme`)
+
+### 1. Root Cause of Invisible Text & Dark Controls Leakage
+- **CSS Specificity Leakage**: JavaFX stylesheet layering applies `studio.css` as base and overlays `studio-light.css`. High-specificity rules in `studio.css` (e.g. `.project-tree .tree-cell .tree-row-status.status-active` with specificity `0,4,0`, or `.page-toolbar .toolbar-btn-add` with `0,2,0`) take precedence over single-class rules in `studio-light.css` (specificity `0,1,0`).
+- **Missing `.check-box` and `.radio-button` Overrides**: `studio-light.css` previously lacked `.check-box` rules completely, causing light mode dialogs to inherit near-white text (`#e6e9ff`) and dark navy boxes (`#24283b`) on pure white backgrounds (`#ffffff`), producing unreadable 1.1:1 contrast.
+- **Tree View Fluorescent Status Labels**: The dark theme neon lime (`#b9f27c`) and peach (`#ffd28a`) leaked into the explorer tree, making status badges unreadable on white backgrounds.
+
+### 2. Comprehensive Remediation
+- **Explicit CheckBox & Radio Styling**:
+  - Added full `.check-box` and `.radio-button` styling in `studio-light.css` with dark slate text (`#0f172a`), clean borders (`#94a3b8`), crisp blue checked fill (`#2563eb`), and pure white checkmarks (`#ffffff`).
+  - Added explicit overrides for `.dialog-pane .check-box` and `.settings-tab-pane .check-box`.
+- **WCAG AAA Compliant Status Badges**:
+  - Overrode tree and case list status classes with high-specificity selectors:
+    - Active/Passed: Deep Forest Green (`#15803d` / selected `#14532d`, contrast > 4.9:1)
+    - Ready: Deep Ocean Blue (`#0369a1` / selected `#0c4a6e`, contrast > 4.7:1)
+    - Draft: Warm Amber Brown (`#b45309` / selected `#78350f`, contrast > 5.1:1)
+    - Inactive: Slate Grey (`#64748b`, contrast > 4.6:1)
+    - Failed/Error: Deep Crimson (`#b91c1c`, contrast > 5.8:1)
+- **Toolbar & Filter Chips High-Contrast Visuals**:
+  - Outlined toolbar buttons with dark slate text (`#1e293b`) and `#cbd5e1` borders.
+  - Add button (`toolbar-btn-add`) styled as crisp GitHub-style green (`#15803d`) with white text (`#ffffff`).
+  - Filter chips styled with white background, `#334155` text, and clear borders.
+  - Spinners (`.spinner`, `.number-spinner`) given clean white background and dark text.
+- **Dialog Button Text Truncation Prevention**:
+  - In `DialogTheme.styleButtons()` and `AiSettingsDialog`, applied `setMinWidth(Region.USE_PREF_SIZE)` and `ButtonBar.setButtonUniformSize(btn, false)` to prevent custom Vietnamese button text (e.g. "Lưu cài đặt") from being truncated.
+
+

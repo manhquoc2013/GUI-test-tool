@@ -152,7 +152,14 @@ public class ThemeServiceTest {
                     ".tab-pane .tab:selected .tab-label",
                     ".settings-hint-label",
                     ".ai-chat-bubble-user",
-                    ".ai-chat-bubble-assistant"
+                    ".ai-chat-bubble-assistant",
+                    ".check-box",
+                    ".check-box .box",
+                    ".check-box:selected .box",
+                    ".project-tree .tree-cell .tree-row-status.status-active",
+                    ".project-tree .tree-cell .tree-row-status.status-ready",
+                    ".project-tree .tree-cell .tree-row-status.status-draft",
+                    ".settings-tab-pane"
             };
             for (String sel : requiredSelectors) {
                 assertTrue(css.contains(sel), "studio-light.css must define " + sel + " to prevent dark theme leakage");

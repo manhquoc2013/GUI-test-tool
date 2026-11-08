@@ -88,8 +88,13 @@ public class AiSettingsDialog {
         pane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         Button okButton = (Button) pane.lookupButton(ButtonType.OK);
         okButton.setText("Lưu cài đặt");
+        okButton.setMinWidth(Region.USE_PREF_SIZE);
+        ButtonBar.setButtonUniformSize(okButton, false);
+
         Button cancelButton = (Button) pane.lookupButton(ButtonType.CANCEL);
         cancelButton.setText("Hủy");
+        cancelButton.setMinWidth(Region.USE_PREF_SIZE);
+        ButtonBar.setButtonUniformSize(cancelButton, false);
 
         SettingsStore store = settingsStore != null ? settingsStore : new SettingsStore();
         SettingsStore.Settings currentSettings;
