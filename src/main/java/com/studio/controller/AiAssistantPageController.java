@@ -243,10 +243,13 @@ public class AiAssistantPageController implements Initializable {
             showCaseDetail(newVal);
         });
 
-        // Key listener for prompt area: Ctrl+Enter or Cmd+Enter to send
+        // Key listener for prompt area: Ctrl+Enter (send) and Ctrl+H (toggle history sidebar)
         promptInputArea.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (event.getCode() == KeyCode.ENTER && (event.isControlDown() || event.isMetaDown())) {
                 sendPrompt();
+                event.consume();
+            } else if (event.getCode() == KeyCode.H && (event.isControlDown() || event.isMetaDown())) {
+                toggleHistorySidebar();
                 event.consume();
             }
         });
@@ -344,7 +347,7 @@ public class AiAssistantPageController implements Initializable {
     private void setupSessionsSidebar() {
         if (toggleSidebarBtn != null) {
             UiIcons.setGraphic(toggleSidebarBtn, UiIcons.FOLDER, 12);
-            UiTooltips.install(toggleSidebarBtn, "Đóng/mở thanh lịch sử cuộc trò chuyện");
+            UiTooltips.install(toggleSidebarBtn, "Đóng/mở thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)");
         }
         if (newChatBtn != null) {
             UiIcons.setGraphic(newChatBtn, UiIcons.PLUS, 12);
@@ -365,6 +368,7 @@ public class AiAssistantPageController implements Initializable {
                         setText(null);
                         setGraphic(null);
                         setContextMenu(null);
+                        setOnMouseClicked(null);
                     } else {
                         VBox box = new VBox(2);
                         box.setAlignment(Pos.CENTER_LEFT);
@@ -395,6 +399,12 @@ public class AiAssistantPageController implements Initializable {
                         setGraphic(box);
                         setText(null);
 
+                        setOnMouseClicked(event -> {
+                            if (event.getClickCount() == 2 && !isEmpty() && getItem() != null) {
+                                handleRenameSession(getItem());
+                            }
+                        });
+
                         ContextMenu menu = new ContextMenu();
                         MenuItem pinItem = new MenuItem(item.isPinned() ? "Bỏ ghim" : "Ghim lên đầu");
                         pinItem.setOnAction(e -> handleTogglePin(item));
@@ -420,6 +430,11 @@ public class AiAssistantPageController implements Initializable {
         }
 
         if (sessionSearchField != null) {
+            sessionSearchField.setOnKeyPressed(e -> {
+                if (e.getCode() == KeyCode.ESCAPE) {
+                    sessionSearchField.clear();
+                }
+            });
             sessionSearchField.textProperty().addListener((obs, oldVal, newVal) -> {
                 String query = newVal != null ? newVal.trim().toLowerCase() : "";
                 filteredSessions.setPredicate(session -> {
@@ -539,6 +554,9 @@ public class AiAssistantPageController implements Initializable {
             try {
                 chatHistoryStore.deleteSession(suiteDir, item.getId());
                 ToastService.info("Đã xóa cuộc trò chuyện.");
+                if (currentSession != null && item.getId().equals(currentSession.getId())) {
+                    currentSession = null;
+                }
                 refreshSessionsList(null);
                 loadChatHistoryForSuite();
             } catch (IOException ignored) {}

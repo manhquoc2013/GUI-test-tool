@@ -112,6 +112,11 @@ public class AiChatHistoryStoreTest {
         List<com.studio.model.AiChatSessionMeta> listAfterDelete = store.listSessions(suiteDir);
         assertEquals(1, listAfterDelete.size());
         assertEquals(s1.getId(), listAfterDelete.get(0).getId());
+
+        // 6. Delete last session and verify empty directory cleanup
+        store.deleteSession(suiteDir, s1.getId());
+        assertFalse(Files.exists(store.resolveSessionsDir(suiteDir)),
+                "Empty .ai_chats directory must be cleaned up when all sessions are deleted");
     }
 
     @Test

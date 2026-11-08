@@ -240,6 +240,15 @@ public class AiChatHistoryStore {
         Path path = dir.resolve(sessionId + ".json");
         Files.deleteIfExists(path);
         new com.studio.db.LocalDataIndexService().clearChatForSession(sessionId);
+
+        // Clean up empty directory if no more sessions remain
+        if (Files.exists(dir) && Files.isDirectory(dir)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.json")) {
+                if (!stream.iterator().hasNext()) {
+                    Files.deleteIfExists(dir);
+                }
+            } catch (IOException ignored) {}
+        }
     }
 
     /**
