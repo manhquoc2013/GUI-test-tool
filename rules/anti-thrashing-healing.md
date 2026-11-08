@@ -18,6 +18,7 @@ paths:
      b) The failure represents a real bug in the application logic that cannot be fixed by modifying the test.
      c) The environment or external dependency is unavailable.
 
-3. **Escalation**:
-   - Report the full forensic summary, failing stack trace, and attempted hypotheses directly to the developer instead of looping infinitely.
+3. **Escalation & Clean Reporting**:
+   - Report the full forensic summary, clear error classification, exact steps to reproduce, and attempted hypotheses directly to the developer instead of dumping raw application stack traces or looping infinitely.
+
 

@@ -482,7 +482,7 @@ public class TestRunnerService {
                     String startUrl = (currentUrl != null && !currentUrl.isBlank())
                             ? currentUrl
                             : (runningCase != null ? runningCase.getStartUrl() : null);
-                    String reproLog = buildReproductionLog(e, cr.getTestCaseName(), cr.getScriptFile(), startUrl);
+                    String reproLog = buildReproductionLog(e, cr.getTestCaseName(), cr.getScriptFile(), startUrl, runningCase);
 
                     cr.setStatus("FAILED");
                     cr.setFailureReason(reason);
@@ -815,29 +815,50 @@ public class TestRunnerService {
 
     /**
      * Builds structured diagnosis log with steps to reproduce and troubleshooting guidance.
+     * Backward-compatible overload without TestCase parameter.
      */
     public static String buildReproductionLog(Throwable t, String caseName, String scriptFile, String startUrl) {
+        return buildReproductionLog(t, caseName, scriptFile, startUrl, null);
+    }
+
+    /**
+     * Builds structured diagnosis log with clear error classification, clean error message,
+     * actionable steps to reproduce, and contextual troubleshooting hints.
+     * Raw application/framework stack traces are omitted to maintain clear, high-signal diagnostics.
+     */
+    public static String buildReproductionLog(Throwable t, String caseName, String scriptFile, String startUrl, TestCase testCase) {
         Throwable root = unwrapCause(t);
         StringBuilder sb = new StringBuilder();
 
+        String errorCategory = categorizeError(root);
+        String cleanMessage = sanitizeErrorMessage(root.getMessage());
+
         sb.append("❌ CHI TIẾT LỖI (Execution Error):\n");
-        sb.append("   • Loại lỗi: ").append(root.getClass().getName()).append("\n");
-        String message = root.getMessage();
-        if (message != null && !message.isBlank()) {
-            sb.append("   • Thông báo: ").append(message.trim()).append("\n");
+        sb.append("   • Phân loại lỗi: ").append(errorCategory).append("\n");
+        sb.append("   • Mã ngoại lệ: ").append(root.getClass().getSimpleName()).append("\n");
+        if (cleanMessage != null && !cleanMessage.isBlank()) {
+            sb.append("   • Thông báo lỗi: ").append(cleanMessage).append("\n");
         } else {
-            sb.append("   • Thông báo: (Không có thông báo lỗi từ runtime)\n");
+            sb.append("   • Thông báo lỗi: (Không có thông báo lỗi từ runtime)\n");
         }
 
-        // Find relevant stack frame in test script or harness
+        // Extract key locator or target if detected
+        String extractedTarget = extractTargetLocator(root);
+        if (extractedTarget != null && !extractedTarget.isBlank()) {
+            sb.append("   • Phần tử gặp sự cố: ").append(extractedTarget).append("\n");
+        }
+
+        // Find relevant stack frame in test script or harness (only test script line, omitting runner plumbing)
         StackTraceElement scriptFrame = null;
         for (StackTraceElement elem : root.getStackTrace()) {
             String cn = elem.getClassName();
             String fn = elem.getFileName();
             if (fn != null && fn.endsWith(".java")
                     && !cn.startsWith("com.studio.service.")
+                    && !cn.startsWith("com.studio.runtime.")
                     && !cn.startsWith("java.lang.reflect.")
-                    && !cn.startsWith("jdk.internal.")) {
+                    && !cn.startsWith("jdk.internal.")
+                    && !cn.startsWith("org.junit.")) {
                 scriptFrame = elem;
                 break;
             }
@@ -849,52 +870,171 @@ public class TestRunnerService {
             sb.append(String.format("   %d. Mở trình duyệt và truy cập URL: %s\n", step++, startUrl));
         }
         if (scriptFile != null && !scriptFile.isBlank()) {
-            sb.append(String.format("   %d. File kịch bản kiểm thử: %s\n", step++, scriptFile));
-        }
-        if (caseName != null && !caseName.isBlank()) {
+            sb.append(String.format("   %d. Mở kịch bản kiểm thử: %s%s\n",
+                    step++, scriptFile,
+                    (caseName != null && !caseName.isBlank()) ? " (Test case: " + caseName + ")" : ""));
+        } else if (caseName != null && !caseName.isBlank()) {
             sb.append(String.format("   %d. Test case: %s\n", step++, caseName));
         }
+
+        if (testCase != null && testCase.getTestSteps() != null && !testCase.getTestSteps().isEmpty()) {
+            sb.append("   • Các bước thực hiện tuần tự:\n");
+            for (TestStep ts : testCase.getTestSteps()) {
+                String action = ts.getAction();
+                String target = ts.getTarget();
+                String val = ts.getTestData();
+                String desc = ts.getDescription();
+                StringBuilder stepDesc = new StringBuilder();
+                if (desc != null && !desc.isBlank()) {
+                    stepDesc.append(desc);
+                } else {
+                    stepDesc.append("[").append(action).append("]");
+                    if (target != null && !target.isBlank()) {
+                        stepDesc.append(" trên '").append(target).append("'");
+                    }
+                    if (val != null && !val.isBlank()) {
+                        stepDesc.append(" (Dữ liệu: \"").append(val).append("\")");
+                    }
+                }
+                int num = ts.getStepNumber() > 0 ? ts.getStepNumber() : step++;
+                sb.append(String.format("      %d. %s\n", num, stepDesc));
+            }
+        }
+
         if (scriptFrame != null) {
-            sb.append(String.format("   %d. Điểm dừng lỗi: %s.%s() tại dòng %d (file %s)\n",
-                    step++, scriptFrame.getClassName(), scriptFrame.getMethodName(),
+            sb.append(String.format("   • Điểm dừng lỗi: %s.%s() tại dòng %d (file %s)\n",
+                    scriptFrame.getClassName(), scriptFrame.getMethodName(),
                     scriptFrame.getLineNumber(), scriptFrame.getFileName()));
         }
 
         // Contextual advice
-        String lowerMsg = (message != null ? message : "").toLowerCase();
+        String lowerMsg = (cleanMessage != null ? cleanMessage : "").toLowerCase();
+        String rootClass = root.getClass().getSimpleName();
         if (lowerMsg.contains("timeout") || lowerMsg.contains("waiting for locator")
-                || root.getClass().getSimpleName().contains("Timeout")) {
+                || rootClass.contains("Timeout")) {
             sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
             sb.append("   • Playwright chờ phần tử UI xuất hiện nhưng hết thời gian chờ (Timeout 30s).\n");
             sb.append("   • Kiểm tra ảnh chụp màn hình kiểm chứng đính kèm: Nếu trang đang dừng ở màn hình Đăng nhập (hoặc popup/dialog), kịch bản cần thực hiện bước đăng nhập hoặc xử lý popup trước khi tương tác các phần tử bên trong.\n");
             sb.append("   • Kiểm tra lại bộ chọn (CSS / XPath locator) xem có chính xác với DOM hiện tại không.\n");
-        } else if (lowerMsg.contains("target closed") || lowerMsg.contains("page closed")) {
+        } else if (lowerMsg.contains("target closed") || lowerMsg.contains("page closed") || rootClass.contains("Closed")) {
             sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
             sb.append("   • Trình duyệt hoặc tab trang web đã bị đóng bất ngờ trước khi hoàn thành các bước.\n");
         } else if (lowerMsg.contains("strict mode violation")) {
             sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
             sb.append("   • Bộ chọn trả về nhiều hơn một phần tử (Strict mode violation). Hãy thêm .first() hoặc dùng bộ chọn đặc thù hơn.\n");
-        } else if (root instanceof AssertionError) {
+        } else if (root instanceof AssertionError || rootClass.contains("Assertion")) {
             sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
             sb.append("   • Dữ liệu hoặc trạng thái thực tế trên giao diện không thỏa mãn điều kiện mong đợi (Assertion Failed).\n");
-        }
-
-        // Full trace
-        sb.append("\n📋 VẾT STACK TRACE ĐẦY ĐỦ:\n");
-        StackTraceElement[] st = root.getStackTrace();
-        int count = 0;
-        for (StackTraceElement elem : st) {
-            sb.append("   at ").append(elem.toString()).append("\n");
-            if (++count >= 15) {
-                int rem = st.length - count;
-                if (rem > 0) {
-                    sb.append("   ... (còn ").append(rem).append(" dòng ẩn)\n");
-                }
-                break;
-            }
+        } else if (lowerMsg.contains("intercepted") || lowerMsg.contains("pointer-events")) {
+            sb.append("\n💡 GỢI Ý XỬ LÝ (Troubleshooting Hint):\n");
+            sb.append("   • Phần tử đang bị che khuất bởi lớp phủ (overlay), thanh header cố định hoặc dialog khác.\n");
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Categorizes exceptions into user-friendly diagnostic error types.
+     */
+    public static String categorizeError(Throwable root) {
+        if (root == null) return "Lỗi không xác định (Unknown Error)";
+        String className = root.getClass().getSimpleName();
+        String msg = (root.getMessage() != null ? root.getMessage() : "").toLowerCase();
+
+        if (className.contains("Timeout") || msg.contains("timeout 30000ms") || msg.contains("timeout exceeded")) {
+            return "TimeoutError (Quá thời gian chờ phần tử giao diện)";
+        }
+        if (root instanceof AssertionError || className.contains("Assertion")) {
+            return "AssertionError (Kết quả kiểm chứng không thỏa mãn)";
+        }
+        if (msg.contains("strict mode violation")) {
+            return "StrictModeViolation (Bộ chọn trùng lặp nhiều phần tử)";
+        }
+        if (msg.contains("target closed") || msg.contains("page closed") || msg.contains("browser has been closed")) {
+            return "BrowserClosed (Trình duyệt hoặc tab bị đóng đột ngột)";
+        }
+        if (msg.contains("net::err") || msg.contains("ns_error") || msg.contains("navigation failed")) {
+            return "NavigationError (Lỗi tải trang web hoặc mạng)";
+        }
+        if (msg.contains("intercepted") || msg.contains("pointer-events") || msg.contains("another element would receive the click")) {
+            return "ElementClickIntercepted (Phần tử bị che khuất hoặc modal chèn lên)";
+        }
+        if (msg.contains("element is not visible") || msg.contains("hidden")) {
+            return "ElementNotVisible (Phần tử bị ẩn hoặc chưa hiển thị)";
+        }
+        if (msg.contains("not found") || msg.contains("waiting for locator") || msg.contains("no element matches")) {
+            return "ElementNotFound (Không tìm thấy phần tử giao diện)";
+        }
+        return className + " (Lỗi thực thi kịch bản kiểm thử)";
+    }
+
+    /**
+     * Extracts targeted locator or selector string from error message.
+     */
+    public static String extractTargetLocator(Throwable root) {
+        if (root == null || root.getMessage() == null) return null;
+        String msg = root.getMessage();
+        if (msg.contains("waiting for locator(\"")) {
+            int start = msg.indexOf("waiting for locator(\"") + "waiting for locator(\"".length();
+            int end = msg.indexOf("\")", start);
+            if (end > start) {
+                return msg.substring(start, end);
+            }
+        } else if (msg.contains("waiting for locator(")) {
+            int start = msg.indexOf("waiting for locator(") + "waiting for locator(".length();
+            int end = msg.indexOf(")", start);
+            if (end > start) {
+                return msg.substring(start, end);
+            }
+        } else if (msg.contains("waiting for selector \"")) {
+            int start = msg.indexOf("waiting for selector \"") + "waiting for selector \"".length();
+            int end = msg.indexOf("\"", start);
+            if (end > start) {
+                return msg.substring(start, end);
+            }
+        } else if (msg.contains("waiting for selector")) {
+            int start = msg.indexOf("waiting for selector");
+            int end = msg.indexOf("\n", start);
+            return (end > start) ? msg.substring(start, end).trim() : msg.substring(start).trim();
+        }
+        return null;
+    }
+
+    /**
+     * Sanitizes raw error message by eliminating internal stack traces and truncating noisy call logs.
+     */
+    public static String sanitizeErrorMessage(String msg) {
+        if (msg == null || msg.isBlank()) return "";
+        String trimmed = msg.trim();
+
+        // Strip embedded java stack traces
+        int atIdx = trimmed.indexOf("\n\tat ");
+        if (atIdx >= 0) {
+            trimmed = trimmed.substring(0, atIdx).trim();
+        }
+        int atIdx2 = trimmed.indexOf("\tat ");
+        if (atIdx2 >= 0) {
+            trimmed = trimmed.substring(0, atIdx2).trim();
+        }
+
+        // Shorten long Playwright call logs to the summary + first 3 lines
+        int callLogIdx = trimmed.indexOf("Call log:");
+        if (callLogIdx > 0) {
+            String header = trimmed.substring(0, callLogIdx).trim();
+            String callLogPart = trimmed.substring(callLogIdx);
+            String[] lines = callLogPart.split("\\r?\\n");
+            StringBuilder limited = new StringBuilder(header);
+            if (!header.isEmpty()) limited.append("\n");
+            int maxLines = Math.min(lines.length, 4);
+            for (int i = 0; i < maxLines; i++) {
+                limited.append("   ").append(lines[i].trim()).append("\n");
+            }
+            if (lines.length > 4) {
+                limited.append("   ... (rút gọn log gọi Playwright)");
+            }
+            trimmed = limited.toString().trim();
+        }
+        return trimmed;
     }
 
     private String resolveFullyQualifiedClassName(Path classDir, String simpleClassName) {

@@ -553,11 +553,12 @@ public class MarkdownConverterEngine {
             ProcessBuilder pb = new ProcessBuilder("markitdown", file.toAbsolutePath().toString(), "-o", tempOutput.toAbsolutePath().toString());
             pb.redirectErrorStream(true);
             p = pb.start();
+            final Process proc = p;
 
             ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
             Thread drainThread = new Thread(() -> {
                 try {
-                    p.getInputStream().transferTo(outputCapture);
+                    proc.getInputStream().transferTo(outputCapture);
                 } catch (Exception ignored) {}
             }, "markitdown-drain");
             drainThread.setDaemon(true);

@@ -111,3 +111,10 @@
 - [x] Task 102: Write comprehensive unit tests for all remediations & verify 100% green test suite <!-- id: 112 -->
 - [x] Task 103: Update `tasks/learnings.md`, `tasks/plan.md`, and make atomic commit <!-- id: 113 -->
 
+- [x] Task 104: Upgrade `TestRunnerService.buildReproductionLog` with clear error classification, target locator extraction, clean messages, and reproduction steps <!-- id: 114 -->
+- [x] Task 105: Eliminate raw application/framework stack trace dump (`📋 VẾT STACK TRACE ĐẦY ĐỦ`) from test failure reports <!-- id: 115 -->
+- [x] Task 106: Enhance test step reproduction sequences using `TestCase.getTestSteps()` in `buildReproductionLog` <!-- id: 116 -->
+- [x] Task 107: Update and expand unit tests in `TestRunnerScreenshotFinalizeTest` to verify clean reports without stack traces <!-- id: 117 -->
+- [x] Task 108: Update `.agents/test-self-healer.md`, `rules/anti-thrashing-healing.md`, `tasks/learnings.md`, and verify full regression suite (`mvn clean test`) <!-- id: 118 -->
+
+

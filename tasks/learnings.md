@@ -543,6 +543,16 @@
 - **Maintenance Scope Completeness**:
   - Mọi thư mục phát sinh dữ liệu tự động (như `data/converted_docs/`) cần được tính vào chỉ số dung lượng đĩa `calculateDiskUsage()` và nằm trong phạm vi dọn dẹp an toàn của `DataCleanupService`, ngăn ngừa phình to ổ đĩa theo thời gian sử dụng.
 
+### 6. Clean Diagnostics & Stack Trace Elimination in Test Reporting
+- **High-Signal Error Diagnostics**:
+  - Khi báo cáo kết quả kiểm thử bị thất bại (`FAILED` / `ERROR`), việc hiển thị toàn bộ stack trace nội bộ của ứng dụng / test harness runner (`at com.studio.service...`, `at jdk.internal.reflect...`) gây ô nhiễm thông tin và làm giảm khả năng nhận diện lỗi của QA/Developer.
+  - Loại bỏ hoàn toàn khối `📋 VẾT STACK TRACE ĐẦY ĐỦ` khỏi `buildReproductionLog` trong `TestRunnerService`.
+  - Phân loại lỗi tường minh (`categorizeError`): Chuyển đổi mã ngoại lệ kỹ thuật thành tên lỗi tiếng Việt/Anh thân thiện, dễ hiểu (như `TimeoutError (Quá thời gian chờ phần tử giao diện)`, `AssertionError (Kết quả kiểm chứng không thỏa mãn)`, `StrictModeViolation (Bộ chọn trùng lặp nhiều phần tử)`, `BrowserClosed (Trình duyệt đóng đột ngột)`...).
+  - Làm sạch thông điệp lỗi (`sanitizeErrorMessage`): Cắt lọc các đoạn call log Playwright quá dài và các vết Java stack trace bị đính kèm trong exception message.
+  - Trích xuất thông minh phần tử gặp sự cố (`extractTargetLocator`): Tự động bắt selector/locator từ thông điệp ngoại lệ để hiển thị ngay tại phần đầu báo cáo.
+  - Tái hiện chi tiết theo từng bước (`CÁCH TÁI HIỆN`): Tích hợp trực tiếp các bước NLP tuần tự từ `TestCase.getTestSteps()` kèm dữ liệu kiểm thử, giúp người dùng có thể thực hiện lại chính xác kịch bản thao tác để kiểm chứng lỗi mà không cần phải đọc mã nguồn Java.
+
+
 
 
 

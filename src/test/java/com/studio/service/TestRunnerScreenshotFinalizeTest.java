@@ -121,5 +121,62 @@ class TestRunnerScreenshotFinalizeTest {
         assertTrue(log.contains("case 1.java"), "Log should contain script file");
         assertTrue(log.contains("GỢI Ý XỬ LÝ"), "Log should contain troubleshooting hint");
         assertTrue(log.contains("Đăng nhập"), "Hint should mention login verification");
+        assertTrue(log.contains("TimeoutError"), "Log should contain clear error category");
+        assertTrue(log.contains("input#description"), "Log should contain extracted target locator");
+
+        // Verify that raw application/framework stack trace dumping is completely omitted
+        assertFalse(log.contains("VẾT STACK TRACE ĐẦY ĐỦ"), "Log must not contain raw full stack trace section");
+        assertFalse(log.contains("at com.studio.service"), "Log must not contain application internal stack traces");
+    }
+
+    @Test
+    void testBuildReproductionLogWithTestCaseSteps() {
+        com.studio.model.TestCase tc = new com.studio.model.TestCase();
+        tc.setId("TC-01");
+        tc.setName("Đăng nhập và tạo dự án");
+        tc.setStartUrl("https://example.com/dashboard");
+
+        com.studio.model.TestStep step1 = new com.studio.model.TestStep(1, "NAVIGATE", "https://example.com/login", "", "Điều hướng tới trang đăng nhập", "");
+        com.studio.model.TestStep step2 = new com.studio.model.TestStep(2, "FILL", "#username", "admin", "Nhập tài khoản quản trị", "");
+        com.studio.model.TestStep step3 = new com.studio.model.TestStep(3, "CLICK", "button#submit", "", "Nhấn nút đăng nhập", "");
+        tc.getTestSteps().addAll(java.util.List.of(step1, step2, step3));
+
+        AssertionError assertionError = new AssertionError("Expected text 'Dashboard' but found 'Access Denied'");
+
+        String log = TestRunnerService.buildReproductionLog(
+                assertionError, tc.getName(), "LoginTest.java", tc.getStartUrl(), tc);
+
+        assertNotNull(log);
+        assertTrue(log.contains("AssertionError (Kết quả kiểm chứng không thỏa mãn)"), "Should classify assertion error");
+        assertTrue(log.contains("Expected text 'Dashboard' but found 'Access Denied'"), "Should contain clear error message");
+        assertTrue(log.contains("Điều hướng tới trang đăng nhập"), "Should list step 1 description");
+        assertTrue(log.contains("Nhập tài khoản quản trị"), "Should list step 2 description");
+        assertTrue(log.contains("Nhấn nút đăng nhập"), "Should list step 3 description");
+        assertFalse(log.contains("VẾT STACK TRACE ĐẦY ĐỦ"), "Must not dump raw stack traces");
+    }
+
+    @Test
+    void testCategorizeErrorAndSanitization() {
+        assertEquals("TimeoutError (Quá thời gian chờ phần tử giao diện)",
+                TestRunnerService.categorizeError(new com.microsoft.playwright.TimeoutError("Timeout exceeded")));
+
+        assertEquals("AssertionError (Kết quả kiểm chứng không thỏa mãn)",
+                TestRunnerService.categorizeError(new AssertionError("Value mismatch")));
+
+        assertEquals("StrictModeViolation (Bộ chọn trùng lặp nhiều phần tử)",
+                TestRunnerService.categorizeError(new RuntimeException("Error: strict mode violation: locator(\"button\") resolved to 2 elements")));
+
+        assertEquals("BrowserClosed (Trình duyệt hoặc tab bị đóng đột ngột)",
+                TestRunnerService.categorizeError(new RuntimeException("Target closed while waiting for locator")));
+
+        assertEquals("NavigationError (Lỗi tải trang web hoặc mạng)",
+                TestRunnerService.categorizeError(new RuntimeException("net::ERR_CONNECTION_REFUSED at https://bad.url")));
+
+        // Sanitization tests
+        String rawWithStack = "Element not found\n\tat com.microsoft.playwright.impl.ChannelOwner.runUntil(ChannelOwner.java:120)\n\tat java.base/jdk.internal.reflect...";
+        assertEquals("Element not found", TestRunnerService.sanitizeErrorMessage(rawWithStack));
+
+        String rawLocator = "waiting for locator(\"button.primary-btn\") to be visible";
+        assertEquals("button.primary-btn", TestRunnerService.extractTargetLocator(new RuntimeException(rawLocator)));
     }
 }

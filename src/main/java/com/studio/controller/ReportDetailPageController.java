@@ -570,20 +570,20 @@ public class ReportDetailPageController {
         // Build comprehensive detail log
         StringBuilder sb = new StringBuilder();
         if ("FAILED".equals(cr.getStatus())) {
-            if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
-                sb.append("❌ NGUYÊN NHÂN THẤT BẠI: ").append(cr.getFailureReason()).append("\n\n");
-            }
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
                 sb.append(cr.getLogExcerpt());
-            } else if (sb.length() == 0) {
+            } else if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
+                sb.append("❌ NGUYÊN NHÂN THẤT BẠI: ").append(cr.getFailureReason());
+            } else {
                 sb.append("❌ Test case thực thi thất bại.");
             }
         } else if ("ERROR".equals(cr.getStatus())) {
-            if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
-                sb.append("⚠️ LỖI KỊCH BẢN / BIÊN DỊCH: ").append(cr.getFailureReason()).append("\n\n");
-            }
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
                 sb.append(cr.getLogExcerpt());
+            } else if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
+                sb.append("⚠️ LỖI KỊCH BẢN / BIÊN DỊCH: ").append(cr.getFailureReason());
+            } else {
+                sb.append("⚠️ Có lỗi xảy ra trong quá trình chuẩn bị / biên dịch test case.");
             }
         } else if ("SKIPPED".equals(cr.getStatus())) {
             sb.append("⏭️ ĐÃ BỎ QUA: ").append(cr.getSkipReason() != null ? cr.getSkipReason() : "Không có lý do");

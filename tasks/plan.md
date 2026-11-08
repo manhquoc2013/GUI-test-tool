@@ -133,3 +133,20 @@
   - Write tests for `AiSkill` and updated `DocumentParserService`.
   - Full suite regression with `mvn clean test`.
 
+## Phase 13: Clean Test Failure Reporting & Stack Trace Elimination
+- Remove raw application/framework stack trace dumping (`📋 VẾT STACK TRACE ĐẦY ĐỦ`) from `TestRunnerService.buildReproductionLog`.
+- Implement human-friendly error categorization (`categorizeError`):
+  - TimeoutError, AssertionError, StrictModeViolation, BrowserClosed, NavigationError, ElementClickIntercepted, ElementNotVisible, etc.
+- Implement error message sanitization (`sanitizeErrorMessage`):
+  - Strip internal Java stack traces (`\n\tat `) and excessive framework logs.
+  - Extract target locators/selectors into dedicated diagnostics field (`extractTargetLocator`).
+- Enhance Reproduction Steps (`🔍 CÁCH TÁI HIỆN`):
+  - Sequential step listing from `TestCase.getTestSteps()`.
+  - URL and script file location.
+  - Precise failure point in test script without internal runner frames.
+  - Practical troubleshooting hints.
+- Update `rules/anti-thrashing-healing.md` and `.agents/test-self-healer.md` to enforce clean error reporting.
+- Add unit tests verifying stack traces are omitted while error reasons and reproduction steps are rich and accurate.
+- Run full regression suite (`mvn clean test`).
+
+
