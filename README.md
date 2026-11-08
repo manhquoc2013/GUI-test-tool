@@ -152,10 +152,12 @@ The `APP_HOME` directory is resolved via (in priority order):
 
 | Document | Description |
 |----------|-------------|
+| [docs/guide/USER_GUIDE.md](docs/guide/USER_GUIDE.md) | **User guide — Hướng dẫn sử dụng (Vietnamese, with screenshots)** |
 | [CHANGELOG.md](CHANGELOG.md) | Release history and changes |
 | [docs/BUILD.md](docs/BUILD.md) | Build guide — dev and portable |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, data flow, package structure |
-| [docs/Playwright_Automation_Studio_Guide.md](docs/Playwright_Automation_Studio_Guide.md) | User guide — Hướng dẫn sử dụng (Vietnamese) |
+| [docs/guide/images/](docs/guide/images) | Screenshots used by the user guide |
+| [docs/Playwright_Automation_Studio_Guide.md](docs/Playwright_Automation_Studio_Guide.md) | Archived 1.x guide (no screenshots) |
 | [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md) | Release notes for v1.0.0 |
 
 ---

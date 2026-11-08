@@ -1,5 +1,8 @@
 # Hướng dẫn sử dụng — Test Studio
 
+> ⚠️ **Bản lưu trữ cho phiên bản 1.x (không có ảnh chụp màn hình).**
+> Tài liệu đang được duy trì cho phiên bản 2.0.0 là [docs/guide/USER_GUIDE.md](guide/USER_GUIDE.md) — có hình ảnh giao diện, mô tả đủ Explorer, Workspace, Assertion Builder, Báo cáo, Trợ lý AI và Cài đặt.
+
 > Ứng dụng desktop JavaFX giúp quản lý và tự động hóa kiểm thử web bằng Playwright — không cần viết code thủ công.
 
 ---
