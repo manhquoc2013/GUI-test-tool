@@ -22,7 +22,8 @@ class DeleteButtonsAndExecutionGuardTest {
     @BeforeAll
     static void initFx() {
         try {
-            Platform.startup(() -> {});
+            Platform.startup(() -> {
+            });
         } catch (IllegalStateException ignored) {
             // Already initialized
         }
@@ -46,8 +47,7 @@ class DeleteButtonsAndExecutionGuardTest {
         MouseEvent clickOnDeleteSvg = new MouseEvent(
                 svg, svg, MouseEvent.MOUSE_PRESSED,
                 0, 0, 0, 0, MouseButton.PRIMARY, 1,
-                false, false, false, false, true, false, false, true, false, false, null
-        );
+                false, false, false, false, true, false, false, true, false, false, null);
 
         boolean isAction = (boolean) m.invoke(null, clickOnDeleteSvg);
         assertTrue(isAction, "Click trên icon delete của case row phải được nhận diện là action button event");
@@ -84,7 +84,8 @@ class DeleteButtonsAndExecutionGuardTest {
         });
 
         assertTrue(latch.await(5, TimeUnit.SECONDS));
-        if (err[0] != null) throw err[0];
+        if (err[0] != null)
+            throw err[0];
     }
 
     @Test
@@ -117,7 +118,57 @@ class DeleteButtonsAndExecutionGuardTest {
         });
 
         assertTrue(latch.await(5, TimeUnit.SECONDS));
-        if (err[0] != null) throw err[0];
+        if (err[0] != null)
+            throw err[0];
+    }
+
+    @Test
+    void testPreviewTargetResolution_whenTreeSelectionIsNull() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        final Exception[] err = new Exception[1];
+
+        Platform.runLater(() -> {
+            try {
+                FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/explorer_page.fxml"));
+                loader.load();
+                ExplorerPageController controller = loader.getController();
+
+                // Clear selection in projectTree
+                Field projectTreeField = ExplorerPageController.class.getDeclaredField("projectTree");
+                projectTreeField.setAccessible(true);
+                javafx.scene.control.TreeView<Object> tree = (javafx.scene.control.TreeView<Object>) projectTreeField
+                        .get(controller);
+                assertNotNull(tree);
+                tree.getSelectionModel().clearSelection();
+                assertNull(tree.getSelectionModel().getSelectedItem());
+
+                // Set preview to a test case
+                javafx.scene.control.TreeItem<Object> caseItem = new javafx.scene.control.TreeItem<>(
+                        "Repo_Navigate_To_Code_Tab");
+                ExplorerPageController.NodeRef caseRef = new ExplorerPageController.NodeRef(
+                        "case", "Repo_Navigate_To_Code_Tab", "ACTIVE", "test 1", "/path/to/suite", "case-123",
+                        "/path/to/suite");
+                controller.setPreviewForTest(caseItem, caseRef);
+
+                assertEquals(caseItem, controller.getCurrentPreviewItem());
+                assertEquals(caseRef, controller.getCurrentPreviewRef());
+
+                // resolveTarget via reflection
+                Method resolveTargetMethod = ExplorerPageController.class.getDeclaredMethod("resolveTarget");
+                resolveTargetMethod.setAccessible(true);
+                Object resolved = resolveTargetMethod.invoke(controller);
+
+                assertEquals(caseItem, resolved,
+                        "Khi tree selection bị null, resolveTarget phải fallback về currentPreviewItem");
+            } catch (Exception e) {
+                err[0] = e;
+            } finally {
+                latch.countDown();
+            }
+        });
+
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        if (err[0] != null)
+            throw err[0];
     }
 }
-

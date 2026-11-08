@@ -89,9 +89,24 @@ public class ExplorerPageController {
     private final Map<TreeItem<Object>, NodeRef> nodeRefs = new HashMap<>();
     /** Row under context menu (right-click); does not change TreeView selection. */
     private TreeItem<Object> contextTarget;
+    /** Currently previewed tree item, if any. */
+    private TreeItem<Object> currentPreviewItem;
+    /** Currently previewed node metadata, if any. */
+    private NodeRef currentPreviewRef;
 
     private NodeRef getNodeRef(TreeItem<Object> item) {
         return nodeRefs.get(item);
+    }
+
+    private NodeRef resolveNodeRef(TreeItem<Object> item) {
+        if (item == null) {
+            return currentPreviewRef;
+        }
+        NodeRef ref = nodeRefs.get(item);
+        if (ref == null && (item == currentPreviewItem || currentPreviewRef != null)) {
+            return currentPreviewRef;
+        }
+        return ref;
     }
 
     private void setNodeRef(TreeItem<Object> item, NodeRef ref) {
@@ -106,7 +121,7 @@ public class ExplorerPageController {
 
     // ── Inner class for tree node metadata ──
 
-    private static class NodeRef {
+    static class NodeRef {
         final String type; // "group", "suite", "case"
         final String name;
         final String status;
@@ -175,6 +190,9 @@ public class ExplorerPageController {
 
     private void buildTree(TestGroup group) {
         nodeRefs.clear();
+        if (projectTree != null && projectTree.getSelectionModel() != null) {
+            projectTree.getSelectionModel().clearSelection();
+        }
         // Hidden synthetic root — children appear as top-level; preview uses root when nothing selected
         TreeItem<Object> rootItem = new TreeItem<>("Dự án");
         setNodeRef(rootItem, new NodeRef("group", "Dự án", null,
@@ -528,9 +546,21 @@ public class ExplorerPageController {
         return item != null && item == projectTree.getRoot();
     }
 
-    /** Context-menu row if present; otherwise current selection. */
+    /** Context-menu row if present; otherwise current selection; fallback to current preview item. */
     private TreeItem<Object> resolveTarget() {
-        return contextTarget != null ? contextTarget : projectTree.getSelectionModel().getSelectedItem();
+        if (contextTarget != null) {
+            return contextTarget;
+        }
+        TreeItem<Object> sel = projectTree != null && projectTree.getSelectionModel() != null
+                ? projectTree.getSelectionModel().getSelectedItem()
+                : null;
+        if (sel != null && getNodeRef(sel) != null) {
+            return sel;
+        }
+        if (currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            return currentPreviewItem;
+        }
+        return sel;
     }
 
     private ContextMenu buildTreeContextMenu() {
@@ -657,6 +687,8 @@ public class ExplorerPageController {
     // ── Preview panel ──
 
     private void clearPreview() {
+        this.currentPreviewItem = null;
+        this.currentPreviewRef = null;
         previewName.setText("👆 Chọn một mục");
         previewType.setText("");
         previewStatus.setText("");
@@ -692,6 +724,8 @@ public class ExplorerPageController {
             clearPreview();
             return;
         }
+        this.currentPreviewItem = item;
+        this.currentPreviewRef = ref;
 
         if (previewViewBox != null) {
             previewViewBox.setVisible(false);
@@ -1330,6 +1364,7 @@ public class ExplorerPageController {
     private void reloadTree() {
         String filter = statusFilter != null ? statusFilter.getValue() : StatusDisplay.ALL_LABEL;
         String search = searchField != null ? searchField.getText() : "";
+        NodeRef keepRef = currentPreviewRef;
         loadTree();
         boolean filterStatus = filter != null && !StatusDisplay.isAll(filter);
         boolean filterName = search != null && !search.isBlank();
@@ -1339,6 +1374,11 @@ public class ExplorerPageController {
         }
         if (projectTree.getRoot() != null) {
             projectTree.getRoot().setExpanded(true);
+        }
+        if (keepRef != null && !"Dự án".equals(keepRef.name)) {
+            reselectByTypeAndName(keepRef.type, keepRef.name);
+        } else {
+            showRootPreview();
         }
     }
 
@@ -1564,12 +1604,21 @@ public class ExplorerPageController {
 
     @FXML
     public void editFromPreview() {
+        TreeItem<Object> target = currentPreviewItem != null && getNodeRef(currentPreviewItem) != null
+                ? currentPreviewItem
+                : resolveTarget();
+        if (target != null && projectTree != null && projectTree.getSelectionModel() != null) {
+            projectTree.getSelectionModel().select(target);
+        }
         editSelectedEntity();
     }
 
     @FXML
     public void editSelectedEntity() {
         TreeItem<Object> selected = resolveTarget();
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
+        }
         if (selected == null) {
             ToastService.warn("⚠️ Chưa chọn mục nào");
             return;
@@ -1578,7 +1627,7 @@ public class ExplorerPageController {
             ToastService.warn("⚠️ Không thể sửa gốc dự án");
             return;
         }
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null) {
             ToastService.warn("⚠️ Không đọc được mục đã chọn");
             return;
@@ -1709,6 +1758,9 @@ public class ExplorerPageController {
     @FXML
     public void rename() {
         TreeItem<Object> selected = resolveTarget();
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
+        }
         if (selected == null) {
             ToastService.warn("⚠️ Chưa chọn mục nào");
             return;
@@ -1718,7 +1770,7 @@ public class ExplorerPageController {
             return;
         }
 
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null) {
             ToastService.warn("⚠️ Không đọc được mục đã chọn");
             return;
@@ -1755,6 +1807,9 @@ public class ExplorerPageController {
     @FXML
     public void deleteItem() {
         TreeItem<Object> selected = resolveTarget();
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
+        }
         if (selected == null) {
             ToastService.warn("⚠️ Chưa chọn mục nào");
             return;
@@ -1764,7 +1819,7 @@ public class ExplorerPageController {
             return;
         }
 
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null) {
             ToastService.warn("⚠️ Không đọc được mục đã chọn");
             return;
@@ -1823,12 +1878,15 @@ public class ExplorerPageController {
     @FXML
     public void copyItem() {
         TreeItem<Object> selected = resolveTarget();
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
+        }
         if (selected == null) {
             ToastService.warn("⚠️ Chưa chọn mục nào");
             return;
         }
 
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null) return;
 
         // Only suites and cases can be copied
@@ -1870,6 +1928,9 @@ public class ExplorerPageController {
     @FXML
     public void runSelected() {
         TreeItem<Object> selected = resolveTarget();
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
+        }
         if (selected == null) {
             selected = projectTree.getRoot();
         }
@@ -1878,7 +1939,7 @@ public class ExplorerPageController {
             return;
         }
 
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null) {
             ToastService.warn("⚠️ Không đọc được mục đã chọn");
             return;
@@ -1922,6 +1983,12 @@ public class ExplorerPageController {
         } else {
             TreeItem<Object> parent = selected.getParent();
             NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
+            if (suiteRef == null && ref.parentName != null && projectTree != null && projectTree.getRoot() != null) {
+                TreeItem<Object> suiteItem = findTreeItemByTypeAndName(projectTree.getRoot(), "suite", ref.parentName);
+                if (suiteItem != null) {
+                    suiteRef = getNodeRef(suiteItem);
+                }
+            }
             String suiteSt = suiteRef != null ? suiteRef.status : null;
             if (!StatusDisplay.isActive(suiteSt)) {
                 ToastService.warn("⚠️ Suite chưa Đang hoạt động — không chạy case được");
@@ -1997,6 +2064,12 @@ public class ExplorerPageController {
 
     @FXML
     public void runNode() {
+        TreeItem<Object> target = currentPreviewItem != null && getNodeRef(currentPreviewItem) != null
+                ? currentPreviewItem
+                : resolveTarget();
+        if (target != null && projectTree != null && projectTree.getSelectionModel() != null) {
+            projectTree.getSelectionModel().select(target);
+        }
         runSelected();
     }
 
@@ -2047,12 +2120,10 @@ public class ExplorerPageController {
     @FXML
     public void openWorkspace() {
         TreeItem<Object> selected = resolveTarget();
-        if (selected == null) {
-            ToastService.warn("⚠️ Chưa chọn mục nào");
-            return;
+        if (selected == null && currentPreviewItem != null && getNodeRef(currentPreviewItem) != null) {
+            selected = currentPreviewItem;
         }
-
-        NodeRef ref = getNodeRef(selected);
+        final NodeRef ref = resolveNodeRef(selected);
         if (ref == null || (!"suite".equals(ref.type) && !"case".equals(ref.type))) {
             ToastService.warn("⚠️ Chỉ có thể mở suite / case trong workspace");
             return;
@@ -2242,5 +2313,21 @@ public class ExplorerPageController {
             cur = cur.getParent();
         }
         return false;
+    }
+
+    TreeItem<Object> getCurrentPreviewItem() {
+        return currentPreviewItem;
+    }
+
+    NodeRef getCurrentPreviewRef() {
+        return currentPreviewRef;
+    }
+
+    void setPreviewForTest(TreeItem<Object> item, NodeRef ref) {
+        this.currentPreviewItem = item;
+        this.currentPreviewRef = ref;
+        if (item != null && ref != null) {
+            setNodeRef(item, ref);
+        }
     }
 }
