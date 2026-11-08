@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -115,11 +114,11 @@ class ExcelReportServiceTest {
                 "TC03.java", "PASSED", null, 100, null, "Log", 0, null);
         // Root path where getFileName() would be null
         cSpecial.setScreenshotPath("/");
-        report.setCases(new java.util.ArrayList<>(List.of(report.getCases().get(0), report.getCases().get(1), cSpecial)));
+        report.setCases(
+                new java.util.ArrayList<>(List.of(report.getCases().get(0), report.getCases().get(1), cSpecial)));
 
         Path out = tempDir.resolve("report_special_path.xlsx");
         assertDoesNotThrow(() -> ExcelReportService.export(report, out));
         assertTrue(Files.exists(out), "Excel export must succeed without NullPointerException on root path");
     }
 }
-

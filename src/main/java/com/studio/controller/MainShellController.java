@@ -15,13 +15,11 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
-import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.util.Duration;
 
 import java.io.IOException;
 import java.net.URL;
@@ -38,36 +36,66 @@ public class MainShellController implements Initializable {
     private static final double SIDEBAR_EXPANDED = 220;
     private static final double SIDEBAR_COLLAPSED = 56;
 
-    @FXML private StackPane contentArea;
-    @FXML private StackPane shellStack;
-    @FXML private HBox tabContainer;
-    @FXML private ScrollPane tabScrollPane;
-    @FXML private Label headerBreadcrumb;
-    @FXML private VBox sidebar;
-    @FXML private Button navExplorerBtn;
-    @FXML private Button navReportsBtn;
-    @FXML private Button navAiBtn;
-    @FXML private Button themeToggleBtn;
-    @FXML private Button cleanupBtn;
-    @FXML private Button settingsBtn;
-    @FXML private Label activeSuiteLabel;
-    @FXML private Label sidebarSuiteSectionLabel;
-    @FXML private HBox sidebarActiveSuiteRow;
-    @FXML private Label sidebarActiveSuite;
-    @FXML private Button clearActiveSuiteBtn;
-    @FXML private Separator sidebarSep;
-    @FXML private Button runAllBtn;
-    @FXML private Button stopRunBtn;
-    @FXML private Button toggleSidebarBtn;
-    @FXML private Button helpBtn;
-    @FXML private StackPane helpLayer;
-    @FXML private Region helpScrim;
-    @FXML private VBox helpDrawer;
-    @FXML private VBox helpContent;
-    @FXML private Button helpCloseBtn;
-    @FXML private Label statusLabel;
-    @FXML private Label browserLabel;
-    @FXML private VBox toastContainer;
+    @FXML
+    private StackPane contentArea;
+    @FXML
+    private StackPane shellStack;
+    @FXML
+    private HBox tabContainer;
+    @FXML
+    private ScrollPane tabScrollPane;
+    @FXML
+    private Label headerBreadcrumb;
+    @FXML
+    private VBox sidebar;
+    @FXML
+    private Button navExplorerBtn;
+    @FXML
+    private Button navReportsBtn;
+    @FXML
+    private Button navAiBtn;
+    @FXML
+    private Button themeToggleBtn;
+    @FXML
+    private Button cleanupBtn;
+    @FXML
+    private Button settingsBtn;
+    @FXML
+    private Label activeSuiteLabel;
+    @FXML
+    private Label sidebarSuiteSectionLabel;
+    @FXML
+    private HBox sidebarActiveSuiteRow;
+    @FXML
+    private Label sidebarActiveSuite;
+    @FXML
+    private Button clearActiveSuiteBtn;
+    @FXML
+    private Separator sidebarSep;
+    @FXML
+    private Button runAllBtn;
+    @FXML
+    private Button stopRunBtn;
+    @FXML
+    private Button toggleSidebarBtn;
+    @FXML
+    private Button helpBtn;
+    @FXML
+    private StackPane helpLayer;
+    @FXML
+    private Region helpScrim;
+    @FXML
+    private VBox helpDrawer;
+    @FXML
+    private VBox helpContent;
+    @FXML
+    private Button helpCloseBtn;
+    @FXML
+    private Label statusLabel;
+    @FXML
+    private Label browserLabel;
+    @FXML
+    private VBox toastContainer;
 
     private boolean sidebarExpanded = true;
     private boolean helpVisible = false;
@@ -155,11 +183,14 @@ public class MainShellController implements Initializable {
     }
 
     private void updateThemeButtonUI() {
-        if (themeToggleBtn == null) return;
+        if (themeToggleBtn == null)
+            return;
         boolean isDark = com.studio.service.ThemeService.isDark();
         themeToggleBtn.setText(isDark ? "Sáng" : "Tối");
-        com.studio.util.UiTooltips.install(themeToggleBtn, isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối");
-        com.studio.util.UiIcons.setGraphic(themeToggleBtn, isDark ? com.studio.util.UiIcons.SUN : com.studio.util.UiIcons.MOON, 13);
+        com.studio.util.UiTooltips.install(themeToggleBtn,
+                isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối");
+        com.studio.util.UiIcons.setGraphic(themeToggleBtn,
+                isDark ? com.studio.util.UiIcons.SUN : com.studio.util.UiIcons.MOON, 13);
     }
 
     private void wireActiveSuiteShortcut() {
@@ -217,7 +248,8 @@ public class MainShellController implements Initializable {
 
     /** Help drawer uses ~2/3 of the content area width. */
     private void applyHelpDrawerWidth(double layerWidth) {
-        if (helpDrawer == null || layerWidth <= 0) return;
+        if (helpDrawer == null || layerWidth <= 0)
+            return;
         double w = Math.max(420, layerWidth * (2.0 / 3.0));
         helpDrawer.setPrefWidth(w);
         helpDrawer.setMinWidth(w);
@@ -225,10 +257,12 @@ public class MainShellController implements Initializable {
     }
 
     private void buildHelpContent() {
-        if (helpContent == null) return;
+        if (helpContent == null)
+            return;
         VBox body = helpContent;
 
-        // Entry point first: the drawer is a quick reference, the full guide is one click away.
+        // Entry point first: the drawer is a quick reference, the full guide is one
+        // click away.
         Button fullGuideBtn = new Button("📖 Mở hướng dẫn đầy đủ (USER_GUIDE.md)");
         fullGuideBtn.getStyleClass().add("btn-primary");
         fullGuideBtn.setMaxWidth(Double.MAX_VALUE);
@@ -345,8 +379,10 @@ public class MainShellController implements Initializable {
     }
 
     /**
-     * Opens the full user guide (docs/guide/USER_GUIDE.md) in the existing Markdown preview
-     * dialog. Images are inlined as data URLs by {@link com.studio.service.UserGuideService}
+     * Opens the full user guide (docs/guide/USER_GUIDE.md) in the existing Markdown
+     * preview
+     * dialog. Images are inlined as data URLs by
+     * {@link com.studio.service.UserGuideService}
      * so the guide renders the same from source, the portable package and the JAR.
      */
     private void openFullUserGuide() {
@@ -448,7 +484,10 @@ public class MainShellController implements Initializable {
                 this::applySidebarContent);
     }
 
-    /** Update icons/labels for current expanded state (width may still be animating). */
+    /**
+     * Update icons/labels for current expanded state (width may still be
+     * animating).
+     */
     private void applySidebarContent() {
         applySidebarExpanded(false);
     }
@@ -562,7 +601,8 @@ public class MainShellController implements Initializable {
     }
 
     private void refreshActiveSuiteLabel() {
-        if (sidebarActiveSuite == null) return;
+        if (sidebarActiveSuite == null)
+            return;
         boolean hasSuite = activeSuiteName != null && !activeSuiteName.isBlank();
         if (hasSuite) {
             sidebarActiveSuite.setText(activeSuiteName);
@@ -599,7 +639,9 @@ public class MainShellController implements Initializable {
         return activeSuiteDir;
     }
 
-    /** Remember the Workspace suite so sidebar stays sticky when navigating away. */
+    /**
+     * Remember the Workspace suite so sidebar stays sticky when navigating away.
+     */
     public void setActiveWorkspace(String suiteName, Path suiteDir) {
         activeSuiteName = (suiteName != null && !suiteName.isBlank()) ? suiteName.trim() : null;
         activeSuiteDir = suiteDir;
@@ -664,7 +706,8 @@ public class MainShellController implements Initializable {
     }
 
     private void updateStopRunButton() {
-        if (stopRunBtn == null) return;
+        if (stopRunBtn == null)
+            return;
         boolean active = RunCancelService.isRunActive();
         stopRunBtn.setVisible(active);
         stopRunBtn.setManaged(active);
@@ -673,8 +716,8 @@ public class MainShellController implements Initializable {
 
     @FXML
     private void runAll() {
-        ExplorerPageController explorerCtrl =
-                ViewNavigator.getController(ViewNavigator.Page.EXPLORER, ExplorerPageController.class);
+        ExplorerPageController explorerCtrl = ViewNavigator.getController(ViewNavigator.Page.EXPLORER,
+                ExplorerPageController.class);
         if (explorerCtrl == null) {
             ToastService.warn("⚠️ Chưa tải được trang Khám phá");
             return;
@@ -695,8 +738,7 @@ public class MainShellController implements Initializable {
                     StatusBarService.ready();
                     applySidebarExpanded();
                     ToastService.error("❌ Chạy tất cả thất bại: " + ex.getMessage());
-                }
-        );
+                });
     }
 
     public void updateStatusBar(String message) {
@@ -732,7 +774,8 @@ public class MainShellController implements Initializable {
     }
 
     private void updateBreadcrumbForTab(TabManager.StudioTab tab) {
-        if (tab == null) return;
+        if (tab == null)
+            return;
         String id = tab.getId();
         if ("PAGE_EXPLORER".equals(id)) {
             setBreadcrumb("Dự án / Khám phá");

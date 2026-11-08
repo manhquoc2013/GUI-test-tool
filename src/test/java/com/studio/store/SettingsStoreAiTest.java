@@ -1,7 +1,6 @@
 package com.studio.store;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.studio.model.AiConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,4 +33,3 @@ class SettingsStoreAiTest {
         assertEquals("https://custom.openai.proxy/v1", loaded.getAiConfig().getBaseUrl());
     }
 }
-

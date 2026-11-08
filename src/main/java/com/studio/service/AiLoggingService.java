@@ -2,7 +2,6 @@ package com.studio.service;
 
 import com.studio.util.StudioPaths;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,7 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Centralized logging service for AI interactions, prompt generation, raw responses,
+ * Centralized logging service for AI interactions, prompt generation, raw
+ * responses,
  * token accounting, and recovery diagnostics.
  */
 public final class AiLoggingService {
@@ -24,7 +24,8 @@ public final class AiLoggingService {
     private static final int MAX_IN_MEMORY_LOGS = 300;
     private static final long MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
-    private AiLoggingService() {}
+    private AiLoggingService() {
+    }
 
     public static synchronized void log(String level, String category, String message) {
         String timestamp = LocalDateTime.now().format(FORMATTER);
@@ -101,4 +102,3 @@ public final class AiLoggingService {
         IN_MEMORY_LOGS.clear();
     }
 }
-

@@ -9,7 +9,6 @@ import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.net.URL;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -17,15 +16,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * T5: the help drawer must lead with a working entry point to the full user guide.
- * The button is only inspected (never fired) so no dialog is opened during the test run.
+ * T5: the help drawer must lead with a working entry point to the full user
+ * guide.
+ * The button is only inspected (never fired) so no dialog is opened during the
+ * test run.
  */
 class HelpDrawerFullGuideButtonTest {
 
     @BeforeAll
     static void initJavaFX() {
         try {
-            Platform.startup(() -> {});
+            Platform.startup(() -> {
+            });
         } catch (IllegalStateException ignored) {
             // Already initialized
         }
@@ -46,7 +48,8 @@ class HelpDrawerFullGuideButtonTest {
         });
         assertTrue(latch.await(20, TimeUnit.SECONDS), "Timed out waiting for FX thread");
         if (error.get() != null) {
-            if (error.get() instanceof AssertionError ae) throw ae;
+            if (error.get() instanceof AssertionError ae)
+                throw ae;
             fail("FX task threw exception", error.get());
         }
     }

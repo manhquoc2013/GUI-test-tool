@@ -18,7 +18,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
 import java.awt.Desktop;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -62,7 +61,8 @@ public class MarkdownPreviewDialog {
         if (doc.getConversionResult() != null) {
             var res = doc.getConversionResult();
             Label statLabel = new Label("📊 " + res.getWordCount() + " từ | ~" + res.getEstimatedTokens() + " tokens");
-            statLabel.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-primary; -fx-background-color: -color-surface-hover; -fx-padding: 3 6; -fx-background-radius: 4;");
+            statLabel.setStyle(
+                    "-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-primary; -fx-background-color: -color-surface-hover; -fx-padding: 3 6; -fx-background-radius: 4;");
             topRow.getChildren().add(statLabel);
         }
 
@@ -95,7 +95,8 @@ public class MarkdownPreviewDialog {
         TextArea markdownArea = new TextArea(doc.getContent());
         markdownArea.setEditable(false);
         markdownArea.setWrapText(true);
-        markdownArea.setStyle("-fx-font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; -fx-font-size: 12px;");
+        markdownArea.setStyle(
+                "-fx-font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; -fx-font-size: 12px;");
         VBox.setVgrow(markdownArea, Priority.ALWAYS);
 
         content.getChildren().addAll(topRow, markdownArea);

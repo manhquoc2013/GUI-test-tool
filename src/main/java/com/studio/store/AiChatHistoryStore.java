@@ -1,6 +1,5 @@
 package com.studio.store;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.studio.model.AiChatSession;
@@ -15,7 +14,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Storage manager for persistent AI chat sessions, suite file snapshots, and rollback operations.
+ * Storage manager for persistent AI chat sessions, suite file snapshots, and
+ * rollback operations.
  */
 public class AiChatHistoryStore {
 
@@ -94,7 +94,8 @@ public class AiChatHistoryStore {
         private String suiteJson;
         private Map<String, String> javaFiles = new HashMap<>();
 
-        public SuiteSnapshot() {}
+        public SuiteSnapshot() {
+        }
 
         public SuiteSnapshot(String suiteJson, Map<String, String> javaFiles) {
             this.suiteJson = suiteJson;
@@ -179,4 +180,3 @@ public class AiChatHistoryStore {
         return true;
     }
 }
-

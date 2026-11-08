@@ -1,24 +1,22 @@
 package com.studio.service;
 
 import com.studio.db.DatabaseManager;
-import com.studio.db.ReportDbService;
 import com.studio.model.RunReport;
 import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ReportStore;
 import com.studio.util.StudioPaths;
 
-import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Service to execute system data maintenance, clean temporary files, execution reports,
+ * Service to execute system data maintenance, clean temporary files, execution
+ * reports,
  * and AI chat sessions while strictly preserving system settings.
  */
 public class DataCleanupService {
@@ -41,7 +39,8 @@ public class DataCleanupService {
         private boolean cleanAiChat = true;
         private boolean cleanWorkDir = true;
 
-        public CleanupOptions() {}
+        public CleanupOptions() {
+        }
 
         public CleanupOptions(boolean cleanReports, int keepRecentReports, boolean cleanAiChat, boolean cleanWorkDir) {
             this.cleanReports = cleanReports;
@@ -50,17 +49,37 @@ public class DataCleanupService {
             this.cleanWorkDir = cleanWorkDir;
         }
 
-        public boolean isCleanReports() { return cleanReports; }
-        public void setCleanReports(boolean cleanReports) { this.cleanReports = cleanReports; }
+        public boolean isCleanReports() {
+            return cleanReports;
+        }
 
-        public int getKeepRecentReports() { return keepRecentReports; }
-        public void setKeepRecentReports(int keepRecentReports) { this.keepRecentReports = keepRecentReports; }
+        public void setCleanReports(boolean cleanReports) {
+            this.cleanReports = cleanReports;
+        }
 
-        public boolean isCleanAiChat() { return cleanAiChat; }
-        public void setCleanAiChat(boolean cleanAiChat) { this.cleanAiChat = cleanAiChat; }
+        public int getKeepRecentReports() {
+            return keepRecentReports;
+        }
 
-        public boolean isCleanWorkDir() { return cleanWorkDir; }
-        public void setCleanWorkDir(boolean cleanWorkDir) { this.cleanWorkDir = cleanWorkDir; }
+        public void setKeepRecentReports(int keepRecentReports) {
+            this.keepRecentReports = keepRecentReports;
+        }
+
+        public boolean isCleanAiChat() {
+            return cleanAiChat;
+        }
+
+        public void setCleanAiChat(boolean cleanAiChat) {
+            this.cleanAiChat = cleanAiChat;
+        }
+
+        public boolean isCleanWorkDir() {
+            return cleanWorkDir;
+        }
+
+        public void setCleanWorkDir(boolean cleanWorkDir) {
+            this.cleanWorkDir = cleanWorkDir;
+        }
     }
 
     public static class CleanupResult {
@@ -70,15 +89,31 @@ public class DataCleanupService {
         private long freedBytes;
         private boolean settingsPreserved = true;
 
-        public int getDeletedReportsCount() { return deletedReportsCount; }
-        public int getDeletedChatCount() { return deletedChatCount; }
-        public int getDeletedWorkFilesCount() { return deletedWorkFilesCount; }
-        public long getFreedBytes() { return freedBytes; }
-        public boolean isSettingsPreserved() { return settingsPreserved; }
+        public int getDeletedReportsCount() {
+            return deletedReportsCount;
+        }
+
+        public int getDeletedChatCount() {
+            return deletedChatCount;
+        }
+
+        public int getDeletedWorkFilesCount() {
+            return deletedWorkFilesCount;
+        }
+
+        public long getFreedBytes() {
+            return freedBytes;
+        }
+
+        public boolean isSettingsPreserved() {
+            return settingsPreserved;
+        }
 
         public String formatFreedSpace() {
-            if (freedBytes < 1024) return freedBytes + " B";
-            if (freedBytes < 1024 * 1024) return String.format("%.1f KB", freedBytes / 1024.0);
+            if (freedBytes < 1024)
+                return freedBytes + " B";
+            if (freedBytes < 1024 * 1024)
+                return String.format("%.1f KB", freedBytes / 1024.0);
             return String.format("%.2f MB", freedBytes / (1024.0 * 1024.0));
         }
     }
@@ -96,8 +131,10 @@ public class DataCleanupService {
         }
 
         public String formatBytes(long bytes) {
-            if (bytes < 1024) return bytes + " B";
-            if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+            if (bytes < 1024)
+                return bytes + " B";
+            if (bytes < 1024 * 1024)
+                return String.format("%.1f KB", bytes / 1024.0);
             return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
         }
     }
@@ -118,7 +155,8 @@ public class DataCleanupService {
                         stats.reportsBytes += computeDirectorySize(p);
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         // 2. Chat history files
@@ -128,14 +166,21 @@ public class DataCleanupService {
                 walk.filter(p -> p.getFileName().toString().equals(AiChatHistoryStore.CHAT_HISTORY_FILE))
                         .forEach(p -> {
                             stats.chatFilesCount++;
-                            try { stats.chatBytes += Files.size(p); } catch (Exception ignored) {}
+                            try {
+                                stats.chatBytes += Files.size(p);
+                            } catch (Exception ignored) {
+                            }
                         });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         Path defaultChat = StudioPaths.getDataDir().resolve("ai_chat_default.json");
         if (Files.exists(defaultChat)) {
             stats.chatFilesCount++;
-            try { stats.chatBytes += Files.size(defaultChat); } catch (Exception ignored) {}
+            try {
+                stats.chatBytes += Files.size(defaultChat);
+            } catch (Exception ignored) {
+            }
         }
 
         // 3. Work directory & converted docs directory
@@ -145,9 +190,13 @@ public class DataCleanupService {
                 walk.filter(p -> !p.getFileName().toString().equals(".gitkeep") && !Files.isDirectory(p))
                         .forEach(p -> {
                             stats.workFilesCount++;
-                            try { stats.workBytes += Files.size(p); } catch (Exception ignored) {}
+                            try {
+                                stats.workBytes += Files.size(p);
+                            } catch (Exception ignored) {
+                            }
                         });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         Path convertedDocs = StudioPaths.getDataDir().resolve("converted_docs");
         if (Files.exists(convertedDocs)) {
@@ -155,9 +204,13 @@ public class DataCleanupService {
                 walk.filter(p -> !Files.isDirectory(p))
                         .forEach(p -> {
                             stats.workFilesCount++;
-                            try { stats.workBytes += Files.size(p); } catch (Exception ignored) {}
+                            try {
+                                stats.workBytes += Files.size(p);
+                            } catch (Exception ignored) {
+                            }
                         });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         return stats;
@@ -166,14 +219,16 @@ public class DataCleanupService {
     /**
      * Execute data cleanup according to selected options.
      * System settings are strictly guarded and never deleted.
-     * Aborts with IllegalStateException if an in-process test run is currently active.
+     * Aborts with IllegalStateException if an in-process test run is currently
+     * active.
      */
     public CleanupResult executeCleanup(CleanupOptions options) {
         if (RunCancelService.isRunActive()) {
             throw new IllegalStateException("Không thể dọn dẹp dữ liệu khi kiểm thử đang chạy.");
         }
         CleanupResult result = new CleanupResult();
-        if (options == null) return result;
+        if (options == null)
+            return result;
 
         // 1. Clean Reports
         if (options.isCleanReports()) {
@@ -196,7 +251,8 @@ public class DataCleanupService {
     private void cleanReports(int keepCount, CleanupResult result) {
         try {
             List<RunReport> all = reportStore.listReports();
-            if (all.isEmpty()) return;
+            if (all.isEmpty())
+                return;
 
             // Sort newest first
             all.sort((a, b) -> {
@@ -225,9 +281,11 @@ public class DataCleanupService {
                     reportStore.deleteReport(runId);
                     result.deletedReportsCount++;
                     result.freedBytes += dirSize;
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private void cleanAiChat(CleanupResult result) {
@@ -242,9 +300,11 @@ public class DataCleanupService {
                                 Files.deleteIfExists(p);
                                 result.deletedChatCount++;
                                 result.freedBytes += sz;
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                            }
                         });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         Path defaultChat = StudioPaths.getDataDir().resolve("ai_chat_default.json");
@@ -254,14 +314,16 @@ public class DataCleanupService {
                 Files.deleteIfExists(defaultChat);
                 result.deletedChatCount++;
                 result.freedBytes += sz;
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         // 2. Clear H2 ai_chat_messages table
         try (Connection conn = dbManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages")) {
+                PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages")) {
             ps.executeUpdate();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private void cleanWorkDirectory(CleanupResult result) {
@@ -273,7 +335,8 @@ public class DataCleanupService {
     }
 
     private void cleanDirectoryFiles(Path dir, CleanupResult result, boolean preserveGitKeep) {
-        if (dir == null || !Files.exists(dir)) return;
+        if (dir == null || !Files.exists(dir))
+            return;
 
         try (var walk = Files.walk(dir)) {
             walk.sorted(Comparator.reverseOrder())
@@ -286,20 +349,26 @@ public class DataCleanupService {
                                 result.deletedWorkFilesCount++;
                             }
                             Files.deleteIfExists(p);
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                     });
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private long computeDirectorySize(Path dir) {
-        if (dir == null || !Files.exists(dir)) return 0;
+        if (dir == null || !Files.exists(dir))
+            return 0;
         AtomicLong size = new AtomicLong(0);
         try (var walk = Files.walk(dir)) {
             walk.filter(p -> !Files.isDirectory(p)).forEach(p -> {
-                try { size.addAndGet(Files.size(p)); } catch (Exception ignored) {}
+                try {
+                    size.addAndGet(Files.size(p));
+                } catch (Exception ignored) {
+                }
             });
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return size.get();
     }
 }
-

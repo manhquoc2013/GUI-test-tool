@@ -20,12 +20,12 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
 import java.awt.Desktop;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Modal dialog to view screenshot evidence in full high resolution, with zoom and desktop open options.
+ * Modal dialog to view screenshot evidence in full high resolution, with zoom
+ * and desktop open options.
  */
 public class EvidenceViewerDialog {
 
@@ -101,4 +101,3 @@ public class EvidenceViewerDialog {
         dialog.showAndWait();
     }
 }
-

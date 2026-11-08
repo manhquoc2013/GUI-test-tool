@@ -2,7 +2,6 @@ package com.studio.util;
 
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.control.Button;
 import javafx.scene.control.Labeled;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
@@ -11,12 +10,14 @@ import javafx.scene.shape.SVGPath;
 
 /**
  * Native vector SVG icon library for JavaFX buttons and indicators.
- * Eliminates Unicode emoji font dependencies and tofu box ('[]') rendering issues on Windows.
+ * Eliminates Unicode emoji font dependencies and tofu box ('[]') rendering
+ * issues on Windows.
  * All paths are based on standard 24x24 viewBox coordinates.
  */
 public final class UiIcons {
 
-    private UiIcons() {}
+    private UiIcons() {
+    }
 
     // ── Common Icon Path Definitions (24x24 standard coordinate system) ──
 
@@ -114,9 +115,10 @@ public final class UiIcons {
 
     /**
      * Create a scalable vector graphic node.
+     * 
      * @param pathData SVG path coordinates in 24x24 viewBox
-     * @param size display size in pixels (e.g. 14, 16)
-     * @param fill fill paint, or null to inherit CSS text-fill
+     * @param size     display size in pixels (e.g. 14, 16)
+     * @param fill     fill paint, or null to inherit CSS text-fill
      * @return a Node suitable for Button.setGraphic()
      */
     public static Node icon(String pathData, double size, Paint fill) {
@@ -158,7 +160,8 @@ public final class UiIcons {
      * Set an SVG graphic directly on a button or labeled control.
      */
     public static void setGraphic(Labeled control, String pathData, double size, String hexColor) {
-        if (control == null) return;
+        if (control == null)
+            return;
         control.setGraphic(icon(pathData, size, hexColor));
     }
 

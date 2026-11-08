@@ -4,7 +4,6 @@ import com.studio.model.AiChatMessage;
 import com.studio.model.AiChatSession;
 import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
-import com.studio.service.AiTokenOptimizer;
 import com.studio.store.AiChatHistoryStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -85,7 +84,8 @@ public class AiAssistantChatFlowTest {
         String snapshot = store.createSuiteSnapshot(suiteDir);
 
         // 3. AI generated cases applied to suite
-        Files.writeString(suiteJson, "{\"cases\":[{\"name\":\"ExistingCase\"},{\"name\":\"NewAiCase\"}]}", StandardCharsets.UTF_8);
+        Files.writeString(suiteJson, "{\"cases\":[{\"name\":\"ExistingCase\"},{\"name\":\"NewAiCase\"}]}",
+                StandardCharsets.UTF_8);
         Path newAiCase = suiteDir.resolve("NewAiCase.java");
         Files.writeString(newAiCase, "// New Playwright code", StandardCharsets.UTF_8);
 
@@ -108,4 +108,3 @@ public class AiAssistantChatFlowTest {
         assertFalse(Files.readString(suiteJson).contains("NewAiCase"));
     }
 }
-

@@ -17,7 +17,6 @@ import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.Dragboard;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -36,18 +35,30 @@ import java.util.Objects;
  */
 public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
 
-    @FXML private Label titleLabel;
-    @FXML private TextField assertSearchField;
-    @FXML private ListView<String> assertListView;
-    @FXML private ComboBox<String> typeCombo;
-    @FXML private TextField valueField;
-    @FXML private TextField locatorField;
-    @FXML private ComboBox<String> statusCombo;
-    @FXML private Button addBtn;
-    @FXML private CheckBox exactCheck;
-    @FXML private Spinner<Integer> timeoutSpinner;
-    @FXML private Button closeBtn;
-    @FXML private Button saveBtn;
+    @FXML
+    private Label titleLabel;
+    @FXML
+    private TextField assertSearchField;
+    @FXML
+    private ListView<String> assertListView;
+    @FXML
+    private ComboBox<String> typeCombo;
+    @FXML
+    private TextField valueField;
+    @FXML
+    private TextField locatorField;
+    @FXML
+    private ComboBox<String> statusCombo;
+    @FXML
+    private Button addBtn;
+    @FXML
+    private CheckBox exactCheck;
+    @FXML
+    private Spinner<Integer> timeoutSpinner;
+    @FXML
+    private Button closeBtn;
+    @FXML
+    private Button saveBtn;
 
     private final ObservableList<Assertion> assertions = FXCollections.observableArrayList();
     private TestCase testCase;
@@ -61,7 +72,10 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
     private final List<Integer> visibleAssertIndices = new ArrayList<>();
     /** Snapshot of assertions when dialog opened / last saved. */
     private List<String> baselineFingerprint = List.of();
-    /** After user confirmed discard (or no dirty), skip a second confirm on WINDOW_CLOSE_REQUEST. */
+    /**
+     * After user confirmed discard (or no dirty), skip a second confirm on
+     * WINDOW_CLOSE_REQUEST.
+     */
     private boolean closeAllowed;
 
     private final ProjectStore projectStore = new ProjectStore();
@@ -106,16 +120,19 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         timeoutSpinner.getStyleClass().add("number-spinner");
         addBtn.setOnAction(e -> addAssert());
         saveBtn.setOnAction(e -> save());
-        if (closeBtn != null) closeBtn.setOnAction(e -> closeDialog());
+        if (closeBtn != null)
+            closeBtn.setOnAction(e -> closeDialog());
         com.studio.util.UiIcons.setGraphic(addBtn, com.studio.util.UiIcons.PLUS, 12);
         com.studio.util.UiIcons.setGraphic(saveBtn, com.studio.util.UiIcons.SAVE, 12);
-        if (closeBtn != null) com.studio.util.UiIcons.setGraphic(closeBtn, com.studio.util.UiIcons.CLOSE, 12);
+        if (closeBtn != null)
+            com.studio.util.UiIcons.setGraphic(closeBtn, com.studio.util.UiIcons.CLOSE, 12);
         setupListDragDrop();
         if (assertSearchField != null) {
             assertSearchField.textProperty().addListener((obs, o, n) -> refreshList());
         }
         assertListView.getSelectionModel().selectedIndexProperty().addListener((obs, o, n) -> {
-            if (suppressListSelect || n == null || n.intValue() < 0) return;
+            if (suppressListSelect || n == null || n.intValue() < 0)
+                return;
             int real = toAssertIndex(n.intValue());
             if (real >= 0) {
                 startEditing(real);
@@ -131,7 +148,8 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         }
         setOnShowing(ev -> {
             closeAllowed = false;
-            if (getDialogPane().getScene() == null) return;
+            if (getDialogPane().getScene() == null)
+                return;
             var window = getDialogPane().getScene().getWindow();
             window.setOnCloseRequest(e -> {
                 if (closeAllowed) {
@@ -208,14 +226,17 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                 }
             };
             cell.setOnDragDetected(e -> {
-                if (cell.isEmpty()) return;
-                if (assertSearchActive()) return;
+                if (cell.isEmpty())
+                    return;
+                if (assertSearchActive())
+                    return;
                 if (e.getTarget() instanceof javafx.scene.Node node
                         && findAncestorButton(node) != null) {
                     return;
                 }
                 int real = toAssertIndex(cell.getIndex());
-                if (real < 0) return;
+                if (real < 0)
+                    return;
                 dragSourceIndex = real;
                 Dragboard db = cell.startDragAndDrop(TransferMode.MOVE);
                 ClipboardContent content = new ClipboardContent();
@@ -289,14 +310,16 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
     private static Button findAncestorButton(javafx.scene.Node node) {
         javafx.scene.Node cur = node;
         while (cur != null) {
-            if (cur instanceof Button b) return b;
+            if (cur instanceof Button b)
+                return b;
             cur = cur.getParent();
         }
         return null;
     }
 
     private void removeAt(int idx) {
-        if (idx < 0 || idx >= assertions.size()) return;
+        if (idx < 0 || idx >= assertions.size())
+            return;
         assertions.remove(idx);
         if (editingIndex != null) {
             if (editingIndex == idx) {
@@ -332,12 +355,16 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
 
     /** Prefill form to edit assertion at index (call after setup). */
     public void startEditing(int index) {
-        if (index < 0 || index >= assertions.size()) return;
+        if (index < 0 || index >= assertions.size())
+            return;
         Assertion a = assertions.get(index);
         editingIndex = index;
-        if (typeCombo != null) typeCombo.setValue(a.getType());
-        if (valueField != null) valueField.setText(a.getValue() != null ? a.getValue() : "");
-        if (locatorField != null) locatorField.setText(a.getLocator() != null ? a.getLocator() : "");
+        if (typeCombo != null)
+            typeCombo.setValue(a.getType());
+        if (valueField != null)
+            valueField.setText(a.getValue() != null ? a.getValue() : "");
+        if (locatorField != null)
+            locatorField.setText(a.getLocator() != null ? a.getLocator() : "");
         if (statusCombo != null) {
             String st = a.getStatus() != null ? StatusDisplay.normalize(a.getStatus()) : "ACTIVE";
             if (!"ACTIVE".equals(st) && !"DRAFT".equals(st) && !"INACTIVE".equals(st)) {
@@ -345,7 +372,8 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
             }
             statusCombo.setValue(st);
         }
-        if (exactCheck != null) exactCheck.setSelected(a.isExact());
+        if (exactCheck != null)
+            exactCheck.setSelected(a.isExact());
         if (timeoutSpinner != null && timeoutSpinner.getValueFactory() != null) {
             timeoutSpinner.getValueFactory().setValue(a.getTimeoutMs() > 0 ? a.getTimeoutMs() : 30000);
         }
@@ -366,17 +394,21 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
             return;
         }
         String value = valueField != null && valueField.getText() != null
-                ? valueField.getText().trim() : "";
+                ? valueField.getText().trim()
+                : "";
         String locator = locatorField != null && locatorField.getText() != null
-                ? locatorField.getText().trim() : "";
+                ? locatorField.getText().trim()
+                : "";
         if (needsValue(type) && value.isEmpty()) {
             ToastService.warn("⚠️ Loại " + type + " cần điền Giá trị (text cần kiểm tra)");
-            if (valueField != null) valueField.requestFocus();
+            if (valueField != null)
+                valueField.requestFocus();
             return;
         }
         if (needsLocator(type) && locator.isEmpty()) {
             ToastService.warn("⚠️ Loại " + type + " cần Locator (selector Playwright)");
-            if (locatorField != null) locatorField.requestFocus();
+            if (locatorField != null)
+                locatorField.requestFocus();
             return;
         }
         Assertion a = (editingIndex != null && editingIndex >= 0 && editingIndex < assertions.size())
@@ -486,16 +518,19 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
 
     private boolean isFormDirty() {
         String value = valueField != null && valueField.getText() != null
-                ? valueField.getText().trim() : "";
+                ? valueField.getText().trim()
+                : "";
         String locator = locatorField != null && locatorField.getText() != null
-                ? locatorField.getText().trim() : "";
+                ? locatorField.getText().trim()
+                : "";
         if (editingIndex != null && editingIndex >= 0 && editingIndex < assertions.size()) {
             Assertion a = assertions.get(editingIndex);
             String type = typeCombo != null ? typeCombo.getValue() : null;
             String status = statusCombo != null ? statusCombo.getValue() : null;
             boolean exact = exactCheck != null && exactCheck.isSelected();
             int timeout = timeoutSpinner != null && timeoutSpinner.getValue() != null
-                    ? timeoutSpinner.getValue() : 30000;
+                    ? timeoutSpinner.getValue()
+                    : 30000;
             return !Objects.equals(type, a.getType())
                     || !Objects.equals(value, a.getValue() != null ? a.getValue() : "")
                     || !Objects.equals(locator, a.getLocator() != null ? a.getLocator() : "")
@@ -525,7 +560,8 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
     }
 
     private void refreshList() {
-        int keep = editingIndex != null ? editingIndex : toAssertIndex(assertListView.getSelectionModel().getSelectedIndex());
+        int keep = editingIndex != null ? editingIndex
+                : toAssertIndex(assertListView.getSelectionModel().getSelectedIndex());
         String query = assertSearchField != null ? assertSearchField.getText() : "";
         suppressListSelect = true;
         visibleAssertIndices.clear();
@@ -558,7 +594,8 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
     }
 
     private static boolean assertMatchesSearch(Assertion a, String query) {
-        if (query == null || query.isBlank()) return true;
+        if (query == null || query.isBlank())
+            return true;
         String q = query.trim().toLowerCase(java.util.Locale.ROOT);
         String type = a.getType() != null ? a.getType().toLowerCase(java.util.Locale.ROOT) : "";
         String typeLabel = AssertTypeDisplay.label(a.getType()).toLowerCase(java.util.Locale.ROOT);
@@ -571,12 +608,18 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
 
     private void clearForm() {
         editingIndex = null;
-        if (valueField != null) valueField.clear();
-        if (locatorField != null) locatorField.clear();
-        if (exactCheck != null) exactCheck.setSelected(false);
-        if (typeCombo != null) typeCombo.setValue("TEXT_VISIBLE");
-        if (statusCombo != null) statusCombo.setValue("ACTIVE");
-        if (timeoutSpinner != null) timeoutSpinner.getValueFactory().setValue(30000);
+        if (valueField != null)
+            valueField.clear();
+        if (locatorField != null)
+            locatorField.clear();
+        if (exactCheck != null)
+            exactCheck.setSelected(false);
+        if (typeCombo != null)
+            typeCombo.setValue("TEXT_VISIBLE");
+        if (statusCombo != null)
+            statusCombo.setValue("ACTIVE");
+        if (timeoutSpinner != null)
+            timeoutSpinner.getValueFactory().setValue(30000);
         if (addBtn != null) {
             addBtn.setText("Thêm");
             com.studio.util.UiIcons.setGraphic(addBtn, com.studio.util.UiIcons.PLUS, 12);

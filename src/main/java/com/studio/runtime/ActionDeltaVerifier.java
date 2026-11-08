@@ -2,15 +2,16 @@ package com.studio.runtime;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.WaitForSelectorState;
 
 import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
  * Action-Delta State Verification Engine (inspired by Skyvern).
- * Verifies that a browser interaction actually triggered an expected page state change
- * (navigation, DOM mutation, modal emergence) and provides recovery tactics for "phantom clicks".
+ * Verifies that a browser interaction actually triggered an expected page state
+ * change
+ * (navigation, DOM mutation, modal emergence) and provides recovery tactics for
+ * "phantom clicks".
  */
 public class ActionDeltaVerifier {
 
@@ -39,7 +40,8 @@ public class ActionDeltaVerifier {
         private final boolean recovered;
         private final String recoveryStrategy;
 
-        public DeltaResult(boolean stateChanged, boolean urlChanged, boolean domMutated, boolean recovered, String recoveryStrategy) {
+        public DeltaResult(boolean stateChanged, boolean urlChanged, boolean domMutated, boolean recovered,
+                String recoveryStrategy) {
             this.stateChanged = stateChanged;
             this.urlChanged = urlChanged;
             this.domMutated = domMutated;
@@ -83,13 +85,16 @@ public class ActionDeltaVerifier {
             try {
                 // Count primary interactive elements on viewport
                 count = page.locator("button, a, input, select, textarea, [role='button'], [role='dialog']").count();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
             try {
-                Object res = page.evaluate("() => document.body ? (document.body.innerText.length ^ (document.body.children ? document.body.children.length : 0)) : 0");
+                Object res = page.evaluate(
+                        "() => document.body ? (document.body.innerText.length ^ (document.body.children ? document.body.children.length : 0)) : 0");
                 if (res instanceof Number num) {
                     signature = num.intValue();
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
             return new DeltaSnapshot(url, title, count, signature);
         } catch (Exception e) {
             return new DeltaSnapshot("", "", 0, 0);
@@ -98,11 +103,12 @@ public class ActionDeltaVerifier {
 
     /**
      * Executes an interaction and verifies whether a state transition occurred.
-     * If no transition is observed, applies resilient recovery tactics (force click, dispatchEvent, scroll).
+     * If no transition is observed, applies resilient recovery tactics (force
+     * click, dispatchEvent, scroll).
      *
-     * @param page active Playwright page
+     * @param page          active Playwright page
      * @param targetLocator locator being acted upon
-     * @param action the primary action to perform
+     * @param action        the primary action to perform
      * @return DeltaResult indicating transition and whether recovery was required
      */
     public static DeltaResult executeAndVerify(Page page, Locator targetLocator, Consumer<Locator> action) {
@@ -118,7 +124,8 @@ public class ActionDeltaVerifier {
         // Brief stabilization window (50ms) for microtasks / animations
         try {
             page.waitForTimeout(50);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         DeltaSnapshot after = captureSnapshot(page);
         boolean urlChanged = !Objects.equals(before.url, after.url);
@@ -138,22 +145,26 @@ public class ActionDeltaVerifier {
             action.accept(targetLocator);
             page.waitForTimeout(50);
             DeltaSnapshot recovery1 = captureSnapshot(page);
-            if (!Objects.equals(before.url, recovery1.url) || before.interactiveCount != recovery1.interactiveCount || before.domSignature != recovery1.domSignature) {
-                return new DeltaResult(true, !Objects.equals(before.url, recovery1.url), true, true, "SCROLL_INTO_VIEW");
+            if (!Objects.equals(before.url, recovery1.url) || before.interactiveCount != recovery1.interactiveCount
+                    || before.domSignature != recovery1.domSignature) {
+                return new DeltaResult(true, !Objects.equals(before.url, recovery1.url), true, true,
+                        "SCROLL_INTO_VIEW");
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         // Strategy 2: Dispatch Click Event (bypasses overlays / covered elements)
         try {
             targetLocator.dispatchEvent("click");
             page.waitForTimeout(50);
             DeltaSnapshot recovery2 = captureSnapshot(page);
-            if (!Objects.equals(before.url, recovery2.url) || before.interactiveCount != recovery2.interactiveCount || before.domSignature != recovery2.domSignature) {
+            if (!Objects.equals(before.url, recovery2.url) || before.interactiveCount != recovery2.interactiveCount
+                    || before.domSignature != recovery2.domSignature) {
                 return new DeltaResult(true, !Objects.equals(before.url, recovery2.url), true, true, "DISPATCH_EVENT");
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         return new DeltaResult(false, false, false, false, "FAILED");
     }
 }
-

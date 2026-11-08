@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,8 +55,7 @@ class AssertReconciliationTest {
                 List.of(a1, a2),
                 List.of(a1, a2),
                 failure,
-                "Locator expected to contain text: Invalid"
-        );
+                "Locator expected to contain text: Invalid");
 
         assertNotNull(results);
         assertEquals(2, results.size());
@@ -93,8 +91,7 @@ class AssertReconciliationTest {
                 List.of(a1),
                 List.of(a1),
                 crash,
-                "Timeout 30000ms waiting for page navigation"
-        );
+                "Timeout 30000ms waiting for page navigation");
 
         assertNotNull(results);
         assertEquals(1, results.size());
@@ -102,4 +99,3 @@ class AssertReconciliationTest {
         assertTrue(results.get(0).getMessage().contains("Timeout 30000ms"));
     }
 }
-

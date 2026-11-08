@@ -47,7 +47,8 @@ class TestRunnerProfileVariableIntegrationTest {
         stepGroupStore = new StepGroupStore(stepGroupsDir);
         profileStore = new TestDataProfileStore(testDataDir);
 
-        runnerService = new TestRunnerService(projectStore, reportStore, settingsStore, null, stepGroupStore, profileStore);
+        runnerService = new TestRunnerService(projectStore, reportStore, settingsStore, null, stepGroupStore,
+                profileStore);
     }
 
     @AfterEach
@@ -56,7 +57,10 @@ class TestRunnerProfileVariableIntegrationTest {
             try (var stream = Files.walk(tempDir)) {
                 stream.sorted(Comparator.reverseOrder())
                         .forEach(p -> {
-                            try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                            try {
+                                Files.deleteIfExists(p);
+                            } catch (Exception ignored) {
+                            }
                         });
             }
         }

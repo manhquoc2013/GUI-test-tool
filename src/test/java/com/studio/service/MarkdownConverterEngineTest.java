@@ -16,7 +16,6 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,7 +43,7 @@ class MarkdownConverterEngineTest {
     void testConvertDocxWithHeadingsAndTables() throws IOException {
         Path docxFile = tempDir.resolve("sample.docx");
         try (XWPFDocument doc = new XWPFDocument();
-             FileOutputStream out = new FileOutputStream(docxFile.toFile())) {
+                FileOutputStream out = new FileOutputStream(docxFile.toFile())) {
 
             XWPFParagraph h1 = doc.createParagraph();
             h1.setStyle("Heading 1");
@@ -80,7 +79,7 @@ class MarkdownConverterEngineTest {
     void testConvertExcelWorkbook() throws IOException {
         Path xlsxFile = tempDir.resolve("test_matrix.xlsx");
         try (XSSFWorkbook wb = new XSSFWorkbook();
-             FileOutputStream out = new FileOutputStream(xlsxFile.toFile())) {
+                FileOutputStream out = new FileOutputStream(xlsxFile.toFile())) {
 
             Sheet sheet = wb.createSheet("Test Cases");
             Row r0 = sheet.createRow(0);
@@ -109,7 +108,7 @@ class MarkdownConverterEngineTest {
     void testConvertPowerPoint() throws IOException {
         Path pptxFile = tempDir.resolve("presentation.pptx");
         try (XMLSlideShow ppt = new XMLSlideShow();
-             FileOutputStream out = new FileOutputStream(pptxFile.toFile())) {
+                FileOutputStream out = new FileOutputStream(pptxFile.toFile())) {
 
             XSLFSlide slide = ppt.createSlide();
             XSLFTextBox shape = slide.createTextBox();
@@ -193,7 +192,7 @@ class MarkdownConverterEngineTest {
     void testConvertDocxInterleavedParagraphAndTableOrder() throws IOException {
         Path docxFile = tempDir.resolve("interleaved.docx");
         try (XWPFDocument doc = new XWPFDocument();
-             FileOutputStream out = new FileOutputStream(docxFile.toFile())) {
+                FileOutputStream out = new FileOutputStream(docxFile.toFile())) {
 
             // 1. Heading 1
             XWPFParagraph h1 = doc.createParagraph();
@@ -240,4 +239,3 @@ class MarkdownConverterEngineTest {
         assertEquals(firstCheck, secondCheck);
     }
 }
-

@@ -1,11 +1,7 @@
 package com.studio.controller;
 
 import javafx.application.Platform;
-import javafx.event.ActionEvent;
-import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.TreeCell;
-import javafx.scene.control.TreeView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
@@ -23,7 +19,8 @@ class InlineActionButtonsTest {
     @BeforeAll
     static void initFx() {
         try {
-            Platform.startup(() -> {});
+            Platform.startup(() -> {
+            });
         } catch (IllegalStateException ignored) {
             // Already initialized
         }
@@ -49,8 +46,7 @@ class InlineActionButtonsTest {
         MouseEvent clickOnSvg = new MouseEvent(
                 svg, svg, MouseEvent.MOUSE_PRESSED,
                 0, 0, 0, 0, MouseButton.PRIMARY, 1,
-                false, false, false, false, true, false, false, true, false, false, null
-        );
+                false, false, false, false, true, false, false, true, false, false, null);
 
         boolean isActionBtn = (boolean) m.invoke(null, clickOnSvg);
         assertTrue(isActionBtn, "Click trên SVG bên trong action button phải được nhận diện là action button event");
@@ -59,8 +55,7 @@ class InlineActionButtonsTest {
         MouseEvent clickOnBtn = new MouseEvent(
                 btn, btn, MouseEvent.MOUSE_PRESSED,
                 0, 0, 0, 0, MouseButton.PRIMARY, 1,
-                false, false, false, false, true, false, false, true, false, false, null
-        );
+                false, false, false, false, true, false, false, true, false, false, null);
         assertTrue((boolean) m.invoke(null, clickOnBtn));
 
         // Scenario 3: Target is a normal cell text / row (not an action button)
@@ -69,9 +64,9 @@ class InlineActionButtonsTest {
         MouseEvent clickOnRow = new MouseEvent(
                 normalRow, normalRow, MouseEvent.MOUSE_PRESSED,
                 0, 0, 0, 0, MouseButton.PRIMARY, 1,
-                false, false, false, false, true, false, false, true, false, false, null
-        );
-        assertFalse((boolean) m.invoke(null, clickOnRow), "Click trên hàng thông thường không phải là action button event");
+                false, false, false, false, true, false, false, true, false, false, null);
+        assertFalse((boolean) m.invoke(null, clickOnRow),
+                "Click trên hàng thông thường không phải là action button event");
     }
 
     @Test

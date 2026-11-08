@@ -13,7 +13,6 @@ import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 
 import java.io.File;
-import java.nio.file.Path;
 import java.util.Optional;
 
 /**
@@ -43,7 +42,8 @@ public class DataCleanupDialog {
 
         // ── 1. Settings Safety & Backup Banner ──
         VBox safetyBox = new VBox(8);
-        safetyBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: #10b981; -fx-border-radius: 8; -fx-border-width: 1;");
+        safetyBox.setStyle(
+                "-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: #10b981; -fx-border-radius: 8; -fx-border-width: 1;");
 
         HBox safetyHeader = new HBox(8);
         safetyHeader.setAlignment(Pos.CENTER_LEFT);
@@ -51,7 +51,8 @@ public class DataCleanupDialog {
         safetyTitle.setStyle("-fx-font-weight: bold; -fx-text-fill: #10b981; -fx-font-size: 13px;");
         safetyHeader.getChildren().add(safetyTitle);
 
-        Label safetyDesc = new Label("Mọi cấu hình (Theme, Trình duyệt mặc định, OpenAI API Key, Model, Timeout...) được lưu kép trên file và database nhúng H2, không bao giờ bị xóa khi dọn dẹp.");
+        Label safetyDesc = new Label(
+                "Mọi cấu hình (Theme, Trình duyệt mặc định, OpenAI API Key, Model, Timeout...) được lưu kép trên file và database nhúng H2, không bao giờ bị xóa khi dọn dẹp.");
         safetyDesc.setWrapText(true);
         safetyDesc.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
 
@@ -100,13 +101,15 @@ public class DataCleanupDialog {
 
         // ── 2. Maintenance Targets Section ──
         VBox targetsBox = new VBox(10);
-        targetsBox.setStyle("-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-radius: 8;");
+        targetsBox.setStyle(
+                "-fx-background-color: -color-surface; -fx-padding: 12 14; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-radius: 8;");
 
         Label targetsTitle = new Label("Chọn dữ liệu cần dọn dẹp:");
         targetsTitle.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
         // Target A: Reports
-        CheckBox cleanReportsCb = new CheckBox("Lịch sử chạy & Báo cáo kiểm thử (" + initialStats.reportsCount + " báo cáo, " + initialStats.formatBytes(initialStats.reportsBytes) + ")");
+        CheckBox cleanReportsCb = new CheckBox("Lịch sử chạy & Báo cáo kiểm thử (" + initialStats.reportsCount
+                + " báo cáo, " + initialStats.formatBytes(initialStats.reportsBytes) + ")");
         cleanReportsCb.setSelected(true);
 
         HBox retentionBox = new HBox(8);
@@ -119,18 +122,19 @@ public class DataCleanupDialog {
         retentionCombo.getItems().addAll(
                 "Xóa toàn bộ báo cáo cũ",
                 "Giữ lại 5 báo cáo mới nhất",
-                "Giữ lại 10 báo cáo mới nhất"
-        );
+                "Giữ lại 10 báo cáo mới nhất");
         retentionCombo.getSelectionModel().select(1); // Default keep 5
         retentionCombo.disableProperty().bind(cleanReportsCb.selectedProperty().not());
         retentionBox.getChildren().addAll(retentionLabel, retentionCombo);
 
         // Target B: AI Chat
-        CheckBox cleanChatCb = new CheckBox("Lịch sử hội thoại Trợ lý AI (" + initialStats.chatFilesCount + " phiên, " + initialStats.formatBytes(initialStats.chatBytes) + ")");
+        CheckBox cleanChatCb = new CheckBox("Lịch sử hội thoại Trợ lý AI (" + initialStats.chatFilesCount + " phiên, "
+                + initialStats.formatBytes(initialStats.chatBytes) + ")");
         cleanChatCb.setSelected(true);
 
         // Target C: Work Dir
-        CheckBox cleanWorkCb = new CheckBox("Thư mục làm việc tạm thời work/ (" + initialStats.workFilesCount + " files, " + initialStats.formatBytes(initialStats.workBytes) + ")");
+        CheckBox cleanWorkCb = new CheckBox("Thư mục làm việc tạm thời work/ (" + initialStats.workFilesCount
+                + " files, " + initialStats.formatBytes(initialStats.workBytes) + ")");
         cleanWorkCb.setSelected(true);
 
         targetsBox.getChildren().addAll(targetsTitle, cleanReportsCb, retentionBox, cleanChatCb, cleanWorkCb);
@@ -150,7 +154,8 @@ public class DataCleanupDialog {
 
         executeBtn.setOnAction(e -> {
             if (com.studio.service.RunCancelService.isRunActive()) {
-                ToastService.error("Không thể dọn dẹp dữ liệu khi kiểm thử đang chạy. Vui lòng dừng hoặc chờ phiên chạy hoàn tất.");
+                ToastService.error(
+                        "Không thể dọn dẹp dữ liệu khi kiểm thử đang chạy. Vui lòng dừng hoặc chờ phiên chạy hoàn tất.");
                 return;
             }
             if (!cleanReportsCb.isSelected() && !cleanChatCb.isSelected() && !cleanWorkCb.isSelected()) {
@@ -161,7 +166,8 @@ public class DataCleanupDialog {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
             confirm.setTitle("Xác nhận dọn dẹp hệ thống");
             confirm.setHeaderText("Xác nhận dọn dẹp dữ liệu đã chọn");
-            confirm.setContentText("Các báo cáo, lịch sử chat hoặc file tạm đã chọn sẽ được giải phóng. Bạn có chắc chắn muốn tiếp tục?");
+            confirm.setContentText(
+                    "Các báo cáo, lịch sử chat hoặc file tạm đã chọn sẽ được giải phóng. Bạn có chắc chắn muốn tiếp tục?");
             DialogTheme.apply(confirm);
 
             Optional<ButtonType> confirmResult = confirm.showAndWait();
@@ -170,15 +176,16 @@ public class DataCleanupDialog {
             }
 
             int keep = 0;
-            if (retentionCombo.getSelectionModel().getSelectedIndex() == 1) keep = 5;
-            else if (retentionCombo.getSelectionModel().getSelectedIndex() == 2) keep = 10;
+            if (retentionCombo.getSelectionModel().getSelectedIndex() == 1)
+                keep = 5;
+            else if (retentionCombo.getSelectionModel().getSelectedIndex() == 2)
+                keep = 10;
 
             DataCleanupService.CleanupOptions options = new DataCleanupService.CleanupOptions(
                     cleanReportsCb.isSelected(),
                     keep,
                     cleanChatCb.isSelected(),
-                    cleanWorkCb.isSelected()
-            );
+                    cleanWorkCb.isSelected());
 
             executeBtn.setDisable(true);
             progress.setVisible(true);
@@ -194,7 +201,8 @@ public class DataCleanupDialog {
                     String msg = "✨ Đã dọn dẹp xong! Giải phóng: " + result.formatFreedSpace()
                             + " (Đã xóa " + result.getDeletedReportsCount() + " báo cáo, "
                             + result.getDeletedChatCount() + " phiên chat, "
-                            + result.getDeletedWorkFilesCount() + " file tạm). Cấu hình hệ thống được giữ an toàn tuyệt đối.";
+                            + result.getDeletedWorkFilesCount()
+                            + " file tạm). Cấu hình hệ thống được giữ an toàn tuyệt đối.";
                     ToastService.success(msg);
                     dialog.close();
                 });
@@ -212,4 +220,3 @@ public class DataCleanupDialog {
         dialog.showAndWait();
     }
 }
-

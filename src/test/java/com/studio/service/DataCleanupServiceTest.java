@@ -1,7 +1,6 @@
 package com.studio.service;
 
 import com.studio.db.DatabaseManager;
-import com.studio.model.AiChatMessage;
 import com.studio.model.RunReport;
 import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ReportStore;
@@ -133,4 +132,3 @@ public class DataCleanupServiceTest {
         }
     }
 }
-

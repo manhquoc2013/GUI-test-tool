@@ -29,7 +29,6 @@ import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
-import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
@@ -55,49 +54,82 @@ import java.util.Optional;
 public class ReportDetailPageController {
 
     // --- Header ---
-    @FXML private Label summaryLabel;
-    @FXML private ComboBox<String> caseFilter;
-    @FXML private Button exportHtmlBtn;
-    @FXML private Button exportBtn;
-    @FXML private Button deleteReportBtn;
-    @FXML private Button backBtn;
+    @FXML
+    private Label summaryLabel;
+    @FXML
+    private ComboBox<String> caseFilter;
+    @FXML
+    private Button exportHtmlBtn;
+    @FXML
+    private Button exportBtn;
+    @FXML
+    private Button deleteReportBtn;
+    @FXML
+    private Button backBtn;
 
     // --- Cases table ---
-    @FXML private TableView<CaseResult> casesTable;
-    @FXML private TableColumn<CaseResult, Integer> caseIndexCol;
-    @FXML private TableColumn<CaseResult, String> caseNameCol;
-    @FXML private TableColumn<CaseResult, String> caseSuiteCol;
-    @FXML private TableColumn<CaseResult, String> caseStatusCol;
-    @FXML private TableColumn<CaseResult, String> caseDurationCol;
-    @FXML private TableColumn<CaseResult, Void> caseEvidenceCol;
-    @FXML private TableColumn<CaseResult, String> caseReasonCol;
+    @FXML
+    private TableView<CaseResult> casesTable;
+    @FXML
+    private TableColumn<CaseResult, Integer> caseIndexCol;
+    @FXML
+    private TableColumn<CaseResult, String> caseNameCol;
+    @FXML
+    private TableColumn<CaseResult, String> caseSuiteCol;
+    @FXML
+    private TableColumn<CaseResult, String> caseStatusCol;
+    @FXML
+    private TableColumn<CaseResult, String> caseDurationCol;
+    @FXML
+    private TableColumn<CaseResult, Void> caseEvidenceCol;
+    @FXML
+    private TableColumn<CaseResult, String> caseReasonCol;
 
     // --- Asserts detail table ---
-    @FXML private TableView<AssertResult> assertsTable;
-    @FXML private TableColumn<AssertResult, Integer> assertIndexCol;
-    @FXML private TableColumn<AssertResult, String> assertTypeCol;
-    @FXML private TableColumn<AssertResult, String> assertDetailCol;
-    @FXML private TableColumn<AssertResult, String> assertConfigCol;
-    @FXML private TableColumn<AssertResult, String> assertResultCol;
-    @FXML private TableColumn<AssertResult, String> assertMessageCol;
+    @FXML
+    private TableView<AssertResult> assertsTable;
+    @FXML
+    private TableColumn<AssertResult, Integer> assertIndexCol;
+    @FXML
+    private TableColumn<AssertResult, String> assertTypeCol;
+    @FXML
+    private TableColumn<AssertResult, String> assertDetailCol;
+    @FXML
+    private TableColumn<AssertResult, String> assertConfigCol;
+    @FXML
+    private TableColumn<AssertResult, String> assertResultCol;
+    @FXML
+    private TableColumn<AssertResult, String> assertMessageCol;
 
     // --- Screenshot ---
-    @FXML private Label screenshotLabel;
-    @FXML private Button viewScreenshotBtn;
-    @FXML private ImageView screenshotView;
+    @FXML
+    private Label screenshotLabel;
+    @FXML
+    private Button viewScreenshotBtn;
+    @FXML
+    private ImageView screenshotView;
 
     // --- Log excerpt ---
-    @FXML private Label detailLogHeader;
-    @FXML private TextArea logExcerpt;
+    @FXML
+    private Label detailLogHeader;
+    @FXML
+    private TextArea logExcerpt;
 
     // --- Right detail drawer (help-style overlay) ---
-    @FXML private StackPane detailLayer;
-    @FXML private Region detailScrim;
-    @FXML private VBox caseDetailSidebar;
-    @FXML private ScrollPane detailScroll;
-    @FXML private VBox detailBody;
-    @FXML private Label detailCaseTitle;
-    @FXML private Button closeDetailBtn;
+    @FXML
+    private StackPane detailLayer;
+    @FXML
+    private Region detailScrim;
+    @FXML
+    private VBox caseDetailSidebar;
+    @FXML
+    private ScrollPane detailScroll;
+    @FXML
+    private VBox detailBody;
+    @FXML
+    private Label detailCaseTitle;
+    @FXML
+    private Button closeDetailBtn;
 
     private final ReportStore reportStore = new ReportStore();
     private RunReport currentReport;
@@ -156,7 +188,8 @@ public class ReportDetailPageController {
     }
 
     private void applyDrawerWidth(double pageWidth) {
-        if (caseDetailSidebar == null || pageWidth <= 0) return;
+        if (caseDetailSidebar == null || pageWidth <= 0)
+            return;
         double w = Math.max(360, pageWidth * 0.8);
         caseDetailSidebar.setPrefWidth(w);
         caseDetailSidebar.setMinWidth(w);
@@ -173,18 +206,19 @@ public class ReportDetailPageController {
                 ResponsiveTableColumns.Spec.fixed(caseEvidenceCol, 110),
                 ResponsiveTableColumns.Spec.flex(caseReasonCol, 1.6, 120));
 
-        caseIndexCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleIntegerProperty(cell.getValue().getIndex() + 1).asObject());
+        caseIndexCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleIntegerProperty(cell.getValue().getIndex() + 1).asObject());
 
-        caseNameCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getTestCaseName()));
+        caseNameCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getTestCaseName()));
 
-        caseSuiteCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getSuiteName() != null
-                        ? cell.getValue().getSuiteName() : ""));
+        caseSuiteCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getSuiteName() != null
+                        ? cell.getValue().getSuiteName()
+                        : ""));
 
-        caseStatusCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getStatus()));
+        caseStatusCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getStatus()));
         caseStatusCol.setCellFactory(col -> new TableCell<CaseResult, String>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -282,7 +316,8 @@ public class ReportDetailPageController {
     }
 
     private void setupAssertColumns() {
-        Label emptyAssertPlaceholder = new Label("Không có kết quả Assert (kịch bản không khai báo assertion hoặc gặp ngoại lệ trong quá trình chạy).");
+        Label emptyAssertPlaceholder = new Label(
+                "Không có kết quả Assert (kịch bản không khai báo assertion hoặc gặp ngoại lệ trong quá trình chạy).");
         emptyAssertPlaceholder.setStyle("-fx-text-fill: #94a3b8; -fx-font-style: italic; -fx-padding: 10px;");
         assertsTable.setPlaceholder(emptyAssertPlaceholder);
 
@@ -294,16 +329,16 @@ public class ReportDetailPageController {
                 ResponsiveTableColumns.Spec.fixed(assertResultCol, 110),
                 ResponsiveTableColumns.Spec.flex(assertMessageCol, 1.6, 120));
 
-        assertIndexCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleIntegerProperty(cell.getValue().getIndex() + 1).asObject());
+        assertIndexCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleIntegerProperty(cell.getValue().getIndex() + 1).asObject());
 
-        assertTypeCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(
-                        AssertTypeDisplay.label(cell.getValue().getType())));
+        assertTypeCol.setCellValueFactory(cell -> new javafx.beans.property.SimpleStringProperty(
+                AssertTypeDisplay.label(cell.getValue().getType())));
 
-        assertDetailCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getDetail() != null
-                        ? cell.getValue().getDetail() : ""));
+        assertDetailCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getDetail() != null
+                        ? cell.getValue().getDetail()
+                        : ""));
 
         // Config column shows assertStatus if available, otherwise status
         assertConfigCol.setCellValueFactory(cell -> {
@@ -315,9 +350,10 @@ public class ReportDetailPageController {
             return new javafx.beans.property.SimpleStringProperty(val != null ? val : "");
         });
 
-        assertResultCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getStatus() != null
-                        ? cell.getValue().getStatus() : ""));
+        assertResultCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getStatus() != null
+                        ? cell.getValue().getStatus()
+                        : ""));
         assertResultCol.setCellFactory(col -> new TableCell<AssertResult, String>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -347,9 +383,10 @@ public class ReportDetailPageController {
             }
         });
 
-        assertMessageCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getMessage() != null
-                        ? cell.getValue().getMessage() : ""));
+        assertMessageCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getMessage() != null
+                        ? cell.getValue().getMessage()
+                        : ""));
     }
 
     private static boolean isLifecycleStatus(String value) {
@@ -368,16 +405,19 @@ public class ReportDetailPageController {
                 "PASSED",
                 "FAILED",
                 "ERROR",
-                "SKIPPED"
-        ));
+                "SKIPPED"));
         caseFilter.setConverter(new javafx.util.StringConverter<>() {
             @Override
             public String toString(String s) {
-                if (s == null || StatusDisplay.isAll(s)) return StatusDisplay.ALL_LABEL;
+                if (s == null || StatusDisplay.isAll(s))
+                    return StatusDisplay.ALL_LABEL;
                 return StatusDisplay.label(s);
             }
+
             @Override
-            public String fromString(String s) { return s; }
+            public String fromString(String s) {
+                return s;
+            }
         });
         caseFilter.setValue(StatusDisplay.ALL_LABEL);
     }
@@ -507,15 +547,15 @@ public class ReportDetailPageController {
 
     /** Refresh the summary label from the current report. */
     private void updateSummary() {
-        if (currentReport == null) return;
+        if (currentReport == null)
+            return;
         String runId = currentReport.getRunId() != null ? currentReport.getRunId() : "—";
         summaryLabel.setText(String.format(
                 "🆔 %s  ·  ✅ %d Đạt  ·  ❌ %d Thất bại  ·  ⏭️ %d Bỏ qua",
                 runId,
                 currentReport.getPassed(),
                 currentReport.getFailed(),
-                currentReport.getSkipped()
-        ));
+                currentReport.getSkipped()));
     }
 
     // --- Case filter ---
@@ -672,7 +712,8 @@ public class ReportDetailPageController {
     }
 
     private void loadScreenshotPreview(String screenshotPath) {
-        if (screenshotView == null) return;
+        if (screenshotView == null)
+            return;
         try {
             Path path = Path.of(screenshotPath);
             if (!Files.isRegularFile(path)) {
@@ -705,7 +746,8 @@ public class ReportDetailPageController {
                 : (exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null);
 
         Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (HTML)");
-        if (langOpt.isEmpty()) return;
+        if (langOpt.isEmpty())
+            return;
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
@@ -723,7 +765,8 @@ public class ReportDetailPageController {
                     if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                         Desktop.getDesktop().browse(file.toURI());
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             } catch (Exception e) {
                 ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
             }
@@ -739,7 +782,8 @@ public class ReportDetailPageController {
 
         Window window = exportBtn != null && exportBtn.getScene() != null ? exportBtn.getScene().getWindow() : null;
         Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (Excel)");
-        if (langOpt.isEmpty()) return;
+        if (langOpt.isEmpty())
+            return;
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
@@ -809,8 +853,10 @@ public class ReportDetailPageController {
     // --- Helpers ---
 
     private static String truncate(String s, int maxLen) {
-        if (s == null) return "";
-        if (s.length() <= maxLen) return s;
+        if (s == null)
+            return "";
+        if (s.length() <= maxLen)
+            return s;
         return s.substring(0, maxLen) + "…";
     }
 }

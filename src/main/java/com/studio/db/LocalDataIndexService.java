@@ -5,7 +5,6 @@ import com.studio.model.*;
 import com.studio.store.AiChatHistoryStore;
 import com.studio.util.StudioPaths;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -15,15 +14,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * High-performance synchronization service that mirrors file-based project assets,
+ * High-performance synchronization service that mirrors file-based project
+ * assets,
  * test runs, and chat sessions into the local embedded H2 database.
  */
 public class LocalDataIndexService {
@@ -41,7 +39,8 @@ public class LocalDataIndexService {
     }
 
     /**
-     * Complete synchronization of workspace files and reports into H2 cache with MTime caching.
+     * Complete synchronization of workspace files and reports into H2 cache with
+     * MTime caching.
      * Files unchanged since their recorded database timestamp are skipped.
      */
     public synchronized void syncAllFromDisk() {
@@ -60,28 +59,34 @@ public class LocalDataIndexService {
     }
 
     public void syncProjectDirectory(Path projectDir) {
-        if (projectDir == null || !Files.exists(projectDir)) return;
+        if (projectDir == null || !Files.exists(projectDir))
+            return;
         Map<String, Long> groupMtimes = loadGroupMtimes();
         Map<String, Long> suiteMtimes = loadSuiteMtimes();
         syncProjectDirectoryInternal(projectDir, groupMtimes, suiteMtimes);
     }
 
-    private void syncProjectDirectoryInternal(Path projectDir, Map<String, Long> groupMtimes, Map<String, Long> suiteMtimes) {
+    private void syncProjectDirectoryInternal(Path projectDir, Map<String, Long> groupMtimes,
+            Map<String, Long> suiteMtimes) {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(projectDir)) {
             for (Path entry : stream) {
-                if (!Files.isDirectory(entry)) continue;
+                if (!Files.isDirectory(entry))
+                    continue;
                 Path groupJson = entry.resolve("group.json");
                 Path suiteJson = entry.resolve("suite.json");
                 if (Files.exists(groupJson)) {
                     syncGroupDirectoryInternal(entry, entry.getFileName().toString(), groupMtimes, suiteMtimes);
                 } else if (Files.exists(suiteJson)) {
-                    syncSuiteFileIfModified(entry, "", childSuiteId("", entry.getFileName().toString()), suiteJson, suiteMtimes);
+                    syncSuiteFileIfModified(entry, "", childSuiteId("", entry.getFileName().toString()), suiteJson,
+                            suiteMtimes);
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
-    private void syncGroupDirectoryInternal(Path groupDir, String groupPath, Map<String, Long> groupMtimes, Map<String, Long> suiteMtimes) {
+    private void syncGroupDirectoryInternal(Path groupDir, String groupPath, Map<String, Long> groupMtimes,
+            Map<String, Long> suiteMtimes) {
         try {
             Path groupJson = groupDir.resolve("group.json");
             if (Files.exists(groupJson)) {
@@ -93,13 +98,15 @@ public class LocalDataIndexService {
                         TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
                         indexGroup(group, groupDir);
                         groupMtimes.put(groupName, System.currentTimeMillis());
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
             }
 
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupDir)) {
                 for (Path entry : stream) {
-                    if (!Files.isDirectory(entry)) continue;
+                    if (!Files.isDirectory(entry))
+                        continue;
                     Path childGroupJson = entry.resolve("group.json");
                     Path childSuiteJson = entry.resolve("suite.json");
                     if (Files.exists(childGroupJson)) {
@@ -108,18 +115,21 @@ public class LocalDataIndexService {
                                 : entry.getFileName().toString();
                         syncGroupDirectoryInternal(entry, nestedPath, groupMtimes, suiteMtimes);
                     } else if (Files.exists(childSuiteJson)) {
-                        syncSuiteFileIfModified(entry, groupPath, childSuiteId(groupPath, entry.getFileName().toString()), childSuiteJson, suiteMtimes);
+                        syncSuiteFileIfModified(entry, groupPath,
+                                childSuiteId(groupPath, entry.getFileName().toString()), childSuiteJson, suiteMtimes);
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private static String childSuiteId(String groupPath, String suiteName) {
         return (groupPath != null && !groupPath.isBlank() ? groupPath : "") + "/" + suiteName;
     }
 
-    private void syncSuiteFileIfModified(Path suiteDir, String groupPath, String suiteId, Path suiteJson, Map<String, Long> suiteMtimes) {
+    private void syncSuiteFileIfModified(Path suiteDir, String groupPath, String suiteId, Path suiteJson,
+            Map<String, Long> suiteMtimes) {
         try {
             long suiteLastMod = Files.getLastModifiedTime(suiteJson).toMillis();
             Long cachedSuite = suiteMtimes.get(suiteId);
@@ -128,7 +138,8 @@ public class LocalDataIndexService {
                 indexSuite(suite, suiteDir, groupPath);
                 suiteMtimes.put(suiteId, System.currentTimeMillis());
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private boolean hasModifiedScripts(Path suiteDir, long cachedMtime) {
@@ -138,16 +149,19 @@ public class LocalDataIndexService {
                     return true;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return false;
     }
 
     public void syncReportsDirectory(Path reportsDir) {
-        if (reportsDir == null || !Files.exists(reportsDir)) return;
+        if (reportsDir == null || !Files.exists(reportsDir))
+            return;
         Set<String> indexedReports = loadIndexedReportIds();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(reportsDir)) {
             for (Path runDir : stream) {
-                if (!Files.isDirectory(runDir)) continue;
+                if (!Files.isDirectory(runDir))
+                    continue;
                 String runId = runDir.getFileName().toString();
                 if (indexedReports.contains(runId)) {
                     continue; // Skip already indexed reports
@@ -157,52 +171,58 @@ public class LocalDataIndexService {
                     try {
                         RunReport report = mapper.readValue(summaryJson.toFile(), RunReport.class);
                         indexReport(report);
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private Map<String, Long> loadGroupMtimes() {
         Map<String, Long> map = new HashMap<>();
         try (Connection conn = dbManager.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT name, updated_at FROM test_groups")) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT name, updated_at FROM test_groups")) {
             while (rs.next()) {
                 map.put(rs.getString(1), rs.getLong(2));
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return map;
     }
 
     private Map<String, Long> loadSuiteMtimes() {
         Map<String, Long> map = new HashMap<>();
         try (Connection conn = dbManager.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT id, updated_at FROM test_suites")) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT id, updated_at FROM test_suites")) {
             while (rs.next()) {
                 map.put(rs.getString(1), rs.getLong(2));
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return map;
     }
 
     private Set<String> loadIndexedReportIds() {
         Set<String> set = new HashSet<>();
         try (Connection conn = dbManager.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT run_id FROM run_reports")) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT run_id FROM run_reports")) {
             while (rs.next()) {
                 set.add(rs.getString(1));
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return set;
     }
 
     // ── Group Indexing ──
 
     public void indexGroup(TestGroup group, Path groupPath) {
-        if (group == null || group.getName() == null) return;
+        if (group == null || group.getName() == null)
+            return;
         String sql = "MERGE INTO test_groups (name, description, path, updated_at) KEY(name) VALUES (?, ?, ?, ?)";
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, group.getName());
@@ -210,22 +230,26 @@ public class LocalDataIndexService {
             ps.setString(3, groupPath != null ? groupPath.toString() : "");
             ps.setLong(4, System.currentTimeMillis());
             ps.executeUpdate();
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     public void deleteGroup(String groupName) {
-        if (groupName == null) return;
+        if (groupName == null)
+            return;
         try (Connection conn = dbManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
+                PreparedStatement ps = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
             ps.setString(1, groupName);
             ps.executeUpdate();
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     // ── Suite & Case Indexing ──
 
     public void indexSuite(TestSuite suite, Path suitePath, String groupName) {
-        if (suite == null) return;
+        if (suite == null)
+            return;
         String sql = "MERGE INTO test_suites (id, group_name, name, description, browser, headless, path, updated_at) KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         String suiteId = (groupName != null ? groupName : "") + "/" + suite.getName();
 
@@ -267,10 +291,12 @@ public class LocalDataIndexService {
                                 indexChatMessageInternal(conn, msg, suiteId);
                             }
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     public void deleteSuite(String groupName, String suiteName) {
@@ -280,29 +306,33 @@ public class LocalDataIndexService {
                 ps.setString(1, suiteId);
                 ps.executeUpdate();
             }
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM test_cases WHERE group_name = ? AND suite_name = ?")) {
+            try (PreparedStatement ps = conn
+                    .prepareStatement("DELETE FROM test_cases WHERE group_name = ? AND suite_name = ?")) {
                 ps.setString(1, groupName);
                 ps.setString(2, suiteName);
                 ps.executeUpdate();
             }
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     public void indexCase(TestCase tc, String groupName, String suiteName, String scriptContent) {
-        if (tc == null) return;
+        if (tc == null)
+            return;
         String suiteId = (groupName != null ? groupName : "") + "/" + (suiteName != null ? suiteName : "");
         try (Connection conn = dbManager.getConnection()) {
             indexCaseInternal(conn, tc, groupName, suiteName, suiteId, scriptContent);
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     private void indexCaseInternal(Connection conn, TestCase tc, String groupName, String suiteName,
-                                   String suiteId, String scriptContent) throws SQLException {
+            String suiteId, String scriptContent) throws SQLException {
         String sql = """
-            MERGE INTO test_cases (id, suite_id, group_name, suite_name, name, description, status,
-                                   start_url, script_file, script_content, assertions_count, updated_at, priority)
-            KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+                MERGE INTO test_cases (id, suite_id, group_name, suite_name, name, description, status,
+                                       start_url, script_file, script_content, assertions_count, updated_at, priority)
+                KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
         int assertCount = tc.getAssertions() != null ? tc.getAssertions().size() : 0;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -349,7 +379,8 @@ public class LocalDataIndexService {
     }
 
     public void deleteCase(String caseId) {
-        if (caseId == null) return;
+        if (caseId == null)
+            return;
         try (Connection conn = dbManager.getConnection()) {
             try (PreparedStatement ps = conn.prepareStatement("DELETE FROM test_cases WHERE id = ?")) {
                 ps.setString(1, caseId);
@@ -359,18 +390,20 @@ public class LocalDataIndexService {
                 ps.setString(1, caseId);
                 ps.executeUpdate();
             }
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     // ── Run Report Indexing ──
 
     public void indexReport(RunReport report) {
-        if (report == null || report.getRunId() == null) return;
+        if (report == null || report.getRunId() == null)
+            return;
         String sql = """
-            MERGE INTO run_reports (run_id, scope, scope_name, scope_path, browser, started_at,
-                                    finished_at, total_cases, passed_cases, failed_cases, skipped_cases)
-            KEY(run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+                MERGE INTO run_reports (run_id, scope, scope_name, scope_path, browser, started_at,
+                                        finished_at, total_cases, passed_cases, failed_cases, skipped_cases)
+                KEY(run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, report.getRunId());
             ps.setString(2, report.getScope() != null ? report.getScope() : "");
@@ -384,24 +417,27 @@ public class LocalDataIndexService {
             ps.setInt(10, report.getFailed());
             ps.setInt(11, report.getSkipped());
             ps.executeUpdate();
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     // ── AI Chat Message Indexing ──
 
     public void indexChatMessage(AiChatMessage msg, String suiteKey) {
-        if (msg == null) return;
+        if (msg == null)
+            return;
         try (Connection conn = dbManager.getConnection()) {
             indexChatMessageInternal(conn, msg, suiteKey);
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 
     private void indexChatMessageInternal(Connection conn, AiChatMessage msg, String suiteKey) throws SQLException {
         String sql = """
-            MERGE INTO ai_chat_messages (id, suite_key, role, content, estimated_tokens,
-                                         attached_files, suite_snapshot_json, applied_to_suite, created_at)
-            KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+                MERGE INTO ai_chat_messages (id, suite_key, role, content, estimated_tokens,
+                                             attached_files, suite_snapshot_json, applied_to_suite, created_at)
+                KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
         String attached = msg.getAttachedFiles() != null ? String.join(";", msg.getAttachedFiles()) : "";
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -419,11 +455,13 @@ public class LocalDataIndexService {
     }
 
     public void clearChatForSuite(String suiteKey) {
-        if (suiteKey == null) return;
+        if (suiteKey == null)
+            return;
         try (Connection conn = dbManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE suite_key = ?")) {
+                PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE suite_key = ?")) {
             ps.setString(1, suiteKey);
             ps.executeUpdate();
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) {
+        }
     }
 }

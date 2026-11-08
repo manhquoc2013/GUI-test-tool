@@ -22,7 +22,6 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
-import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
 import javafx.stage.FileChooser;
@@ -44,20 +43,33 @@ import javafx.util.StringConverter;
  */
 public class ReportsPageController {
 
-    @FXML private TableView<RunReport> reportsTable;
-    @FXML private TableColumn<RunReport, String> runIdCol;
-    @FXML private TableColumn<RunReport, String> scopeCol;
-    @FXML private TableColumn<RunReport, String> targetCol;
-    @FXML private TableColumn<RunReport, String> resultCol;
-    @FXML private TableColumn<RunReport, String> durationCol;
-    @FXML private TableColumn<RunReport, String> browserCol;
-    @FXML private TableColumn<RunReport, String> startedCol;
-    @FXML private TableColumn<RunReport, String> actionsCol;
+    @FXML
+    private TableView<RunReport> reportsTable;
+    @FXML
+    private TableColumn<RunReport, String> runIdCol;
+    @FXML
+    private TableColumn<RunReport, String> scopeCol;
+    @FXML
+    private TableColumn<RunReport, String> targetCol;
+    @FXML
+    private TableColumn<RunReport, String> resultCol;
+    @FXML
+    private TableColumn<RunReport, String> durationCol;
+    @FXML
+    private TableColumn<RunReport, String> browserCol;
+    @FXML
+    private TableColumn<RunReport, String> startedCol;
+    @FXML
+    private TableColumn<RunReport, String> actionsCol;
 
-    @FXML private ComboBox<String> scopeFilter;
-    @FXML private ComboBox<String> resultFilter;
-    @FXML private ComboBox<String> suiteFilter;
-    @FXML private Button refreshBtn;
+    @FXML
+    private ComboBox<String> scopeFilter;
+    @FXML
+    private ComboBox<String> resultFilter;
+    @FXML
+    private ComboBox<String> suiteFilter;
+    @FXML
+    private Button refreshBtn;
 
     private final ReportStore reportStore = new ReportStore();
 
@@ -105,8 +117,8 @@ public class ReportsPageController {
             return new javafx.beans.property.SimpleStringProperty(labeled);
         });
 
-        targetCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(cell.getValue().getScopeName()));
+        targetCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleStringProperty(cell.getValue().getScopeName()));
 
         resultCol.setCellValueFactory(cell -> {
             RunReport r = cell.getValue();
@@ -143,13 +155,13 @@ public class ReportsPageController {
 
         startedCol.setCellValueFactory(cell -> {
             String val = cell.getValue().getStartedAt();
-            if (val == null) return new javafx.beans.property.SimpleStringProperty("");
+            if (val == null)
+                return new javafx.beans.property.SimpleStringProperty("");
             return new javafx.beans.property.SimpleStringProperty(truncateIso(val));
         });
 
         // Actions: Open + HTML + Excel + Delete
-        actionsCol.setCellValueFactory(cell ->
-                new javafx.beans.property.SimpleStringProperty(""));
+        actionsCol.setCellValueFactory(cell -> new javafx.beans.property.SimpleStringProperty(""));
         actionsCol.setCellFactory(col -> new TableCell<RunReport, String>() {
             private final Button openBtn = new Button("Mở");
             private final Button htmlBtn = new Button("HTML");
@@ -196,8 +208,7 @@ public class ReportsPageController {
                 "ALL",
                 "GROUP",
                 "SUITE",
-                "CASE"
-        ));
+                "CASE"));
         scopeFilter.setValue(StatusDisplay.ALL_LABEL);
         scopeFilter.setConverter(new StringConverter<>() {
             @Override
@@ -213,14 +224,21 @@ public class ReportsPageController {
                     default -> s;
                 };
             }
+
             @Override
             public String fromString(String s) {
-                if (s == null || s.isBlank()) return StatusDisplay.ALL_LABEL;
-                if (s.contains("Mọi phạm vi") || StatusDisplay.isAll(s)) return StatusDisplay.ALL_LABEL;
-                if (s.contains("Toàn dự án") || "ALL".equals(s)) return "ALL";
-                if (s.contains("Nhóm") || "GROUP".equals(s)) return "GROUP";
-                if (s.toLowerCase().contains("suite") || "SUITE".equals(s)) return "SUITE";
-                if (s.toLowerCase().contains("case") || "CASE".equals(s)) return "CASE";
+                if (s == null || s.isBlank())
+                    return StatusDisplay.ALL_LABEL;
+                if (s.contains("Mọi phạm vi") || StatusDisplay.isAll(s))
+                    return StatusDisplay.ALL_LABEL;
+                if (s.contains("Toàn dự án") || "ALL".equals(s))
+                    return "ALL";
+                if (s.contains("Nhóm") || "GROUP".equals(s))
+                    return "GROUP";
+                if (s.toLowerCase().contains("suite") || "SUITE".equals(s))
+                    return "SUITE";
+                if (s.toLowerCase().contains("case") || "CASE".equals(s))
+                    return "CASE";
                 return s;
             }
         });
@@ -231,8 +249,7 @@ public class ReportsPageController {
                 StatusDisplay.ALL_LABEL,
                 "Đạt",
                 "Thất bại",
-                "Bỏ qua"
-        ));
+                "Bỏ qua"));
         resultFilter.setValue(StatusDisplay.ALL_LABEL);
         resultFilter.setOnAction(e -> applyFilters());
 
@@ -240,8 +257,15 @@ public class ReportsPageController {
         suiteFilter.setItems(FXCollections.observableArrayList(StatusDisplay.ALL_LABEL));
         suiteFilter.setValue(StatusDisplay.ALL_LABEL);
         suiteFilter.setConverter(new StringConverter<>() {
-            @Override public String toString(String s) { return s; }
-            @Override public String fromString(String s) { return s; }
+            @Override
+            public String toString(String s) {
+                return s;
+            }
+
+            @Override
+            public String fromString(String s) {
+                return s;
+            }
         });
         suiteFilter.setOnAction(e -> applyFilters());
     }
@@ -319,23 +343,28 @@ public class ReportsPageController {
         for (RunReport r : allReports) {
             // Scope filter — combo holds ALL/GROUP/SUITE/CASE (or ALL_LABEL)
             if (!StatusDisplay.isAll(scopeVal)) {
-                if (!scopeVal.equals(r.getScope())) continue;
+                if (!scopeVal.equals(r.getScope()))
+                    continue;
             }
             // Result filter
             if (!StatusDisplay.isAll(resultVal)) {
                 if (resultVal.contains("Đạt") || resultVal.startsWith("✅")) {
-                    if (r.getFailed() > 0 || r.getPassed() == 0) continue;
+                    if (r.getFailed() > 0 || r.getPassed() == 0)
+                        continue;
                 } else if (resultVal.contains("Thất bại") || resultVal.startsWith("❌")) {
-                    if (r.getFailed() == 0) continue;
+                    if (r.getFailed() == 0)
+                        continue;
                 } else if (resultVal.contains("Bỏ qua") || resultVal.startsWith("⏭️")) {
-                    if (r.getSkipped() == 0) continue;
+                    if (r.getSkipped() == 0)
+                        continue;
                 }
             }
             // Suite filter
             if (!StatusDisplay.isAll(suiteVal)) {
                 String want = suiteVal.replace("📁 ", "").trim();
                 String reportName = r.getScopeName();
-                if (!want.equals(reportName)) continue;
+                if (!want.equals(reportName))
+                    continue;
             }
             filteredReports.add(r);
         }
@@ -370,10 +399,12 @@ public class ReportsPageController {
         }
 
         Window window = reportsTable != null && reportsTable.getScene() != null
-                ? reportsTable.getScene().getWindow() : null;
+                ? reportsTable.getScene().getWindow()
+                : null;
 
         Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (Excel)");
-        if (langOpt.isEmpty()) return;
+        if (langOpt.isEmpty())
+            return;
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
@@ -415,10 +446,12 @@ public class ReportsPageController {
         }
 
         Window window = reportsTable != null && reportsTable.getScene() != null
-                ? reportsTable.getScene().getWindow() : null;
+                ? reportsTable.getScene().getWindow()
+                : null;
 
         Optional<ExportLanguage> langOpt = ExportLanguageDialog.show(window, "Xuất Báo Cáo Thực Thi (HTML)");
-        if (langOpt.isEmpty()) return;
+        if (langOpt.isEmpty())
+            return;
         ExportLanguage lang = langOpt.get();
 
         FileChooser chooser = new FileChooser();
@@ -441,10 +474,12 @@ public class ReportsPageController {
             HtmlReportService.export(full, file.toPath(), lang);
             ToastService.success("🌐 Đã xuất HTML: " + file.getName());
             try {
-                if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+                if (java.awt.Desktop.isDesktopSupported()
+                        && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
                     java.awt.Desktop.getDesktop().browse(file.toURI());
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         } catch (Exception e) {
             ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
         }
@@ -482,15 +517,18 @@ public class ReportsPageController {
         try {
             String s = startedAt != null ? startedAt : "";
             String f = finishedAt != null ? finishedAt : "";
-            if (s.isEmpty() || f.isEmpty()) return "—";
+            if (s.isEmpty() || f.isEmpty())
+                return "—";
             // Parse up to seconds (ISO-8601 may have timezone suffix)
             String parseS = s.length() >= 19 ? s.substring(0, 19) : s;
             String parseF = f.length() >= 19 ? f.substring(0, 19) : f;
             LocalDateTime start = LocalDateTime.parse(parseS);
             LocalDateTime end = LocalDateTime.parse(parseF);
             long secs = Duration.between(start, end).getSeconds();
-            if (secs < 0) return "—";
-            if (secs < 60) return secs + "s";
+            if (secs < 0)
+                return "—";
+            if (secs < 60)
+                return secs + "s";
             return (secs / 60) + "m " + (secs % 60) + "s";
         } catch (Exception e) {
             return "—";
@@ -498,10 +536,12 @@ public class ReportsPageController {
     }
 
     private static String truncateIso(String iso) {
-        if (iso == null) return "";
+        if (iso == null)
+            return "";
         // Display as yyyy-MM-dd HH:mm:ss (no T / timezone) so the column fits cleanly
         int t = iso.indexOf('T');
-        if (t < 0) return iso;
+        if (t < 0)
+            return iso;
         int end = Math.min(t + 19, iso.length());
         String core = iso.substring(0, end);
         return core.replace('T', ' ');

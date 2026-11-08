@@ -12,7 +12,6 @@ import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,8 +21,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Service to export Test Cases from a Suite or Group to a professional Excel workbook
- * compliant with international QA / ISTQB / IEEE 829 Test Case Specification standards.
+ * Service to export Test Cases from a Suite or Group to a professional Excel
+ * workbook
+ * compliant with international QA / ISTQB / IEEE 829 Test Case Specification
+ * standards.
  */
 public final class TestCaseExcelExportService {
 
@@ -44,8 +45,7 @@ public final class TestCaseExcelExportService {
     private static final byte[] P3_FG = hex("475569");
     private static final byte[] BORDER_COLOR = hex("CBD5E1");
 
-    private static final DateTimeFormatter DISPLAY_DT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DISPLAY_DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private static final int[] CASES_WIDTHS = {
             7, 18, 30, 18, 18, 14, 14, 28, 44, 26, 38, 22
@@ -55,7 +55,8 @@ public final class TestCaseExcelExportService {
             7, 18, 28, 10, 18, 28, 24, 38, 34
     };
 
-    private TestCaseExcelExportService() {}
+    private TestCaseExcelExportService() {
+    }
 
     public static final class SuiteContainer {
         private final TestSuite suite;
@@ -68,9 +69,17 @@ public final class TestCaseExcelExportService {
             this.suiteDir = suiteDir;
         }
 
-        public TestSuite getSuite() { return suite; }
-        public String getGroupPath() { return groupPath; }
-        public Path getSuiteDir() { return suiteDir; }
+        public TestSuite getSuite() {
+            return suite;
+        }
+
+        public String getGroupPath() {
+            return groupPath;
+        }
+
+        public Path getSuiteDir() {
+            return suiteDir;
+        }
     }
 
     public static final class TestCaseRowData {
@@ -97,10 +106,12 @@ public final class TestCaseExcelExportService {
         exportSuite(suite, groupName, suiteDir, outputPath, ExportLanguage.VIETNAMESE);
     }
 
-    public static void exportSuite(TestSuite suite, String groupName, Path suiteDir, Path outputPath, ExportLanguage lang) throws Exception {
+    public static void exportSuite(TestSuite suite, String groupName, Path suiteDir, Path outputPath,
+            ExportLanguage lang) throws Exception {
         ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         List<SuiteContainer> suites = new ArrayList<>();
-        suites.add(new SuiteContainer(suite, groupName != null && !groupName.isBlank() ? groupName : "Project", suiteDir));
+        suites.add(
+                new SuiteContainer(suite, groupName != null && !groupName.isBlank() ? groupName : "Project", suiteDir));
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
         String scopeTitle = I18nService.get(effective, "export.common.scope.suite", sName);
         String scopeDesc = I18nService.get(effective, "export.common.scope.suite_desc", sName);
@@ -114,7 +125,8 @@ public final class TestCaseExcelExportService {
         exportGroup(groupDir, store, outputPath, ExportLanguage.VIETNAMESE);
     }
 
-    public static void exportGroup(Path groupDir, ProjectStore store, Path outputPath, ExportLanguage lang) throws Exception {
+    public static void exportGroup(Path groupDir, ProjectStore store, Path outputPath, ExportLanguage lang)
+            throws Exception {
         ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         List<SuiteContainer> suites = new ArrayList<>();
         String rootName = groupDir.getFileName() != null ? groupDir.getFileName().toString() : "Group";
@@ -124,16 +136,20 @@ public final class TestCaseExcelExportService {
         exportSuites(scopeTitle, scopeDesc, suites, outputPath, effective);
     }
 
-    private static void collectSuitesInDir(Path dir, String currentGroupPath, ProjectStore store, List<SuiteContainer> result) {
-        if (dir == null || !Files.isDirectory(dir)) return;
+    private static void collectSuitesInDir(Path dir, String currentGroupPath, ProjectStore store,
+            List<SuiteContainer> result) {
+        if (dir == null || !Files.isDirectory(dir))
+            return;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
             for (Path entry : stream) {
-                if (!Files.isDirectory(entry)) continue;
+                if (!Files.isDirectory(entry))
+                    continue;
                 if (Files.exists(entry.resolve("suite.json"))) {
                     try {
                         TestSuite s = store.loadAndMigrateSuite(entry);
                         result.add(new SuiteContainer(s, currentGroupPath, entry));
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 } else if (Files.exists(entry.resolve("group.json")) || Files.isDirectory(entry)) {
                     String subPath = currentGroupPath.isEmpty()
                             ? entry.getFileName().toString()
@@ -141,17 +157,20 @@ public final class TestCaseExcelExportService {
                     collectSuitesInDir(entry, subPath, store, result);
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     /**
      * Core generator that creates the standard 3-sheet Excel workbook.
      */
-    public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites, Path outputPath) throws Exception {
+    public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites,
+            Path outputPath) throws Exception {
         exportSuites(scopeTitle, scopeDescription, suites, outputPath, ExportLanguage.VIETNAMESE);
     }
 
-    public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites, Path outputPath, ExportLanguage lang) throws Exception {
+    public static void exportSuites(String scopeTitle, String scopeDescription, List<SuiteContainer> suites,
+            Path outputPath, ExportLanguage lang) throws Exception {
         ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
         if (outputPath.getParent() != null) {
             Files.createDirectories(outputPath.getParent());
@@ -162,9 +181,11 @@ public final class TestCaseExcelExportService {
         int caseIndex = 1;
         for (SuiteContainer sc : suites) {
             TestSuite suite = sc.getSuite();
-            if (suite.getCases() == null) continue;
+            if (suite.getCases() == null)
+                continue;
             for (TestCase tc : suite.getCases()) {
-                allCases.add(buildRowData(caseIndex++, tc, sc.getGroupPath(), suite.getName(), sc.getSuiteDir(), effective));
+                allCases.add(
+                        buildRowData(caseIndex++, tc, sc.getGroupPath(), suite.getName(), sc.getSuiteDir(), effective));
             }
         }
 
@@ -196,11 +217,13 @@ public final class TestCaseExcelExportService {
         ResourceReleaseService.releaseAfterExport();
     }
 
-    private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName, Path suiteDir) {
+    private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName,
+            Path suiteDir) {
         return buildRowData(index, tc, groupPath, suiteName, suiteDir, ExportLanguage.VIETNAMESE);
     }
 
-    private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName, Path suiteDir, ExportLanguage lang) {
+    private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName,
+            Path suiteDir, ExportLanguage lang) {
         TestCaseRowData row = new TestCaseRowData();
         row.index = index;
         row.id = tc.getId() != null && !tc.getId().isBlank() ? tc.getId() : String.format("TC_%03d", index);
@@ -232,10 +255,12 @@ public final class TestCaseExcelExportService {
                 sb.append(stepIdx).append(". ").append(desc).append("\n");
 
                 if (st.getTestData() != null && !st.getTestData().isBlank()) {
-                    dataSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getTestData())).append("\n");
+                    dataSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getTestData()))
+                            .append("\n");
                 }
                 if (st.getExpectedResult() != null && !st.getExpectedResult().isBlank()) {
-                    expSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getExpectedResult())).append("\n");
+                    expSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getExpectedResult()))
+                            .append("\n");
                 }
                 stepIdx++;
             }
@@ -257,7 +282,8 @@ public final class TestCaseExcelExportService {
             int aIdx = 1;
             for (Assertion a : tc.getAssertions()) {
                 String typeLabel = AssertTypeDisplay.label(a.getType());
-                String val = a.getValue() != null ? a.getValue() : (a.getExpectedValue() != null ? a.getExpectedValue() : "");
+                String val = a.getValue() != null ? a.getValue()
+                        : (a.getExpectedValue() != null ? a.getExpectedValue() : "");
                 String loc = a.getLocator() != null && !a.getLocator().isBlank() ? " [" + a.getLocator() + "]" : "";
                 assertSb.append(aIdx++).append(". ").append(typeLabel);
                 if (!val.isBlank()) {
@@ -285,9 +311,11 @@ public final class TestCaseExcelExportService {
         return row;
     }
 
-    private static String extractStepsFromScript(Path suiteDir, String scriptFile, String caseName, ExportLanguage lang) {
+    private static String extractStepsFromScript(Path suiteDir, String scriptFile, String caseName,
+            ExportLanguage lang) {
         String fallback = I18nService.get(lang, "export.tc.steps.fallback_execute");
-        if (suiteDir == null) return fallback;
+        if (suiteDir == null)
+            return fallback;
         Path file = null;
         if (scriptFile != null && !scriptFile.isBlank()) {
             file = suiteDir.resolve(scriptFile);
@@ -321,13 +349,14 @@ public final class TestCaseExcelExportService {
                 }
                 return sb.toString().trim();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return I18nService.get(lang, "export.tc.steps.fallback_nav");
     }
 
     private static void createSummarySheet(Sheet sheet, String scopeTitle, String scopeDescription,
-                                           List<SuiteContainer> suites, List<TestCaseRowData> cases, Styles styles,
-                                           ExportLanguage lang) {
+            List<SuiteContainer> suites, List<TestCaseRowData> cases, Styles styles,
+            ExportLanguage lang) {
         sheet.setDisplayGridlines(false);
 
         // Title Header
@@ -351,9 +380,12 @@ public final class TestCaseExcelExportService {
         int r = 3;
         r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.scope"), scopeTitle, styles);
         r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.description"), scopeDescription, styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_date"), DISPLAY_DT.format(LocalDateTime.now()), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.standard"), I18nService.get(lang, "export.tc.overview.standard_value"), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_by"), I18nService.get(lang, "export.tc.overview.generated_by_value"), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_date"),
+                DISPLAY_DT.format(LocalDateTime.now()), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.standard"),
+                I18nService.get(lang, "export.tc.overview.standard_value"), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.export_by"),
+                I18nService.get(lang, "export.tc.overview.generated_by_value"), styles);
 
         r++; // blank row
 
@@ -370,11 +402,18 @@ public final class TestCaseExcelExportService {
         long draftCount = cases.stream().filter(c -> "Draft".equalsIgnoreCase(c.status)).count();
         long totalSteps = cases.stream().mapToLong(c -> c.steps.size()).sum();
 
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_suites"), String.valueOf(suites.size()), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_cases"), String.valueOf(totalCases), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.ready_cases"), String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.draft_cases"), String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0), styles);
-        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_steps"), String.valueOf(totalSteps), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_suites"),
+                String.valueOf(suites.size()), styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_cases"), String.valueOf(totalCases),
+                styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.ready_cases"),
+                String.format("%d (%.1f%%)", readyCount, totalCases > 0 ? (readyCount * 100.0 / totalCases) : 0),
+                styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.draft_cases"),
+                String.format("%d (%.1f%%)", draftCount, totalCases > 0 ? (draftCount * 100.0 / totalCases) : 0),
+                styles);
+        r = summaryPair(sheet, r, I18nService.get(lang, "export.tc.overview.total_steps"), String.valueOf(totalSteps),
+                styles);
 
         sheet.setColumnWidth(0, 30 * 256);
         sheet.setColumnWidth(1, 45 * 256);
@@ -399,7 +438,8 @@ public final class TestCaseExcelExportService {
     public static final int EXCEL_MAX_CELL_CHARS = 32700;
 
     public static String safeCellText(String text) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         if (text.length() > EXCEL_MAX_CELL_CHARS) {
             return text.substring(0, EXCEL_MAX_CELL_CHARS) + "\n... [TRUNCATED - EXCEEDED EXCEL 32,767 CHAR LIMIT]";
         }
@@ -414,7 +454,7 @@ public final class TestCaseExcelExportService {
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = new String[]{
+        String[] headers = new String[] {
                 I18nService.get(lang, "export.tc.table.num"),
                 I18nService.get(lang, "export.tc.table.id"),
                 I18nService.get(lang, "export.tc.table.name"),
@@ -524,7 +564,7 @@ public final class TestCaseExcelExportService {
         Row header = sheet.createRow(0);
         header.setHeightInPoints(26);
 
-        String[] headers = new String[]{
+        String[] headers = new String[] {
                 I18nService.get(lang, "export.tc.table.num"),
                 I18nService.get(lang, "export.tc.table.id"),
                 I18nService.get(lang, "export.tc.table.name"),
@@ -628,7 +668,7 @@ public final class TestCaseExcelExportService {
     }
 
     private static byte[] hex(String rgb) {
-        return new byte[]{
+        return new byte[] {
                 (byte) Integer.parseInt(rgb.substring(0, 2), 16),
                 (byte) Integer.parseInt(rgb.substring(2, 4), 16),
                 (byte) Integer.parseInt(rgb.substring(4, 6), 16)
@@ -657,11 +697,11 @@ public final class TestCaseExcelExportService {
         final CellStyle priorityLow;
 
         private Styles(CellStyle title, CellStyle subtitleBar, CellStyle section, CellStyle label,
-                       CellStyle value, CellStyle tableHeader, CellStyle dataOdd, CellStyle dataEven,
-                       CellStyle dataOddBold, CellStyle dataEvenBold, CellStyle dataCenterOdd,
-                       CellStyle dataCenterEven, CellStyle dataOddWrap, CellStyle dataEvenWrap,
-                       CellStyle statusReady, CellStyle statusDraft, CellStyle priorityHigh,
-                       CellStyle priorityMedium, CellStyle priorityLow) {
+                CellStyle value, CellStyle tableHeader, CellStyle dataOdd, CellStyle dataEven,
+                CellStyle dataOddBold, CellStyle dataEvenBold, CellStyle dataCenterOdd,
+                CellStyle dataCenterEven, CellStyle dataOddWrap, CellStyle dataEvenWrap,
+                CellStyle statusReady, CellStyle statusDraft, CellStyle priorityHigh,
+                CellStyle priorityMedium, CellStyle priorityLow) {
             this.title = title;
             this.subtitleBar = subtitleBar;
             this.section = section;
@@ -884,4 +924,3 @@ public final class TestCaseExcelExportService {
         }
     }
 }
-

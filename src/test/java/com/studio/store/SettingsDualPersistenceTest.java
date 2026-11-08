@@ -1,7 +1,6 @@
 package com.studio.store;
 
 import com.studio.db.DatabaseManager;
-import com.studio.util.StudioPaths;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

@@ -4,7 +4,6 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFNotes;
 import org.apache.poi.xslf.usermodel.XSLFShape;
@@ -30,13 +29,15 @@ import java.util.regex.Pattern;
 
 /**
  * Universal High-Fidelity Document-to-Markdown Engine.
- * Synthesizes Microsoft MarkItDown architecture with pure Java POI/PDFBox runtimes
+ * Synthesizes Microsoft MarkItDown architecture with pure Java POI/PDFBox
+ * runtimes
  * and an optional MarkItDown CLI bridge.
  *
  * Supported formats:
  * - Word (.docx) -> Markdown headings, lists, bold/italics, tables
  * - Excel (.xlsx, .xls) -> Sheet sections with clean Markdown tables
- * - PowerPoint (.pptx) -> Slide-by-slide markdown with titles, bullets, presenter notes
+ * - PowerPoint (.pptx) -> Slide-by-slide markdown with titles, bullets,
+ * presenter notes
  * - PDF (.pdf) -> Sectioned Markdown with layout preservation
  * - Plaintext, Markdown, CSV, TSV, JSON, HTML, XML -> Normalized Markdown AST
  */
@@ -56,8 +57,8 @@ public class MarkdownConverterEngine {
         private final String engineUsed;
 
         public ConversionResult(String markdown, String sourceFileName, String sourceType,
-                                int wordCount, int estimatedTokens, int sheetOrPageCount,
-                                String convertedAt, String engineUsed) {
+                int wordCount, int estimatedTokens, int sheetOrPageCount,
+                String convertedAt, String engineUsed) {
             this.markdown = markdown;
             this.sourceFileName = sourceFileName;
             this.sourceType = sourceType;
@@ -153,7 +154,8 @@ public class MarkdownConverterEngine {
                 body.append(convertCsvOrTsv(file, "tsv".equals(ext) ? "\t" : ","));
             }
             case "json" -> {
-                body.append("```json\n").append(Files.readString(file, StandardCharsets.UTF_8).trim()).append("\n```\n");
+                body.append("```json\n").append(Files.readString(file, StandardCharsets.UTF_8).trim())
+                        .append("\n```\n");
             }
             case "html", "htm" -> {
                 body.append(convertHtml(file));
@@ -175,10 +177,12 @@ public class MarkdownConverterEngine {
         String fullMarkdown = buildFrontmatter(fileName, ext, nowStr, sheetOrPages, words, tokens, "JavaNativeHybrid")
                 + rawContent;
 
-        return new ConversionResult(fullMarkdown, fileName, ext, words, tokens, sheetOrPages, nowStr, "JavaNativeHybrid");
+        return new ConversionResult(fullMarkdown, fileName, ext, words, tokens, sheetOrPages, nowStr,
+                "JavaNativeHybrid");
     }
 
-    private String buildFrontmatter(String fileName, String ext, String time, int units, int words, int tokens, String engine) {
+    private String buildFrontmatter(String fileName, String ext, String time, int units, int words, int tokens,
+            String engine) {
         return """
                 ---
                 source_file: "%s"
@@ -199,7 +203,7 @@ public class MarkdownConverterEngine {
     public String convertDocx(Path file) throws IOException {
         StringBuilder sb = new StringBuilder();
         try (InputStream is = new FileInputStream(file.toFile());
-             XWPFDocument doc = new XWPFDocument(is)) {
+                XWPFDocument doc = new XWPFDocument(is)) {
 
             for (IBodyElement elem : doc.getBodyElements()) {
                 if (elem instanceof XWPFParagraph p) {
@@ -223,10 +227,14 @@ public class MarkdownConverterEngine {
         String prefix = "";
         if (style != null) {
             String s = style.toLowerCase(Locale.ROOT);
-            if (s.contains("heading 1") || s.equals("1")) prefix = "# ";
-            else if (s.contains("heading 2") || s.equals("2")) prefix = "## ";
-            else if (s.contains("heading 3") || s.equals("3")) prefix = "### ";
-            else if (s.contains("heading 4") || s.equals("4")) prefix = "#### ";
+            if (s.contains("heading 1") || s.equals("1"))
+                prefix = "# ";
+            else if (s.contains("heading 2") || s.equals("2"))
+                prefix = "## ";
+            else if (s.contains("heading 3") || s.equals("3"))
+                prefix = "### ";
+            else if (s.contains("heading 4") || s.equals("4"))
+                prefix = "#### ";
         }
 
         if (prefix.isEmpty()) {
@@ -242,7 +250,8 @@ public class MarkdownConverterEngine {
             if (runText == null || runText.isEmpty()) {
                 runText = run.getText(0);
             }
-            if (runText == null) continue;
+            if (runText == null)
+                continue;
             if (run.isBold() && !prefix.startsWith("#")) {
                 runSb.append("**").append(runText).append("**");
             } else if (run.isItalic()) {
@@ -258,7 +267,8 @@ public class MarkdownConverterEngine {
 
     private String formatDocxTable(XWPFTable table) {
         List<XWPFTableRow> rows = table.getRows();
-        if (rows.isEmpty()) return "";
+        if (rows.isEmpty())
+            return "";
 
         StringBuilder sb = new StringBuilder();
         boolean isHeader = true;
@@ -289,7 +299,8 @@ public class MarkdownConverterEngine {
     // -------------------------------------------------------------
     // EXCEL (.xlsx / .xls) Conversion
     // -------------------------------------------------------------
-    public record SheetConvertResult(String markdown, int sheetCount) {}
+    public record SheetConvertResult(String markdown, int sheetCount) {
+    }
 
     public SheetConvertResult convertExcel(Path file) throws IOException {
         StringBuilder sb = new StringBuilder();
@@ -297,7 +308,7 @@ public class MarkdownConverterEngine {
         int sheetCount = 0;
 
         try (InputStream is = new FileInputStream(file.toFile());
-             Workbook workbook = WorkbookFactory.create(is)) {
+                Workbook workbook = WorkbookFactory.create(is)) {
 
             sheetCount = workbook.getNumberOfSheets();
             for (int i = 0; i < sheetCount; i++) {
@@ -314,7 +325,8 @@ public class MarkdownConverterEngine {
                     for (int c = 0; c < row.getLastCellNum(); c++) {
                         Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
                         String val = cell != null ? formatter.formatCellValue(cell).trim() : "";
-                        if (!val.isEmpty()) rowHasContent = true;
+                        if (!val.isEmpty())
+                            rowHasContent = true;
                         rowCells.add(val);
                     }
                     if (rowHasContent) {
@@ -359,14 +371,15 @@ public class MarkdownConverterEngine {
     // -------------------------------------------------------------
     // PPTX Conversion
     // -------------------------------------------------------------
-    public record SlideConvertResult(String markdown, int slideCount) {}
+    public record SlideConvertResult(String markdown, int slideCount) {
+    }
 
     public SlideConvertResult convertPptx(Path file) throws IOException {
         StringBuilder sb = new StringBuilder();
         int slideCount = 0;
 
         try (InputStream is = new FileInputStream(file.toFile());
-             XMLSlideShow ppt = new XMLSlideShow(is)) {
+                XMLSlideShow ppt = new XMLSlideShow(is)) {
 
             slideCount = ppt.getSlides().size();
             for (int i = 0; i < slideCount; i++) {
@@ -377,7 +390,8 @@ public class MarkdownConverterEngine {
                     if (shape instanceof XSLFTextShape textShape) {
                         for (XSLFTextParagraph p : textShape.getTextParagraphs()) {
                             String pText = p.getText();
-                            if (pText == null || pText.isBlank()) continue;
+                            if (pText == null || pText.isBlank())
+                                continue;
                             int indent = p.getIndentLevel();
                             String prefix = indent > 0 ? "  ".repeat(indent) + "- " : "- ";
                             sb.append(prefix).append(pText.trim()).append("\n");
@@ -405,7 +419,8 @@ public class MarkdownConverterEngine {
     // -------------------------------------------------------------
     // PDF Conversion
     // -------------------------------------------------------------
-    public record PdfConvertResult(String markdown, int pageCount) {}
+    public record PdfConvertResult(String markdown, int pageCount) {
+    }
 
     public PdfConvertResult convertPdf(Path file) throws IOException {
         StringBuilder sb = new StringBuilder();
@@ -425,8 +440,10 @@ public class MarkdownConverterEngine {
                     String[] lines = pageText.split("\r?\n");
                     for (String line : lines) {
                         String trimmed = line.trim();
-                        if (trimmed.isEmpty()) continue;
-                        if (trimmed.length() < 60 && Character.isUpperCase(trimmed.charAt(0)) && !trimmed.endsWith(".")) {
+                        if (trimmed.isEmpty())
+                            continue;
+                        if (trimmed.length() < 60 && Character.isUpperCase(trimmed.charAt(0))
+                                && !trimmed.endsWith(".")) {
                             sb.append("#### ").append(trimmed).append("\n\n");
                         } else {
                             sb.append(trimmed).append("\n\n");
@@ -443,7 +460,8 @@ public class MarkdownConverterEngine {
     // -------------------------------------------------------------
     public String convertCsvOrTsv(Path file, String delimiter) throws IOException {
         List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-        if (lines.isEmpty()) return "";
+        if (lines.isEmpty())
+            return "";
 
         StringBuilder sb = new StringBuilder();
         boolean first = true;
@@ -454,7 +472,8 @@ public class MarkdownConverterEngine {
             if (first && line.startsWith("\uFEFF")) {
                 line = line.substring(1);
             }
-            if (line.isBlank()) continue;
+            if (line.isBlank())
+                continue;
             String[] parts = line.split(Pattern.quote(delimiter), -1);
             if (first) {
                 expectedCols = parts.length;
@@ -550,7 +569,8 @@ public class MarkdownConverterEngine {
         Path tempOutput = Files.createTempFile("markitdown_out_", ".md");
         Process p = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("markitdown", file.toAbsolutePath().toString(), "-o", tempOutput.toAbsolutePath().toString());
+            ProcessBuilder pb = new ProcessBuilder("markitdown", file.toAbsolutePath().toString(), "-o",
+                    tempOutput.toAbsolutePath().toString());
             pb.redirectErrorStream(true);
             p = pb.start();
             final Process proc = p;
@@ -559,7 +579,8 @@ public class MarkdownConverterEngine {
             Thread drainThread = new Thread(() -> {
                 try {
                     proc.getInputStream().transferTo(outputCapture);
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }, "markitdown-drain");
             drainThread.setDaemon(true);
             drainThread.start();
@@ -591,19 +612,22 @@ public class MarkdownConverterEngine {
     }
 
     public static String getExtension(String fileName) {
-        if (fileName == null) return "";
+        if (fileName == null)
+            return "";
         int dot = fileName.lastIndexOf('.');
         return dot >= 0 ? fileName.substring(dot + 1) : "";
     }
 
     public static int countWords(String text) {
-        if (text == null || text.isBlank()) return 0;
+        if (text == null || text.isBlank())
+            return 0;
         String[] w = text.trim().split("\\s+");
         return w.length;
     }
 
     public static int estimateTokens(String text) {
-        if (text == null || text.isBlank()) return 0;
+        if (text == null || text.isBlank())
+            return 0;
         // Approximation: ~4 chars per token in English, ~2-3 chars for Vietnamese
         return Math.max(1, (int) Math.ceil(text.length() / 3.5));
     }

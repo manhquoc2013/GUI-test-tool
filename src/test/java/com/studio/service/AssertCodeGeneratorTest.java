@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import javax.tools.*;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -91,8 +90,7 @@ class AssertCodeGeneratorTest {
         List<String> options = new ArrayList<>(Arrays.asList(
                 "-d", tempDir.toString(),
                 "-encoding", "UTF-8",
-                "-cp", System.getProperty("java.class.path")
-        ));
+                "-cp", System.getProperty("java.class.path")));
 
         Iterable<? extends JavaFileObject> units = fm.getJavaFileObjects(sourceFile.toFile());
         JavaCompiler.CompilationTask task = compiler.getTask(null, fm, diagnostics, options, null, units);
@@ -105,7 +103,8 @@ class AssertCodeGeneratorTest {
             }
         }
 
-        assertTrue(success, "Generated harness with AI assertions must compile cleanly without unreachable statement errors");
+        assertTrue(success,
+                "Generated harness with AI assertions must compile cleanly without unreachable statement errors");
         assertTrue(Files.exists(tempDir.resolve("com/test/" + harnessClass + ".class")),
                 "Compiled class file must be generated");
     }
@@ -125,4 +124,3 @@ class AssertCodeGeneratorTest {
         assertEquals("CUSTOM_JS", AiTestGeneratorService.normalizeAssertionType("CUSTOM_JS_TRUE"));
     }
 }
-
