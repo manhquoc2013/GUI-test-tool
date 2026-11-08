@@ -102,6 +102,32 @@ public class AiCasePromptDialog {
         Label assertsCountLbl = new Label(activeCase.getAssertions().size() + " asserts");
         infoBox.getChildren().addAll(caseNameLbl, caseUrlLbl, assertsCountLbl);
 
+        // Specialist Agent / Skill Selector
+        HBox skillRow = new HBox(10);
+        skillRow.setAlignment(Pos.CENTER_LEFT);
+        Label skillLabel = new Label("Agent chuyên môn:");
+        skillLabel.getStyleClass().add("field-label");
+
+        ComboBox<com.studio.model.AiSkill> skillComboBox = new ComboBox<>();
+        skillComboBox.getItems().setAll(com.studio.model.AiSkill.values());
+        skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
+        skillComboBox.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.getDisplayName());
+            }
+        });
+        skillComboBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.getDisplayName());
+            }
+        });
+        com.studio.util.UiTooltips.install(skillComboBox, "Chọn kỹ năng chuyên sâu của AI Agent hoặc để Tự động nhận diện");
+        skillRow.getChildren().addAll(skillLabel, skillComboBox);
+
         // Prompt input area
         Label promptTitle = new Label("Mô tả yêu cầu kịch bản hoặc hành động cần test:");
         promptTitle.getStyleClass().add("field-label");
@@ -238,14 +264,15 @@ public class AiCasePromptDialog {
             generateBtn.setDisable(true);
             progress.setVisible(true);
             progress.setManaged(true);
-            statusLbl.setText("AI đang phân tích và viết code Playwright...");
+            com.studio.model.AiSkill chosenSkill = skillComboBox.getValue() != null ? skillComboBox.getValue() : com.studio.model.AiSkill.PLAYWRIGHT_E2E;
+            statusLbl.setText("Agent [" + chosenSkill.getDisplayName() + "] đang phân tích...");
             applyBtn.setDisable(true);
 
             Thread thread = new Thread(() -> {
                 try {
                     AiTestGeneratorService generator = new AiTestGeneratorService();
                     AiTestGeneratorService.GenerationResult result = generator.generateOrUpdateSingleCase(
-                            effectiveAiConfig, prompt, attachedDocs, activeCase, currentScript
+                            effectiveAiConfig, prompt, attachedDocs, activeCase, currentScript, chosenSkill
                     );
 
                     Platform.runLater(() -> {
@@ -332,7 +359,7 @@ public class AiCasePromptDialog {
         HBox footer = new HBox(12, applyBtn);
         footer.setAlignment(Pos.CENTER_RIGHT);
 
-        content.getChildren().addAll(infoBox, promptTitle, promptArea, quickActions, attachRow, genActionRow, previewTabs, footer);
+        content.getChildren().addAll(infoBox, skillRow, promptTitle, promptArea, quickActions, attachRow, genActionRow, previewTabs, footer);
         pane.setContent(content);
         DialogTheme.apply(dialog);
 

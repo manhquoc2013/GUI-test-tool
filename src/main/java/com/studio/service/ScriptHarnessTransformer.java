@@ -61,6 +61,17 @@ public class ScriptHarnessTransformer {
                 "\\bPlaywrightAssertions\\.assertThat\\b",
                 "com.studio.runtime.StudioAssertions.assertThat");
 
+        // Normalize invalid hasURL lambda / predicate to valid Java regex Pattern
+        code = code.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.contains\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \".*\"))");
+        code = code.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.endsWith\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \"$\"))");
+        code = code.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.equals\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL($1)");
+
         // Ensure StudioAssertions.assertThat is imported if assertThat is used
         if (code.contains("assertThat(") && !code.contains("com.studio.runtime.StudioAssertions")) {
             if (code.contains("package ")) {

@@ -123,4 +123,23 @@ class ScriptHarnessTransformerTest {
         assertFalse(out.contains("PlaywrightAssertions.assertThat"), out);
         assertTrue(out.contains("StudioRuntime.healLocator(\"button#submit\")"), out);
     }
+
+    @Test
+    void transformsInvalidHasUrlLambdaToValidPattern() {
+        String script = """
+                package com.test;
+                import com.microsoft.playwright.*;
+                public class Example {
+                  public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    assertThat(page).hasURL(url -> url.contains("/dashboard"));
+                  }
+                }
+                """;
+
+        String out = ScriptHarnessTransformer.transform(script, false, "/tmp/shot", "tc_url_Run");
+        assertFalse(out.contains("url -> url.contains"), out);
+        assertTrue(out.contains("Pattern.compile"), out);
+        assertTrue(out.contains("/dashboard"), out);
+    }
 }

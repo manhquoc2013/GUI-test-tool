@@ -133,11 +133,12 @@ public class AiTestGeneratorService {
         ```
            - DO NOT call `playwright.chromium().launch()`, `Playwright.create()`, `browser.newContext()`, or `page.close()`. The Studio manages these.
 
-        6. **Supported Assertion Types**:
+        6. **Supported Assertion Types & Syntax Rules**:
            - TITLE_CONTAINS (value: text)
            - TITLE_EQUALS (value: title)
-           - URL_CONTAINS (value: substring)
-           - URL_EQUALS (value: url)
+           - URL_CONTAINS (value: substring) -> In scriptCode use: `assertThat(page).hasURL(java.util.regex.Pattern.compile(".*substring.*"));`
+           - URL_EQUALS (value: url) -> In scriptCode use: `assertThat(page).hasURL("exact_url_or_glob");`
+           - **CRITICAL**: In Playwright Java, NEVER use lambdas like `hasURL(url -> url.contains(...))` or `hasURL((u) -> ...)`. `PageAssertions.hasURL` only accepts String or Pattern, NOT functional interfaces!
            - PAGE_HAS_TEXT (value: expected text)
            - PAGE_NOT_CONTAINS_TEXT (value: text)
            - ELEMENT_VISIBLE (locator: css or text locator)
@@ -314,7 +315,8 @@ public class AiTestGeneratorService {
      */
     public GenerationResult generateOrUpdateSingleCase(AiConfig config, String userPrompt,
                                                        List<ParsedDocument> attachments,
-                                                       TestCase currentCase, String currentScript) throws IOException, InterruptedException {
+                                                       TestCase currentCase, String currentScript,
+                                                       AiSkill selectedSkill) throws IOException, InterruptedException {
         StringBuilder context = new StringBuilder();
         if (currentCase != null) {
             context.append("Target Case Name: ").append(currentCase.getName()).append("\n");
@@ -342,7 +344,13 @@ public class AiTestGeneratorService {
             } catch (Exception ignored) {}
         }
 
-        return generateTestCases(config, userPrompt, attachments, context.toString(), domContext, List.of());
+        return generateTestCases(config, userPrompt, attachments, context.toString(), domContext, List.of(), null, selectedSkill != null ? selectedSkill : AiSkill.PLAYWRIGHT_E2E);
+    }
+
+    public GenerationResult generateOrUpdateSingleCase(AiConfig config, String userPrompt,
+                                                       List<ParsedDocument> attachments,
+                                                       TestCase currentCase, String currentScript) throws IOException, InterruptedException {
+        return generateOrUpdateSingleCase(config, userPrompt, attachments, currentCase, currentScript, AiSkill.PLAYWRIGHT_E2E);
     }
 
     /**
@@ -576,6 +584,17 @@ public class AiTestGeneratorService {
         // Agency-Agents standard: eliminate flaky hard sleeps automatically
         cleaned = cleaned.replaceAll("(?m)^\\s*Thread\\.sleep\\([^)]*\\);?", "// Eliminated hard sleep (Agency-Agents standard)");
         cleaned = cleaned.replaceAll("(?m)^\\s*page\\.waitForTimeout\\([^)]*\\);?", "page.waitForLoadState(LoadState.NETWORKIDLE); // Replaced hard sleep with condition wait");
+
+        // Normalize invalid hasURL lambda to valid Java Pattern
+        cleaned = cleaned.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.contains\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \".*\"))");
+        cleaned = cleaned.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.endsWith\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \"$\"))");
+        cleaned = cleaned.replaceAll(
+                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.equals\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+                "hasURL($1)");
 
         // If it's missing standard package or class wrapper
         if (!cleaned.contains("public class") && !cleaned.contains("class ")) {
