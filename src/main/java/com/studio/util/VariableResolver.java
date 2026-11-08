@@ -43,8 +43,6 @@ public class VariableResolver {
             } else if (varName.toUpperCase().startsWith("ENV.") && varName.length() > 4) {
                 String envKey = varName.substring(4);
                 replacement = System.getenv(envKey);
-            } else if (context == null || !context.containsKey(varName)) {
-                replacement = System.getenv(varName);
             }
 
             if (replacement == null) {

@@ -497,7 +497,7 @@ public class OptimizedSelfHealingExecutor {
             }
         } catch (Exception ignored) {}
 
-        return true;
+        throw new AssertionError("[Semantic Assert Failed] Requirement not satisfied on page: " + requirement);
     }
 
     private static String extractJsonBlock(String text) {

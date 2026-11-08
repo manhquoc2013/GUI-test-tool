@@ -18,11 +18,17 @@ public class ActionDeltaVerifier {
         public final String url;
         public final String title;
         public final int interactiveCount;
+        public final int domSignature;
 
         public DeltaSnapshot(String url, String title, int interactiveCount) {
+            this(url, title, interactiveCount, 0);
+        }
+
+        public DeltaSnapshot(String url, String title, int interactiveCount, int domSignature) {
             this.url = url != null ? url : "";
             this.title = title != null ? title : "";
             this.interactiveCount = interactiveCount;
+            this.domSignature = domSignature;
         }
     }
 
@@ -67,19 +73,26 @@ public class ActionDeltaVerifier {
      */
     public static DeltaSnapshot captureSnapshot(Page page) {
         if (page == null) {
-            return new DeltaSnapshot("", "", 0);
+            return new DeltaSnapshot("", "", 0, 0);
         }
         try {
             String url = page.url();
             String title = page.title();
             int count = 0;
+            int signature = 0;
             try {
                 // Count primary interactive elements on viewport
                 count = page.locator("button, a, input, select, textarea, [role='button'], [role='dialog']").count();
             } catch (Exception ignored) {}
-            return new DeltaSnapshot(url, title, count);
+            try {
+                Object res = page.evaluate("() => document.body ? (document.body.innerText.length ^ (document.body.children ? document.body.children.length : 0)) : 0");
+                if (res instanceof Number num) {
+                    signature = num.intValue();
+                }
+            } catch (Exception ignored) {}
+            return new DeltaSnapshot(url, title, count, signature);
         } catch (Exception e) {
-            return new DeltaSnapshot("", "", 0);
+            return new DeltaSnapshot("", "", 0, 0);
         }
     }
 
@@ -110,6 +123,7 @@ public class ActionDeltaVerifier {
         DeltaSnapshot after = captureSnapshot(page);
         boolean urlChanged = !Objects.equals(before.url, after.url);
         boolean domMutated = before.interactiveCount != after.interactiveCount
+                || before.domSignature != after.domSignature
                 || !Objects.equals(before.title, after.title);
         boolean stateChanged = urlChanged || domMutated;
 
@@ -124,7 +138,7 @@ public class ActionDeltaVerifier {
             action.accept(targetLocator);
             page.waitForTimeout(50);
             DeltaSnapshot recovery1 = captureSnapshot(page);
-            if (!Objects.equals(before.url, recovery1.url) || before.interactiveCount != recovery1.interactiveCount) {
+            if (!Objects.equals(before.url, recovery1.url) || before.interactiveCount != recovery1.interactiveCount || before.domSignature != recovery1.domSignature) {
                 return new DeltaResult(true, !Objects.equals(before.url, recovery1.url), true, true, "SCROLL_INTO_VIEW");
             }
         } catch (Exception ignored) {}
@@ -134,7 +148,7 @@ public class ActionDeltaVerifier {
             targetLocator.dispatchEvent("click");
             page.waitForTimeout(50);
             DeltaSnapshot recovery2 = captureSnapshot(page);
-            if (!Objects.equals(before.url, recovery2.url) || before.interactiveCount != recovery2.interactiveCount) {
+            if (!Objects.equals(before.url, recovery2.url) || before.interactiveCount != recovery2.interactiveCount || before.domSignature != recovery2.domSignature) {
                 return new DeltaResult(true, !Objects.equals(before.url, recovery2.url), true, true, "DISPATCH_EVENT");
             }
         } catch (Exception ignored) {}

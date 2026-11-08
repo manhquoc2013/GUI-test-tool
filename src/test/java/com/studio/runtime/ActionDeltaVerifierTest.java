@@ -88,4 +88,43 @@ class ActionDeltaVerifierTest {
         assertTrue(res.isRecovered());
         assertEquals("SCROLL_INTO_VIEW", res.getRecoveryStrategy());
     }
+
+    @Test
+    void testDomMutationDetectedViaContentSignatureWithoutControlCountChange() {
+        AtomicInteger evalCalls = new AtomicInteger();
+        Page mockPage = (Page) Proxy.newProxyInstance(
+                Page.class.getClassLoader(),
+                new Class<?>[]{Page.class},
+                (proxy, method, args) -> {
+                    if ("url".equals(method.getName())) return "https://example.com/cart";
+                    if ("title".equals(method.getName())) return "Shopping Cart";
+                    if ("locator".equals(method.getName())) {
+                        return Proxy.newProxyInstance(
+                                Locator.class.getClassLoader(),
+                                new Class<?>[]{Locator.class},
+                                (p, m, a) -> "count".equals(m.getName()) ? 4 : null
+                        );
+                    }
+                    if ("evaluate".equals(method.getName())) {
+                        // 1st call (before): signature 100
+                        // 2nd call (after click): signature 150 (text or child updated)
+                        return evalCalls.getAndIncrement() == 0 ? 100 : 150;
+                    }
+                    return null;
+                }
+        );
+
+        Locator mockTarget = (Locator) Proxy.newProxyInstance(
+                Locator.class.getClassLoader(),
+                new Class<?>[]{Locator.class},
+                (proxy, method, args) -> null
+        );
+
+        ActionDeltaVerifier.DeltaResult res = ActionDeltaVerifier.executeAndVerify(mockPage, mockTarget, loc -> {});
+
+        assertTrue(res.isStateChanged());
+        assertTrue(res.isDomMutated());
+        assertFalse(res.isRecovered());
+        assertEquals("NONE", res.getRecoveryStrategy());
+    }
 }

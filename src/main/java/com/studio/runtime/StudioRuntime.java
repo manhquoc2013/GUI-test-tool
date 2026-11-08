@@ -95,6 +95,7 @@ public class StudioRuntime {
                     return;
                 }
             } catch (Exception ignored) {}
+            throw new AssertionError("[Semantic Assert Failed] Requirement not satisfied on page: " + requirement);
         }
     }
 

@@ -27,10 +27,17 @@ class VariableResolverTest {
     @Test
     void testUnresolvedKeepsOriginalToken() {
         Map<String, String> ctx = Map.of("EXISTS", "value");
-        String template = "Welcome {{EXISTS}}, id: {{NOT_FOUND}}";
+        String template = "Welcome {{EXISTS}}, id: {{NOT_FOUND}}, home: {{PATH}}";
         String resolved = VariableResolver.resolve(template, ctx);
 
-        assertEquals("Welcome value, id: {{NOT_FOUND}}", resolved);
+        assertEquals("Welcome value, id: {{NOT_FOUND}}, home: {{PATH}}", resolved);
+    }
+
+    @Test
+    void testEnvPrefixResolvesEnvironmentVariable() {
+        String template = "Running with PATH: {{ENV.PATH}}";
+        String resolved = VariableResolver.resolve(template, Map.of());
+        assertFalse(resolved.contains("{{ENV.PATH}}"));
     }
 
     @Test

@@ -826,16 +826,40 @@ public final class TestCaseExcelExportService {
             statusDraft.setVerticalAlignment(VerticalAlignment.TOP);
             applyBorders(statusDraft);
 
+            Font p1Font = wb.createFont();
+            p1Font.setFontName("Calibri");
+            p1Font.setBold(true);
+            p1Font.setFontHeightInPoints((short) 10);
+            ((XSSFFont) p1Font).setColor(new XSSFColor(P1_FG, new DefaultIndexedColorMap()));
+
+            Font p3Font = wb.createFont();
+            p3Font.setFontName("Calibri");
+            p3Font.setBold(true);
+            p3Font.setFontHeightInPoints((short) 10);
+            ((XSSFFont) p3Font).setColor(new XSSFColor(P3_FG, new DefaultIndexedColorMap()));
+
+            CellStyle priorityHigh = solid(wb, P1_BG);
+            priorityHigh.setFont(p1Font);
+            priorityHigh.setAlignment(HorizontalAlignment.CENTER);
+            priorityHigh.setVerticalAlignment(VerticalAlignment.TOP);
+            applyBorders(priorityHigh);
+
             CellStyle priorityMedium = solid(wb, P2_BG);
             priorityMedium.setFont(p2Font);
             priorityMedium.setAlignment(HorizontalAlignment.CENTER);
             priorityMedium.setVerticalAlignment(VerticalAlignment.TOP);
             applyBorders(priorityMedium);
 
+            CellStyle priorityLow = solid(wb, P3_BG);
+            priorityLow.setFont(p3Font);
+            priorityLow.setAlignment(HorizontalAlignment.CENTER);
+            priorityLow.setVerticalAlignment(VerticalAlignment.TOP);
+            applyBorders(priorityLow);
+
             return new Styles(title, subtitleBar, section, label, value, tableHeader,
                     dataOdd, dataEven, dataOddBold, dataEvenBold, dataCenterOdd, dataCenterEven,
-                    dataOddWrap, dataEvenWrap, statusReady, statusDraft, priorityMedium,
-                    priorityMedium, priorityMedium);
+                    dataOddWrap, dataEvenWrap, statusReady, statusDraft, priorityHigh,
+                    priorityMedium, priorityLow);
         }
 
         private static CellStyle solid(Workbook wb, byte[] rgb) {
