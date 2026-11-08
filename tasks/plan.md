@@ -1,43 +1,29 @@
-# Implementation Plan: AI Assistant Chat Session Management & Context Optimization
+# Implementation Plan: System Review Issue Resolution & Performance Optimization
 
 ## Overview
-Decompose the implementation of multi-session chat management, collapsible history sidebar, and large context token optimization into 5 vertical slices following RED -> GREEN -> Refactor and atomic commits.
+Address findings from the five-axis review of Test Studio 2.3.1 across Correctness, Architecture, Performance, and Code Cleanliness.
 
 ---
 
 ## Slices
 
-### Slice 1: Domain Models & Database Schema
-- Update `AiChatSession` with `id`, `title`, `createdAt`, `pinned`.
-- Create `AiChatSessionMeta` for lightweight session listings.
-- Update `DatabaseManager` DDL to add table `ai_chat_sessions` and column `session_id` in `ai_chat_messages`.
-- Update `AiChatDbService` to support listing sessions, upserting session metadata, and querying messages by `session_id`.
+### Slice 1: Correctness - Fix Duplicated AI Error Handling
+- Remove dead duplicate lines 1056–1061 in `AiAssistantPageController.java`.
+- Guard against null `currentSession` if active session was deleted during generation.
+- Ensure only one error message bubble is rendered and single toast is shown.
 
-### Slice 2: Enhanced Token Optimizer (Large Context Engine)
-- Update `AiTokenOptimizer`:
-  - Implement historical bulky code and DOM truncation (`truncateHistoricalContent`).
-  - Implement progressive rolling summary generation with categorized sections (`[Mục tiêu chính]`, `[Ca kiểm thử đã sinh]`, `[Locators/Quy tắc]`).
-  - Refine `buildOptimizedMessages` with adaptive sliding window and hard token budget limit enforcement.
-- Add unit tests in `AiTokenOptimizerTest` covering large conversational history, truncation, and rolling summary.
+### Slice 2: Reliability - Atomic JSON File Writes in `AiChatHistoryStore`
+- Implement atomic write pattern (`writeJsonAtomic`) in `AiChatHistoryStore.java` for `saveSession` and `migrateLegacyIfPresent`.
+- Uses temporary file in the destination directory and `Files.move(..., REPLACE_EXISTING, ATOMIC_MOVE)` to prevent corrupted JSON files on sudden termination.
 
-### Slice 3: Multi-Session Store & Migration Engine
-- Update `AiChatHistoryStore`:
-  - Directory-based storage `.ai_chats/` per suite/workspace.
-  - Implement `listSessions`, `loadSession`, `createNewSession`, `saveSession`, `renameSession`, `deleteSession`.
-  - Implement seamless migration from legacy `.ai_chat.json`.
-- Add comprehensive tests in `AiChatHistoryStoreTest`.
+### Slice 3: Performance - Batch Indexing for AI Chat Messages in H2
+- Add `indexChatMessages(List<AiChatMessage> messages, String suiteKey)` in `LocalDataIndexService.java` using a single JDBC `Connection` and `PreparedStatement.addBatch() / executeBatch()`.
+- Update `AiChatHistoryStore.saveSession()` to invoke this batch indexing method rather than looping individual single-connection inserts.
 
-### Slice 4: JavaFX UI - Collapsible Sidebar & Session Controls
-- Update `ai_assistant_page.fxml`:
-  - Add collapsible Left Sidebar `sessionsSidebar` with "+ Cuộc trò chuyện mới", search filter, and session list.
-  - Add toggle sidebar button in the top toolbar (`☰ Lịch sử`).
-  - Update styles in `ai-assistant.css` / theme.
-- Update `AiAssistantPageController`:
-  - Wire sidebar controls, toggle action, session switching, new chat action, search filter.
-  - Auto-name session from first user message.
-  - Context menu for session item: rename, pin, delete.
-  - Connect active session ID to message saving and loading.
+### Slice 4: Cleanliness - Remove Redundant Session Refreshes & Unify Deletion SQL
+- In `AiAssistantPageController.handleDeleteSession`, remove redundant `refreshSessionsList(null)` call right before `loadChatHistoryForSuite()`.
+- In `LocalDataIndexService.clearChatForSession`, delegate directly to `AiChatDbService.deleteSession`.
 
-### Slice 5: End-to-End Verification & Documentation
-- Run full Maven test suite (`mvn clean test`).
-- Update documentation and `tasks/learnings.md`.
+### Slice 5: Verification & Architectural Learnings
+- Run full test suite (`mvn clean test`).
+- Record learnings in `tasks/learnings.md`.

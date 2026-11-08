@@ -432,6 +432,35 @@ public class LocalDataIndexService {
         }
     }
 
+    public void indexChatMessages(java.util.List<AiChatMessage> messages, String suiteKey) {
+        if (messages == null || messages.isEmpty())
+            return;
+        String sql = """
+                MERGE INTO ai_chat_messages (id, suite_key, session_id, role, content, estimated_tokens,
+                                             attached_files, suite_snapshot_json, applied_to_suite, created_at)
+                KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
+        try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (AiChatMessage msg : messages) {
+                if (msg == null) continue;
+                String attached = msg.getAttachedFiles() != null ? String.join(";", msg.getAttachedFiles()) : "";
+                ps.setString(1, msg.getId());
+                ps.setString(2, suiteKey != null ? suiteKey : "global");
+                ps.setString(3, msg.getSessionId());
+                ps.setString(4, msg.getRole());
+                ps.setString(5, msg.getContent());
+                ps.setInt(6, msg.getEstimatedTokens());
+                ps.setString(7, attached);
+                ps.setString(8, msg.getSuiteSnapshotJson());
+                ps.setBoolean(9, msg.isAppliedToSuite());
+                ps.setLong(10, msg.getTimestamp());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (SQLException ignored) {
+        }
+    }
+
     public void indexChatSession(com.studio.model.AiChatSessionMeta session) {
         if (session == null || session.getId() == null) return;
         String sql = """
@@ -476,17 +505,7 @@ public class LocalDataIndexService {
     public void clearChatForSession(String sessionId) {
         if (sessionId == null)
             return;
-        try (Connection conn = dbManager.getConnection()) {
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE session_id = ?")) {
-                ps.setString(1, sessionId);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps2 = conn.prepareStatement("DELETE FROM ai_chat_sessions WHERE id = ?")) {
-                ps2.setString(1, sessionId);
-                ps2.executeUpdate();
-            }
-        } catch (SQLException ignored) {
-        }
+        new AiChatDbService(dbManager).deleteSession(sessionId);
     }
 
     public void clearChatForSuite(String suiteKey) {

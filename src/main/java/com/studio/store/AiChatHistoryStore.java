@@ -54,6 +54,29 @@ public class AiChatHistoryStore {
     }
 
     /**
+     * Write JSON object atomically using a temporary file and atomic replace.
+     */
+    public void writeJsonAtomic(Path targetPath, Object value) throws IOException {
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent != null ? parent : Path.of("."), targetPath.getFileName().toString(), ".tmp");
+        try {
+            mapper.writeValue(tempFile.toFile(), value);
+            try {
+                Files.move(tempFile, targetPath, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tempFile, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
      * Migrate legacy .ai_chat.json if found.
      */
     public synchronized void migrateLegacyIfPresent(Path suiteDir) {
@@ -69,9 +92,8 @@ public class AiChatHistoryStore {
                     legacy.setTitle("Cuộc trò chuyện trước");
                 }
                 Path dir = resolveSessionsDir(suiteDir);
-                Files.createDirectories(dir);
                 Path sessionFile = dir.resolve(legacy.getId() + ".json");
-                mapper.writeValue(sessionFile.toFile(), legacy);
+                writeJsonAtomic(sessionFile, legacy);
 
                 // Index in H2
                 com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
@@ -81,8 +103,8 @@ public class AiChatHistoryStore {
                     if (msg.getSessionId() == null || msg.getSessionId().isBlank()) {
                         msg.setSessionId(legacy.getId());
                     }
-                    indexService.indexChatMessage(msg, suiteKey);
                 }
+                indexService.indexChatMessages(legacy.getMessages(), suiteKey);
             }
             Files.deleteIfExists(legacyFile);
         } catch (Exception ignored) {}
@@ -190,20 +212,20 @@ public class AiChatHistoryStore {
 
         session.setLastUpdated(System.currentTimeMillis());
         Path path = dir.resolve(session.getId() + ".json");
-        mapper.writeValue(path.toFile(), session);
+        writeJsonAtomic(path, session);
 
         // Write-through to local database index
         com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
         indexService.indexChatSession(session.toMeta());
 
-        if (session.getMessages() != null) {
+        if (session.getMessages() != null && !session.getMessages().isEmpty()) {
             String suiteKey = suiteDir != null ? suiteDir.getFileName().toString() : "global";
             for (com.studio.model.AiChatMessage msg : session.getMessages()) {
                 if (msg.getSessionId() == null || msg.getSessionId().isBlank()) {
                     msg.setSessionId(session.getId());
                 }
-                indexService.indexChatMessage(msg, suiteKey);
             }
+            indexService.indexChatMessages(session.getMessages(), suiteKey);
         }
     }
 

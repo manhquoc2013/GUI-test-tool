@@ -543,6 +543,11 @@ public class AiAssistantPageController implements Initializable {
 
     private void handleDeleteSession(AiChatSessionMeta item) {
         if (item == null) return;
+        if (generationProgress != null && generationProgress.isVisible()
+                && currentSession != null && item.getId().equals(currentSession.getId())) {
+            ToastService.warn("Không thể xóa cuộc trò chuyện khi AI đang sinh kịch bản. Vui lòng đợi hoàn thành.");
+            return;
+        }
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("Xác nhận xóa");
         alert.setHeaderText("Xóa cuộc trò chuyện \"" + item.getTitle() + "\"?");
@@ -557,7 +562,6 @@ public class AiAssistantPageController implements Initializable {
                 if (currentSession != null && item.getId().equals(currentSession.getId())) {
                     currentSession = null;
                 }
-                refreshSessionsList(null);
                 loadChatHistoryForSuite();
             } catch (IOException ignored) {}
         }
@@ -1053,12 +1057,6 @@ public class AiAssistantPageController implements Initializable {
                         ToastService.error("Lỗi AI ở phiên \"" + targetSession.getTitle() + "\": " + ex.getMessage());
                     }
                     refreshSessionsList(currentSession != null ? currentSession.getId() : null);
-                    errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
-                    currentSession.addMessage(errorMsg);
-                    renderMessageBubble(errorMsg, true);
-                    updateTokenUsageDisplay();
-
-                    ToastService.error("Lỗi AI: " + ex.getMessage());
                 });
             }
         }, "AiAssistant-Worker");

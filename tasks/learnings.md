@@ -644,8 +644,16 @@
     1. **Historical Bulky Code & DOM Truncation**: Đối với các lượt trao đổi cũ nằm ngoài lượt kề cận (turns older than the immediate last turn), tự động rút gọn thân code Playwright/JSON DOM dài thành chữ ký phương thức ngắn gọn kèm chú thích `// ... [Đã thu gọn mã nguồn cũ để tối ưu context] ...`, giúp tiết kiệm đến 75% lượng token tiêu thụ.
     2. **Structured Progressive Rolling Summary**: Các lượt bị cắt khỏi sliding window được tổng hợp lũy tiến thành một bản tóm tắt cấu trúc (`• Yêu cầu & Mục tiêu`, `• Ca kiểm thử / Kết quả đã sinh`), giữ lại toàn bộ ngữ cảnh quan trọng mà không lãng phí token.
     3. **Token Budget Hard Enforcement**: Kiểm soát ngân sách token nghiêm ngặt, tự động điều chỉnh sliding window thu nhỏ linh hoạt nếu ngữ cảnh quá dài.
-- **Auto-Naming Sessions**:
-  - Tự động lấy trích đoạn từ yêu cầu đầu tiên của người dùng để đặt tên phiên hội thoại (tối đa 28 ký tự), giúp người dùng dễ dàng nhận diện và chuyển đổi giữa các chủ đề mà không cần gõ tên thủ công.
+### 16. Atomic Multi-Session Storage & Batch JDBC Indexing
+- **Atomic File Serialization (`writeJsonAtomic`)**:
+  - Ghi file JSON trực tiếp qua `mapper.writeValue(file)` tiềm ẩn nguy cơ làm file bị hỏng hoặc mất dữ liệu khi mất điện hoặc tiến trình bị tắt đột ngột.
+  - Sử dụng cơ chế ghi ra file tạm `.tmp` trong cùng thư mục cha và hoán đổi nguyên tử (`Files.move` với `StandardCopyOption.ATOMIC_MOVE` và `REPLACE_EXISTING`, kèm fallback `AtomicMoveNotSupportedException`) bảo đảm file session luôn toàn vẹn 100%.
+- **Batch JDBC Execution for UI Thread Responsiveness**:
+  - Khi lưu trữ phiên hội thoại dài có hàng chục tin nhắn, việc mở/đóng kết nối tuần tự cho từng message gây ra hiện tượng N+1 JDBC transaction trên UI thread.
+  - Sử dụng phương thức batch `indexChatMessages(List<AiChatMessage>, String suiteKey)` với 1 `Connection` và `PreparedStatement.addBatch() / executeBatch()` giúp giảm số lần I/O, thực hiện lưu trữ chỉ trong vài mili-giây và triệt tiêu hoàn toàn hiện tượng micro-stutter trên JavaFX.
+- **Race Condition Prevention during Session Deletion**:
+  - Thêm chốt chặn bảo vệ không cho phép xóa phiên chat đang trong quá trình sinh kịch bản ngầm (`generationProgress.isVisible()`), ngăn chặn việc luồng nền vô tình hồi sinh session đã bị xóa hoặc ném ngoại lệ `NullPointerException`.
+
 
 
 

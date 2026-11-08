@@ -151,5 +151,33 @@ public class AiChatHistoryStoreTest {
         assertEquals(1, migrated.getMessages().size());
         assertEquals("Old message from v2.3.0", migrated.getMessages().get(0).getContent());
     }
+
+    @Test
+    public void testWriteJsonAtomicAndBatchIndexing(@TempDir Path suiteDir) throws IOException {
+        AiChatHistoryStore store = new AiChatHistoryStore();
+        AiChatSession session = new AiChatSession("BatchSuite");
+
+        for (int i = 1; i <= 15; i++) {
+            AiChatMessage m = new AiChatMessage(i % 2 == 1 ? "user" : "assistant", "Content message #" + i);
+            m.setEstimatedTokens(5);
+            session.addMessage(m);
+        }
+
+        store.saveSession(suiteDir, session);
+
+        // Verify session was written atomically and can be read back cleanly
+        Path sessionFile = store.resolveSessionsDir(suiteDir).resolve(session.getId() + ".json");
+        assertTrue(Files.exists(sessionFile));
+
+        AiChatSession loaded = store.loadSession(suiteDir, session.getId());
+        assertNotNull(loaded);
+        assertEquals(15, loaded.getMessages().size());
+        assertEquals(75, loaded.calculateTotalTokens());
+
+        // Check that H2 database received batch indexed messages
+        com.studio.db.AiChatDbService dbService = new com.studio.db.AiChatDbService();
+        List<AiChatMessage> dbMsgs = dbService.getMessages("BatchSuite", session.getId());
+        assertEquals(15, dbMsgs.size());
+    }
 }
 
