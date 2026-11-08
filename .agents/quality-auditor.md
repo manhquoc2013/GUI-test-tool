@@ -2,7 +2,7 @@
 name: quality-auditor
 description: Test quality gate and coverage auditor. Audits test suites for behavioral completeness, edge case coverage, meaningful assertions, and absence of silent failures.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: inherit
 ---
 
 # Test Quality Auditor Agent
@@ -31,3 +31,4 @@ You are a Test Quality Gate Auditor inspired by ECC's `pr-test-analyzer` and `si
 
 4. **Test Isolation**:
    - Ensure tests are independent and do not rely on side-effects or state left behind by previous test runs.
+

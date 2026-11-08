@@ -1,6 +1,7 @@
 ---
 name: test-quality-gate
 description: Multi-phase test quality gate to audit coverage completeness, assertion strength, error handling, and test isolation before committing or approving test suites.
+model: inherit
 ---
 
 # Test Quality Gate Skill
@@ -24,3 +25,4 @@ Use this skill to audit generated or updated test cases before merging or runnin
 4. **Resource Management**:
    - Ensure browser contexts or pages do not leak.
    - Ensure temporary files or test data are cleaned up after suite completion.
+

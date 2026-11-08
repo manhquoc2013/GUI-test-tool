@@ -26,3 +26,4 @@ paths:
 5. **Error & Exception Safety**:
    - Never use empty catch blocks in test scripts.
    - Throw descriptive assertion errors with context when expectations are not met.
+

@@ -2,7 +2,7 @@
 name: test-self-healer
 description: Self-healing and debugging specialist for automated test scripts. Diagnoses build, syntax, locator, timing, and assertion failures, applying minimal-diff fixes while enforcing an anti-thrashing guard.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: sonnet
+model: inherit
 ---
 
 # Test Self-Healer Agent
@@ -34,3 +34,4 @@ You are an expert test debugging and self-healing specialist. When a test fails 
 
 4. **Verification**:
    - Re-run the specific target test script to confirm transition from RED to GREEN.
+

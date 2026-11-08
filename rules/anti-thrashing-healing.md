@@ -20,3 +20,4 @@ paths:
 
 3. **Escalation**:
    - Report the full forensic summary, failing stack trace, and attempted hypotheses directly to the developer instead of looping infinitely.
+

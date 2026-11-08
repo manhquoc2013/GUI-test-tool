@@ -1,6 +1,7 @@
 ---
 name: ai-test-suite-generator
 description: End-to-end skill to generate complete, resilient Playwright Java test suites from user requirements, PRD/SRS documents, or live DOM elements with dual representation (NLP steps + test data + runnable code).
+model: inherit
 ---
 
 # AI Test Suite Generator Skill
@@ -30,3 +31,4 @@ Use this skill when you need to generate high-coverage, automated Playwright Jav
 4. **Phase 4: Pre-Delivery Validation**:
    - Verify class syntax, import statements, and selector health.
    - Verify that all assertions are specific and no silent failure catches exist.
+

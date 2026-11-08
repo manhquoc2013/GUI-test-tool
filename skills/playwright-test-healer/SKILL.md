@@ -1,6 +1,7 @@
 ---
 name: playwright-test-healer
 description: Structured self-healing workflow to diagnose and repair failing Playwright Java test scripts, fixing syntax errors, stale locators, and timing issues with minimal diffs and anti-thrashing protection.
+model: inherit
 ---
 
 # Playwright Test Healer Skill
@@ -32,3 +33,4 @@ Use this skill when a Playwright test script fails during compilation or runtime
      1. Why the previous 3 hypotheses failed.
      2. Evidence from failure screenshots/logs.
      3. Whether the issue is an application bug or an environment limitation.
+

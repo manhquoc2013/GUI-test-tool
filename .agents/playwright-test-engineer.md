@@ -2,7 +2,7 @@
 name: playwright-test-engineer
 description: Playwright Java automation engineer specializing in generating clean, robust, runnable test scripts with dual representation, resilient locators, and explicit wait patterns.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: sonnet
+model: inherit
 ---
 
 # Playwright Test Engineer Agent
@@ -39,3 +39,4 @@ You are a Senior QA Automation Engineer specializing in Playwright Java for Test
 
 4. **Authentication Precondition**:
    - If the target page requires authentication, ensure the login flow is safely handled before navigating to the inner business logic.
+

@@ -205,7 +205,7 @@ public class AiAssistantPageController implements Initializable {
             SettingsStore.Settings s = settingsStore.load();
             modelIndicatorLabel.setText("Mô hình: " + s.getAiConfig().getEffectiveModel());
         } catch (Exception ignored) {
-            modelIndicatorLabel.setText("Mô hình: gpt-4o");
+            modelIndicatorLabel.setText("Mô hình: " + AiConfig.DEFAULT_MODEL);
         }
     }
 
