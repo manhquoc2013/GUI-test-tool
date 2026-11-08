@@ -192,9 +192,19 @@ public class DatabaseManager {
                 skipped_cases INT DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+                id VARCHAR(255) PRIMARY KEY,
+                suite_key VARCHAR(255) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                pinned BOOLEAN DEFAULT FALSE,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS ai_chat_messages (
                 id VARCHAR(255) PRIMARY KEY,
                 suite_key VARCHAR(255) NOT NULL,
+                session_id VARCHAR(255),
                 role VARCHAR(50) NOT NULL,
                 content CLOB,
                 estimated_tokens INT DEFAULT 0,
@@ -215,6 +225,8 @@ public class DatabaseManager {
             CREATE INDEX IF NOT EXISTS idx_tc_name ON test_cases(name);
             CREATE INDEX IF NOT EXISTS idx_reports_start ON run_reports(started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_chat_suite ON ai_chat_messages(suite_key, created_at);
+            CREATE INDEX IF NOT EXISTS idx_chat_session_id ON ai_chat_messages(session_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions ON ai_chat_sessions(suite_key, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_assertions_case ON test_assertions(case_id);
             """;
 
@@ -223,6 +235,10 @@ public class DatabaseManager {
             try {
                 stmt.execute("ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'P1'");
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_tc_priority ON test_cases(priority)");
+            } catch (Exception ignored) {}
+            try {
+                stmt.execute("ALTER TABLE ai_chat_messages ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)");
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_chat_session_id ON ai_chat_messages(session_id, created_at)");
             } catch (Exception ignored) {}
         } catch (SQLException e) {
             throw new RuntimeException("Không thể khởi tạo cơ sở dữ liệu nhúng H2: " + e.getMessage(), e);

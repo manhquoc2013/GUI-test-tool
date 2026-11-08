@@ -14,6 +14,7 @@ import java.util.UUID;
 public class AiChatMessage {
 
     private String id;
+    private String sessionId;
     private String role; // "user", "assistant", "system"
     private String content;
     private long timestamp;
@@ -45,6 +46,14 @@ public class AiChatMessage {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 
     public String getRole() {

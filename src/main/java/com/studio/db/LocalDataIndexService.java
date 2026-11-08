@@ -432,25 +432,60 @@ public class LocalDataIndexService {
         }
     }
 
+    public void indexChatSession(com.studio.model.AiChatSessionMeta session) {
+        if (session == null || session.getId() == null) return;
+        String sql = """
+                MERGE INTO ai_chat_sessions (id, suite_key, title, pinned, created_at, updated_at)
+                KEY(id) VALUES (?, ?, ?, ?, ?, ?)
+                """;
+        try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, session.getId());
+            ps.setString(2, session.getSuiteKey() != null ? session.getSuiteKey() : "global");
+            ps.setString(3, session.getTitle());
+            ps.setBoolean(4, session.isPinned());
+            ps.setLong(5, session.getCreatedAt());
+            ps.setLong(6, session.getUpdatedAt());
+            ps.executeUpdate();
+        } catch (SQLException ignored) {
+        }
+    }
+
     private void indexChatMessageInternal(Connection conn, AiChatMessage msg, String suiteKey) throws SQLException {
         String sql = """
-                MERGE INTO ai_chat_messages (id, suite_key, role, content, estimated_tokens,
+                MERGE INTO ai_chat_messages (id, suite_key, session_id, role, content, estimated_tokens,
                                              attached_files, suite_snapshot_json, applied_to_suite, created_at)
-                KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         String attached = msg.getAttachedFiles() != null ? String.join(";", msg.getAttachedFiles()) : "";
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, msg.getId());
             ps.setString(2, suiteKey != null ? suiteKey : "global");
-            ps.setString(3, msg.getRole());
-            ps.setString(4, msg.getContent());
-            ps.setInt(5, msg.getEstimatedTokens());
-            ps.setString(6, attached);
-            ps.setString(7, msg.getSuiteSnapshotJson());
-            ps.setBoolean(8, msg.isAppliedToSuite());
-            ps.setLong(9, msg.getTimestamp());
+            ps.setString(3, msg.getSessionId());
+            ps.setString(4, msg.getRole());
+            ps.setString(5, msg.getContent());
+            ps.setInt(6, msg.getEstimatedTokens());
+            ps.setString(7, attached);
+            ps.setString(8, msg.getSuiteSnapshotJson());
+            ps.setBoolean(9, msg.isAppliedToSuite());
+            ps.setLong(10, msg.getTimestamp());
             ps.executeUpdate();
+        }
+    }
+
+    public void clearChatForSession(String sessionId) {
+        if (sessionId == null)
+            return;
+        try (Connection conn = dbManager.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE session_id = ?")) {
+                ps.setString(1, sessionId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps2 = conn.prepareStatement("DELETE FROM ai_chat_sessions WHERE id = ?")) {
+                ps2.setString(1, sessionId);
+                ps2.executeUpdate();
+            }
+        } catch (SQLException ignored) {
         }
     }
 
