@@ -6,7 +6,7 @@ cd /d "%DIR%"
 
 set APP_NAME=TestStudio
 set APP_DISPLAY_NAME=Test Studio
-set VERSION=2.0.0
+set VERSION=2.1.0
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out

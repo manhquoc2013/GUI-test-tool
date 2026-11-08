@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
 APP_NAME="TestStudio"
-JAR_NAME="playwright-automation-studio-2.0.0.jar"
+JAR_NAME="playwright-automation-studio-2.1.0.jar"
 DIST_ROOT="dist/${APP_NAME}"
 JPACKAGE_INPUT="target/jpackage-input"
 JPACKAGE_OUT="target/jpackage-out"

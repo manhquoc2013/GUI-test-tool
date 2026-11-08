@@ -1,10 +1,40 @@
-# Release Notes — v1.0.0
+# Release Notes — Test Studio
 
-## Test Studio v1.0.0
+## Test Studio v2.1.0
 
 **Release date:** 2026-11-08
 
-First production release of **Test Studio** — an enterprise-ready JavaFX desktop application for visual, AI-assisted, and self-healing Playwright test automation with offline installer packaging.
+Phiên bản **Test Studio v2.1.0** tích hợp trình xem Hướng dẫn sử dụng trực tiếp trong Help Drawer, bộ chuyển đổi tài liệu đa định dạng MarkItDown Hybrid Converter, mở rộng đội ngũ chuyên gia AI Specialist Roster, phân loại lỗi kiểm thử có cấu trúc (thay thế raw stacktrace) và hoàn thiện giao diện/CSS theme.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.1.0 (Key Highlights)
+
+#### 1. Trình xem hướng dẫn sử dụng tích hợp (In-App User Guide Viewer)
+- **Tích hợp ngăn trợ giúp (Help Drawer)**: Xem toàn bộ cẩm nang hướng dẫn sử dụng Markdown trực tiếp ngay trong ứng dụng mà không cần rời màn hình làm việc.
+- **Hỗ trợ song ngữ & điều hướng linh hoạt**: Tự động chuyển đổi giữa Tiếng Việt và English, mục lục (Table of Contents) nhảy nhanh đến từng chương, tích hợp bộ ảnh chụp giao diện thực tế cho cả 2 chủ đề Sáng & Tối (Catppuccin Mocha).
+- **Đóng gói ngoại tuyến**: Dữ liệu hướng dẫn và hình ảnh được nhúng trực tiếp vào JAR/bộ cài offline, truy cập không cần kết nối mạng.
+
+#### 2. Bộ chuyển đổi tài liệu hybrid MarkItDown & Đội ngũ chuyên gia AI (Agency-Agents)
+- **MarkItDown Hybrid Document Ingestion**: Trích xuất tài liệu đặc tả kiểm thử, tài liệu nghiệp vụ từ định dạng PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx) và HTML sang Markdown chuẩn xác cho bối cảnh AI.
+- **Agency-Agents Specialist Roster**: Tích hợp danh mục chuyên gia chuyên sâu (QA Architect, Security Specialist, Edge-case Analyst, Test Data Engineer) tối ưu hóa kỹ nghệ prompt và chiến lược sinh kịch bản tự động.
+
+#### 3. Báo cáo kiểm thử & chuẩn đoán lỗi có cấu trúc (Structured Test Error Reporting)
+- **Chuẩn đoán lỗi thân thiện**: Loại bỏ hoàn toàn stack trace kỹ thuật thô khỏi báo cáo kiểm thử người dùng, thay thế bằng phân loại lỗi có cấu trúc (`LocatorNotFound`, `Timeout`, `AssertionFailure`, `NavigationError`, `NetworkError`).
+- **Các bước tái hiện & định vị lỗi**: Tự động tổng hợp các bước tái hiện sự cố và chỉ rõ locator/assertion gây lỗi trên cả báo cáo HTML độc lập và báo cáo Excel chuẩn ISTQB.
+
+#### 4. Tinh chỉnh giao diện, bố cục & hệ thống (UI/UX & System Hardening)
+- **Sửa lỗi kích thước hộp thoại (Modal Dialogs)**: Khắc phục triệt để hiện tượng hộp thoại kéo dãn chiếm toàn bộ chiều cao cửa sổ (`ExportLanguageDialog`, `MarkdownPreviewDialog`), tự động co dãn theo nội dung.
+- **Hoàn thiện biến chủ đề CSS**: Sửa lỗi `ClassCastException` đối với `-fx-border-color` khi chuyển đổi theme Sáng/Tối runtime, đồng bộ bảng màu Catppuccin Mocha.
+- **Ổn định vòng đời tiến trình & kết nối**: Hoàn thiện giải phóng tiến trình nền (Process destruction), bảo vệ Thread Affinity, AST parsing an toàn và quản lý connection pool H2 Database bền bỉ.
+
+---
+
+## Test Studio v2.0.0
+
+**Release date:** 2026-11-08
+
+Major release focusing on visual, AI-assisted, and self-healing Playwright test automation with offline installer packaging.
 
 ---
 
