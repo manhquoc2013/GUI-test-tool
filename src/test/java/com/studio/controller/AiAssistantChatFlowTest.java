@@ -107,4 +107,40 @@ public class AiAssistantChatFlowTest {
         assertEquals("// Existing case", Files.readString(existingCase));
         assertFalse(Files.readString(suiteJson).contains("NewAiCase"));
     }
+
+    @Test
+    public void testSessionAutoNamingAndSwitching(@TempDir Path suiteDir) throws IOException {
+        AiChatHistoryStore store = new AiChatHistoryStore();
+
+        // 1. New session starts with default title
+        AiChatSession session = store.createNewSession(suiteDir, "Cuộc trò chuyện mới");
+        assertEquals("Cuộc trò chuyện mới", session.getTitle());
+
+        // 2. User prompt auto-names session
+        String firstPrompt = "Viết kịch bản kiểm thử API thanh toán Stripe";
+        String autoName = firstPrompt.replace("\n", " ").trim();
+        if (autoName.length() > 28) {
+            autoName = autoName.substring(0, 28) + "...";
+        }
+        session.setTitle(autoName);
+        session.addMessage(new AiChatMessage("user", firstPrompt));
+        store.saveSession(suiteDir, session);
+
+        // 3. Verify title and messages persist
+        AiChatSession loaded = store.loadSession(suiteDir, session.getId());
+        assertEquals(autoName, loaded.getTitle());
+        assertEquals(1, loaded.getMessages().size());
+
+        // 4. Create another session and switch
+        AiChatSession session2 = store.createNewSession(suiteDir, "Kiểm thử giỏ hàng");
+        session2.addMessage(new AiChatMessage("user", "Kiểm thử thêm sản phẩm vào giỏ"));
+        store.saveSession(suiteDir, session2);
+
+        List<com.studio.model.AiChatSessionMeta> list = store.listSessions(suiteDir);
+        assertEquals(2, list.size());
+
+        AiChatSession loaded2 = store.loadSession(suiteDir, session2.getId());
+        assertEquals("Kiểm thử giỏ hàng", loaded2.getTitle());
+        assertEquals(1, loaded2.getMessages().size());
+    }
 }

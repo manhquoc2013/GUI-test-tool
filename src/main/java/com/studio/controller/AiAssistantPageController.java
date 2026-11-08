@@ -16,6 +16,9 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.util.Duration;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -53,6 +56,21 @@ import javafx.beans.property.SimpleStringProperty;
  * generated test cases and suite file changes, and token usage optimization.
  */
 public class AiAssistantPageController implements Initializable {
+
+    @FXML
+    private Button toggleSidebarBtn;
+    @FXML
+    private Button newChatToolbarBtn;
+    @FXML
+    private VBox historySidebar;
+    @FXML
+    private Separator sidebarSeparator;
+    @FXML
+    private Button newChatBtn;
+    @FXML
+    private TextField sessionSearchField;
+    @FXML
+    private ListView<AiChatSessionMeta> sessionsListView;
 
     @FXML
     private Label tokenUsageBadge;
@@ -130,6 +148,9 @@ public class AiAssistantPageController implements Initializable {
     private final List<DocumentParserService.ParsedDocument> attachedDocuments = new ArrayList<>();
     private final List<AiGeneratedCase> currentGeneratedCases = new ArrayList<>();
     private AiChatSession currentSession = new AiChatSession("global");
+    private final ObservableList<AiChatSessionMeta> allSessions = FXCollections.observableArrayList();
+    private final FilteredList<AiChatSessionMeta> filteredSessions = new FilteredList<>(allSessions, p -> true);
+    private boolean isSwitchingSession = false;
     private String liveDomJson = null;
 
     private HBox thinkingBubbleWrapper = null;
@@ -139,6 +160,7 @@ public class AiAssistantPageController implements Initializable {
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         refreshModelIndicator();
+        setupSessionsSidebar();
         reloadTargets();
 
         if (settingsBtn != null) {
@@ -309,9 +331,233 @@ public class AiAssistantPageController implements Initializable {
 
     public void loadChatHistoryForSuite() {
         Path suiteDir = getSelectedSuiteDir();
-        currentSession = chatHistoryStore.loadSession(suiteDir);
+        refreshSessionsList(null);
+        if (sessionsListView != null && sessionsListView.getSelectionModel().getSelectedItem() != null) {
+            currentSession = chatHistoryStore.loadSession(suiteDir, sessionsListView.getSelectionModel().getSelectedItem().getId());
+        } else {
+            currentSession = chatHistoryStore.loadSession(suiteDir);
+        }
         renderChatHistory();
         updateTokenUsageDisplay();
+    }
+
+    private void setupSessionsSidebar() {
+        if (toggleSidebarBtn != null) {
+            UiIcons.setGraphic(toggleSidebarBtn, UiIcons.FOLDER, 12);
+            UiTooltips.install(toggleSidebarBtn, "Đóng/mở thanh lịch sử cuộc trò chuyện");
+        }
+        if (newChatBtn != null) {
+            UiIcons.setGraphic(newChatBtn, UiIcons.PLUS, 12);
+            UiTooltips.install(newChatBtn, "Bắt đầu cuộc trò chuyện mới");
+        }
+        if (newChatToolbarBtn != null) {
+            UiIcons.setGraphic(newChatToolbarBtn, UiIcons.PLUS, 12);
+            UiTooltips.install(newChatToolbarBtn, "Bắt đầu cuộc trò chuyện mới");
+        }
+
+        if (sessionsListView != null) {
+            sessionsListView.setItems(filteredSessions);
+            sessionsListView.setCellFactory(lv -> new ListCell<>() {
+                @Override
+                protected void updateItem(AiChatSessionMeta item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                        setGraphic(null);
+                        setContextMenu(null);
+                    } else {
+                        VBox box = new VBox(2);
+                        box.setAlignment(Pos.CENTER_LEFT);
+
+                        HBox topRow = new HBox(6);
+                        topRow.setAlignment(Pos.CENTER_LEFT);
+
+                        if (item.isPinned()) {
+                            Label pinIcon = new Label("📌");
+                            pinIcon.setStyle("-fx-font-size: 10px;");
+                            topRow.getChildren().add(pinIcon);
+                        }
+
+                        Label titleLabel = new Label(item.getTitle());
+                        titleLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
+                        titleLabel.setMaxWidth(160);
+                        topRow.getChildren().add(titleLabel);
+
+                        HBox bottomRow = new HBox(6);
+                        bottomRow.setAlignment(Pos.CENTER_LEFT);
+
+                        String timeStr = formatSessionTime(item.getUpdatedAt());
+                        Label timeLabel = new Label(timeStr + " • " + item.getMessageCount() + " tin");
+                        timeLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: -fx-text-base-color; -fx-opacity: 0.6;");
+                        bottomRow.getChildren().add(timeLabel);
+
+                        box.getChildren().addAll(topRow, bottomRow);
+                        setGraphic(box);
+                        setText(null);
+
+                        ContextMenu menu = new ContextMenu();
+                        MenuItem pinItem = new MenuItem(item.isPinned() ? "Bỏ ghim" : "Ghim lên đầu");
+                        pinItem.setOnAction(e -> handleTogglePin(item));
+
+                        MenuItem renameItem = new MenuItem("Đổi tên...");
+                        renameItem.setOnAction(e -> handleRenameSession(item));
+
+                        MenuItem deleteItem = new MenuItem("Xóa cuộc trò chuyện");
+                        deleteItem.setStyle("-fx-text-fill: #f7768e;");
+                        deleteItem.setOnAction(e -> handleDeleteSession(item));
+
+                        menu.getItems().addAll(pinItem, renameItem, new SeparatorMenuItem(), deleteItem);
+                        setContextMenu(menu);
+                    }
+                }
+            });
+
+            sessionsListView.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+                if (newVal != null && !isSwitchingSession) {
+                    switchToSession(newVal.getId());
+                }
+            });
+        }
+
+        if (sessionSearchField != null) {
+            sessionSearchField.textProperty().addListener((obs, oldVal, newVal) -> {
+                String query = newVal != null ? newVal.trim().toLowerCase() : "";
+                filteredSessions.setPredicate(session -> {
+                    if (query.isEmpty()) return true;
+                    return session.getTitle() != null && session.getTitle().toLowerCase().contains(query);
+                });
+            });
+        }
+    }
+
+    public void refreshSessionsList(String selectSessionId) {
+        Path suiteDir = getSelectedSuiteDir();
+        List<AiChatSessionMeta> list = chatHistoryStore.listSessions(suiteDir);
+        allSessions.setAll(list);
+
+        if (sessionsListView != null) {
+            isSwitchingSession = true;
+            try {
+                if (selectSessionId != null) {
+                    for (AiChatSessionMeta meta : allSessions) {
+                        if (selectSessionId.equals(meta.getId())) {
+                            sessionsListView.getSelectionModel().select(meta);
+                            return;
+                        }
+                    }
+                }
+                if (!allSessions.isEmpty() && sessionsListView.getSelectionModel().getSelectedItem() == null) {
+                    sessionsListView.getSelectionModel().select(0);
+                }
+            } finally {
+                isSwitchingSession = false;
+            }
+        }
+    }
+
+    private void switchToSession(String sessionId) {
+        if (isSwitchingSession || sessionId == null) return;
+        if (currentSession != null && sessionId.equals(currentSession.getId())) return;
+
+        isSwitchingSession = true;
+        try {
+            Path suiteDir = getSelectedSuiteDir();
+            currentSession = chatHistoryStore.loadSession(suiteDir, sessionId);
+            renderChatHistory();
+            updateTokenUsageDisplay();
+        } finally {
+            isSwitchingSession = false;
+        }
+    }
+
+    @FXML
+    public void toggleHistorySidebar() {
+        if (historySidebar == null) return;
+        boolean visible = !historySidebar.isVisible();
+        historySidebar.setVisible(visible);
+        historySidebar.setManaged(visible);
+        if (sidebarSeparator != null) {
+            sidebarSeparator.setVisible(visible);
+            sidebarSeparator.setManaged(visible);
+        }
+        if (toggleSidebarBtn != null) {
+            toggleSidebarBtn.setText(visible ? "☰ Thu gọn" : "☰ Lịch sử");
+        }
+    }
+
+    @FXML
+    public void createNewChat() {
+        Path suiteDir = getSelectedSuiteDir();
+        currentSession = chatHistoryStore.createNewSession(suiteDir, "Cuộc trò chuyện mới");
+        refreshSessionsList(currentSession.getId());
+        renderChatHistory();
+        updateTokenUsageDisplay();
+        ToastService.info("Đã tạo cuộc trò chuyện mới.");
+    }
+
+    private void handleTogglePin(AiChatSessionMeta item) {
+        if (item == null) return;
+        Path suiteDir = getSelectedSuiteDir();
+        try {
+            chatHistoryStore.setSessionPinned(suiteDir, item.getId(), !item.isPinned());
+            refreshSessionsList(item.getId());
+        } catch (IOException ignored) {}
+    }
+
+    private void handleRenameSession(AiChatSessionMeta item) {
+        if (item == null) return;
+        TextInputDialog dialog = new TextInputDialog(item.getTitle());
+        dialog.setTitle("Đổi tên cuộc trò chuyện");
+        dialog.setHeaderText("Nhập tiêu đề mới:");
+        dialog.setContentText("Tiêu đề:");
+        DialogTheme.apply(dialog);
+        Optional<String> res = dialog.showAndWait();
+        if (res.isPresent() && !res.get().isBlank()) {
+            Path suiteDir = getSelectedSuiteDir();
+            try {
+                String newTitle = res.get().trim();
+                chatHistoryStore.renameSession(suiteDir, item.getId(), newTitle);
+                if (currentSession != null && item.getId().equals(currentSession.getId())) {
+                    currentSession.setTitle(newTitle);
+                }
+                refreshSessionsList(item.getId());
+                ToastService.info("Đã đổi tên cuộc trò chuyện.");
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private void handleDeleteSession(AiChatSessionMeta item) {
+        if (item == null) return;
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Xác nhận xóa");
+        alert.setHeaderText("Xóa cuộc trò chuyện \"" + item.getTitle() + "\"?");
+        alert.setContentText("Thao tác này không thể hoàn tác.");
+        DialogTheme.apply(alert);
+        Optional<ButtonType> res = alert.showAndWait();
+        if (res.isPresent() && res.get() == ButtonType.OK) {
+            Path suiteDir = getSelectedSuiteDir();
+            try {
+                chatHistoryStore.deleteSession(suiteDir, item.getId());
+                ToastService.info("Đã xóa cuộc trò chuyện.");
+                refreshSessionsList(null);
+                loadChatHistoryForSuite();
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private String formatSessionTime(long timestamp) {
+        if (timestamp <= 0) return "";
+        try {
+            LocalDateTime dt = LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault());
+            LocalDateTime now = LocalDateTime.now();
+            if (dt.toLocalDate().equals(now.toLocalDate())) {
+                return dt.format(DateTimeFormatter.ofPattern("HH:mm"));
+            } else {
+                return dt.format(DateTimeFormatter.ofPattern("dd/MM"));
+            }
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void renderChatHistory() {
@@ -392,22 +638,23 @@ public class AiAssistantPageController implements Initializable {
     public void clearChat() {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("Xác nhận xóa lịch sử");
-        alert.setHeaderText("Xóa toàn bộ đoạn hội thoại");
-        alert.setContentText("Bạn có chắc chắn muốn xóa toàn bộ lịch sử chat của Suite này không?");
+        alert.setHeaderText("Xóa tin nhắn trong cuộc trò chuyện");
+        alert.setContentText("Bạn có chắc chắn muốn xóa tin nhắn trong cuộc trò chuyện \"" + currentSession.getTitle() + "\" không?");
         DialogTheme.apply(alert);
 
         Optional<ButtonType> result = alert.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
             removeThinkingBubble();
             Path suiteDir = getSelectedSuiteDir();
+            currentSession.getMessages().clear();
             try {
-                chatHistoryStore.clearSession(suiteDir);
+                chatHistoryStore.saveSession(suiteDir, currentSession);
             } catch (IOException ignored) {
             }
-            currentSession = new AiChatSession(suiteDir != null ? suiteDir.getFileName().toString() : "global");
+            refreshSessionsList(currentSession.getId());
             renderChatHistory();
             updateTokenUsageDisplay();
-            ToastService.info("Đoạn hội thoại đã được xóa.");
+            ToastService.info("Nội dung cuộc trò chuyện đã được xóa.");
         }
     }
 
@@ -611,6 +858,23 @@ public class AiAssistantPageController implements Initializable {
         userMsg.setAttachedFiles(fileNames);
         userMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userMsg));
         currentSession.addMessage(userMsg);
+
+        if ("Cuộc trò chuyện mới".equalsIgnoreCase(currentSession.getTitle())) {
+            String cleanPrompt = prompt.replace("\n", " ").trim();
+            if (cleanPrompt.length() > 28) {
+                cleanPrompt = cleanPrompt.substring(0, 28) + "...";
+            }
+            if (!cleanPrompt.isBlank()) {
+                currentSession.setTitle(cleanPrompt);
+            }
+        }
+
+        Path suiteDir = getSelectedSuiteDir();
+        try {
+            chatHistoryStore.saveSession(suiteDir, currentSession);
+            refreshSessionsList(currentSession.getId());
+        } catch (IOException ignored) {}
+
         renderMessageBubble(userMsg, true);
 
         // Snapshot attached docs and clear input
@@ -709,6 +973,7 @@ public class AiAssistantPageController implements Initializable {
                     // Persist updated history
                     try {
                         chatHistoryStore.saveSession(suiteDir, currentSession);
+                        refreshSessionsList(currentSession.getId());
                     } catch (IOException ignored) {
                     }
 
@@ -1242,6 +1507,7 @@ public class AiAssistantPageController implements Initializable {
                 Path suiteDir = getSelectedSuiteDir();
                 try {
                     chatHistoryStore.saveSession(suiteDir, currentSession);
+                    refreshSessionsList(currentSession.getId());
                 } catch (IOException ignored) {
                 }
 
@@ -1322,6 +1588,7 @@ public class AiAssistantPageController implements Initializable {
         Path suiteDir = getSelectedSuiteDir();
         try {
             chatHistoryStore.saveSession(suiteDir, currentSession);
+            refreshSessionsList(currentSession.getId());
         } catch (IOException ignored) {
         }
 

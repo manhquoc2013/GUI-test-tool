@@ -1056,6 +1056,61 @@
     -fx-background-color: #f8fafc;
 }
 
+.ai-sessions-sidebar {
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 0 1 0 0;
+}
+.ai-new-chat-btn {
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #2563eb;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-padding: 7 12;
+    -fx-background-radius: 6;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+.ai-new-chat-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #1d4ed8;
+    -fx-border-color: #2563eb;
+}
+.ai-session-search {
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #0f172a;
+    -fx-prompt-text-fill: #94a3b8;
+    -fx-background-radius: 6;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 6;
+    -fx-padding: 5 8;
+    -fx-font-size: 11px;
+}
+.ai-session-search:focused {
+    -fx-border-color: #2563eb;
+}
+.ai-sessions-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+.ai-sessions-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 6 8;
+    -fx-text-fill: #334155;
+    -fx-background-radius: 6;
+}
+.ai-sessions-list .list-cell:filled:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+.ai-sessions-list .list-cell:filled:selected {
+    -fx-background-color: #dbeafe;
+    -fx-text-fill: #1d4ed8;
+    -fx-font-weight: bold;
+}
+
 .ai-left-panel, .ai-right-panel {
     -fx-background-color: #ffffff;
 }

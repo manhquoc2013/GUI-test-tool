@@ -26,122 +26,142 @@
     <!-- Top Toolbar -->
     <HBox styleClass="page-toolbar" spacing="10" alignment="CENTER_LEFT">
         <padding><Insets top="8" right="14" bottom="8" left="14"/></padding>
+        <Button text="☰ Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar" styleClass="icon-btn" minWidth="-Infinity"/>
         <Label text="Trợ lý AI" styleClass="page-title" minWidth="-Infinity"/>
         <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
         <HBox HBox.hgrow="ALWAYS"/>
         <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="-Infinity"/>
         <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="-Infinity"/>
+        <Button text="+ Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
     </HBox>
 
-    <SplitPane dividerPositions="0.48" VBox.vgrow="ALWAYS" styleClass="ai-split-pane">
-        <!-- Left Panel: Chat, Documents, & Target Suite -->
-        <VBox spacing="10" styleClass="ai-left-panel">
-            <padding><Insets top="10" right="12" bottom="12" left="12"/></padding>
+    <!-- Main Content Area: History Sidebar + Chat/Preview SplitPane -->
+    <HBox VBox.vgrow="ALWAYS" spacing="0">
+        <!-- Collapsible Left Sidebar for Chat Sessions -->
+        <VBox fx:id="historySidebar" styleClass="ai-sessions-sidebar" prefWidth="250" minWidth="220" maxWidth="320">
+            <padding><Insets top="10" right="8" bottom="10" left="8"/></padding>
+            <Button text="+ Cuộc trò chuyện mới" fx:id="newChatBtn" onAction="#createNewChat"
+                    styleClass="ai-new-chat-btn" maxWidth="Infinity"/>
+            <TextField fx:id="sessionSearchField" promptText="Tìm cuộc trò chuyện..." styleClass="ai-session-search">
+                <VBox.margin><Insets top="8" bottom="8"/></VBox.margin>
+            </TextField>
+            <Label text="LỊCH SỬ HỘI THOẠI" styleClass="sidebar-section-label">
+                <VBox.margin><Insets left="4" bottom="4"/></VBox.margin>
+            </Label>
+            <ListView fx:id="sessionsListView" VBox.vgrow="ALWAYS" styleClass="ai-sessions-list"/>
+        </VBox>
 
-            <!-- Target Selection Row -->
-            <VBox spacing="6" styleClass="ai-target-box">
-                <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
-                <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Chế độ Kỹ năng AI:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                    <ComboBox fx:id="skillComboBox" promptText="Chọn kỹ năng AI..." HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                </HBox>
-                <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Đích lưu:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                    <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="120" minWidth="90"/>
-                    <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="140" minWidth="110" HBox.hgrow="ALWAYS"/>
-                    <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary" minWidth="-Infinity"/>
-                </HBox>
-            </VBox>
+        <Separator fx:id="sidebarSeparator" orientation="VERTICAL" styleClass="sidebar-separator"/>
 
-            <!-- Chat History Area -->
-            <ScrollPane fx:id="chatScroll" fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="ai-chat-scroll">
-                <VBox fx:id="chatMessagesBox" spacing="12" styleClass="ai-chat-container">
+        <SplitPane fx:id="mainSplitPane" dividerPositions="0.48" HBox.hgrow="ALWAYS" styleClass="ai-split-pane">
+            <!-- Left Panel: Chat, Documents, & Target Suite -->
+            <VBox spacing="10" styleClass="ai-left-panel">
+                <padding><Insets top="10" right="12" bottom="12" left="12"/></padding>
+
+                <!-- Target Selection Row -->
+                <VBox spacing="6" styleClass="ai-target-box">
                     <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
-                </VBox>
-            </ScrollPane>
-
-            <!-- Attached Files Container -->
-            <VBox fx:id="attachedFilesBox" spacing="6" styleClass="ai-attachments-box" visible="false" managed="false">
-                <Label text="Tài liệu đính kèm:" styleClass="field-label-small"/>
-                <FlowPane fx:id="attachedChipsPane" hgap="6" vgap="6"/>
-            </VBox>
-
-            <!-- Quick Suggestions -->
-            <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-quick-suggestions">
-                <Label text="Gợi ý:" styleClass="field-label-dim" minWidth="-Infinity"/>
-                <Button text="⚡ Test Case Biên" onAction="#applyQuickBva" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-                <Button text="🎭 Playwright E2E" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-                <Button text="🔍 RCA Sửa Lỗi" onAction="#applyQuickRca" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-                <Button text="🛡️ Fuzzing Bảo Mật" onAction="#applyQuickSecurity" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
-            </HBox>
-
-            <!-- Input Box -->
-            <VBox spacing="8" styleClass="ai-input-box">
-                <TextArea fx:id="promptInputArea" prefRowCount="3" wrapText="true"
-                          promptText="Nhập yêu cầu kiểm thử hoặc kịch bản cần sinh (hoặc đính kèm tài liệu/ảnh UI bên dưới)..."
-                          styleClass="ai-prompt-input"/>
-                <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
-                    <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary" minWidth="-Infinity"/>
-                    <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
-                    <HBox HBox.hgrow="ALWAYS"/>
-                    <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
-                    <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run" minWidth="-Infinity"/>
-                </HBox>
-            </VBox>
-        </VBox>
-
-        <!-- Right Panel: Generated Test Cases Preview & Apply -->
-        <VBox spacing="10" styleClass="ai-right-panel">
-            <padding><Insets top="10" right="12" bottom="12" left="12"/></padding>
-
-            <HBox spacing="10" alignment="CENTER_LEFT">
-                <VBox spacing="2" HBox.hgrow="ALWAYS">
-                    <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header"/>
-                    <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true"/>
-                </VBox>
-                <Button text="Nhập vào Suite" fx:id="applyToSuiteBtn" onAction="#applyCasesToSelectedSuite" styleClass="toolbar-btn-save" disable="true"/>
-            </HBox>
-
-            <SplitPane dividerPositions="0.35" orientation="VERTICAL" VBox.vgrow="ALWAYS" styleClass="ai-preview-split">
-                <!-- Cases List -->
-                <VBox spacing="6">
-                    <Label text="Danh sách Test Cases:" styleClass="field-label-small"/>
-                    <ListView fx:id="generatedCasesListView" VBox.vgrow="ALWAYS" styleClass="ai-cases-list"/>
-                </VBox>
-
-                <!-- Case Details & Scripts -->
-                <VBox spacing="8">
-                    <HBox spacing="8" alignment="CENTER_LEFT" styleClass="ai-case-meta-row">
-                        <Label fx:id="previewCaseNameLabel" text="—" styleClass="ai-case-title"/>
-                        <HBox HBox.hgrow="ALWAYS"/>
-                        <Label fx:id="previewCaseUrlLabel" text="" styleClass="field-label-dim"/>
+                    <HBox spacing="8" alignment="CENTER_LEFT">
+                        <Label text="Chế độ Kỹ năng AI:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                        <ComboBox fx:id="skillComboBox" promptText="Chọn kỹ năng AI..." HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                     </HBox>
-
-                    <TabPane fx:id="detailTabPane" VBox.vgrow="ALWAYS" styleClass="workspace-tabs">
-                        <Tab fx:id="previewStepsTab" text="Các bước kiểm thử (0)" closable="false">
-                            <ListView fx:id="previewStepsListView" styleClass="case-list"/>
-                        </Tab>
-                        <Tab text="Playwright Java Script" closable="false">
-                            <TextArea fx:id="previewScriptEditor" styleClass="code-editor" wrapText="false" editable="true"
-                                      promptText="// Mã Playwright Java của case sẽ hiển thị tại đây..."/>
-                        </Tab>
-                        <Tab fx:id="previewAssertsTab" text="Assertions (0)" closable="false">
-                            <ListView fx:id="previewAssertsListView" styleClass="case-list"/>
-                        </Tab>
-                        <Tab fx:id="previewTestDataTab" text="Dữ liệu kiểm thử (0)" closable="false">
-                            <ListView fx:id="previewTestDataListView" styleClass="case-list"/>
-                        </Tab>
-                        <Tab text="Phản hồi gốc (JSON/Raw)" closable="false">
-                            <TextArea fx:id="rawResponseViewer" styleClass="code-editor" wrapText="true" editable="false"
-                                      promptText="Raw response từ OpenAI..."/>
-                        </Tab>
-                    </TabPane>
+                    <HBox spacing="8" alignment="CENTER_LEFT">
+                        <Label text="Đích lưu:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                        <ComboBox fx:id="targetGroupCombo" promptText="Chọn Nhóm..." prefWidth="120" minWidth="90"/>
+                        <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="140" minWidth="110" HBox.hgrow="ALWAYS"/>
+                        <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary" minWidth="-Infinity"/>
+                    </HBox>
                 </VBox>
-            </SplitPane>
-        </VBox>
-    </SplitPane>
-</VBox>
 
+                <!-- Chat History Area -->
+                <ScrollPane fx:id="chatScroll" fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="ai-chat-scroll">
+                    <VBox fx:id="chatMessagesBox" spacing="12" styleClass="ai-chat-container">
+                        <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
+                    </VBox>
+                </ScrollPane>
+
+                <!-- Attached Files Container -->
+                <VBox fx:id="attachedFilesBox" spacing="6" styleClass="ai-attachments-box" visible="false" managed="false">
+                    <Label text="Tài liệu đính kèm:" styleClass="field-label-small"/>
+                    <FlowPane fx:id="attachedChipsPane" hgap="6" vgap="6"/>
+                </VBox>
+
+                <!-- Quick Suggestions -->
+                <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-quick-suggestions">
+                    <Label text="Gợi ý:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                    <Button text="⚡ Test Case Biên" onAction="#applyQuickBva" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                    <Button text="🎭 Playwright E2E" onAction="#applyQuickLogin" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                    <Button text="🔍 RCA Sửa Lỗi" onAction="#applyQuickRca" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                    <Button text="🛡️ Fuzzing Bảo Mật" onAction="#applyQuickSecurity" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
+                </HBox>
+
+                <!-- Input Box -->
+                <VBox spacing="8" styleClass="ai-input-box">
+                    <TextArea fx:id="promptInputArea" prefRowCount="3" wrapText="true"
+                              promptText="Nhập yêu cầu kiểm thử hoặc kịch bản cần sinh (hoặc đính kèm tài liệu/ảnh UI bên dưới)..."
+                              styleClass="ai-prompt-input"/>
+                    <HBox spacing="8" alignment="CENTER_LEFT">
+                        <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
+                        <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary" minWidth="-Infinity"/>
+                        <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
+                        <HBox HBox.hgrow="ALWAYS"/>
+                        <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
+                        <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run" minWidth="-Infinity"/>
+                    </HBox>
+                </VBox>
+            </VBox>
+
+            <!-- Right Panel: Generated Test Cases Preview & Apply -->
+            <VBox spacing="10" styleClass="ai-right-panel">
+                <padding><Insets top="10" right="12" bottom="12" left="12"/></padding>
+
+                <HBox spacing="10" alignment="CENTER_LEFT">
+                    <VBox spacing="2" HBox.hgrow="ALWAYS">
+                        <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header"/>
+                        <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true"/>
+                    </VBox>
+                    <Button text="Nhập vào Suite" fx:id="applyToSuiteBtn" onAction="#applyCasesToSelectedSuite" styleClass="toolbar-btn-save" disable="true"/>
+                </HBox>
+
+                <SplitPane dividerPositions="0.35" orientation="VERTICAL" VBox.vgrow="ALWAYS" styleClass="ai-preview-split">
+                    <!-- Cases List -->
+                    <VBox spacing="6">
+                        <Label text="Danh sách Test Cases:" styleClass="field-label-small"/>
+                        <ListView fx:id="generatedCasesListView" VBox.vgrow="ALWAYS" styleClass="ai-cases-list"/>
+                    </VBox>
+
+                    <!-- Case Details & Scripts -->
+                    <VBox spacing="8">
+                        <HBox spacing="8" alignment="CENTER_LEFT" styleClass="ai-case-meta-row">
+                            <Label fx:id="previewCaseNameLabel" text="—" styleClass="ai-case-title"/>
+                            <HBox HBox.hgrow="ALWAYS"/>
+                            <Label fx:id="previewCaseUrlLabel" text="" styleClass="field-label-dim"/>
+                        </HBox>
+
+                        <TabPane fx:id="detailTabPane" VBox.vgrow="ALWAYS" styleClass="workspace-tabs">
+                            <Tab fx:id="previewStepsTab" text="Các bước kiểm thử (0)" closable="false">
+                                <ListView fx:id="previewStepsListView" styleClass="case-list"/>
+                            </Tab>
+                            <Tab text="Playwright Java Script" closable="false">
+                                <TextArea fx:id="previewScriptEditor" styleClass="code-editor" wrapText="false" editable="true"
+                                          promptText="// Mã Playwright Java của case sẽ hiển thị tại đây..."/>
+                            </Tab>
+                            <Tab fx:id="previewAssertsTab" text="Assertions (0)" closable="false">
+                                <ListView fx:id="previewAssertsListView" styleClass="case-list"/>
+                            </Tab>
+                            <Tab fx:id="previewTestDataTab" text="Dữ liệu kiểm thử (0)" closable="false">
+                                <ListView fx:id="previewTestDataListView" styleClass="case-list"/>
+                            </Tab>
+                            <Tab text="Phản hồi gốc (JSON/Raw)" closable="false">
+                                <TextArea fx:id="rawResponseViewer" styleClass="code-editor" wrapText="true" editable="false"
+                                          promptText="Raw response từ OpenAI..."/>
+                            </Tab>
+                        </TabPane>
+                    </VBox>
+                </SplitPane>
+            </VBox>
+        </SplitPane>
+    </HBox>
+</VBox>
