@@ -6,7 +6,9 @@ import com.studio.runtime.StudioRuntime;
 import com.studio.store.ProjectStore;
 import com.studio.store.ReportStore;
 import com.studio.store.SettingsStore;
+import com.studio.store.StepGroupStore;
 import com.studio.util.StudioPaths;
+import com.studio.util.VariableResolver;
 
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
@@ -14,11 +16,11 @@ import java.net.URLClassLoader;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
@@ -38,6 +40,7 @@ public class TestRunnerService {
     private final ReportStore reportStore;
     private final SettingsStore settingsStore;
     private final OpenAiClient openAiClient;
+    private final StepGroupStore stepGroupStore;
     private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore) {
@@ -46,10 +49,17 @@ public class TestRunnerService {
 
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore,
                              SettingsStore settingsStore, OpenAiClient openAiClient) {
+        this(projectStore, reportStore, settingsStore, openAiClient, new StepGroupStore());
+    }
+
+    public TestRunnerService(ProjectStore projectStore, ReportStore reportStore,
+                             SettingsStore settingsStore, OpenAiClient openAiClient,
+                             StepGroupStore stepGroupStore) {
         this.projectStore = projectStore;
         this.reportStore = reportStore;
         this.settingsStore = settingsStore != null ? settingsStore : new SettingsStore();
         this.openAiClient = openAiClient != null ? openAiClient : new OpenAiClient();
+        this.stepGroupStore = stepGroupStore != null ? stepGroupStore : new StepGroupStore();
     }
 
     /**
@@ -232,6 +242,18 @@ public class TestRunnerService {
                     break;
                 }
 
+                // Resolve variables (Automa-inspired) and expand reusable step groups (Testsigma-inspired)
+                Map<String, String> activeVariables = new HashMap<>();
+                if (runningCase != null && runningCase.getTestDataSets() != null && !runningCase.getTestDataSets().isEmpty()) {
+                    TestDataItem firstItem = runningCase.getTestDataSets().get(0);
+                    if (firstItem.getParameters() != null) {
+                        activeVariables.putAll(firstItem.getParameters());
+                    }
+                }
+                String expandedScript = expandStepGroups(scriptCode, stepGroupStore);
+                String resolvedScript = VariableResolver.resolve(expandedScript, activeVariables);
+                List<Assertion> resolvedAsserts = VariableResolver.resolveAssertions(activeAsserts, activeVariables);
+
                 // Prepare screenshot paths with filesystem-safe names (guards against Windows forbidden chars and subfolder slashes)
                 String safeCaseName = com.studio.util.StringEscapeUtil.safeFileName(
                         cr.getTestCaseName(),
@@ -244,10 +266,10 @@ public class TestRunnerService {
                 String harnessClass = ScriptHarnessTransformer.sanitizeClassName(
                         cr.getTestCaseId() + "_Run");
                 String transformed = ScriptHarnessTransformer.transform(
-                        scriptCode, useShared, harnessScreenshotBase, harnessClass);
+                        resolvedScript, useShared, harnessScreenshotBase, harnessClass);
 
                 // Inject soft-assert block into transformed script (inside try, before finally)
-                String assertBlock = AssertCodeGenerator.generateAssertBlock(activeAsserts);
+                String assertBlock = AssertCodeGenerator.generateAssertBlock(resolvedAsserts);
                 transformed = injectAssertBlock(transformed, assertBlock);
 
                 // Write harness to work/harness/<runId>/ directory
@@ -927,6 +949,30 @@ public class TestRunnerService {
                 RunProgressService.caseFinished(cr);
             }
         }
+    }
+
+    public static String expandStepGroups(String scriptCode, StepGroupStore store) {
+        if (scriptCode == null || !scriptCode.contains("@include(") || store == null) {
+            return scriptCode;
+        }
+        Pattern p = Pattern.compile("(?:/{2}|/\\*)\\s*@include\\([\"']([^\"']+)[\"']\\)\\s*(?:\\*/)?");
+        Matcher m = p.matcher(scriptCode);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String groupId = m.group(1);
+            Optional<StepGroup> group = store.findById(groupId);
+            String expansion = "// [StepGroup: " + groupId + " not found]";
+            if (group.isPresent()) {
+                StringBuilder grpCode = new StringBuilder("// [StepGroup: " + group.get().getName() + "]\n");
+                for (TestStep step : group.get().getSteps()) {
+                    grpCode.append("        // Step: ").append(step.getDescription()).append("\n");
+                }
+                expansion = grpCode.toString();
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(expansion));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private void terminal(String msg, Consumer<String> output) {

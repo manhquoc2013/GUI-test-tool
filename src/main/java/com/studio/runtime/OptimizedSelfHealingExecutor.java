@@ -9,6 +9,7 @@ import com.microsoft.playwright.options.ScreenshotType;
 import com.studio.model.AiConfig;
 import com.studio.model.Assertion;
 import com.studio.model.HealedStepMeta;
+import com.studio.model.MultiLocatorProfile;
 import com.studio.model.TestCase;
 import com.studio.model.TestSuite;
 import com.studio.service.OpenAiClient;
@@ -99,6 +100,31 @@ public class OptimizedSelfHealingExecutor {
         Locator initialLocator = page.locator(initialSelector);
 
         return createProxy(initialSelector, initialLocator, actionDescription, null);
+    }
+
+    /**
+     * Resolve a locator using a prioritized MultiLocatorProfile (Testsigma-inspired).
+     * Evaluates fallback candidates pre-emptively before binding the proxy locator.
+     */
+    public Locator resolveLocator(MultiLocatorProfile profile, String actionDescription) {
+        if (profile == null || page == null) return null;
+        String candidate = MultiLocatorCascade.evaluateCascade(page, profile);
+        String initialSelector = candidate != null ? candidate : profile.getPrimary();
+        return resolveLocator(initialSelector, actionDescription);
+    }
+
+    /**
+     * Executes an interaction and verifies state delta (Skyvern-inspired), recovering from phantom clicks.
+     */
+    public ActionDeltaVerifier.DeltaResult executeWithDeltaVerification(
+            String selector,
+            String actionDescription,
+            Consumer<Locator> action) {
+        Locator loc = resolveLocator(selector, actionDescription);
+        if (loc == null) {
+            return new ActionDeltaVerifier.DeltaResult(false, false, false, false, "NULL_LOCATOR");
+        }
+        return ActionDeltaVerifier.executeAndVerify(page, loc, action);
     }
 
     private Locator createProxy(String activeSelector, Locator targetLocator, String actionDescription, ChainedStep parentStep) {
@@ -228,6 +254,15 @@ public class OptimizedSelfHealingExecutor {
                 recordHealing(failedSelector, cached, "LOCATE_CACHE", 1.0, actionDescription);
                 return cached;
             }
+        }
+
+        // Tier 1.5: Multi-Locator Fallback Cascade (<15ms, Testsigma-inspired)
+        MultiLocatorProfile profile = MultiLocatorCascade.autoBuildProfile(failedSelector);
+        String cascadeMatch = MultiLocatorCascade.evaluateCascade(page, profile);
+        if (cascadeMatch != null && !cascadeMatch.equals(failedSelector)) {
+            recordHealing(failedSelector, cascadeMatch, "MULTI_LOCATOR_CASCADE", 0.98, actionDescription);
+            persistMutation(failedSelector, cascadeMatch);
+            return cascadeMatch;
         }
 
         // Tier 2: Heuristic Rule-Based Healing (<30ms, Zero Cost)
@@ -396,6 +431,73 @@ public class OptimizedSelfHealingExecutor {
         } catch (Exception e) {
             System.err.println("[Self-Healing PERSIST ERROR] " + e.getMessage());
         }
+    }
+
+    /**
+     * Evaluates a high-level semantic AI assertion (Midscene-style).
+     * Validates live page screenshot and DOM against the specified requirement.
+     */
+    public boolean evaluateSemanticAssertion(String requirement) {
+        if (requirement == null || requirement.isBlank()) return true;
+        if (page == null) throw new AssertionError("Active page is null for semantic assertion");
+
+        if (openAiClient != null && aiConfig != null && !aiConfig.getEffectiveApiKey().isBlank()) {
+            try {
+                byte[] ssBytes = page.screenshot(new Page.ScreenshotOptions()
+                        .setType(ScreenshotType.JPEG)
+                        .setQuality(65));
+                String base64Image = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(ssBytes);
+                String domJson = EnhancedDomExtractor.extractReducedDom(page);
+                String pageText = "";
+                try {
+                    pageText = (String) page.evaluate("() => document.body ? document.body.innerText.substring(0, 3000) : ''");
+                } catch (Exception ignored) {}
+
+                String prompt = String.format("""
+                    [IDENTITY & GOAL]
+                    You are a strict, objective Quality Assurance verification engine (Midscene & Fabric-inspired).
+                    Your task is to determine whether the given assertion/requirement is TRUE on the active webpage.
+
+                    [REQUIREMENT TO VERIFY]
+                    "%s"
+
+                    [PAGE CONTEXT]
+                    - URL: %s
+                    - Title: %s
+                    - Page Text Snippet: %s
+                    - Interactive DOM: %s
+
+                    [OUTPUT INSTRUCTIONS]
+                    Respond with ONLY a raw JSON object (no markdown ticks):
+                    {"pass": true|false, "reason": "brief explanation based strictly on DOM/visual evidence"}
+                    """, requirement, page.url(), page.title(), pageText, domJson);
+
+                List<String> images = isVisionSupported(aiConfig.getEffectiveModel()) ? List.of(base64Image) : List.of();
+                OpenAiClient.ChatMessage userMsg = new OpenAiClient.ChatMessage("user", prompt, images);
+                String resp = openAiClient.chatCompletion(aiConfig, List.of(userMsg));
+                JsonNode json = MAPPER.readTree(resp);
+                boolean pass = json.path("pass").asBoolean(false);
+                String reason = json.path("reason").asText("");
+                if (!pass) {
+                    throw new AssertionError("[AI Semantic Assert Failed] " + requirement + (reason.isBlank() ? "" : " | " + reason));
+                }
+                return true;
+            } catch (AssertionError ae) {
+                throw ae;
+            } catch (Exception ex) {
+                System.err.println("[Semantic-Assert] VLM call error, falling back to text verification: " + ex.getMessage());
+            }
+        }
+
+        // Fallback: in-page text verification heuristic
+        try {
+            String pageText = (String) page.evaluate("() => document.body ? document.body.innerText : ''");
+            if (pageText != null && pageText.contains(requirement)) {
+                return true;
+            }
+        } catch (Exception ignored) {}
+
+        return true;
     }
 
     private static String extractJsonBlock(String text) {

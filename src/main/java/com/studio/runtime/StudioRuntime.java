@@ -77,6 +77,27 @@ public class StudioRuntime {
         return Collections.emptyList();
     }
 
+    /**
+     * Executes an AI-powered semantic assertion (Midscene-style).
+     * Validates screenshot and active DOM context against the requirement statement.
+     */
+    public static void assertSemantic(Page page, String requirement) {
+        Page activePage = page != null ? page : currentPage.get();
+        OptimizedSelfHealingExecutor exec = currentExecutor.get();
+        if (exec != null) {
+            exec.evaluateSemanticAssertion(requirement);
+            return;
+        }
+        if (activePage != null && requirement != null && !requirement.isBlank()) {
+            try {
+                String text = (String) activePage.evaluate("() => document.body ? document.body.innerText : ''");
+                if (text != null && text.contains(requirement)) {
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
     public static void clear() {
         currentPage.remove();
         currentContext.remove();

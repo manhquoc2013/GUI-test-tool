@@ -222,6 +222,64 @@ public class HtmlReportService {
                 transition: transform 0.2s;
             }
             .screenshot-img:hover { transform: scale(1.01); }
+            /* Midscene-style Visualizer Inspector */
+            .visualizer-btn {
+                background: linear-gradient(135deg, #7aa2f7, #bb9af7);
+                color: #1a1b26;
+                font-weight: 600;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                margin-top: 8px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                transition: opacity 0.2s;
+            }
+            .visualizer-btn:hover { opacity: 0.9; }
+            .visualizer-modal {
+                display: none;
+                position: fixed;
+                top: 0; left: 0; width: 100vw; height: 100vh;
+                background: rgba(10, 10, 15, 0.88);
+                backdrop-filter: blur(6px);
+                z-index: 9999;
+                padding: 24px;
+                box-sizing: border-box;
+            }
+            .visualizer-wrapper {
+                width: 100%; height: 100%;
+                display: flex; flex-direction: column;
+                background: var(--bg-card);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                overflow: hidden;
+            }
+            .visualizer-header {
+                padding: 12px 20px;
+                background: #13141d;
+                border-bottom: 1px solid var(--border);
+                display: flex; justify-content: space-between; align-items: center;
+            }
+            .visualizer-body {
+                flex: 1; display: flex; overflow: hidden;
+            }
+            .visualizer-stage {
+                flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
+                background: #0f0f17; padding: 20px;
+            }
+            .visualizer-stage img {
+                max-width: 95%; max-height: 90vh; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            }
+            .visualizer-sidebar {
+                width: 320px; background: #16161e; border-left: 1px solid var(--border);
+                padding: 16px; overflow-y: auto; font-size: 13px;
+            }
+            .close-btn {
+                background: none; border: none; color: #fff; font-size: 20px; cursor: pointer;
+            }
             footer {
                 text-align: center;
                 margin-top: 40px;
@@ -412,6 +470,9 @@ public class HtmlReportService {
                           .append("\" alt=\"Evidence for ").append(escapeHtml(cr.getTestCaseName()))
                           .append("\" class=\"screenshot-img\" onclick=\"window.open(this.src)\" title=\"")
                           .append(I18nService.get(effectiveLang, "export.html.click_to_view")).append("\"/>\n");
+                        sb.append("<br><button type=\"button\" class=\"visualizer-btn\" onclick=\"openVisualizer(this)\">👁️ ")
+                          .append(effectiveLang == ExportLanguage.VIETNAMESE ? "Mở Midscene Visualizer Inspector" : "Open Midscene Visualizer")
+                          .append("</button>\n");
                         sb.append("</div>\n");
                     } catch (Exception ignored) {
                     }
@@ -428,6 +489,19 @@ public class HtmlReportService {
           .append("</footer>\n");
 
         // JavaScript for accordion & filtering
+        sb.append("<div id=\"visualizerModal\" class=\"visualizer-modal\">\n")
+          .append("  <div class=\"visualizer-wrapper\">\n")
+          .append("    <div class=\"visualizer-header\">\n")
+          .append("      <h3 id=\"vizTitle\" style=\"color:#fff; font-size:16px;\">👁️ Midscene Visualizer Inspector</h3>\n")
+          .append("      <button class=\"close-btn\" onclick=\"closeVisualizer()\">&times;</button>\n")
+          .append("    </div>\n")
+          .append("    <div class=\"visualizer-body\">\n")
+          .append("      <div class=\"visualizer-stage\"><img id=\"vizImg\" src=\"\" alt=\"Visual Inspection\"/></div>\n")
+          .append("      <div id=\"vizSidebar\" class=\"visualizer-sidebar\"></div>\n")
+          .append("    </div>\n")
+          .append("  </div>\n")
+          .append("</div>\n");
+
         sb.append("<script>\n");
         sb.append("""
             function toggleCaseBody(header) {
@@ -445,6 +519,22 @@ public class HtmlReportService {
                         card.style.display = 'none';
                     }
                 });
+            }
+            function openVisualizer(btn) {
+                var evidenceBox = btn.closest('.evidence-box');
+                var img = evidenceBox.querySelector('img');
+                var caseCard = btn.closest('.case-card');
+                var caseName = caseCard ? caseCard.querySelector('.case-name').innerText : 'Inspection';
+                var tables = caseCard ? caseCard.querySelectorAll('table') : [];
+                var sidebarHtml = '<h4 style="margin-bottom:12px; color:var(--accent);">📋 ' + caseName + '</h4>';
+                tables.forEach(function(tbl) { sidebarHtml += tbl.outerHTML + '<br>'; });
+                document.getElementById('vizTitle').innerText = '👁️ Midscene Visualizer: ' + caseName;
+                document.getElementById('vizImg').src = img.src;
+                document.getElementById('vizSidebar').innerHTML = sidebarHtml || '<p style="color:var(--text-muted);">No trace logs</p>';
+                document.getElementById('visualizerModal').style.display = 'block';
+            }
+            function closeVisualizer() {
+                document.getElementById('visualizerModal').style.display = 'none';
             }
         """);
         sb.append("</script>\n");

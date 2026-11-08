@@ -65,3 +65,15 @@
 - [x] Task 61: Optimize `LocalDataIndexService.syncAllFromDisk` with MTime Caching <!-- id: 71 -->
 - [x] Task 62: Add targeted unit tests and verify full suite (`mvn clean test`) <!-- id: 72 -->
 - [x] Task 63: Update `tasks/learnings.md` and make atomic commits <!-- id: 73 -->
+
+- [x] Task 64: Create `MultiLocatorProfile.java` and `MultiLocatorCascade.java` (Testsigma fallback cascade) <!-- id: 74 -->
+- [x] Task 65: Create `ActionDeltaVerifier.java` (Skyvern post-action state delta check & recovery) <!-- id: 75 -->
+- [x] Task 66: Integrate `MultiLocatorCascade` and `ActionDeltaVerifier` into `OptimizedSelfHealingExecutor.java` <!-- id: 76 -->
+- [x] Task 67: Add `AI_SEMANTIC_ASSERT` to `Assertion.java` and `AssertCodeGenerator.java` <!-- id: 77 -->
+- [x] Task 68: Implement `StudioRuntime.semanticAssert(...)` with Fabric prompt template <!-- id: 78 -->
+- [x] Task 69: Upgrade `HtmlReportService.java` with interactive Visualizer Inspector (Midscene dump.html style) <!-- id: 79 -->
+- [x] Task 70: Create `StepGroup.java` model and `StepGroupStore.java` for reusable test step macros (Testsigma) <!-- id: 80 -->
+- [x] Task 71: Create `TestDataProfile.java` and `VariableResolver.java` for dynamic parameter injection (Automa) <!-- id: 81 -->
+- [x] Task 72: Integrate Step Group macro expansion and Variable Resolution in `TestRunnerService.java` <!-- id: 82 -->
+- [x] Task 73: Write comprehensive unit tests for all components and verify full test suite (`mvn clean test`) <!-- id: 83 -->
+- [x] Task 74: Update `tasks/learnings.md` and commit atomic changes <!-- id: 84 -->

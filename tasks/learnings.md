@@ -426,3 +426,30 @@
 ### 6. MTime Cache-Aware Workspace Synchronization
 - `LocalDataIndexService.syncAllFromDisk()` tải trước bản đồ `(id, updated_at)` từ cơ sở dữ liệu và so sánh với `Files.getLastModifiedTime(path)`.
 - Các tệp `group.json`, `suite.json`, `*.java` và `summary.json` không bị thay đổi sẽ được bỏ qua hoàn toàn, giúp thời gian khởi động ứng dụng đạt tốc độ tức thì bất kể kích thước workspace lên tới hàng nghìn test case.
+
+## 17. 3-Pillar Enterprise Testing Synthesis: Midscene + Skyvern + Testsigma + Automa
+
+### 1. Pillar 1: Multi-Locator Fallback Cascade & Action-Delta Healing (Testsigma + Skyvern)
+- **MultiLocatorCascade (Testsigma)**:
+  - Thay vì phụ thuộc vào một bộ chọn đơn lẻ dễ gãy hoặc phải lập tức gọi đến mô hình AI VLM tốn kém, mỗi phần tử được quản lý bằng một danh sách chiến lược đa tầng ưu tiên (`MultiLocatorProfile`): Primary (`data-testid`, `#id`) → Fallback CSS → Fallback XPath → Fallback Role/Aria → Fallback Text.
+  - Tầng cascade được duyệt tuần tự và kiểm tra trực tiếp trên DOM của trang (`count() == 1 && isVisible()`) với thời gian phản hồi siêu tốc (<15ms).
+  - Khi một bộ chọn dự phòng khớp duy nhất, hệ thống tự động thăng cấp nó làm Primary và ghi đè bền vững xuống file kịch bản `.java` mà không cần gọi đến API AI.
+- **ActionDeltaVerifier (Skyvern)**:
+  - Khắc phục triệt để hiện tượng "Phantom Click" (thao tác click Playwright thành công nhưng không có bất kỳ phản hồi giao diện nào do bị lớp phủ che khuất, nút bị disable logic hoặc chưa gắn sự kiện listener).
+  - So sánh snapshot trạng thái trước và sau thao tác (`urlChanged`, `domMutated`, `interactiveCount`). Nếu không ghi nhận biến động trạng thái nào, hệ thống tự động kích hoạt các chiến lược tự phục hồi: cuộn phần tử vào trọng tâm (`scrollIntoViewIfNeeded`), phát sự kiện click trực tiếp (`dispatchEvent('click')`) hoặc thử phím Enter.
+
+### 2. Pillar 2: Interactive Visualizer & Semantic AI Assertions (Midscene.js)
+- **AI Semantic Assertions (`aiAssert` / `AI_SEMANTIC_ASSERT`)**:
+  - Bổ sung loại kiểm tra xác thực ngữ nghĩa cao cấp cho phép người kiểm thử viết các câu khẳng định tự nhiên: "Giỏ hàng hiển thị đúng 2 sản phẩm", "Trang không hiển thị bất kỳ thông báo lỗi đỏ nào".
+  - Tích hợp vào `AssertCodeGenerator` và thực thi tại `StudioRuntime.assertSemantic(...)` kết hợp chụp ảnh màn hình và DOM tinh giản để đánh giá bằng prompt chuẩn Fabric/ECC.
+- **Interactive Visualizer Inspector**:
+  - Nâng cấp `HtmlReportService` với giao diện Visualizer Inspector tương tác mô phỏng `dump.html` của Midscene: xem ảnh chụp màn hình phóng to, kiểm tra bảng nhật ký tự chữa lành (Self-Healing timeline) và kết quả xác thực ngữ nghĩa AI ngay trên báo cáo HTML độc lập.
+
+### 3. Pillar 3: Reusable Step Groups & Test Data Profiles (Automa + Testsigma)
+- **Reusable Step Groups (Testsigma)**:
+  - Tạo mô hình `StepGroup` và dịch vụ lưu trữ `StepGroupStore` cho phép định nghĩa các chuỗi hành động lặp đi lặp lại (đăng nhập hệ thống, chấp thuận cookie, tạo đơn hàng) dưới dạng nhóm bước tái sử dụng.
+  - Hỗ trợ cú pháp nhúng macro `// @include("group-id")` trong kịch bản test để tự động mở rộng các bước tại thời điểm chạy kịch bản trong `TestRunnerService`.
+- **TestDataProfile & Variable Pipeline (Automa)**:
+  - Cung cấp khả năng tham số hóa dữ liệu kiểm thử độc lập khỏi logic kịch bản thông qua `TestDataProfile` và `VariableResolver`.
+  - Hỗ trợ nội suy biểu thức `{{variable_name}}` và `${variable_name}` linh hoạt cho cả URL, bước kiểm thử, tham số nhập liệu và khẳng định kiểm thử (Assertions), hỗ trợ kết nối với biến môi trường hệ thống.
+

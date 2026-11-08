@@ -33,6 +33,7 @@ public class AssertCodeGenerator {
                  "TABLE_HAS_TEXT", "TABLE_ROW_COUNT", "TABLE_CELL_EQUALS", "TABLE_HEADER_CONTAINS",
                  "FORM_VALID", "FORM_INVALID", "NO_CONSOLE_ERROR", "COOKIE_EXISTS",
                  "LOCAL_STORAGE_EQUALS", "SESSION_STORAGE_EQUALS",
+                 "AI_SEMANTIC_ASSERT", "SEMANTIC_ASSERT", "AI_ASSERT",
                  "CUSTOM", "CUSTOM_JS", "CUSTOM_JS_TRUE" -> true;
             default -> false;
         };
@@ -363,6 +364,14 @@ public class AssertCodeGenerator {
                 return String.format(
                     "            Object __jsResult = com.studio.runtime.StudioRuntime.page().evaluate(\"%s\"); if (!Boolean.TRUE.equals(__jsResult)) throw new AssertionError(\"Custom JS assertion failed: %s\");\n",
                     StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
+
+            case "AI_SEMANTIC_ASSERT", "SEMANTIC_ASSERT", "AI_ASSERT":
+                String promptVal = a.getValue() != null && !a.getValue().isBlank()
+                        ? a.getValue()
+                        : (a.getExpectedValue() != null ? a.getExpectedValue() : "");
+                return String.format(
+                    "            com.studio.runtime.StudioRuntime.assertSemantic(com.studio.runtime.StudioRuntime.page(), \"%s\");\n",
+                    StringEscapeUtil.escapeJava(promptVal));
 
             // ─── Unknown ─────────────────────────────────────────────────────
 

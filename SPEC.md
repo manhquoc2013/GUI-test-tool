@@ -99,3 +99,37 @@ Incorporate the multi-agent orchestration, test governance, self-healing TDD, an
 - **Agents**: `.agents/qa-planner.md`, `.agents/playwright-test-engineer.md`, `.agents/test-self-healer.md`, `.agents/quality-auditor.md`
 - **Skills**: `skills/ai-test-suite-generator/SKILL.md`, `skills/playwright-test-healer/SKILL.md`, `skills/test-quality-gate/SKILL.md`
 - **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`
+
+## 6. Comprehensive 3-Pillar Optimization: Midscene + Skyvern + Testsigma + Automa
+
+### 6.1 Pillar 1: Multi-Locator Fallback Cascade & Action-Delta Healing (Testsigma + Skyvern)
+1. **Multi-Locator Fallback Cascade (`MultiLocatorProfile` & `MultiLocatorCascade`)**:
+   - Represents elements with an ordered cascade of strategies: Primary (`data-testid`/`id`), Alt CSS, Alt XPath, Alt Role/Aria, Alt Text.
+   - Sub-15ms in-browser evaluation of candidate locators before incurring heavy LLM/VLM costs.
+   - Automatic promotion & persistence: When a fallback matches uniquely, it updates the primary selector in memory and persists the fix to the test file.
+2. **Action-Delta State Verification (`ActionDeltaVerifier`)**:
+   - Compares pre-action vs post-action state (URL changes, DOM mutation count, modal emergence, interactive state).
+   - Detects "phantom clicks" (actions that succeeded at Playwright level but triggered 0 page state changes due to overlays or unattached handlers).
+   - Automatically executes resilient recovery actions: scroll element into view, dismiss obstructing overlays, dispatchEvent click fallback, or keyboard triggers.
+
+### 6.2 Pillar 2: Interactive Run Visualizer & Semantic AI Assertions (Midscene.js)
+1. **Semantic AI Assertions (`aiAssert` / `AI_SEMANTIC_ASSERT`)**:
+   - Extends assertion catalogue (`AssertionType.AI_SEMANTIC_ASSERT`) and generator (`AssertCodeGenerator`).
+   - Allows testers to express high-level visual/semantic verifications (e.g. "Giỏ hàng hiển thị đúng 2 sản phẩm", "Trang không có banner báo lỗi đỏ").
+   - Evaluates page screenshot + distilled DOM via strict prompt schema returning structured boolean verdict + rationale.
+2. **Interactive Run Visualizer (`visualizer.html` / Dump Inspection)**:
+   - Midscene-inspired visual inspector generated in `HtmlReportService` and standalone report exports:
+     - Visual overlay of tested elements and bounding boxes on step screenshots.
+     - Self-healing decision tree & timeline (failed selector, candidates evaluated, healed match, latency).
+     - Semantic assertion breakdown cards with AI explanations.
+
+### 6.3 Pillar 3: Reusable Step Groups & Test Data Profiles (Automa + Testsigma)
+1. **Reusable Step Groups (`StepGroup` & `StepGroupStore`)**:
+   - Enables defining modular test sequences (e.g. "Standard Login", "Checkout Flow", "Clear Cart") once under `data/step-groups/`.
+   - Reusable across multiple TestSuites and TestCases with macro inclusion `@include("login-flow")` and unified execution.
+2. **Test Data Profiles (TDP) & Variable Pipeline (`TestDataProfile` & `VariableResolver`)**:
+   - Decouples test logic from dynamic test parameters (URLs, credentials, test vectors).
+   - Supports CSV / JSON data-driven execution with iteration tracking.
+   - Dynamic variable interpolation (`{{varName}}`, `${varName}`) across test steps, scripts, and assertion targets.
+
+- **Rules**: `rules/playwright-java-testing.md`, `rules/anti-thrashing-healing.md`

@@ -81,3 +81,21 @@
   - `rules/anti-thrashing-healing.md`: Anti-thrashing threshold (max 3 patches) and escalation protocol.
 - Integrate guidelines into `AiTestGeneratorService.java` prompt & documentation.
 - Verify full regression test suite (`mvn clean test`) to ensure zero regressions.
+
+## Phase 10: 3-Pillar Enterprise Synthesis (Midscene + Skyvern + Testsigma + Automa)
+- **Pillar 1: Multi-Locator Fallback Cascade & Action-Delta Healing (Testsigma + Skyvern)**
+  - Create `com.studio.model.MultiLocatorProfile.java`: Ranked candidate locator strategies (ID, CSS, XPath, Role/Aria, Text).
+  - Create `com.studio.runtime.MultiLocatorCascade.java`: Sub-15ms fast evaluation of fallback candidates before invoking AI/VLM.
+  - Create `com.studio.runtime.ActionDeltaVerifier.java`: Skyvern-inspired state verification (URL transition, DOM mutation count, modal emergence) and phantom-click recovery.
+  - Wire cascade and action-delta into `OptimizedSelfHealingExecutor.java`.
+- **Pillar 2: Interactive Run Visualizer & Semantic AI Assertions (Midscene.js)**
+  - Support `AssertionType.AI_SEMANTIC_ASSERT` in `Assertion.java` and code generation in `AssertCodeGenerator.java`.
+  - Implement runtime evaluation in `StudioRuntime.semanticAssert(...)` with Fabric prompt template and OpenAiClient integration.
+  - Update `HtmlReportService.java` to generate an interactive visualizer inspector tab with self-healing decision timeline and visual element bounding boxes.
+- **Pillar 3: Reusable Step Groups & Test Data Profiles (Automa + Testsigma)**
+  - Create `com.studio.model.StepGroup.java` and `com.studio.store.StepGroupStore.java` for reusable modular step sequences.
+  - Create `com.studio.model.TestDataProfile.java` and `com.studio.util.VariableResolver.java` for data-driven testing and dynamic parameter interpolation (`{{var}}`, `${var}`).
+  - Integrate Step Group expansion and Variable Resolution in `TestRunnerService.java` and `ProjectStore.java`.
+- **Verification & TDD**:
+  - Add comprehensive unit tests for each new component.
+  - Run full test regression (`mvn clean test`) to verify all existing and new tests pass.
