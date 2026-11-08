@@ -17,7 +17,7 @@ public class StudioPaths {
     private static void initPaths() {
         // 1. System property (jpackage sets -Dstudio.home=$ROOTDIR)
         String prop = System.getProperty("studio.home");
-        if (prop != null && !prop.isBlank()) {
+        if (prop != null && !prop.isBlank() && !"$ROOTDIR".equalsIgnoreCase(prop.trim())) {
             APP_HOME = Paths.get(prop);
         }
         // 2. Environment variables
@@ -103,6 +103,18 @@ public class StudioPaths {
                 || abs.contains("program files") || abs.contains("program files (x86)")) {
             return true;
         }
+        String pf = System.getenv("ProgramFiles");
+        if (pf != null && !pf.isBlank() && abs.startsWith(pf.replace('\\', '/').toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        String pfx86 = System.getenv("ProgramFiles(x86)");
+        if (pfx86 != null && !pfx86.isBlank() && abs.startsWith(pfx86.replace('\\', '/').toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        String pfW64 = System.getenv("ProgramW6432");
+        if (pfW64 != null && !pfW64.isBlank() && abs.startsWith(pfW64.replace('\\', '/').toLowerCase(Locale.ROOT))) {
+            return true;
+        }
         // Unix system directories
         if (raw.startsWith("/usr/") || raw.startsWith("/opt/") || raw.startsWith("/etc/")
                 || abs.startsWith("/usr/") || abs.startsWith("/opt/") || abs.startsWith("/etc/")
@@ -113,10 +125,19 @@ public class StudioPaths {
         if (raw.contains("/windows/") || abs.contains("/windows/")) {
             return true;
         }
-        // If not writable
+        // If not writable (attribute check + active write probe)
         try {
-            if (Files.exists(path) && !Files.isWritable(path)) {
-                return true;
+            if (Files.exists(path)) {
+                if (!Files.isWritable(path)) {
+                    return true;
+                }
+                Path probe = path.resolve(".studio-write-probe-" + System.currentTimeMillis());
+                try {
+                    Files.createFile(probe);
+                    Files.deleteIfExists(probe);
+                } catch (Exception writeFailed) {
+                    return true;
+                }
             }
         } catch (Exception ignored) {
         }
