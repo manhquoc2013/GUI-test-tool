@@ -1402,6 +1402,21 @@
     -fx-text-fill: #f1f5f9;
 }
 
+.dialog-scrim {
+    -fx-background-color: rgba(15, 23, 42, 0.35);
+}
+
+.dialog-pane > .header-panel .graphic-container,
+.studio-dialog > .header-panel .graphic-container {
+    -fx-padding: 0;
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+    -fx-min-width: 0;
+    -fx-min-height: 0;
+    -fx-max-width: 0;
+    -fx-max-height: 0;
+}
+
 /* === DIALOG PANES === */
 .dialog-pane, .studio-dialog {
     -fx-background-color: #cbd5e1, #ffffff;
@@ -1411,6 +1426,11 @@
     -fx-border-color: transparent;
     -fx-padding: 0;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.12), 24, 0.1, 0, 8);
+}
+
+.dialog-pane .entity-form {
+    -fx-pref-width: 512;
+    -fx-min-width: 480;
 }
 
 .dialog-pane > .content {

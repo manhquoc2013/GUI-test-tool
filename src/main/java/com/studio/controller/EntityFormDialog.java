@@ -203,6 +203,7 @@ public final class EntityFormDialog {
             syncBrowserVisibility.run();
         }
 
+        form.setMaxHeight(Region.USE_PREF_SIZE);
         dialog.getDialogPane().setContent(form);
         dialog.getDialogPane().setPrefWidth(DIALOG_WIDTH);
         dialog.getDialogPane().setMinWidth(DIALOG_WIDTH);

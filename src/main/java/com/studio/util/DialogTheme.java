@@ -29,7 +29,7 @@ public final class DialogTheme {
     private static final String SCRIM_INSTALLED = "studio.dialogScrim";
     private static final String DIALOG_SHELL = "studio.dialogShell";
     private static final String SCRIM_NODE = "studio.dialogScrimNode";
-    private static final String SHELL_NODE = "studio.dialogShellNode";
+    public static final String SHELL_NODE = "studio.dialogShellNode";
     /** Close may proceed without theme exit animation (custom handler already animated / confirmed). */
     public static final String EXIT_ARMED = "studio.dialogExitArmed";
     private static final String CLOSE_FILTER = "studio.dialogCloseFilter";
@@ -208,11 +208,30 @@ public final class DialogTheme {
         StackPane.setAlignment(shell, Pos.CENTER);
         scene.setRoot(scrim);
         scene.setFill(Color.TRANSPARENT);
+        com.studio.service.ThemeService.applyThemeToScene(scene);
+        com.studio.service.ThemeService.applyThemeToDialog(dialog);
 
         pane.maxWidthProperty().bind(javafx.beans.binding.Bindings.createDoubleBinding(
                 () -> Math.max(300.0, scrim.getWidth() - 40.0), scrim.widthProperty()));
         pane.maxHeightProperty().bind(javafx.beans.binding.Bindings.createDoubleBinding(
                 () -> Math.max(240.0, scrim.getHeight() - 40.0), scrim.heightProperty()));
+
+        pane.applyCss();
+        pane.layout();
+        pane.autosize();
+
+        if (!Boolean.TRUE.equals(pane.getProperties().get("studio.dialogAutosizeHook"))) {
+            pane.getProperties().put("studio.dialogAutosizeHook", Boolean.TRUE);
+            pane.needsLayoutProperty().addListener((obs, was, is) -> {
+                if (is) {
+                    Platform.runLater(() -> {
+                        if (pane.getParent() instanceof Group) {
+                            pane.autosize();
+                        }
+                    });
+                }
+            });
+        }
 
         pane.getProperties().put(SCRIM_NODE, scrim);
         pane.getProperties().put(SHELL_NODE, shell);

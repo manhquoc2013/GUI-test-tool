@@ -25,6 +25,7 @@ class FxmlLoadTest {
         } catch (IllegalStateException ignored) {
             // Already initialized
         }
+        Platform.setImplicitExit(false);
     }
 
     private void runFx(Runnable r) throws InterruptedException {
