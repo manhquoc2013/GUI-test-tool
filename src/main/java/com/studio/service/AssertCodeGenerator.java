@@ -53,11 +53,16 @@ public class AssertCodeGenerator {
         int idx = 0;
         for (Assertion a : assertions) {
             String type = a.getType() != null ? a.getType().trim().toUpperCase() : "";
+            String detail = a.getDetail() != null && !a.getDetail().isBlank()
+                    ? a.getDetail()
+                    : (a.getLocator() != null && !a.getLocator().isBlank()
+                            ? a.getLocator()
+                            : (a.getValue() != null ? a.getValue() : ""));
             if (!"ACTIVE".equals(a.getStatus())) {
                 // Non-active: record as SKIPPED
                 sb.append(String.format(
-                    "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"SKIPPED\\\",\\\"assertStatus\\\":\\\"%s\\\",\\\"message\\\":\\\"Assert not ACTIVE\\\"}\");\n",
-                    idx, StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(a.getStatus())
+                    "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"detail\\\":\\\"%s\\\",\\\"status\\\":\\\"SKIPPED\\\",\\\"assertStatus\\\":\\\"%s\\\",\\\"message\\\":\\\"Assert not ACTIVE\\\"}\");\n",
+                    idx, StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(detail), StringEscapeUtil.escapeJson(a.getStatus())
                 ));
             } else if (!isSupported(type)) {
                 // Unknown or unsupported: record directly as FAILED without breaking compilation with unreachable statements
@@ -67,17 +72,18 @@ public class AssertCodeGenerator {
                     StringEscapeUtil.escapeJson(a.getValue() != null ? a.getValue() : "")
                 ));
                 sb.append(String.format(
-                    "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"FAILED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":\\\"Unsupported or unknown assertion type: %s\\\"}\");\n",
+                    "        __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"detail\\\":\\\"%s\\\",\\\"status\\\":\\\"FAILED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":\\\"Unsupported or unknown assertion type: %s\\\"}\");\n",
                     idx,
                     StringEscapeUtil.escapeJson(a.getType()),
+                    StringEscapeUtil.escapeJson(detail),
                     StringEscapeUtil.escapeJson(a.getType())
                 ));
             } else {
                 sb.append("        try {\n");
                 sb.append(generateAssertCode(a));
                 sb.append(String.format(
-                    "            __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"PASSED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":null}\");\n",
-                    idx, StringEscapeUtil.escapeJson(a.getType())
+                    "            __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"detail\\\":\\\"%s\\\",\\\"status\\\":\\\"PASSED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":null}\");\n",
+                    idx, StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(detail)
                 ));
                 sb.append("        } catch (Throwable __t) {\n");
                 sb.append(String.format(
@@ -85,8 +91,8 @@ public class AssertCodeGenerator {
                     StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(a.getValue() != null ? a.getValue() : "")
                 ));
                 sb.append(String.format(
-                    "            __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"status\\\":\\\"FAILED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":\\\"\" + com.studio.util.StringEscapeUtil.escapeJson(__t.getMessage()) + \"\\\"}\");\n",
-                    idx, StringEscapeUtil.escapeJson(a.getType())
+                    "            __studioAssertResults.add(\"{\\\"index\\\":%d,\\\"type\\\":\\\"%s\\\",\\\"detail\\\":\\\"%s\\\",\\\"status\\\":\\\"FAILED\\\",\\\"assertStatus\\\":\\\"ACTIVE\\\",\\\"message\\\":\\\"\" + com.studio.util.StringEscapeUtil.escapeJson(__t.getMessage()) + \"\\\"}\");\n",
+                    idx, StringEscapeUtil.escapeJson(a.getType()), StringEscapeUtil.escapeJson(detail)
                 ));
                 sb.append("        }\n");
             }
@@ -94,7 +100,7 @@ public class AssertCodeGenerator {
         }
 
         // Write assert-results to temp file
-        sb.append("        try { java.nio.file.Files.writeString(java.nio.file.Paths.get(System.getProperty(\"studio.assertResults\")), String.join(\"\\n\", __studioAssertResults)); } catch (Exception __ignored) {}\n");
+        sb.append("        try { if (System.getProperty(\"studio.assertResults\") != null) java.nio.file.Files.writeString(java.nio.file.Paths.get(System.getProperty(\"studio.assertResults\")), String.join(\"\\n\", __studioAssertResults)); } catch (Exception __ignored) {}\n");
         // Throw if any failed
         sb.append("        if (!__studioFailed.isEmpty()) {\n");
         sb.append("            throw new AssertionError(\"Failed asserts (\" + __studioFailed.size() + \"): \" + String.join(\"; \", __studioFailed));\n");

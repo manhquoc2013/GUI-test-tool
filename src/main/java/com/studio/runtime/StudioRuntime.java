@@ -3,8 +3,10 @@ package com.studio.runtime;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.studio.model.AssertResult;
 import com.studio.model.HealedStepMeta;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
@@ -13,6 +15,7 @@ public class StudioRuntime {
     private static final ThreadLocal<Page> currentPage = new ThreadLocal<>();
     private static final ThreadLocal<BrowserContext> currentContext = new ThreadLocal<>();
     private static final ThreadLocal<OptimizedSelfHealingExecutor> currentExecutor = new ThreadLocal<>();
+    private static final ThreadLocal<List<AssertResult>> recordedAsserts = ThreadLocal.withInitial(ArrayList::new);
 
     public static void set(Page page, BrowserContext context) {
         currentPage.set(page);
@@ -151,9 +154,24 @@ public class StudioRuntime {
         }
     }
 
+    public static void recordAssert(AssertResult result) {
+        if (result != null) {
+            recordedAsserts.get().add(result);
+        }
+    }
+
+    public static List<AssertResult> getRecordedAsserts() {
+        return new ArrayList<>(recordedAsserts.get());
+    }
+
+    public static void clearRecordedAsserts() {
+        recordedAsserts.get().clear();
+    }
+
     public static void clear() {
         currentPage.remove();
         currentContext.remove();
         currentExecutor.remove();
+        recordedAsserts.remove();
     }
 }

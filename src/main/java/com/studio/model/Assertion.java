@@ -98,6 +98,13 @@ public class Assertion {
         this.expectedValue = expectedValue;
     }
 
+    public String getDetail() {
+        if (locator != null && !locator.isBlank()) {
+            return locator + (value != null && !value.isBlank() ? " [" + value + "]" : "");
+        }
+        return value != null ? value : "";
+    }
+
     public String getOperator() {
         return operator;
     }

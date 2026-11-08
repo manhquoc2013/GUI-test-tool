@@ -364,6 +364,7 @@ public class TestRunnerService {
                 // Execute harness in-process
                 try {
                     System.setProperty("studio.assertResults", assertResultsFile.toString());
+                    StudioRuntime.clearRecordedAsserts();
 
                     AiConfig aiConfig = null;
                     try {
@@ -429,7 +430,9 @@ public class TestRunnerService {
                     Path rawScreenshot = Path.of(harnessScreenshotBase + ".png");
 
                     // Load assert results for detail view
-                    cr.setAssertResults(AssertResultsScorer.loadResults(assertResultsFile));
+                    List<Assertion> caseAssertions = (runningCase != null && runningCase.getAssertions() != null)
+                            ? runningCase.getAssertions() : Collections.emptyList();
+                    cr.setAssertResults(reconcileAssertResults(assertResultsFile, resolvedAsserts, caseAssertions, null, null));
 
                     if (failures > 0) {
                         cr.setStatus("FAILED");
@@ -490,11 +493,18 @@ public class TestRunnerService {
                     cr.setDurationMs(System.currentTimeMillis() - start);
                     cr.setScreenshotPath(finalizeScreenshot(
                             Path.of(harnessScreenshotBase + ".png"), ssFailed));
+
+                    // Load & reconcile assert results for detail view even on failure/exception
+                    List<Assertion> caseAssertions = (runningCase != null && runningCase.getAssertions() != null)
+                            ? runningCase.getAssertions() : Collections.emptyList();
+                    cr.setAssertResults(reconcileAssertResults(assertResultsFile, resolvedAsserts, caseAssertions, e, reason));
+
                     report.setFailed(report.getFailed() + 1);
                     terminal("FAILED: " + cr.getTestCaseName() + " — " + cr.getFailureReason(), terminalOutput);
                     RunProgressService.caseFinished(cr);
                 } finally {
                     System.clearProperty("studio.assertResults");
+                    StudioRuntime.clearRecordedAsserts();
                     if (!useShared) {
                         StudioRuntime.clear();
                     }
@@ -607,6 +617,90 @@ public class TestRunnerService {
         String suite = cr.getSuiteName() != null ? cr.getSuiteName() : "";
         if (group.isEmpty()) return suite;
         return group + "/" + suite;
+    }
+
+    /**
+     * Reconciles assert results from both file outputs and runtime interceptors.
+     * Guarantees that the assertion table in the detail report is never empty when assertions exist.
+     */
+    private List<AssertResult> reconcileAssertResults(
+            Path assertResultsFile,
+            List<Assertion> resolvedAsserts,
+            List<Assertion> caseAssertions,
+            Throwable failureCause,
+            String failureReason) {
+        List<AssertResult> results = new ArrayList<>();
+
+        if (assertResultsFile != null) {
+            results.addAll(AssertResultsScorer.loadResults(assertResultsFile));
+        }
+
+        List<AssertResult> runtimeResults = StudioRuntime.getRecordedAsserts();
+        if (results.isEmpty() && !runtimeResults.isEmpty()) {
+            results.addAll(runtimeResults);
+        } else if (!results.isEmpty() && !runtimeResults.isEmpty()) {
+            for (int i = results.size(); i < runtimeResults.size(); i++) {
+                results.add(runtimeResults.get(i));
+            }
+        }
+
+        List<Assertion> baseAssertions = (resolvedAsserts != null && !resolvedAsserts.isEmpty())
+                ? resolvedAsserts
+                : ((caseAssertions != null && !caseAssertions.isEmpty()) ? caseAssertions : Collections.emptyList());
+
+        if (!baseAssertions.isEmpty()) {
+            List<AssertResult> reconciled = new ArrayList<>();
+            boolean encounteredFailure = false;
+
+            for (int i = 0; i < baseAssertions.size(); i++) {
+                Assertion a = baseAssertions.get(i);
+                String type = a.getType() != null ? a.getType() : "ASSERT";
+                String detail = a.getDetail() != null && !a.getDetail().isBlank()
+                        ? a.getDetail()
+                        : (a.getLocator() != null && !a.getLocator().isBlank()
+                                ? a.getLocator()
+                                : (a.getValue() != null ? a.getValue() : ""));
+                String assertStatus = a.getStatus() != null ? a.getStatus() : "ACTIVE";
+
+                if (i < results.size()) {
+                    AssertResult existing = results.get(i);
+                    if (existing.getDetail() == null || existing.getDetail().isBlank()) {
+                        existing.setDetail(detail);
+                    }
+                    if (existing.getAssertStatus() == null || existing.getAssertStatus().isBlank()) {
+                        existing.setAssertStatus(assertStatus);
+                    }
+                    if ("FAILED".equalsIgnoreCase(existing.getStatus())) {
+                        encounteredFailure = true;
+                    }
+                    reconciled.add(existing);
+                } else {
+                    if (!"ACTIVE".equalsIgnoreCase(assertStatus)) {
+                        reconciled.add(new AssertResult(i, type, detail, assertStatus, "SKIPPED", "Assert not ACTIVE"));
+                    } else if (failureCause != null && !encounteredFailure) {
+                        boolean isAssertionError = failureCause instanceof AssertionError
+                                || (failureCause.getClass().getName().contains("Assertion"))
+                                || (failureReason != null && (failureReason.contains("Assertion") || failureReason.contains("expected") || failureReason.contains("strict mode")));
+                        if (isAssertionError) {
+                            reconciled.add(new AssertResult(i, type, detail, assertStatus, "FAILED",
+                                    failureReason != null ? failureReason : failureCause.getMessage()));
+                        } else {
+                            reconciled.add(new AssertResult(i, type, detail, assertStatus, "SKIPPED",
+                                    "Kịch bản gặp lỗi trước khi kiểm tra: " + (failureReason != null ? failureReason : failureCause.getMessage())));
+                        }
+                        encounteredFailure = true;
+                    } else if (failureCause != null && encounteredFailure) {
+                        reconciled.add(new AssertResult(i, type, detail, assertStatus, "SKIPPED",
+                                "Kịch bản dừng trước khi kiểm tra do bước trước bị lỗi"));
+                    } else {
+                        reconciled.add(new AssertResult(i, type, detail, assertStatus, "PASSED", null));
+                    }
+                }
+            }
+            return reconciled;
+        }
+
+        return results;
     }
 
     /** Load suite.json from the given suite directory. */

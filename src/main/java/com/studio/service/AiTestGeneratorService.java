@@ -151,10 +151,19 @@ public class AiTestGeneratorService {
            - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
            - CUSTOM_JS (value: javascript expression returning boolean)
 
-        7. **Quality & Assertion Integrity (ECC Standard)**:
+        7. **Quality & Assertion Integrity (ECC Standard & Localization Handling)**:
            - Every generated case MUST contain specific, verifiable assertions verifying state or content.
            - NEVER include empty try-catch blocks or swallow exceptions in `scriptCode`.
            - Always cover boundary scenarios (empty fields, max length, invalid formats) in `testDataSets`.
+           - **Localized / Non-English Apps & Validation Error Assertions**:
+             + Khi kiểm thử các trường hợp kiểm tra lỗi (negative tests, ví dụ: đăng nhập sai, bỏ trống trường bắt buộc, sai mật khẩu):
+               Nếu trang web hiển thị ngôn ngữ tiếng Việt (hoặc người dùng yêu cầu tiếng Việt): TUYỆT ĐỐI KHÔNG hardcode văn bản tiếng Anh như `"Invalid"`, `"Error"`, `"Please fill in"`.
+             + Thay vào đó, hãy kiểm tra sự xuất hiện của thông báo lỗi (Alert/Toast/Notice) bằng `assertThat(errorMsg).isVisible();` với selector bao quát (ví dụ: `[role='alert'], .ant-message, .error-message, .toast, .alert-danger`).
+             + Nếu cần kiểm tra văn bản của thông báo lỗi, hãy dùng regex kiểm tra các từ khóa tiếng Việt phổ biến:
+               `assertThat(errorMsg).containsText(java.util.regex.Pattern.compile(".*(lỗi|không chính xác|không đúng|bảo vệ|thất bại|vui lòng).*"));`
+           - **Form có CAPTCHA / Mã bảo vệ**:
+             + Nếu trang đăng nhập chứa trường CAPTCHA (nhãn "Mã bảo vệ", "Captcha", có ảnh mã bảo vệ):
+               Đối với kịch bản kiểm tra ngoại lệ/đăng nhập sai, kịch bản cần điền thông tin (có thể nhập sai captcha hoặc để trống) và kiểm tra thông báo cảnh báo/lỗi xuất hiện (`assertThat(alert).isVisible()`).
 
         8. **Test Case Priority Evaluation (P0 - P3)**:
            - You MUST evaluate and classify each test case into an appropriate priority tier based on business impact:
