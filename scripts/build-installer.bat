@@ -4,8 +4,8 @@ setlocal enabledelayedexpansion
 set DIR=%~dp0..
 cd /d "%DIR%"
 
-set APP_NAME=PlaywrightAutomationStudio
-set APP_DISPLAY_NAME=Playwright Automation Studio
+set APP_NAME=TestStudio
+set APP_DISPLAY_NAME=Test Studio
 set VERSION=1.0.0
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set JPACKAGE_INPUT=target\jpackage-input
@@ -127,7 +127,7 @@ if defined ISCC_EXE (
   )
   echo =================================================================
   echo  BUILD SUCCESSFUL!
-  echo  Setup Installer (.exe): %DIST_DIR%\PlaywrightAutomationStudio-%VERSION%-windows-x64-Setup.exe
+  echo  Setup Installer (.exe): %DIST_DIR%\TestStudio-%VERSION%-windows-x64-Setup.exe
   echo =================================================================
 ) else (
   echo   Inno Setup not detected. Generating standard installer via jpackage...

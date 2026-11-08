@@ -281,7 +281,7 @@ public class AiAssistantPageController implements Initializable {
         if (currentSession.getMessages().isEmpty()) {
             // Add default welcome message
             AiChatMessage welcomeMsg = new AiChatMessage("assistant",
-                    "Xin chào! Tôi là Trợ lý AI của Playwright Automation Studio.\n\n"
+                    "Xin chào! Tôi là Trợ lý AI của Test Studio.\n\n"
                     + "Bạn có thể gửi yêu cầu viết test case, hoặc đính kèm tài liệu yêu cầu (.txt, .md, Word .docx, PDF .pdf) hoặc ảnh chụp màn hình UI (.png, .jpg) để tôi tự động phân tích và sinh kịch bản Playwright runnable kèm các Assertions kiểm thử!");
             welcomeMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(welcomeMsg));
             renderMessageBubble(welcomeMsg, false);

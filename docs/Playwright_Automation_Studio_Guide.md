@@ -1,4 +1,4 @@
-# Hướng dẫn sử dụng — Playwright Automation Studio
+# Hướng dẫn sử dụng — Test Studio
 
 > Ứng dụng desktop JavaFX giúp quản lý và tự động hóa kiểm thử web bằng Playwright — không cần viết code thủ công.
 
@@ -21,7 +21,7 @@
 
 ## 1. Giới thiệu
 
-**Playwright Automation Studio** cho phép bạn:
+**Test Studio** cho phép bạn:
 
 - **Ghi hình** thao tác trên trình duyệt bằng Playwright Codegen — tự động sinh code Java
 - **Quản lý test** theo cây 3 cấp: Nhóm (Group) → Bộ (Suite) → Ca (Case)
@@ -676,4 +676,4 @@ APP_HOME/
 
 ---
 
-*Playwright Automation Studio — Built with JavaFX 26.0.1 + Playwright 1.61.0*
+*Test Studio — Built with JavaFX 26.0.1 + Playwright 1.61.0*

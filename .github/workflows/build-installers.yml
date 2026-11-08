@@ -44,7 +44,7 @@ jobs:
       - name: Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlaywrightAutomationStudio-macOS-DMG
+          name: TestStudio-macOS-DMG
           path: dist/*.dmg
           if-no-files-found: error
 
@@ -77,7 +77,7 @@ jobs:
       - name: Upload Windows Setup Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlaywrightAutomationStudio-Windows-Setup
+          name: TestStudio-Windows-Setup
           path: dist/*Setup*.exe
           if-no-files-found: error
 

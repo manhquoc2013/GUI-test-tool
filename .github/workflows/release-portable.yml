@@ -77,8 +77,8 @@ jobs:
       - name: Upload Platform Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlaywrightAutomationStudio-${{ runner.os }}
-          path: dist/PlaywrightAutomationStudio-*.zip
+          name: TestStudio-${{ runner.os }}
+          path: dist/TestStudio-*.zip
           if-no-files-found: error
 
   publish:
@@ -95,7 +95,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: PlaywrightAutomationStudio-*
+          pattern: TestStudio-*
           merge-multiple: true
 
       - name: List Release Artifacts
@@ -108,14 +108,14 @@ jobs:
             TAG="${{ github.event.release.tag_name }}"
             TITLE="${{ github.event.release.name }}"
             if [ -z "$TITLE" ]; then
-              TITLE="Playwright Automation Studio $TAG"
+              TITLE="Test Studio $TAG"
             fi
           elif [ -n "${{ inputs.version }}" ]; then
             TAG="${{ inputs.version }}"
-            TITLE="Playwright Automation Studio $TAG"
+            TITLE="Test Studio $TAG"
           else
             TAG="${{ github.ref_name }}"
-            TITLE="Playwright Automation Studio $TAG"
+            TITLE="Test Studio $TAG"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT

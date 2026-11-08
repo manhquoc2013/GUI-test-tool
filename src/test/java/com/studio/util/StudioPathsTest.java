@@ -42,7 +42,7 @@ class StudioPathsTest {
 
     @Test
     void testMacApplicationsModeRedirectsDataHome() {
-        Path mockMacApp = Paths.get("/Applications/PlaywrightAutomationStudio.app/Contents");
+        Path mockMacApp = Paths.get("/Applications/TestStudio.app/Contents");
         assertTrue(StudioPaths.isSystemOrReadOnlyLocation(mockMacApp));
 
         StudioPaths.setPathsForTesting(mockMacApp, null);
@@ -50,7 +50,7 @@ class StudioPathsTest {
         assertEquals(mockMacApp, StudioPaths.getAppHome());
         assertNotEquals(mockMacApp, StudioPaths.getDataHome());
         String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
-        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"),
+        assertTrue(dataHomeStr.contains("studio"),
                 "Data home should contain app identifier regardless of OS (mac, win, or linux xdg): " + dataHomeStr);
         assertEquals(StudioPaths.getDataHome().resolve("data"), StudioPaths.getDataDir());
         assertEquals(StudioPaths.getDataHome().resolve("work"), StudioPaths.getWorkDir());
@@ -60,7 +60,7 @@ class StudioPathsTest {
 
     @Test
     void testWindowsProgramFilesModeRedirectsDataHome() {
-        Path mockWinApp = Paths.get("C:\\Program Files\\PlaywrightAutomationStudio");
+        Path mockWinApp = Paths.get("C:\\Program Files\\TestStudio");
         assertTrue(StudioPaths.isSystemOrReadOnlyLocation(mockWinApp));
 
         StudioPaths.setPathsForTesting(mockWinApp, null);
@@ -68,13 +68,13 @@ class StudioPathsTest {
         assertEquals(mockWinApp, StudioPaths.getAppHome());
         assertNotEquals(mockWinApp, StudioPaths.getDataHome());
         String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
-        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"),
+        assertTrue(dataHomeStr.contains("studio"),
                 "Data home should contain app identifier: " + dataHomeStr);
     }
 
     @Test
     void testUnixSystemDirectoriesModeRedirectsDataHome() {
-        Path mockUnixApp = Paths.get("/opt/playwright-automation-studio");
+        Path mockUnixApp = Paths.get("/opt/test-studio");
         assertTrue(StudioPaths.isSystemOrReadOnlyLocation(mockUnixApp));
 
         StudioPaths.setPathsForTesting(mockUnixApp, null);
@@ -82,7 +82,7 @@ class StudioPathsTest {
         assertEquals(mockUnixApp, StudioPaths.getAppHome());
         assertNotEquals(mockUnixApp, StudioPaths.getDataHome());
         String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
-        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"));
+        assertTrue(dataHomeStr.contains("studio"));
     }
 
     @Test

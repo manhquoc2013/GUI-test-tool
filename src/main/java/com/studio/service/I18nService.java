@@ -12,7 +12,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Centralized Internationalization (i18n) Service for Playwright Automation Studio.
+ * Centralized Internationalization (i18n) Service for Test Studio.
  * Loads language manifests and localized translation resources dynamically from /i18n/.
  */
 public final class I18nService {

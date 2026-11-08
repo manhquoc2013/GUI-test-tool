@@ -127,19 +127,34 @@ public class StudioPaths {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String userHome = System.getProperty("user.home", ".");
         if (os.contains("mac")) {
-            return Paths.get(userHome, "Library", "Application Support", "PlaywrightAutomationStudio");
+            Path testStudio = Paths.get(userHome, "Library", "Application Support", "TestStudio");
+            Path legacy = Paths.get(userHome, "Library", "Application Support", "PlaywrightAutomationStudio");
+            if (!Files.exists(testStudio) && Files.exists(legacy)) {
+                return legacy;
+            }
+            return testStudio;
         } else if (os.contains("win")) {
             String appdata = System.getenv("APPDATA");
-            if (appdata != null && !appdata.isBlank()) {
-                return Paths.get(appdata, "PlaywrightAutomationStudio");
+            Path base = (appdata != null && !appdata.isBlank())
+                    ? Paths.get(appdata)
+                    : Paths.get(userHome, "AppData", "Roaming");
+            Path testStudio = base.resolve("TestStudio");
+            Path legacy = base.resolve("PlaywrightAutomationStudio");
+            if (!Files.exists(testStudio) && Files.exists(legacy)) {
+                return legacy;
             }
-            return Paths.get(userHome, "AppData", "Roaming", "PlaywrightAutomationStudio");
+            return testStudio;
         } else {
             String xdg = System.getenv("XDG_DATA_HOME");
-            if (xdg != null && !xdg.isBlank()) {
-                return Paths.get(xdg, "playwright-automation-studio");
+            Path base = (xdg != null && !xdg.isBlank())
+                    ? Paths.get(xdg)
+                    : Paths.get(userHome, ".local", "share");
+            Path testStudio = base.resolve("test-studio");
+            Path legacy = base.resolve("playwright-automation-studio");
+            if (!Files.exists(testStudio) && Files.exists(legacy)) {
+                return legacy;
             }
-            return Paths.get(userHome, ".local", "share", "playwright-automation-studio");
+            return testStudio;
         }
     }
 

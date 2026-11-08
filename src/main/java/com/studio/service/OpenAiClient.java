@@ -144,7 +144,7 @@ public class OpenAiClient {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
                     .header("Authorization", "Bearer " + apiKey)
-                    .header("User-Agent", "PlaywrightAutomationStudio/1.0")
+                    .header("User-Agent", "TestStudio/1.0")
                     .timeout(Duration.ofSeconds(10))
                     .GET()
                     .build();
@@ -179,7 +179,7 @@ public class OpenAiClient {
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(targetUrl))
-                .header("User-Agent", "PlaywrightAutomationStudio/1.0")
+                .header("User-Agent", "TestStudio/1.0")
                 .timeout(Duration.ofSeconds(10))
                 .GET();
         if (!apiKey.isBlank()) {
@@ -259,7 +259,7 @@ public class OpenAiClient {
                 .uri(URI.create(targetUrl))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "PlaywrightAutomationStudio/1.0")
+                .header("User-Agent", "TestStudio/1.0")
                 .timeout(Duration.ofMinutes(2))
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();

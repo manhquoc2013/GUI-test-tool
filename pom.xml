@@ -7,7 +7,7 @@
     <artifactId>playwright-automation-studio</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
-    <name>Playwright Automation Studio</name>
+    <name>Test Studio</name>
     <properties>
         <maven.compiler.release>26</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -1,10 +1,10 @@
 # Release Notes — v1.0.0
 
-## Playwright Automation Studio v1.0.0
+## Test Studio v1.0.0
 
 **Release date:** 2026-11-08
 
-First production release of **Playwright Automation Studio** — an enterprise-ready JavaFX desktop application for visual, AI-assisted, and self-healing Playwright test automation with offline installer packaging.
+First production release of **Test Studio** — an enterprise-ready JavaFX desktop application for visual, AI-assisted, and self-healing Playwright test automation with offline installer packaging.
 
 ---
 

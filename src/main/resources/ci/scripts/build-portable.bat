@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 set DIR=%~dp0..
 cd /d "%DIR%"
 
-set APP_NAME=PlaywrightAutomationStudio
+set APP_NAME=TestStudio
 set JAR_NAME=playwright-automation-studio-1.0.0.jar
 set DIST_ROOT=dist\%APP_NAME%
 set JPACKAGE_INPUT=target\jpackage-input
@@ -112,7 +112,7 @@ echo "%%APP_HOME%%%APP_NAME%.exe" %%*
 ) > "%DIST_ROOT%\run.bat"
 
 (
-echo Playwright Automation Studio - Portable Edition
+echo Test Studio - Portable Edition
 echo ================================================
 echo.
 echo To run: double-click run.bat or %APP_NAME%.exe

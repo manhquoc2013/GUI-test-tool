@@ -4,8 +4,8 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
-APP_NAME="PlaywrightAutomationStudio"
-APP_DISPLAY_NAME="Playwright Automation Studio"
+APP_NAME="TestStudio"
+APP_DISPLAY_NAME="Test Studio"
 VERSION="1.0.0"
 JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 JPACKAGE_INPUT="target/jpackage-input"
@@ -175,11 +175,11 @@ ln -s /Applications "${DMG_STAGING}/Applications"
 
 # Add README note in installer
 cat > "${DMG_STAGING}/README.txt" << 'EOF'
-Playwright Automation Studio
-============================
+Test Studio
+===========
 
 Installation:
-- Drag "PlaywrightAutomationStudio" to the "Applications" shortcut icon.
+- Drag "TestStudio" to the "Applications" shortcut icon.
 - Open Applications and click to launch.
 
 Full Offline Edition:

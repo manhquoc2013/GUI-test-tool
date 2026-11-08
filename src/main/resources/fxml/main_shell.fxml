@@ -18,7 +18,7 @@
         <HBox styleClass="header-bar" spacing="12" alignment="CENTER_LEFT">
             <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
             <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
-            <Label text="Playwright Automation Studio" styleClass="app-title"/>
+            <Label text="Test Studio" styleClass="app-title"/>
             <Separator orientation="VERTICAL" styleClass="header-separator"/>
             <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
                 <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>

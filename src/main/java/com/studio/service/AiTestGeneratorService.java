@@ -73,7 +73,7 @@ public class AiTestGeneratorService {
     }
 
     public static final String SYSTEM_PROMPT = """
-        You are an expert QA Automation Architect specialized in Playwright Java for "Playwright Automation Studio".
+        You are an expert QA Automation Architect specialized in Playwright Java for "Test Studio".
         Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or live UI DOM elements, and generate complete, ready-to-run Playwright Java test cases with dual representations (declarative NLP test steps and runnable script code).
 
         ### Core Architectural Principles (Inspired by Testsigma, Midscene, Skyvern):

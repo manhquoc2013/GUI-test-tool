@@ -4,7 +4,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
-APP_NAME="PlaywrightAutomationStudio"
+APP_NAME="TestStudio"
 JAR_NAME="playwright-automation-studio-1.0.0.jar"
 DIST_ROOT="dist/${APP_NAME}"
 JPACKAGE_INPUT="target/jpackage-input"
@@ -181,24 +181,24 @@ if [ -d "${DIST_ROOT}/${APP_NAME}.app" ]; then
   cat > "${DIST_ROOT}/run.sh" << 'EOF'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export PLAYWRIGHT_BROWSERS_PATH="$DIR/PlaywrightAutomationStudio.app/Contents/browsers"
-export PATH="$DIR/PlaywrightAutomationStudio.app/Contents/tools/node/bin:$PATH"
-exec "$DIR/PlaywrightAutomationStudio.app/Contents/MacOS/PlaywrightAutomationStudio" "$@"
+export PLAYWRIGHT_BROWSERS_PATH="$DIR/TestStudio.app/Contents/browsers"
+export PATH="$DIR/TestStudio.app/Contents/tools/node/bin:$PATH"
+exec "$DIR/TestStudio.app/Contents/MacOS/TestStudio" "$@"
 EOF
 else
   cat > "${DIST_ROOT}/run.sh" << 'EOF'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export PLAYWRIGHT_BROWSERS_PATH="$DIR/PlaywrightAutomationStudio/browsers"
-export PATH="$DIR/PlaywrightAutomationStudio/tools/node/bin:$PATH"
-exec "$DIR/PlaywrightAutomationStudio/PlaywrightAutomationStudio" "$@"
+export PLAYWRIGHT_BROWSERS_PATH="$DIR/TestStudio/browsers"
+export PATH="$DIR/TestStudio/tools/node/bin:$PATH"
+exec "$DIR/TestStudio/TestStudio" "$@"
 EOF
 fi
 chmod +x "${DIST_ROOT}/run.sh"
 
 cat > "${DIST_ROOT}/README.txt" << 'README'
-Playwright Automation Studio - Portable Edition
-================================================
+Test Studio - Portable Edition
+==============================
 
 To run:
   macOS/Linux: ./run.sh   (or open the app-image launcher)

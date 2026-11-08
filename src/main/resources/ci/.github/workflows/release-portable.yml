@@ -38,8 +38,8 @@ jobs:
         run: scripts\build-portable.bat
       - uses: actions/upload-artifact@v4
         with:
-          name: PlaywrightAutomationStudio-${{ runner.os }}
-          path: dist/PlaywrightAutomationStudio-*.zip
+          name: TestStudio-${{ runner.os }}
+          path: dist/TestStudio-*.zip
           if-no-files-found: error
 
   publish:
@@ -51,13 +51,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: PlaywrightAutomationStudio-*
+          pattern: TestStudio-*
           merge-multiple: true
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Playwright Automation Studio ${{ github.ref_name }}
+          name: Test Studio ${{ github.ref_name }}
           body_path: docs/RELEASE_NOTES.md
           files: artifacts/*.zip
           fail_on_unmatched_files: true

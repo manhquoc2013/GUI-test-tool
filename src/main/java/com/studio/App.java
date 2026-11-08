@@ -36,7 +36,7 @@ public class App extends Application {
         scene.getStylesheets().add(getClass().getResource("/css/studio.css").toExternalForm());
         com.studio.service.ThemeService.init(scene);
 
-        primaryStage.setTitle("Playwright Automation Studio");
+        primaryStage.setTitle("Test Studio");
         primaryStage.setScene(scene);
 
         // When window is minimized, release idle caches and compact memory back to OS

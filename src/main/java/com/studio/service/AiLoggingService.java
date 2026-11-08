@@ -101,3 +101,4 @@ public final class AiLoggingService {
         IN_MEMORY_LOGS.clear();
     }
 }
+

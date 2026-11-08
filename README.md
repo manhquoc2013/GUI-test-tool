@@ -1,4 +1,4 @@
-# Playwright Automation Studio
+# Test Studio
 
 > A JavaFX desktop application for managing and running Playwright test automation — no code required.
 
@@ -84,7 +84,7 @@ bash scripts/build-portable.sh
 scripts\build-portable.bat
 ```
 
-The portable build runs `jpackage --type app-image` to embed a full Java runtime, then bundles Node.js and Playwright Chromium. Extract `dist/PlaywrightAutomationStudio-<OS>-<ARCH>.zip` and run `./run.sh` (or `run.bat` / the native launcher). **No host JDK, Node, or Maven** is required on the target machine — the build machine needs JDK 26 with `jpackage`.
+The portable build runs `jpackage --type app-image` to embed a full Java runtime, then bundles Node.js and Playwright Chromium. Extract `dist/TestStudio-<OS>-<ARCH>.zip` and run `./run.sh` (or `run.bat` / the native launcher). **No host JDK, Node, or Maven** is required on the target machine — the build machine needs JDK 26 with `jpackage`.
 
 ---
 

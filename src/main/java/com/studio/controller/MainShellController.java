@@ -230,7 +230,7 @@ public class MainShellController implements Initializable {
 
         body.getChildren().add(section("🎭 Giới thiệu"));
         body.getChildren().add(bodyText(
-                "Playwright Automation Studio giúp bạn tạo và chạy test tự động cho web "
+                "Test Studio giúp bạn tạo và chạy test tự động cho web "
                         + "mà không cần viết code thủ công. Ứng dụng dùng Playwright để "
                         + "ghi hình thao tác và chạy lại trên nhiều trình duyệt."));
 

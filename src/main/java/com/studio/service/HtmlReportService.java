@@ -235,7 +235,7 @@ public class HtmlReportService {
 
         // Header
         sb.append("<header>\n<div>\n");
-        sb.append("<h1>🎭 Playwright Automation Studio</h1>\n");
+        sb.append("<h1>🎭 Test Studio</h1>\n");
         sb.append("<div class=\"meta-tags\">\n");
         sb.append("<span class=\"tag\">").append(I18nService.get(effectiveLang, "export.html.run_id")).append(" ")
           .append("<strong>").append(escapeHtml(report.getRunId())).append("</strong></span>\n");
