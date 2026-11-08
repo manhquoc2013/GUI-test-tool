@@ -92,11 +92,21 @@ scripts\build-portable.bat
 
 Lệnh trên tạo gói trong `dist/` chứa JRE, Node.js và Chromium; giải nén và chạy `run.sh` / `run.bat`. Máy đích **không cần** JDK, Node hay Maven. Chi tiết đóng gói: [docs/BUILD.md](../BUILD.md). Có cả script tạo bộ cài (`scripts/build-installer.sh` / `.bat`).
 
+### 2.4. Chủ đề Tối và Sáng
+
+Mọi màn hình trong tài liệu này có **hai phiên bản ảnh**: chủ đề Tối (mặc định, `images/01-explorer.png`) và chủ đề Sáng (`images/light-01-explorer.png`). Chuyển bằng nút **Sáng / Tối** ở góc trên phải — giao diện đổi ngay, không cần khởi động lại.
+
 ---
 
 ## 3. Giao diện tổng quan
 
-![Màn hình Explorer — giao diện chính của Test Studio](images/01-explorer.png)
+**Chủ đề Tối (mặc định):**
+
+![Màn hình Explorer — giao diện chính của Test Studio, chủ đề Tối](images/01-explorer.png)
+
+**Chủ đề Sáng:**
+
+![Cùng màn hình Explorer ở chủ đề Sáng](images/light-01-explorer.png)
 
 Bố cục gồm bốn vùng cố định:
 
@@ -126,6 +136,8 @@ Explorer tổ chức kiểm thử theo **ba cấp**: `Nhóm → Suite → Case`,
 
 ### 4.1. Bố cục
 
+![Explorer — chủ đề Sáng, với cây ThuChi / HoiQuy](images/light-01-explorer.png)
+
 - **Cột trái** — cây dự án. Mỗi dòng có nhãn trạng thái: `● Đang hoạt động` (Suite ACTIVE), `● Sẵn sàng` (Case Ready), `● Nháp` (Draft/DRAFT), `● Ngừng` (Inactive/INACTIVE).
 - **Cột phải — Xem trước** — thông tin của mục đang chọn (tên, mô tả, trạng thái, thống kê `Nhóm / Suite / Case`), kèm nút **Sửa** để cập nhật metadata ngay tại Explorer.
 - **Thanh công cụ** — `+ Nhóm mới`, `+ Suite mới`, ô `Tìm theo tên…`, bộ lọc trạng thái (`Tất cả`, `Hoạt động`, `Nháp`, `Ngừng`).
@@ -150,9 +162,15 @@ Explorer tổ chức kiểm thử theo **ba cấp**: `Nhóm → Suite → Case`,
 
 ## 5. Tạo Nhóm / Suite / Case
 
-Bấm **+ Nhóm mới**, **+ Suite mới** (Explorer) hoặc **+ Case mới** (Workspace) để mở biểu mẫu:
+Bấm **+ Nhóm mới**, **+ Suite mới** (Explorer) hoặc **+ Case mới** (Workspace) để mở biểu mẫu.
 
-![Hộp thoại tạo Nhóm mới](images/02-dialog-new-group.png)
+| Tạo Nhóm mới (Tối) | Tạo Case mới (Tối) |
+|---|---|
+| ![Hộp thoại Tạo nhóm mới](images/02-dialog-new-group.png) | ![Hộp thoại Tạo case mới trong suite](images/09-dialog-new-case.png) |
+
+| Tạo Nhóm mới (Sáng) | Tạo Case mới (Sáng) |
+|---|---|
+| ![Hộp thoại Tạo nhóm mới ở chủ đề Sáng](images/light-02-dialog-new-group.png) | ![Hộp thoại Tạo case mới ở chủ đề Sáng](images/light-09-dialog-new-case.png) |
 
 | Cấp | Trường bắt buộc | Trường tuỳ chọn |
 |---|---|---|
@@ -172,7 +190,9 @@ Bấm **+ Nhóm mới**, **+ Suite mới** (Explorer) hoặc **+ Case mới** (W
 
 Mở bằng double-click vào Suite trong Explorer.
 
-![Workspace với danh sách case, trình soạn code và danh mục assertion](images/03-workspace.png)
+![Workspace — danh sách case, trình soạn code và danh mục assertion (chủ đề Tối)](images/03-workspace.png)
+
+![Cùng Workspace ở chủ đề Sáng](images/light-03-workspace.png)
 
 ### 6.1. Các vùng trong Workspace
 
@@ -231,9 +251,11 @@ Nút **Xuất Excel** trong Workspace xuất danh sách case của suite hiện 
 
 Mở bằng nút **+ Quản lý Asserts** trong Workspace (chọn case trước).
 
-![Assertion Builder](images/04-assert-builder.png)
+![Assertion Builder — danh sách assertion của case (chủ đề Tối)](images/04-assert-builder.png)
 
-> Ảnh chụp bố cục: tiêu đề, ô tìm, danh sách assertion, hàng thêm mới (Loại / Giá trị / Trạng thái / Thêm), hàng Locator, tuỳ chọn *Khớp chính xác* + *Timeout*, và nút `Đóng` / `Lưu Assertions`.
+![Assertion Builder ở chủ đề Sáng](images/light-04-assert-builder.png)
+
+> Ảnh chụp cho thấy đủ các thành phần: tiêu đề, ô tìm, danh sách assertion (kèm nút **Xóa**), hàng thêm mới (Loại / Giá trị / Trạng thái / Thêm), hàng Locator, tuỳ chọn *Khớp chính xác* + *Timeout*, và nút `Đóng` / `Lưu Assertions`.
 
 ### 7.1. Thành phần
 
@@ -281,13 +303,17 @@ Trong một case, **mọi assertion ACTIVE đều được thực thi** dù có 
 
 Mở bằng `Báo cáo` ở thanh bên.
 
-![Trang Báo cáo — lịch sử các lượt chạy](images/05-reports.png)
+![Trang Báo cáo — lịch sử các lượt chạy (chủ đề Tối)](images/05-reports.png)
+
+![Trang Báo cáo ở chủ đề Sáng](images/light-05-reports.png)
 
 Cột: **Mã chạy**, **Phạm vi** (Case / Suite / Group / All), **Mục tiêu**, **Kết quả** (`x Đạt · y Lỗi · z Bỏ qua`), **Thời gian**, **Trình duyệt**, **Bắt đầu**, **Thao tác** (`Mở`, `Html`, `Excel`, `Xóa`). Bộ lọc phía trên: phạm vi, kết quả, suite; nút `Làm mới`.
 
 ### 8.2. Chi tiết lượt chạy
 
-![Chi tiết báo cáo](images/08-report-detail.png)
+![Chi tiết báo cáo (chủ đề Tối)](images/08-report-detail.png)
+
+![Chi tiết báo cáo ở chủ đề Sáng](images/light-08-report-detail.png)
 
 - **Tổng quan** kèm `Xuất HTML`, `Xuất Excel`, `Xóa báo cáo`, `Quay lại`; bộ lọc trạng thái.
 - Bảng **Case**: tên, suite, trạng thái, thời gian, cột **Bằng chứng** (mở ảnh chụp), lý do lỗi.
@@ -309,7 +335,9 @@ File xuất mặc định nằm trong `data/exports/`; hộp thoại lưu cho ph
 
 Mở bằng `Trợ lý AI` ở thanh bên.
 
-![Trang Trợ lý AI](images/06-ai-assistant.png)
+![Trang Trợ lý AI (chủ đề Tối)](images/06-ai-assistant.png)
+
+![Trang Trợ lý AI ở chủ đề Sáng](images/light-06-ai-assistant.png)
 
 ### 9.1. Bố cục
 
@@ -366,7 +394,9 @@ Nút **Sáng/Tối** đổi giao diện tức thời (không cần khởi độn
 
 Nút **Trợ giúp** (❓) mở ngăn bên phải (khoảng 2/3 chiều rộng) — bản tóm tắt thao tác dùng ngay trong lúc làm việc:
 
-![Ngăn trợ giúp](images/07-help-drawer.png)
+![Ngăn trợ giúp bên phải (chủ đề Tối)](images/07-help-drawer.png)
+
+![Ngăn trợ giúp ở chủ đề Sáng](images/light-07-help-drawer.png)
 
 Các mục: Giới thiệu · Thanh bên & thanh trên · Explorer · Workspace · Ghi hình · Chạy test · Assertion Builder · Báo cáo & xuất Excel · Mẹo nhanh. Bấm ra ngoài hoặc `✕` để đóng.
 
