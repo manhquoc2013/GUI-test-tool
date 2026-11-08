@@ -1,6 +1,5 @@
 package com.studio.db;
 
-import com.studio.model.Assertion;
 import com.studio.model.TestCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -132,4 +131,3 @@ public class ProjectDbServiceTest {
         assertEquals(1, counts.get("Draft"));
     }
 }
-

@@ -135,5 +135,27 @@ class AiClarificationFlowTest {
         assertEquals("GAP_ANALYSIS", gapRes.getIntent());
         assertFalse(gapRes.isClarification());
         assertTrue(gapRes.getSummary().toLowerCase().contains("khoảng trống kiểm thử"));
+
+        // 4. Chat advice
+        OpenAiClient mockClient = new OpenAiClient() {
+            @Override
+            public String chatCompletion(AiConfig cfg, List<ChatMessage> msgs) {
+                return "Để chờ element trong Playwright, hãy sử dụng `assertThat(locator).isVisible()` thay vì hard sleep.";
+            }
+        };
+        AiTestGeneratorService advGenerator = new AiTestGeneratorService(
+                mockClient,
+                new com.fasterxml.jackson.databind.ObjectMapper(),
+                new AiTokenOptimizer(),
+                new AiAmbiguityAnalyzer(),
+                new AiProjectAdvisorService()
+        );
+        AiTestGeneratorService.GenerationResult advRes = advGenerator.generateTestCases(
+                config, "Playwright có cách nào chờ element tốt không?", List.of(), "", null, List.of(), null, null, tempDir
+        );
+        assertEquals("CHAT_ADVICE", advRes.getIntent());
+        assertFalse(advRes.isClarification());
+        assertTrue(advRes.getCases().isEmpty());
+        assertTrue(advRes.getSummary().contains("isVisible"));
     }
 }

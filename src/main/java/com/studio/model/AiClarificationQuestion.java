@@ -83,6 +83,13 @@ public class AiClarificationQuestion {
         this.selectedAnswer = selectedAnswer;
     }
 
+    public String getDefaultOption() {
+        if (selectedAnswer != null && !selectedAnswer.isBlank()) {
+            return selectedAnswer;
+        }
+        return (options != null && !options.isEmpty()) ? options.get(0) : "";
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

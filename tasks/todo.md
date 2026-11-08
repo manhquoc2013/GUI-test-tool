@@ -136,3 +136,11 @@
 - [x] 12.6 Add unit and integration tests (`AiAmbiguityAnalyzerTest`, `AiProjectAdvisorServiceTest`, `AiClarificationFlowTest`)
 - [x] 12.7 Fix Preview Pane buttons ("Sửa", "Mở Workspace", "Chạy Case") resolving directly from `currentPreviewRef` instead of stale tree selection
 - [x] 12.8 Run full test suite (`mvn test`) and verify 280/280 passing (0 failures, 0 regressions)
+
+## Phase 13: Review Fixes & System Optimization
+- [x] 13.1 Fix `AiClarificationQuestion.getDefaultOption()` and add unit tests (`AiClarificationQuestionTest.java`)
+- [x] 13.2 Fix `AiProjectAdvisorService` root path resolution in `searchInGroup` and `findCaseGlobally`
+- [x] 13.3 Handle `Intent.CHAT_ADVICE` in `AiTestGeneratorService` to support conversational QA questions without forcing strict JSON test case extraction
+- [x] 13.4 Align `ExplorerPageController.countRunnableCasesUnderItem` with active assertion requirement
+- [x] 13.5 Friendly guidance prompt in `AiProjectAdvisorService.analyzeSuiteGaps` when suiteDir is null
+- [x] 13.6 Run full test suite regression (`mvn clean test`), update `tasks/learnings.md`, and commit.

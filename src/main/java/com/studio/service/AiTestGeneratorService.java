@@ -105,6 +105,17 @@ public class AiTestGeneratorService {
         }
     }
 
+    public static final String CHAT_ADVICE_SYSTEM_PROMPT = """
+        You are an elite Principal Software QA and Playwright Automation Specialist.
+        Your goal is to provide clear, actionable, and mathematically precise engineering advice for test automation, architecture, Playwright best practices, and test strategy.
+
+        PRINCIPLES:
+        - Respond in clean, readable Markdown (headings, bullet points, concise code examples).
+        - Ground advice in modern Playwright standards: Zero hard sleep (`Thread.sleep`/`waitForTimeout`), web-first assertions (`assertThat(...)`), resilient locators (`getByRole`, `getByLabel`, `data-testid`), and auto-waiting.
+        - Explain *why* something is recommended and show short before/after comparisons if relevant.
+        - Do NOT force a rigid JSON schema when answering conversational queries. Respond naturally in helpful technical Vietnamese.
+        """;
+
     public static final String SYSTEM_PROMPT = """
         You are an expert QA Automation Architect specialized in Playwright Java for "Test Studio".
         Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or live UI DOM elements, and generate complete, ready-to-run Playwright Java test cases with dual representations (declarative NLP test steps and runnable script code).
@@ -380,9 +391,14 @@ public class AiTestGeneratorService {
                 : selectedSkill;
 
         String effectivePrompt = AiSkill.stripSlashCommand(userPrompt);
-        String systemPrompt = (effectiveSkill.getSystemPrompt() != null)
-                ? effectiveSkill.getSystemPrompt()
-                : SYSTEM_PROMPT;
+        String systemPrompt;
+        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE && (selectedSkill == null || selectedSkill == AiSkill.AUTO)) {
+            systemPrompt = CHAT_ADVICE_SYSTEM_PROMPT;
+        } else {
+            systemPrompt = (effectiveSkill.getSystemPrompt() != null)
+                    ? effectiveSkill.getSystemPrompt()
+                    : SYSTEM_PROMPT;
+        }
 
         String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
 
@@ -405,6 +421,10 @@ public class AiTestGeneratorService {
 
         if (progressListener != null) {
             progressListener.accept("Đang xử lý cấu trúc phản hồi...");
+        }
+
+        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE && (selectedSkill == null || selectedSkill == AiSkill.AUTO)) {
+            return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
         }
 
         return parseResponse(reply, effectiveSkill);

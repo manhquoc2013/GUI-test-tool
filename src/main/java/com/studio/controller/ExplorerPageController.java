@@ -129,9 +129,15 @@ public class ExplorerPageController {
         final String suitePath;    // absolute suite directory
         final String caseId;
         final String dirPath;      // absolute group/suite directory (group/suite nodes)
+        final boolean hasActiveAssertions;
 
         NodeRef(String type, String name, String status, String parentName,
                 String suitePath, String caseId, String dirPath) {
+            this(type, name, status, parentName, suitePath, caseId, dirPath, true);
+        }
+
+        NodeRef(String type, String name, String status, String parentName,
+                String suitePath, String caseId, String dirPath, boolean hasActiveAssertions) {
             this.type = type;
             this.name = name;
             this.status = status;
@@ -139,6 +145,7 @@ public class ExplorerPageController {
             this.suitePath = suitePath;
             this.caseId = caseId;
             this.dirPath = dirPath;
+            this.hasActiveAssertions = hasActiveAssertions;
         }
     }
 
@@ -232,7 +239,7 @@ public class ExplorerPageController {
                     for (TestCase tc : suite.getCases()) {
                         TreeItem<Object> caseItem = new TreeItem<>(tc.getName());
                         setNodeRef(caseItem, new NodeRef("case", tc.getName(),
-                                tc.getStatus(), suite.getName(), suitePath, tc.getId(), suitePath));
+                                tc.getStatus(), suite.getName(), suitePath, tc.getId(), suitePath, tc.hasActiveAssertions()));
                         item.getChildren().add(caseItem);
                     }
                 }
@@ -363,7 +370,7 @@ public class ExplorerPageController {
                         } else if (isCase) {
                             TreeItem<Object> parent = treeItem.getParent();
                             NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
-                            canRun = StatusDisplay.canRunCase(suiteRef != null ? suiteRef.status : null, ref.status);
+                            canRun = StatusDisplay.canRunCase(suiteRef != null ? suiteRef.status : null, ref.status) && ref.hasActiveAssertions;
                         }
 
                         runBtn.setVisible(canRun);
@@ -1023,7 +1030,7 @@ public class ExplorerPageController {
                 if ("case".equals(ref.type)) {
                     TreeItem<Object> parent = child.getParent();
                     NodeRef parentRef = parent != null ? getNodeRef(parent) : null;
-                    if (StatusDisplay.canRunCase(parentRef != null ? parentRef.status : null, ref.status)) {
+                    if (StatusDisplay.canRunCase(parentRef != null ? parentRef.status : null, ref.status) && ref.hasActiveAssertions) {
                         count++;
                     }
                 } else if ("suite".equals(ref.type)) {
@@ -2011,6 +2018,10 @@ public class ExplorerPageController {
             }
             if (!StatusDisplay.isRunnable(ref.status)) {
                 ToastService.warn("⚠️ Case chưa Sẵn sàng hoặc không hoạt động");
+                return;
+            }
+            if (!ref.hasActiveAssertions) {
+                ToastService.warn("⚠️ Case chưa có assertions hoạt động — thêm assertions trước khi chạy");
                 return;
             }
             scope = "CASE";

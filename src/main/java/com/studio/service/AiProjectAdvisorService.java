@@ -1,6 +1,5 @@
 package com.studio.service;
 
-import com.studio.model.Assertion;
 import com.studio.model.TestCase;
 import com.studio.model.TestGroup;
 import com.studio.model.TestSuite;
@@ -17,7 +16,8 @@ import java.util.regex.Pattern;
 /**
  * Service providing conversational test intelligence:
  * 1. Searching test cases across the project.
- * 2. Evaluating and grading existing test case scripts against Agency-Agents best practices.
+ * 2. Evaluating and grading existing test case scripts against Agency-Agents
+ * best practices.
  * 3. Analyzing suite coverage gaps to recommend missing test scenarios.
  */
 public class AiProjectAdvisorService {
@@ -39,14 +39,14 @@ public class AiProjectAdvisorService {
             String status,
             String startUrl,
             String matchReason,
-            Path suiteDir
-    ) {}
+            Path suiteDir) {
+    }
 
     public record SearchResult(
             String query,
             List<CaseMatch> matches,
-            String markdownReport
-    ) {}
+            String markdownReport) {
+    }
 
     public record EvaluationResult(
             String caseName,
@@ -57,16 +57,16 @@ public class AiProjectAdvisorService {
             List<String> warnings,
             List<String> criticalFlaws,
             String recommendedFix,
-            String markdownReport
-    ) {}
+            String markdownReport) {
+    }
 
     public record GapAnalysisResult(
             String suiteName,
             int totalCases,
             List<String> coveredScenarios,
             List<String> missingGaps,
-            String markdownReport
-    ) {}
+            String markdownReport) {
+    }
 
     // ── 1. Search Test Cases ──
 
@@ -76,7 +76,7 @@ public class AiProjectAdvisorService {
         String normalizedQuery = query != null ? query.trim().toLowerCase(Locale.ROOT) : "";
 
         try {
-            TestGroup rootGroup = projectStore.loadTree();
+            TestGroup rootGroup = projectStore.loadTree(root);
             searchInGroup(rootGroup, normalizedQuery, matches, root);
         } catch (Exception e) {
             AiLoggingService.error("AI-ADVISOR", "Lỗi tìm kiếm test cases", e);
@@ -108,16 +108,17 @@ public class AiProjectAdvisorService {
                         .append(url).append(" | ")
                         .append(m.matchReason()).append(" |\n");
             }
-            md.append("\n💡 *Bạn có thể yêu cầu tôi đánh giá chất lượng của bất kỳ case nào ở trên bằng cách chat: `đánh giá test case <tên case>`*");
+            md.append(
+                    "\n💡 *Bạn có thể yêu cầu tôi đánh giá chất lượng của bất kỳ case nào ở trên bằng cách chat: `đánh giá test case <tên case>`*");
         }
 
         return new SearchResult(query, matches, md.toString());
     }
 
-    private void searchInGroup(TestGroup group, String query, List<CaseMatch> matches, Path currentPath) {
-        if (group == null) return;
+    private void searchInGroup(TestGroup group, String query, List<CaseMatch> matches, Path groupDir) {
+        if (group == null)
+            return;
         String gName = group.getName() != null ? group.getName() : "Root";
-        Path groupDir = currentPath.resolve(gName);
 
         if (group.getSuites() != null) {
             for (TestSuite suite : group.getSuites()) {
@@ -133,8 +134,7 @@ public class AiProjectAdvisorService {
                                     tc.getStatus(),
                                     tc.getStartUrl(),
                                     reason,
-                                    suiteDir
-                            ));
+                                    suiteDir));
                         }
                     }
                 }
@@ -143,24 +143,30 @@ public class AiProjectAdvisorService {
 
         if (group.getChildren() != null) {
             for (TestGroup child : group.getChildren()) {
-                searchInGroup(child, query, matches, groupDir);
+                Path childDir = groupDir.resolve(child.getName());
+                searchInGroup(child, query, matches, childDir);
             }
         }
     }
 
     private String matchCase(TestCase tc, String suiteName, String groupName, String query, Path suiteDir) {
-        if (query.isEmpty()) return "Tất cả";
+        if (query.isEmpty())
+            return "Tất cả";
         String name = tc.getName() != null ? tc.getName().toLowerCase(Locale.ROOT) : "";
-        if (name.contains(query)) return "Tên case khớp";
+        if (name.contains(query))
+            return "Tên case khớp";
 
         String desc = tc.getDescription() != null ? tc.getDescription().toLowerCase(Locale.ROOT) : "";
-        if (desc.contains(query)) return "Mô tả khớp";
+        if (desc.contains(query))
+            return "Mô tả khớp";
 
         String sName = suiteName.toLowerCase(Locale.ROOT);
-        if (sName.contains(query)) return "Tên Suite khớp";
+        if (sName.contains(query))
+            return "Tên Suite khớp";
 
         String url = tc.getStartUrl() != null ? tc.getStartUrl().toLowerCase(Locale.ROOT) : "";
-        if (url.contains(query)) return "URL xuất phát khớp";
+        if (url.contains(query))
+            return "URL xuất phát khớp";
 
         // Check inside script code if exists
         try {
@@ -171,7 +177,8 @@ public class AiProjectAdvisorService {
                     return "Mã kịch bản Java khớp";
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         return null;
     }
@@ -179,6 +186,10 @@ public class AiProjectAdvisorService {
     // ── 2. Evaluate & Audit Test Case ──
 
     public EvaluationResult evaluateCase(String targetCaseName, Path suiteDir) {
+        return evaluateCase(targetCaseName, suiteDir, null);
+    }
+
+    public EvaluationResult evaluateCase(String targetCaseName, Path suiteDir, Path projectDir) {
         TestCase foundCase = null;
         String foundSuiteName = suiteDir != null ? suiteDir.getFileName().toString() : "Suite";
         Path targetSuiteDir = suiteDir;
@@ -198,25 +209,30 @@ public class AiProjectAdvisorService {
                         }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         // If not found yet, search across all project suites
         if (foundCase == null) {
             try {
-                TestGroup rootGroup = projectStore.loadTree();
-                var searchHit = findCaseGlobally(rootGroup, targetCaseName.trim(), StudioPaths.getProjectDir());
+                Path root = projectDir != null ? projectDir : StudioPaths.getProjectDir();
+                TestGroup rootGroup = projectStore.loadTree(root);
+                var searchHit = findCaseGlobally(rootGroup, targetCaseName.trim(), root);
                 if (searchHit != null) {
                     foundCase = searchHit.tc;
                     foundSuiteName = searchHit.suiteName;
                     targetSuiteDir = searchHit.suiteDir;
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         if (foundCase == null) {
-            String errorMd = "## ⚠️ KHÔNG TÌM THẤY TEST CASE\n\nKhông tìm thấy test case có tên: `\"" + targetCaseName + "\"` trong dự án.";
-            return new EvaluationResult(targetCaseName, foundSuiteName, 0, "N/A", List.of(), List.of(), List.of(errorMd), "", errorMd);
+            String errorMd = "## ⚠️ KHÔNG TÌM THẤY TEST CASE\n\nKhông tìm thấy test case có tên: `\"" + targetCaseName
+                    + "\"` trong dự án.";
+            return new EvaluationResult(targetCaseName, foundSuiteName, 0, "N/A", List.of(), List.of(),
+                    List.of(errorMd), "", errorMd);
         }
 
         // Read script code
@@ -226,7 +242,8 @@ public class AiProjectAdvisorService {
                 if (Files.exists(javaFile)) {
                     scriptCode = Files.readString(javaFile);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         return runAudit(foundCase, foundSuiteName, scriptCode);
@@ -236,6 +253,7 @@ public class AiProjectAdvisorService {
         TestCase tc;
         String suiteName;
         Path suiteDir;
+
         CaseHit(TestCase tc, String suiteName, Path suiteDir) {
             this.tc = tc;
             this.suiteName = suiteName;
@@ -243,15 +261,16 @@ public class AiProjectAdvisorService {
         }
     }
 
-    private CaseHit findCaseGlobally(TestGroup group, String query, Path curPath) {
-        if (group == null) return null;
-        Path gDir = curPath.resolve(group.getName() != null ? group.getName() : "Root");
+    private CaseHit findCaseGlobally(TestGroup group, String query, Path groupDir) {
+        if (group == null)
+            return null;
         if (group.getSuites() != null) {
             for (TestSuite s : group.getSuites()) {
-                Path sDir = gDir.resolve(s.getName());
+                Path sDir = groupDir.resolve(s.getName());
                 if (s.getCases() != null) {
                     for (TestCase tc : s.getCases()) {
-                        if (tc.getName().equalsIgnoreCase(query) || tc.getName().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
+                        if (tc.getName().equalsIgnoreCase(query)
+                                || tc.getName().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
                             return new CaseHit(tc, s.getName(), sDir);
                         }
                     }
@@ -260,8 +279,10 @@ public class AiProjectAdvisorService {
         }
         if (group.getChildren() != null) {
             for (TestGroup c : group.getChildren()) {
-                var hit = findCaseGlobally(c, query, gDir);
-                if (hit != null) return hit;
+                Path childDir = groupDir.resolve(c.getName());
+                var hit = findCaseGlobally(c, query, childDir);
+                if (hit != null)
+                    return hit;
             }
         }
         return null;
@@ -277,9 +298,11 @@ public class AiProjectAdvisorService {
         // Check 1: Hard sleep check (Agency-Agents Rule #1)
         if (Pattern.compile("Thread\\.sleep|waitForTimeout").matcher(code).find()) {
             score -= 30;
-            criticalFlaws.add("Phát hiện `Thread.sleep` hoặc `page.waitForTimeout(...)`. Đây là nguyên nhân hàng đầu gây flaky test! Hãy thay bằng `waitForLoadState` hoặc auto-waiting locators.");
+            criticalFlaws.add(
+                    "Phát hiện `Thread.sleep` hoặc `page.waitForTimeout(...)`. Đây là nguyên nhân hàng đầu gây flaky test! Hãy thay bằng `waitForLoadState` hoặc auto-waiting locators.");
         } else {
-            strengths.add("Không sử dụng hard sleep (`Thread.sleep` / `waitForTimeout`). Tuân thủ chuẩn Deterministic Playwright.");
+            strengths.add(
+                    "Không sử dụng hard sleep (`Thread.sleep` / `waitForTimeout`). Tuân thủ chuẩn Deterministic Playwright.");
         }
 
         // Check 2: Assertions count & depth
@@ -287,26 +310,33 @@ public class AiProjectAdvisorService {
         long codeAssertCount = countMatches(code, "assertThat\\(");
         if (assertCount == 0 && codeAssertCount == 0) {
             score -= 30;
-            criticalFlaws.add("Test case hoàn toàn KHÔNG CÓ assertion nào! Test case không có kiểm tra kết quả thì không có giá trị bảo vệ hồi quy.");
+            criticalFlaws.add(
+                    "Test case hoàn toàn KHÔNG CÓ assertion nào! Test case không có kiểm tra kết quả thì không có giá trị bảo vệ hồi quy.");
         } else if (assertCount == 1 && codeAssertCount <= 1) {
             score -= 10;
-            warnings.add("Chỉ có 1 assertion duy nhất. Khuyến nghị bổ sung đa chiều: kiểm tra cả URL/State lẫn phần tử hiển thị.");
+            warnings.add(
+                    "Chỉ có 1 assertion duy nhất. Khuyến nghị bổ sung đa chiều: kiểm tra cả URL/State lẫn phần tử hiển thị.");
         } else {
-            strengths.add("Có " + Math.max(assertCount, (int) codeAssertCount) + " assertions kiểm thử kết quả đa điểm.");
+            strengths.add(
+                    "Có " + Math.max(assertCount, (int) codeAssertCount) + " assertions kiểm thử kết quả đa điểm.");
         }
 
         // Check 3: Locator resilience (Agency-Agents Rule #3)
         if (code.contains("nth-child") || code.contains("div > div > div")) {
             score -= 15;
-            warnings.add("Bộ chọn DOM mong manh (`nth-child` / đường dẫn tag sâu). Khi UI thay đổi nhẹ, kịch bản sẽ gãy. Hãy thay bằng `getByRole`, `getByLabel` hoặc `data-testid`.");
-        } else if (code.contains("getByRole") || code.contains("getByLabel") || code.contains("getByTestId") || code.contains("healLocator")) {
-            strengths.add("Sử dụng bộ chọn người dùng bền vững (`getByRole` / `getByLabel` / `StudioRuntime.healLocator`).");
+            warnings.add(
+                    "Bộ chọn DOM mong manh (`nth-child` / đường dẫn tag sâu). Khi UI thay đổi nhẹ, kịch bản sẽ gãy. Hãy thay bằng `getByRole`, `getByLabel` hoặc `data-testid`.");
+        } else if (code.contains("getByRole") || code.contains("getByLabel") || code.contains("getByTestId")
+                || code.contains("healLocator")) {
+            strengths.add(
+                    "Sử dụng bộ chọn người dùng bền vững (`getByRole` / `getByLabel` / `StudioRuntime.healLocator`).");
         }
 
         // Check 4: Strict Mode disambiguation (Agency-Agents standard)
         if (code.contains("has-text(") && !code.contains(".first()") && !code.contains("data-testid")) {
             score -= 10;
-            warnings.add("Bộ chọn `has-text(...)` có thể khớp nhiều phần tử cùng lúc dẫn đến lỗi Playwright Strict Mode Violation. Khuyến nghị bổ sung `.first()` hoặc gán selector phạm vi cụ thể.");
+            warnings.add(
+                    "Bộ chọn `has-text(...)` có thể khớp nhiều phần tử cùng lúc dẫn đến lỗi Playwright Strict Mode Violation. Khuyến nghị bổ sung `.first()` hoặc gán selector phạm vi cụ thể.");
         }
 
         // Check 5: Steps definition
@@ -320,10 +350,14 @@ public class AiProjectAdvisorService {
         // Grade calculation
         score = Math.max(0, Math.min(100, score));
         String grade;
-        if (score >= 85) grade = "A (Xuất sắc)";
-        else if (score >= 70) grade = "B (Tốt)";
-        else if (score >= 50) grade = "C (Cần cải thiện)";
-        else grade = "D (Nguy cơ Flaky cao / Thiếu kiểm thử)";
+        if (score >= 85)
+            grade = "A (Xuất sắc)";
+        else if (score >= 70)
+            grade = "B (Tốt)";
+        else if (score >= 50)
+            grade = "C (Cần cải thiện)";
+        else
+            grade = "D (Nguy cơ Flaky cao / Thiếu kiểm thử)";
 
         // Build Markdown Report
         StringBuilder md = new StringBuilder();
@@ -361,19 +395,25 @@ public class AiProjectAdvisorService {
 
         md.append("### 💡 ĐỀ XUẤT CẢI THIỆN (ACTIONABLE RECOMMENDATION)\n");
         if (score >= 85) {
-            md.append("Kịch bản đạt chuẩn cao theo tiêu chuẩn Agency-Agents! Có thể tự tin chạy trong CI/CD pipeline.\n");
+            md.append(
+                    "Kịch bản đạt chuẩn cao theo tiêu chuẩn Agency-Agents! Có thể tự tin chạy trong CI/CD pipeline.\n");
         } else {
             md.append("Khuyến nghị tái cấu trúc theo tiêu chuẩn Playwright E2E:\n");
-            md.append("1. Loại bỏ các lệnh chờ cố định (`Thread.sleep`), thay thế bằng `assertThat(locator).isVisible()`.\n");
-            md.append("2. Sử dụng `page.getByRole(...)` hoặc `StudioRuntime.healLocator(...)` để tăng độ bền khi UI đổi thiết kế.\n");
-            md.append("3. Bổ sung ít nhất 2 assertions kiểm tra kết quả mong đợi (URL chuyển hướng + thông báo giao diện).\n");
+            md.append(
+                    "1. Loại bỏ các lệnh chờ cố định (`Thread.sleep`), thay thế bằng `assertThat(locator).isVisible()`.\n");
+            md.append(
+                    "2. Sử dụng `page.getByRole(...)` hoặc `StudioRuntime.healLocator(...)` để tăng độ bền khi UI đổi thiết kế.\n");
+            md.append(
+                    "3. Bổ sung ít nhất 2 assertions kiểm tra kết quả mong đợi (URL chuyển hướng + thông báo giao diện).\n");
         }
 
-        return new EvaluationResult(tc.getName(), suiteName, score, grade, strengths, warnings, criticalFlaws, fixBuilder.toString(), md.toString());
+        return new EvaluationResult(tc.getName(), suiteName, score, grade, strengths, warnings, criticalFlaws,
+                fixBuilder.toString(), md.toString());
     }
 
     private static long countMatches(String text, String sub) {
-        if (text == null || sub == null || sub.isEmpty()) return 0;
+        if (text == null || sub == null || sub.isEmpty())
+            return 0;
         int count = 0;
         int idx = 0;
         while ((idx = text.indexOf(sub, idx)) != -1) {
@@ -387,7 +427,7 @@ public class AiProjectAdvisorService {
 
     public GapAnalysisResult analyzeSuiteGaps(Path suiteDir) {
         if (suiteDir == null || !Files.exists(suiteDir)) {
-            String err = "⚠️ Thư mục Suite không tồn tại.";
+            String err = "💡 Vui lòng chọn một Test Suite từ danh sách Suite đích bên trên để phân tích độ bao phủ.";
             return new GapAnalysisResult("Unknown", 0, List.of(), List.of(), err);
         }
 
@@ -412,15 +452,18 @@ public class AiProjectAdvisorService {
         for (TestCase tc : cases) {
             String n = tc.getName().toLowerCase(Locale.ROOT);
             String d = tc.getDescription() != null ? tc.getDescription().toLowerCase(Locale.ROOT) : "";
-            if (n.contains("valid") || n.contains("success") || n.contains("happy") || d.contains("thành công") || d.contains("hợp lệ")) {
+            if (n.contains("valid") || n.contains("success") || n.contains("happy") || d.contains("thành công")
+                    || d.contains("hợp lệ")) {
                 hasPositive = true;
                 covered.add("Luồng chính (Happy Path): `" + tc.getName() + "`");
             }
-            if (n.contains("invalid") || n.contains("fail") || n.contains("negative") || d.contains("thất bại") || d.contains("không hợp lệ")) {
+            if (n.contains("invalid") || n.contains("fail") || n.contains("negative") || d.contains("thất bại")
+                    || d.contains("không hợp lệ")) {
                 hasNegative = true;
                 covered.add("Luồng xác thực lỗi (Negative Path): `" + tc.getName() + "`");
             }
-            if (n.contains("boundary") || n.contains("bva") || n.contains("empty") || n.contains("max") || d.contains("biên") || d.contains("rỗng")) {
+            if (n.contains("boundary") || n.contains("bva") || n.contains("empty") || n.contains("max")
+                    || d.contains("biên") || d.contains("rỗng")) {
                 hasBoundary = true;
                 covered.add("Kiểm thử dữ liệu biên (Boundary Value): `" + tc.getName() + "`");
             }
@@ -433,16 +476,20 @@ public class AiProjectAdvisorService {
             missingGaps.add("Thiếu kịch bản kiểm thử luồng chính thành công (Happy Path) với dữ liệu chuẩn.");
         }
         if (!hasNegative) {
-            missingGaps.add("Thiếu kiểm thử xác thực dữ liệu không hợp lệ (Negative Validation): để trống trường bắt buộc, sai định dạng email/số, hoặc mật khẩu yếu.");
+            missingGaps.add(
+                    "Thiếu kiểm thử xác thực dữ liệu không hợp lệ (Negative Validation): để trống trường bắt buộc, sai định dạng email/số, hoặc mật khẩu yếu.");
         }
         if (!hasBoundary) {
-            missingGaps.add("Thiếu kiểm thử giá trị biên (Boundary Value Analysis): nhập độ dài tối thiểu, độ dài tối đa (1000+ ký tự), hoặc ký tự đặc biệt XSS/Unicode.");
+            missingGaps.add(
+                    "Thiếu kiểm thử giá trị biên (Boundary Value Analysis): nhập độ dài tối thiểu, độ dài tối đa (1000+ ký tự), hoặc ký tự đặc biệt XSS/Unicode.");
         }
         if (hasAuth && !hasNegative) {
-            missingGaps.add("Thiếu kiểm thử bảo mật đăng nhập: nhập sai mật khẩu 5 lần, tài khoản bị khóa, hoặc phiên đăng nhập hết hạn (Session timeout).");
+            missingGaps.add(
+                    "Thiếu kiểm thử bảo mật đăng nhập: nhập sai mật khẩu 5 lần, tài khoản bị khóa, hoặc phiên đăng nhập hết hạn (Session timeout).");
         }
         if (cases.size() <= 2) {
-            missingGaps.add("Số lượng test case trong suite còn ít (" + cases.size() + " case). Cần bao phủ thêm các nhánh điều kiện thay thế.");
+            missingGaps.add("Số lượng test case trong suite còn ít (" + cases.size()
+                    + " case). Cần bao phủ thêm các nhánh điều kiện thay thế.");
         }
 
         StringBuilder md = new StringBuilder();
@@ -468,10 +515,10 @@ public class AiProjectAdvisorService {
             for (String g : missingGaps) {
                 md.append("- ⚠️ **Cần bổ sung**: ").append(g).append("\n");
             }
-            md.append("\n💡 *Bạn có thể bấm sinh test case mới hoặc chat: `sinh test case cho các khoảng trống trên` để tôi tự động bổ sung kịch bản Playwright hoàn chỉnh!*");
+            md.append(
+                    "\n💡 *Bạn có thể bấm sinh test case mới hoặc chat: `sinh test case cho các khoảng trống trên` để tôi tự động bổ sung kịch bản Playwright hoàn chỉnh!*");
         }
 
         return new GapAnalysisResult(suiteName, cases.size(), covered, missingGaps, md.toString());
     }
 }
-

@@ -41,7 +41,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.ResourceBundle;
@@ -374,7 +373,8 @@ public class AiAssistantPageController implements Initializable {
             if (aiConfig != null) {
                 maxLimit = aiConfig.getMaxTokens();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         String limitStr = maxLimit > 0 ? " / " + String.format("%,d", maxLimit) : " / ∞";
         tokenUsageBadge.setText("Tokens: ~" + total + limitStr + " (Prompt: ~" + promptTokens + ")");
     }
@@ -623,7 +623,7 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private void executePromptInternal(String prompt, List<DocumentParserService.ParsedDocument> docsSnapshot,
-                                       com.studio.model.AiSkill activeSkill) {
+            com.studio.model.AiSkill activeSkill) {
         SettingsStore.Settings settings;
         try {
             settings = settingsStore.load();
@@ -665,7 +665,8 @@ public class AiAssistantPageController implements Initializable {
         Thread thread = new Thread(() -> {
             try {
                 String activeDomContext = domContext;
-                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM ngầm!
+                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM
+                // ngầm!
                 if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
                         && detectedTargetUrl != null) {
                     Platform.runLater(() -> updateThinkingStatus(
@@ -730,8 +731,11 @@ public class AiAssistantPageController implements Initializable {
                         applyToSuiteBtn.setDisable(true);
                         showCaseDetail(null);
                         if (!result.isClarification()) {
-                            ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent()) ? "Đã tìm thấy test cases phù hợp." :
-                                    "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case." : "Đã phản hồi yêu cầu."));
+                            ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent())
+                                    ? "Đã tìm thấy test cases phù hợp."
+                                    : "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case."
+                                            : "CHAT_ADVICE".equals(result.getIntent()) ? "Đã phản hồi tư vấn kỹ thuật."
+                                                    : "Đã phản hồi yêu cầu."));
                         }
                     }
                 });
@@ -1238,7 +1242,8 @@ public class AiAssistantPageController implements Initializable {
                 Path suiteDir = getSelectedSuiteDir();
                 try {
                     chatHistoryStore.saveSession(suiteDir, currentSession);
-                } catch (IOException ignored) {}
+                } catch (IOException ignored) {
+                }
 
                 String augmented = aiGenerator.getAmbiguityAnalyzer().buildAugmentedPrompt(originalPrompt, collected);
 

@@ -120,4 +120,52 @@ class AiProjectAdvisorServiceTest {
         assertTrue(gapResult.markdownReport().contains("Negative Validation"));
         assertTrue(gapResult.markdownReport().contains("Boundary Value"));
     }
+
+    @Test
+    void testAnalyzeSuiteGaps_NullSuiteReturnsFriendlyPrompt() {
+        AiProjectAdvisorService.GapAnalysisResult gapResult = advisorService.analyzeSuiteGaps(null);
+        assertNotNull(gapResult);
+        assertTrue(gapResult.markdownReport().contains("Vui lòng chọn một Test Suite"));
+    }
+
+    @Test
+    void testSearchCases_WithDirectAndNestedStructure() throws IOException {
+        Path groupDir = tempDir.resolve("AuthGroup");
+        Files.createDirectories(groupDir);
+        TestGroup group = new TestGroup("AuthGroup", "Group description");
+        new ObjectMapper().writeValue(groupDir.resolve("group.json").toFile(), group);
+
+        Path suiteDir = groupDir.resolve("LoginSuite");
+        Files.createDirectories(suiteDir);
+        TestSuite suite = new TestSuite("LoginSuite", "Suite description");
+        TestCase tc = new TestCase("tc_search", "Search_Target_Case", "Case to search", "Search_Target_Case.java", "ACTIVE");
+        tc.setStartUrl("https://example.com/login");
+        suite.setCases(List.of(tc));
+        new ObjectMapper().writeValue(suiteDir.resolve("suite.json").toFile(), suite);
+
+        String code = """
+                package com.test;
+                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+                public class Search_Target_Case {
+                    public static void main(String[] args) {
+                        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Login")).click();
+                        assertThat(page.locator("#dashboard")).isVisible();
+                    }
+                }
+                """;
+        Files.writeString(suiteDir.resolve("Search_Target_Case.java"), code);
+
+        AiProjectAdvisorService.SearchResult res = advisorService.searchCases("Search_Target", tempDir);
+        assertNotNull(res);
+        assertFalse(res.matches().isEmpty());
+        assertEquals("Search_Target_Case", res.matches().get(0).caseName());
+        assertTrue(res.matches().get(0).suiteDir().endsWith("AuthGroup/LoginSuite") || res.matches().get(0).suiteDir().endsWith("AuthGroup\\LoginSuite"));
+        assertTrue(Files.exists(res.matches().get(0).suiteDir()));
+
+        // Test global evaluateCase without suiteDir, relying on global tree search
+        AiProjectAdvisorService.EvaluationResult globalEval = advisorService.evaluateCase("Search_Target_Case", null, tempDir);
+        assertNotNull(globalEval);
+        assertEquals("Search_Target_Case", globalEval.caseName());
+        assertTrue(globalEval.score() >= 70);
+    }
 }

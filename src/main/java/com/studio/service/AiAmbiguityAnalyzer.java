@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * Service to analyze user prompt intent, detect requirement ambiguities,
@@ -27,8 +26,8 @@ public class AiAmbiguityAnalyzer {
             boolean needsClarification,
             String targetEntity,
             List<AiClarificationQuestion> questions,
-            String initialClarificationMessage
-    ) {}
+            String initialClarificationMessage) {
+    }
 
     /**
      * Classifies user intent from prompt text.
@@ -76,10 +75,12 @@ public class AiAmbiguityAnalyzer {
     }
 
     /**
-     * Extracts target entity name (e.g. case name for evaluation or keyword for search).
+     * Extracts target entity name (e.g. case name for evaluation or keyword for
+     * search).
      */
     public String extractTargetEntity(String prompt, Intent intent) {
-        if (prompt == null || prompt.isBlank()) return "";
+        if (prompt == null || prompt.isBlank())
+            return "";
         String p = prompt.trim();
 
         if (intent == Intent.SEARCH_TESTS) {
@@ -87,7 +88,9 @@ public class AiAmbiguityAnalyzer {
         }
 
         if (intent == Intent.EVALUATE_TEST) {
-            return p.replaceAll("^(?i)(đánh giá|review|chấm điểm|audit|kiểm tra)\\s+(chất lượng\\s+)?(test\\s+case(s)?|case(s)?|kịch bản)?\\s*", "").trim();
+            return p.replaceAll(
+                    "^(?i)(đánh giá|review|chấm điểm|audit|kiểm tra)\\s+(chất lượng\\s+)?(test\\s+case(s)?|case(s)?|kịch bản)?\\s*",
+                    "").trim();
         }
 
         return p;
@@ -95,7 +98,8 @@ public class AiAmbiguityAnalyzer {
 
     /**
      * Determines whether test generation requires clarification from user.
-     * If prompt is brief, lacks URL, assertions, preconditions, or scenario details,
+     * If prompt is brief, lacks URL, assertions, preconditions, or scenario
+     * details,
      * it flags needsClarification = true and produces structured questions.
      */
     public AnalysisResult analyze(String prompt, boolean hasAttachments, boolean hasLiveDom) {
@@ -106,19 +110,22 @@ public class AiAmbiguityAnalyzer {
             return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
-        // If user already attached a PRD document or Live DOM was scanned -> high context available
+        // If user already attached a PRD document or Live DOM was scanned -> high
+        // context available
         if (hasAttachments || hasLiveDom) {
             return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
         }
 
         String trimmed = prompt != null ? prompt.trim() : "";
 
-        // Check if prompt is already rich or clarified (e.g. contains clarification tags, URL, step bullets, or long detailed spec > 120 chars)
+        // Check if prompt is already rich or clarified (e.g. contains clarification
+        // tags, URL, step bullets, or long detailed spec > 120 chars)
         String lower = trimmed.toLowerCase(Locale.ROOT);
         boolean isClarified = lower.contains("[phạm vi]") || lower.contains("[tiền điều kiện]")
                 || lower.contains("[xác minh]") || lower.contains("[scope]") || lower.contains("[precondition]");
         boolean hasUrl = lower.contains("http://") || lower.contains("https://");
-        boolean hasSteps = trimmed.contains("\n-") || trimmed.contains("\n1.") || trimmed.contains("bước 1") || trimmed.contains("step 1");
+        boolean hasSteps = trimmed.contains("\n-") || trimmed.contains("\n1.") || trimmed.contains("bước 1")
+                || trimmed.contains("step 1");
         boolean isDetailed = isClarified || (trimmed.length() > 140 && (hasUrl || hasSteps));
 
         if (isDetailed) {
@@ -127,7 +134,8 @@ public class AiAmbiguityAnalyzer {
 
         // Vague or brief prompt -> Needs clarification
         List<AiClarificationQuestion> questions = generateClarificationQuestions(trimmed);
-        String summary = "Tôi đã phân tích yêu cầu **\"" + (trimmed.length() > 50 ? trimmed.substring(0, 47) + "..." : trimmed)
+        String summary = "Tôi đã phân tích yêu cầu **\""
+                + (trimmed.length() > 50 ? trimmed.substring(0, 47) + "..." : trimmed)
                 + "\"**. Để bộ test case sinh ra đầy đủ, chính xác và không bị sơ sài, vui lòng làm rõ một số điểm mờ dưới đây:";
 
         return new AnalysisResult(Intent.GENERATE_TESTS, true, target, questions, summary);
@@ -144,14 +152,13 @@ public class AiAmbiguityAnalyzer {
                 List.of(
                         "(Khuyên dùng) Đầy đủ: Luồng thành công (Happy) + Xác thực lỗi/Validate (Negative) + Trường hợp biên (Edge cases)",
                         "Chỉ luồng chính thành công (Happy Path)",
-                        "Tập trung sâu vào xác thực dữ liệu biên, lỗi nhập liệu & Fuzzing (Negative Validation & BVA)"
-                ),
+                        "Tập trung sâu vào xác thực dữ liệu biên, lỗi nhập liệu & Fuzzing (Negative Validation & BVA)"),
                 false,
-                true
-        ));
+                true));
 
         // Question 2: Preconditions & Authentication
-        boolean isAuthFeature = p.contains("login") || p.contains("đăng nhập") || p.contains("auth") || p.contains("register") || p.contains("đăng ký");
+        boolean isAuthFeature = p.contains("login") || p.contains("đăng nhập") || p.contains("auth")
+                || p.contains("register") || p.contains("đăng ký");
         if (isAuthFeature) {
             list.add(new AiClarificationQuestion(
                     "q_precondition",
@@ -159,11 +166,9 @@ public class AiAmbiguityAnalyzer {
                     List.of(
                             "(Khuyên dùng) Tài khoản người dùng tiêu chuẩn đã đăng ký sẵn",
                             "Tài khoản Quản trị viên (Admin / SuperUser)",
-                            "Kiểm thử với tài khoản chưa tồn tại hoặc bị khóa"
-                    ),
+                            "Kiểm thử với tài khoản chưa tồn tại hoặc bị khóa"),
                     false,
-                    true
-            ));
+                    true));
         } else {
             list.add(new AiClarificationQuestion(
                     "q_precondition",
@@ -171,11 +176,9 @@ public class AiAmbiguityAnalyzer {
                     List.of(
                             "(Khuyên dùng) Cần đăng nhập tài khoản trước khi thực hiện luồng nghiệp vụ",
                             "Không cần đăng nhập (Trang công khai / Khách vãng lai)",
-                            "Cần có sẵn dữ liệu mẫu trong hệ thống (sản phẩm, đơn hàng, giỏ hàng)"
-                    ),
+                            "Cần có sẵn dữ liệu mẫu trong hệ thống (sản phẩm, đơn hàng, giỏ hàng)"),
                     false,
-                    true
-            ));
+                    true));
         }
 
         // Question 3: Assertions & Expected Outcome
@@ -185,17 +188,16 @@ public class AiAmbiguityAnalyzer {
                 List.of(
                         "(Khuyên dùng) Kiểm tra toàn diện: Chuyển hướng URL đúng + Hiển thị thông báo Toast/Alert thành công + Cập nhật phần tử UI",
                         "Chỉ kiểm tra phần tử giao diện hiển thị (`toBeVisible`)",
-                        "Kiểm tra dữ liệu chính xác trên bảng / danh sách"
-                ),
+                        "Kiểm tra dữ liệu chính xác trên bảng / danh sách"),
                 false,
-                true
-        ));
+                true));
 
         return list;
     }
 
     /**
-     * Synthesizes an augmented prompt containing original prompt and clarified answers.
+     * Synthesizes an augmented prompt containing original prompt and clarified
+     * answers.
      */
     public String buildAugmentedPrompt(String originalPrompt, Map<String, String> answers) {
         StringBuilder sb = new StringBuilder();
@@ -213,7 +215,8 @@ public class AiAmbiguityAnalyzer {
                 sb.append("- **").append(label).append("**: ").append(e.getValue()).append("\n");
             }
         }
-        sb.append("- **Yêu cầu bổ sung**: Sinh bộ kịch bản Playwright Java hoàn chỉnh, chi tiết, bao quát đầy đủ các tiêu chí trên, áp dụng chuẩn Agency-Agents (Zero hard sleep, web-first assertions, resilient role selectors).\n");
+        sb.append(
+                "- **Yêu cầu bổ sung**: Sinh bộ kịch bản Playwright Java hoàn chỉnh, chi tiết, bao quát đầy đủ các tiêu chí trên, áp dụng chuẩn Agency-Agents (Zero hard sleep, web-first assertions, resilient role selectors).\n");
 
         return sb.toString();
     }

@@ -32,11 +32,16 @@ public class ProjectStore {
      * nested groups on {@link TestGroup#getChildren()} — never mixed).
      */
     public TestGroup loadTree() throws IOException {
-        Path projectDir = StudioPaths.getProjectDir();
+        return loadTree(StudioPaths.getProjectDir());
+    }
+
+    public TestGroup loadTree(Path projectDir) throws IOException {
         TestGroup root = new TestGroup("Project", "Root project group");
         root.setType("group");
-        root.setChildren(loadChildGroups(projectDir));
-        root.setSuites(loadSuitesInDir(projectDir));
+        if (projectDir != null && Files.exists(projectDir)) {
+            root.setChildren(loadChildGroups(projectDir));
+            root.setSuites(loadSuitesInDir(projectDir));
+        }
         return root;
     }
 

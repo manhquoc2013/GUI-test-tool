@@ -603,6 +603,19 @@
   - `editFromPreview()` và `openWorkspace()` ưu tiên trích xuất trực tiếp `currentPreviewRef` (thực thể đang hiển thị ngay trên bảng Preview).
   - Chuẩn hóa đường dẫn nhóm trong `openWorkspaceForRef` bằng `suiteDir.getParent().getFileName().toString()`, đảm bảo luôn mở đúng Workspace ngay cả khi đối tượng được chọn từ Case cấp con.
 
+### 10. Review Fixes & Architectural Optimizations (Phase 13)
+- **Clarification Question Defaulting**:
+  - `AiClarificationQuestion.getDefaultOption()` cung cấp giá trị mặc định ưu tiên từ `selectedAnswer` (nếu đã có), hoặc phần tử đầu tiên trong danh sách `options`, bảo đảm thẻ làm rõ trong UI luôn có trạng thái hợp lệ ngay cả khi dữ liệu từ máy chủ chưa trả câu trả lời trước đó.
+- **Root Group Directory Normalization in Project Advisor**:
+  - `ProjectStore.loadTree()` tạo ra node gốc mang tên `"Project"` làm container ảo trong bộ nhớ; toàn bộ các Suite và Subgroup cấp 1 thực tế nằm trực tiếp dưới thư mục dự án (`projectDir`).
+  - Trong các hàm đệ quy tìm kiếm (`searchInGroup`) và tra cứu toàn cục (`findCaseGlobally`), không bao giờ `currentPath.resolve("Project")` cho node gốc để tránh sinh đường dẫn ma dạng `/path/to/project/Project/suite/case.java`. Thay vào đó, đường dẫn gốc được bảo toàn và chỉ `resolve(child.getName())` khi duyệt xuống các node con thực sự.
+- **Conversational Technical QA / Chat Advice Intent**:
+  - Khi người dùng hỏi đáp về Playwright/QA kiến trúc (`Intent.CHAT_ADVICE`), `AiTestGeneratorService` chuyển sang system prompt chuyên dụng `CHAT_ADVICE_SYSTEM_PROMPT` và trả lời dạng Markdown đàm thoại tự nhiên, không ép cấu trúc JSON schema kịch bản test nhằm triệt tiêu hoàn toàn nguy cơ lỗi `"Lỗi khi phân tích JSON phản hồi từ AI"`.
+- **Harmonized Runnable Execution Guard**:
+  - Đồng bộ `ExplorerPageController.countRunnableCasesUnderItem` và các nút chạy trên cây thư mục với điều kiện `tc.hasActiveAssertions()`, bảo đảm trải nghiệm đồng nhất với Suite Workspace và `ProjectStore.applySkipEvaluation`.
+
+
+
 
 
 
