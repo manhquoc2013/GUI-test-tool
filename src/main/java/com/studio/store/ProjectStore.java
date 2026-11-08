@@ -3,6 +3,7 @@ package com.studio.store;
 import com.studio.model.*;
 import com.studio.service.ScriptHarnessTransformer;
 import com.studio.util.EntityTime;
+import com.studio.util.StatusDisplay;
 import com.studio.util.StudioPaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -725,12 +726,36 @@ public class ProjectStore {
         return results;
     }
 
+    private static void applySkipEvaluation(TestSuite suite, TestCase tc, CaseResult cr) {
+        boolean suiteActive = "ACTIVE".equalsIgnoreCase(suite.getStatus());
+        boolean suiteHasAnyActiveAssert = suite.hasAnyActiveAssertions();
+
+        if (!suiteActive) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Suite status is " + suite.getStatus());
+        } else if (!suiteHasAnyActiveAssert) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Suite has no active asserts");
+        } else if ("INACTIVE".equalsIgnoreCase(tc.getStatus()) || "Inactive".equalsIgnoreCase(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Case is inactive");
+        } else if ("Draft".equalsIgnoreCase(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("No script (case Draft)");
+        } else if (!StatusDisplay.isRunnable(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Case is not ready (" + tc.getStatus() + ")");
+        } else if (!tc.hasActiveAssertions()) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("No active asserts on this case");
+        } else {
+            cr.setStatus("PENDING");
+        }
+    }
+
     private List<CaseResult> enumerateSuiteCases(Path suiteDir, String groupPath, String suiteName) throws IOException {
         List<CaseResult> results = new ArrayList<>();
         TestSuite suite = loadAndMigrateSuite(suiteDir);
-
-        boolean suiteActive = "ACTIVE".equals(suite.getStatus());
-        boolean suiteHasAnyActiveAssert = suite.hasAnyActiveAssertions();
 
         for (int i = 0; i < suite.getCases().size(); i++) {
             TestCase tc = suite.getCases().get(i);
@@ -744,22 +769,7 @@ public class ProjectStore {
             cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
-            if (!suiteActive) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("Suite status is " + suite.getStatus());
-            } else if (!suiteHasAnyActiveAssert) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("Suite has no active asserts");
-            } else if (!"Ready".equals(tc.getStatus())) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No script (case Draft)");
-            } else if (!tc.hasActiveAssertions()) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No active asserts on this case");
-            } else {
-                cr.setStatus("PENDING");
-            }
-
+            applySkipEvaluation(suite, tc, cr);
             results.add(cr);
         }
         return results;
@@ -784,16 +794,7 @@ public class ProjectStore {
             cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
-            if ("Draft".equals(tc.getStatus())) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No script (case Draft)");
-            } else if (!tc.hasActiveAssertions()) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No active asserts on this case");
-            } else {
-                cr.setStatus("PENDING");
-            }
-
+            applySkipEvaluation(suite, tc, cr);
             results.add(cr);
         }
         return results;
@@ -826,16 +827,7 @@ public class ProjectStore {
             cr.setPriority(tc.getPriority());
             cr.setScriptFile(tc.getScriptFile());
 
-            if ("Draft".equals(tc.getStatus())) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No script (case Draft)");
-            } else if (!tc.hasActiveAssertions()) {
-                cr.setStatus("SKIPPED");
-                cr.setSkipReason("No active asserts on this case");
-            } else {
-                cr.setStatus("PENDING");
-            }
-
+            applySkipEvaluation(suite, tc, cr);
             results.add(cr);
         }
         return results;

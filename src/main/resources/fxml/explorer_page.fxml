@@ -24,6 +24,7 @@
         <Button text="Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
         <Separator fx:id="createToolbarSep"/>
         <Button text="Sao chép" fx:id="copyBtn" onAction="#copyItem" styleClass="toolbar-btn"/>
+        <Button text="Xóa" fx:id="deleteBtn" onAction="#deleteItem" styleClass="toolbar-btn-danger"/>
         <HBox HBox.hgrow="ALWAYS"/>
         <TextField fx:id="searchField" promptText="Tìm theo tên…" prefWidth="200" styleClass="toolbar-search"/>
         <Label text="Lọc" styleClass="toolbar-label"/>
@@ -65,6 +66,7 @@
                     <Label fx:id="previewUpdatedLabel" styleClass="toolbar-label"/>
                     <HBox spacing="8" alignment="CENTER_RIGHT">
                         <HBox HBox.hgrow="ALWAYS"/>
+                        <Button fx:id="previewDeleteBtn" text="Xóa" onAction="#deleteItem" styleClass="toolbar-btn-danger"/>
                         <Button fx:id="previewEditBtn" text="Sửa" onAction="#editFromPreview" styleClass="btn-secondary"/>
                     </HBox>
                 </VBox>

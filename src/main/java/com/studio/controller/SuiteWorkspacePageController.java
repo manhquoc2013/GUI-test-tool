@@ -55,6 +55,8 @@ public class SuiteWorkspacePageController {
     @FXML private Button runSuiteBtn;
     @FXML private Button saveBtn;
     @FXML private Button exportExcelBtn;
+    @FXML private Button deleteCaseBtn;
+    @FXML private Button deleteSuiteBtn;
     @FXML private Button toggleSplitBtn;
     @FXML private Button clearTerminalBtn;
     @FXML private Button hideTerminalBtn;
@@ -280,6 +282,16 @@ public class SuiteWorkspacePageController {
                 UiIcons.setGraphic(exportExcelBtn, UiIcons.EXCEL, 12, "#10b981");
                 com.studio.util.UiTooltips.install(exportExcelBtn, "Xuất toàn bộ kịch bản kiểm thử ra file Excel chuẩn QA");
             }
+            if (deleteCaseBtn != null) {
+                deleteCaseBtn.setOnAction(e -> deleteSelectedCase());
+                UiIcons.setGraphic(deleteCaseBtn, UiIcons.TRASH, 12, "#f7768e");
+                com.studio.util.UiTooltips.install(deleteCaseBtn, "Xóa case đang chọn");
+            }
+            if (deleteSuiteBtn != null) {
+                deleteSuiteBtn.setOnAction(e -> deleteCurrentSuite());
+                UiIcons.setGraphic(deleteSuiteBtn, UiIcons.TRASH, 12, "#f7768e");
+                com.studio.util.UiTooltips.install(deleteSuiteBtn, "Xóa toàn bộ Suite này");
+            }
             if (toggleSplitBtn != null) {
                 toggleSplitBtn.setOnAction(e -> toggleSplitLayout());
                 UiIcons.setGraphic(toggleSplitBtn, UiIcons.SPLIT, 12);
@@ -389,6 +401,7 @@ public class SuiteWorkspacePageController {
                 private final Label nameLabel = new Label();
                 private final Label statusLabel = new Label();
                 private final Button runBtn = new Button();
+                private final Button deleteBtn = new Button();
 
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
@@ -410,7 +423,18 @@ public class SuiteWorkspacePageController {
                         }
                         e.consume();
                     });
-                    row.getChildren().addAll(nameLabel, statusLabel, runBtn);
+                    deleteBtn.getStyleClass().add("case-row-delete-btn");
+                    UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 10, "#f7768e");
+                    com.studio.util.UiTooltips.install(deleteBtn, "Xóa case này");
+                    deleteBtn.setFocusTraversable(false);
+                    deleteBtn.setOnMousePressed(e -> {
+                        String name = getItem();
+                        if (name != null) {
+                            deleteCaseFromRow(name);
+                        }
+                        e.consume();
+                    });
+                    row.getChildren().addAll(nameLabel, statusLabel, runBtn, deleteBtn);
                 }
 
                 @Override
@@ -529,7 +553,8 @@ public class SuiteWorkspacePageController {
         }
         javafx.scene.Node cur = node;
         while (cur != null) {
-            if (cur.getStyleClass().contains("case-row-run-btn")) {
+            if (cur.getStyleClass().contains("case-row-run-btn")
+                    || cur.getStyleClass().contains("case-row-delete-btn")) {
                 return true;
             }
             if (cur instanceof ListCell<?>) {
@@ -597,6 +622,10 @@ public class SuiteWorkspacePageController {
                         menuItem("Lưu code", () -> {
                             ensureCaseSelectedForAction(selected);
                             saveCode();
+                        }),
+                        new SeparatorMenuItem(),
+                        menuItem("Xóa Case", () -> {
+                            deleteCaseFromRow(selected);
                         })
                 );
             } else {
@@ -663,6 +692,11 @@ public class SuiteWorkspacePageController {
         if (saveBtn != null) {
             saveBtn.setDisable(!hasCase || BusyButtons.isBusy());
         }
+        if (deleteCaseBtn != null) {
+            deleteCaseBtn.setDisable(!hasCase || BusyButtons.isBusy());
+            deleteCaseBtn.setVisible(hasCase);
+            deleteCaseBtn.setManaged(hasCase);
+        }
         if (toggleSplitBtn != null) {
             toggleSplitBtn.setVisible(hasCase);
             toggleSplitBtn.setManaged(hasCase);
@@ -675,17 +709,22 @@ public class SuiteWorkspacePageController {
     private void updateRunSuiteVisibility() {
         if (runSuiteBtn == null) return;
         boolean suiteActive = StatusDisplay.isActive(suiteStatus()) && !BusyButtons.isBusy();
+        boolean hasRunnableCases = suite != null && suite.getCases() != null
+                && suite.getCases().stream()
+                        .anyMatch(c -> StatusDisplay.isRunnable(c.getStatus()) && c.hasActiveAssertions());
         boolean show = suite != null && suiteActive;
         runSuiteBtn.setVisible(show);
         runSuiteBtn.setManaged(show);
         runSuiteBtn.setText("Chạy suite");
         UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
         runSuiteBtn.setOnAction(e -> runSuite());
-        runSuiteBtn.setDisable(!suiteActive || BusyButtons.isBusy());
+        runSuiteBtn.setDisable(!suiteActive || !hasRunnableCases || BusyButtons.isBusy());
         com.studio.util.UiTooltips.install(runSuiteBtn,
-                suiteActive
-                        ? "Chạy toàn bộ case trong suite"
-                        : "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite");
+                !suiteActive
+                        ? "Chỉ hiện khi suite Đang hoạt động — đổi ở Thông tin Suite"
+                        : (!hasRunnableCases
+                                ? "Suite không có test case nào đang hoạt động để chạy"
+                                : "Chạy toàn bộ case trong suite"));
     }
 
     private void updateSelectedCaseHint() {
@@ -1265,13 +1304,21 @@ public class SuiteWorkspacePageController {
             ToastService.warn("⚠️ Suite chưa Đang hoạt động — đổi trạng thái ở Thông tin Suite");
             return;
         }
-        terminalPanel.setVisible(true);
-        terminalPanel.setManaged(true);
-
         if (suite == null || suitePath == null) {
             ToastService.warn("⚠️ Chưa tải suite");
             return;
         }
+        long runnableCount = suite.getCases() != null
+                ? suite.getCases().stream()
+                        .filter(c -> StatusDisplay.isRunnable(c.getStatus()) && c.hasActiveAssertions())
+                        .count()
+                : 0;
+        if (runnableCount == 0) {
+            ToastService.warn("⚠️ Suite không có test case nào đang hoạt động để chạy");
+            return;
+        }
+        terminalPanel.setVisible(true);
+        terminalPanel.setManaged(true);
 
         SettingsStore.Settings settings;
         try {
@@ -1319,6 +1366,71 @@ public class SuiteWorkspacePageController {
                 this::updateCaseActionButtons,
                 addCaseBtn
         );
+    }
+
+    @FXML
+    public void deleteSelectedCase() {
+        if (selectedCase == null) {
+            ToastService.warn("⚠️ Chưa chọn case nào");
+            return;
+        }
+        deleteCaseFromRow(selectedCase.getName());
+    }
+
+    private void deleteCaseFromRow(String caseName) {
+        if (caseName == null || suitePath == null || suite == null) return;
+        TestCase tc = findCaseByName(caseName);
+        if (tc == null) return;
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        DialogTheme.apply(confirm);
+        confirm.setTitle("Xác nhận xóa Case");
+        confirm.setHeaderText("Xóa Case '" + caseName + "'?");
+        confirm.setContentText("Case và file script liên quan sẽ bị xóa. Không thể hoàn tác.");
+
+        confirm.showAndWait().ifPresent(resp -> {
+            if (resp == ButtonType.OK) {
+                try {
+                    projectStore.deleteCase(suitePath, tc.getId());
+                    if (selectedCase != null && tc.getId().equals(selectedCase.getId())) {
+                        selectedCase = null;
+                        markCodeClean("");
+                        updateSelectedCaseHint();
+                        showSuiteInfoMode();
+                    }
+                    TestSuite reloaded = projectStore.loadAndMigrateSuite(suitePath);
+                    loadSuite(reloaded, suitePath, null, false);
+                    ToastService.success("🗑️ Đã xóa case: " + caseName);
+                } catch (IOException e) {
+                    ToastService.error("❌ Không thể xóa case: " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    @FXML
+    public void deleteCurrentSuite() {
+        if (suitePath == null || suite == null) return;
+        int caseCount = suite.getCases() != null ? suite.getCases().size() : 0;
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        DialogTheme.apply(confirm);
+        confirm.setTitle("Xác nhận xóa Suite");
+        confirm.setHeaderText("Xóa Suite '" + suite.getName() + "'?");
+        confirm.setContentText(caseCount > 0
+                ? "Sẽ xóa toàn bộ case và file script trong suite (" + caseCount + " case). Không thể hoàn tác."
+                : "Hành động này không thể hoàn tác.");
+
+        confirm.showAndWait().ifPresent(resp -> {
+            if (resp == ButtonType.OK) {
+                try {
+                    projectStore.deleteSuite(suitePath);
+                    ToastService.success("🗑️ Đã xóa suite: " + suite.getName());
+                    goBack();
+                } catch (IOException e) {
+                    ToastService.error("❌ Không thể xóa suite: " + e.getMessage());
+                }
+            }
+        });
     }
 
     @FXML

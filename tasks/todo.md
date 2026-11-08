@@ -117,4 +117,11 @@
 - [x] Task 107: Update and expand unit tests in `TestRunnerScreenshotFinalizeTest` to verify clean reports without stack traces <!-- id: 117 -->
 - [x] Task 108: Update `.agents/test-self-healer.md`, `rules/anti-thrashing-healing.md`, `tasks/learnings.md`, and verify full regression suite (`mvn clean test`) <!-- id: 118 -->
 
+- [x] Task 109: Enforce inactive suite & inactive test case execution guards in `ProjectStore` (`collectSuiteCases`, `enumerateSuiteCases`, `collectSingleCase`) <!-- id: 119 -->
+- [x] Task 110: Add execution pre-checks and dynamic run button visibility in `ExplorerPageController` and `SuiteWorkspacePageController` <!-- id: 120 -->
+- [x] Task 111: Implement universal delete buttons for Group, Suite, and Case in Explorer toolbar, TreeCell inline actions, and Preview panel <!-- id: 121 -->
+- [x] Task 112: Implement delete buttons for Case and Suite in Suite Workspace (case row, context menu, and suite info panel) <!-- id: 122 -->
+- [x] Task 123: Add unit tests for inactive execution skip logic and deletion buttons; verify full test suite regression <!-- id: 123 -->
+- [x] Task 124: Update `tasks/learnings.md`, atomic commit and documentation <!-- id: 124 -->
+
 

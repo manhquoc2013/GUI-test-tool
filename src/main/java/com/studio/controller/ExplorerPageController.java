@@ -53,6 +53,7 @@ public class ExplorerPageController {
     @FXML private Button addCaseBtn;
     @FXML private Separator createToolbarSep;
     @FXML private Button copyBtn;
+    @FXML private Button deleteBtn;
     @FXML private Button openWorkspaceBtn;
     @FXML private Button runNodeBtn;
     @FXML private ComboBox<String> statusFilter;
@@ -75,6 +76,7 @@ public class ExplorerPageController {
     @FXML private Label previewCreatedLabel;
     @FXML private Label previewUpdatedLabel;
     @FXML private Button previewEditBtn;
+    @FXML private Button previewDeleteBtn;
 
     // ── Services & stores ──
 
@@ -238,6 +240,7 @@ public class ExplorerPageController {
                 private final Button addBtn = new Button();
                 private final Button editBtn = new Button();
                 private final Button copyBtn = new Button();
+                private final Button deleteBtn = new Button();
                 private final Label statusLabel = new Label();
                 private final Runnable updateActionVisibility = () -> {
                     boolean show = (isHover() || isSelected()) && !isEmpty() && getItem() != null;
@@ -262,20 +265,23 @@ public class ExplorerPageController {
                     UiIcons.setGraphic(addBtn, UiIcons.PLUS, 10);
                     UiIcons.setGraphic(editBtn, UiIcons.EDIT, 10);
                     UiIcons.setGraphic(copyBtn, UiIcons.COPY, 10);
+                    UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 10, "#f7768e");
 
-                    for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn)) {
+                    for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn, deleteBtn)) {
                         btn.getStyleClass().add("tree-action-btn");
                         btn.setFocusTraversable(false);
                         btn.setOnDragDetected(javafx.event.Event::consume);
                     }
                     runBtn.getStyleClass().add("tree-action-run");
+                    deleteBtn.getStyleClass().add("tree-action-delete");
                     com.studio.util.UiTooltips.install(runBtn, "Chạy ngay");
                     com.studio.util.UiTooltips.install(openBtn, "Mở trong Workspace");
                     com.studio.util.UiTooltips.install(addBtn, "Thêm mục mới");
                     com.studio.util.UiTooltips.install(editBtn, "Chỉnh sửa");
                     com.studio.util.UiTooltips.install(copyBtn, "Sao chép");
+                    com.studio.util.UiTooltips.install(deleteBtn, "Xóa");
 
-                    actionsBox.getChildren().addAll(runBtn, openBtn, addBtn, editBtn, copyBtn);
+                    actionsBox.getChildren().addAll(runBtn, openBtn, addBtn, editBtn, copyBtn, deleteBtn);
 
                     statusLabel.getStyleClass().add("tree-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
@@ -331,8 +337,19 @@ public class ExplorerPageController {
                         boolean isCase = "case".equals(ref.type);
                         boolean isRoot = isRootItem(treeItem);
 
-                        runBtn.setVisible(true);
-                        runBtn.setManaged(true);
+                        boolean canRun = false;
+                        if (isGroup) {
+                            canRun = countRunnableCasesUnderItem(treeItem) > 0;
+                        } else if (isSuite) {
+                            canRun = StatusDisplay.isActive(ref.status) && countRunnableCasesUnderItem(treeItem) > 0;
+                        } else if (isCase) {
+                            TreeItem<Object> parent = treeItem.getParent();
+                            NodeRef suiteRef = parent != null ? getNodeRef(parent) : null;
+                            canRun = StatusDisplay.canRunCase(suiteRef != null ? suiteRef.status : null, ref.status);
+                        }
+
+                        runBtn.setVisible(canRun);
+                        runBtn.setManaged(canRun);
                         runBtn.setOnAction(e -> {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
@@ -378,6 +395,15 @@ public class ExplorerPageController {
                             contextTarget = treeItem;
                             projectTree.getSelectionModel().select(treeItem);
                             copyItem();
+                            e.consume();
+                        });
+
+                        deleteBtn.setVisible(!isRoot);
+                        deleteBtn.setManaged(!isRoot);
+                        deleteBtn.setOnAction(e -> {
+                            contextTarget = treeItem;
+                            projectTree.getSelectionModel().select(treeItem);
+                            deleteItem();
                             e.consume();
                         });
                     }
@@ -535,15 +561,21 @@ public class ExplorerPageController {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
                                 menuItem("Sửa", this::editSelectedEntity),
-                                menuItem("Xóa", this::deleteItem),
-                                new SeparatorMenuItem(),
-                                runMenuItem("Chạy nhóm", this::runSelected)
+                                menuItem("Xóa", this::deleteItem)
                         );
+                        if (countRunnableCasesUnderItem(selected) > 0) {
+                            menu.getItems().addAll(
+                                    new SeparatorMenuItem(),
+                                    runMenuItem("Chạy nhóm", this::runSelected)
+                            );
+                        }
                     } else {
-                        menu.getItems().addAll(
-                                new SeparatorMenuItem(),
-                                runMenuItem("Chạy tất cả", this::runSelected)
-                        );
+                        if (countRunnableCasesUnderItem(selected) > 0) {
+                            menu.getItems().addAll(
+                                    new SeparatorMenuItem(),
+                                    runMenuItem("Chạy tất cả", this::runSelected)
+                            );
+                        }
                     }
                 }
                 case "suite" -> {
@@ -573,7 +605,7 @@ public class ExplorerPageController {
                             menuItem("Sao chép", this::copyItem),
                             menuItem("Xóa", this::deleteItem)
                         );
-                    if (StatusDisplay.isActive(ref.status)) {
+                    if (StatusDisplay.isActive(ref.status) && countRunnableCasesUnderItem(selected) > 0) {
                         menu.getItems().addAll(
                                 new SeparatorMenuItem(),
                                 runMenuItem("Chạy suite", this::runSelected)
@@ -640,6 +672,13 @@ public class ExplorerPageController {
         }
         openWorkspaceBtn.setVisible(false);
         runNodeBtn.setVisible(false);
+        if (deleteBtn != null) {
+            deleteBtn.setDisable(true);
+        }
+        if (previewDeleteBtn != null) {
+            previewDeleteBtn.setVisible(false);
+            previewDeleteBtn.setManaged(false);
+        }
         // Empty / unknown → treat as project root: create group + suite
         syncCreateToolbar(true, true, false);
         copyBtn.setDisable(true);
@@ -705,16 +744,23 @@ public class ExplorerPageController {
         boolean isSuite = "suite".equals(ref.type);
         boolean isCase = "case".equals(ref.type);
         boolean root = isRootItem(item);
+        if (deleteBtn != null) {
+            deleteBtn.setDisable(root);
+        }
+        if (previewDeleteBtn != null) {
+            previewDeleteBtn.setVisible(!root);
+            previewDeleteBtn.setManaged(!root);
+        }
         openWorkspaceBtn.setVisible(isSuite || isCase);
         boolean canRunNode = false;
         if (root) {
             // Sidebar «Chạy tất cả» already covers this — no duplicate on preview
             canRunNode = false;
         } else if (isGroup) {
-            canRunNode = true;
+            canRunNode = countRunnableCasesUnderItem(item) > 0;
             runNodeBtn.setText("Chạy nhóm");
         } else if (isSuite) {
-            canRunNode = StatusDisplay.isActive(ref.status);
+            canRunNode = StatusDisplay.isActive(ref.status) && countRunnableCasesUnderItem(item) > 0;
             runNodeBtn.setText("Chạy Suite");
         } else if (isCase) {
             TreeItem<Object> parent = item.getParent();
@@ -934,6 +980,30 @@ public class ExplorerPageController {
                 .count();
     }
 
+    private int countRunnableCasesUnderItem(TreeItem<Object> item) {
+        if (item == null) return 0;
+        int count = 0;
+        for (TreeItem<Object> child : item.getChildren()) {
+            NodeRef ref = getNodeRef(child);
+            if (ref != null) {
+                if ("case".equals(ref.type)) {
+                    TreeItem<Object> parent = child.getParent();
+                    NodeRef parentRef = parent != null ? getNodeRef(parent) : null;
+                    if (StatusDisplay.canRunCase(parentRef != null ? parentRef.status : null, ref.status)) {
+                        count++;
+                    }
+                } else if ("suite".equals(ref.type)) {
+                    if (StatusDisplay.isActive(ref.status)) {
+                        count += countRunnableCasesUnderItem(child);
+                    }
+                } else if ("group".equals(ref.type)) {
+                    count += countRunnableCasesUnderItem(child);
+                }
+            }
+        }
+        return count;
+    }
+
     // ── Toolbar setup ──
 
     private void setupToolbar() {
@@ -943,6 +1013,12 @@ public class ExplorerPageController {
             addCaseBtn.setOnAction(e -> addCase());
         }
         copyBtn.setOnAction(e -> copyItem());
+        if (deleteBtn != null) {
+            deleteBtn.setOnAction(e -> deleteItem());
+            UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 12, "#f7768e");
+            com.studio.util.UiTooltips.install(deleteBtn, "Xóa mục đã chọn (Nhóm / Suite / Case)");
+            deleteBtn.setDisable(true);
+        }
         openWorkspaceBtn.setOnAction(e -> openWorkspace());
         runNodeBtn.setOnAction(e -> runNode());
 
@@ -965,6 +1041,13 @@ public class ExplorerPageController {
         com.studio.util.UiTooltips.install(runNodeBtn, "Chạy mục đang chọn");
         if (previewEditBtn != null) {
             com.studio.util.UiTooltips.install(previewEditBtn, "Chỉnh sửa thông tin");
+        }
+        if (previewDeleteBtn != null) {
+            previewDeleteBtn.setOnAction(e -> deleteItem());
+            UiIcons.setGraphic(previewDeleteBtn, UiIcons.TRASH, 12, "#f7768e");
+            com.studio.util.UiTooltips.install(previewDeleteBtn, "Xóa mục này");
+            previewDeleteBtn.setVisible(false);
+            previewDeleteBtn.setManaged(false);
         }
         if (searchField != null) {
             com.studio.util.UiTooltips.install(searchField, "Tìm kiếm theo tên nhóm, suite hoặc test case");
@@ -1814,12 +1897,24 @@ public class ExplorerPageController {
         if (isRootItem(selected)) {
             scope = "ALL";
             scopePath = rootProjectDir;
+            if (countRunnableCasesUnderItem(selected) == 0) {
+                ToastService.warn("⚠️ Dự án không có test case hoặc suite nào đang hoạt động để chạy");
+                return;
+            }
         } else if ("group".equals(ref.type)) {
             scope = "GROUP";
             scopePath = resolveGroupDir(ref);
+            if (countRunnableCasesUnderItem(selected) == 0) {
+                ToastService.warn("⚠️ Nhóm không có test case hoặc suite nào đang hoạt động để chạy");
+                return;
+            }
         } else if ("suite".equals(ref.type)) {
             if (!StatusDisplay.isActive(ref.status)) {
-                ToastService.warn("⚠️ Suite chưa Đang hoạt động — mở Workspace → Thông tin Suite để kích hoạt");
+                ToastService.warn("⚠️ Suite không hoạt động — mở Workspace → Thông tin Suite để kích hoạt");
+                return;
+            }
+            if (countRunnableCasesUnderItem(selected) == 0) {
+                ToastService.warn("⚠️ Suite không có test case nào đang hoạt động để chạy");
                 return;
             }
             scope = "SUITE";
@@ -1833,7 +1928,7 @@ public class ExplorerPageController {
                 return;
             }
             if (!StatusDisplay.isRunnable(ref.status)) {
-                ToastService.warn("⚠️ Case chưa Sẵn sàng — ghi hình trước khi chạy");
+                ToastService.warn("⚠️ Case chưa Sẵn sàng hoặc không hoạt động");
                 return;
             }
             scope = "CASE";

@@ -92,6 +92,78 @@ class ProjectStoreCollectCasesTest {
     }
 
     @Test
+    void inactiveSuite_skipsAllWhenCollectedViaSuiteScope() throws Exception {
+        TestSuite suite = store.loadAndMigrateSuite(suiteDir);
+        suite.setStatus("INACTIVE");
+        store.saveSuite(suite, suiteDir);
+
+        List<CaseResult> results = store.collectCasesForScope("SUITE", suiteDir);
+        assertFalse(results.isEmpty());
+        assertTrue(results.stream().allMatch(r -> "SKIPPED".equals(r.getStatus())),
+                "When suite is INACTIVE, all cases must be SKIPPED");
+        assertTrue(results.stream().allMatch(r -> r.getSkipReason() != null
+                && r.getSkipReason().contains("INACTIVE")));
+    }
+
+    @Test
+    void inactiveCase_skipsWhenCollectedInSuiteScope() throws Exception {
+        TestSuite suite = store.loadAndMigrateSuite(suiteDir);
+        TestCase inactiveCase = new TestCase("tc-inact", "InactiveTest", "", "InactiveTest.java", "Inactive");
+        Assertion a = new Assertion();
+        a.setType("TITLE_CONTAINS");
+        a.setValue("x");
+        a.setStatus("ACTIVE");
+        inactiveCase.getAssertions().add(a);
+        suite.getCases().add(inactiveCase);
+        store.saveSuite(suite, suiteDir);
+        Files.writeString(suiteDir.resolve("InactiveTest.java"), "class InactiveTest {}");
+
+        List<CaseResult> results = store.collectCasesForScope("SUITE", suiteDir);
+        CaseResult cr = results.stream().filter(r -> "InactiveTest".equals(r.getTestCaseName())).findFirst().orElseThrow();
+        assertEquals("SKIPPED", cr.getStatus());
+        assertEquals("Case is inactive", cr.getSkipReason());
+    }
+
+    @Test
+    void inactiveCase_skipsWhenEnumeratedViaGroupWalk() throws Exception {
+        TestSuite suite = store.loadAndMigrateSuite(suiteDir);
+        TestCase inactiveCase = new TestCase("tc-inact2", "InactiveGrpTest", "", "InactiveGrpTest.java", "INACTIVE");
+        Assertion a = new Assertion();
+        a.setType("TITLE_CONTAINS");
+        a.setValue("x");
+        a.setStatus("ACTIVE");
+        inactiveCase.getAssertions().add(a);
+        suite.getCases().add(inactiveCase);
+        store.saveSuite(suite, suiteDir);
+        Files.writeString(suiteDir.resolve("InactiveGrpTest.java"), "class InactiveGrpTest {}");
+
+        List<CaseResult> results = store.collectCasesForScope("GROUP", tempDir);
+        CaseResult cr = results.stream().filter(r -> "InactiveGrpTest".equals(r.getTestCaseName())).findFirst().orElseThrow();
+        assertEquals("SKIPPED", cr.getStatus());
+        assertEquals("Case is inactive", cr.getSkipReason());
+    }
+
+    @Test
+    void inactiveCase_skipsWhenCollectedSingleCaseScope() throws Exception {
+        TestSuite suite = store.loadAndMigrateSuite(suiteDir);
+        TestCase inactiveCase = new TestCase("tc-inact3", "InactiveSingle", "", "InactiveSingle.java", "Inactive");
+        Assertion a = new Assertion();
+        a.setType("TITLE_CONTAINS");
+        a.setValue("x");
+        a.setStatus("ACTIVE");
+        inactiveCase.getAssertions().add(a);
+        suite.getCases().add(inactiveCase);
+        store.saveSuite(suite, suiteDir);
+        Path script = suiteDir.resolve("InactiveSingle.java");
+        Files.writeString(script, "class InactiveSingle {}");
+
+        List<CaseResult> results = store.collectCasesForScope("CASE", script);
+        assertEquals(1, results.size());
+        assertEquals("SKIPPED", results.get(0).getStatus());
+        assertEquals("Case is inactive", results.get(0).getSkipReason());
+    }
+
+    @Test
     void collectSuiteAndCaseScope_groupPathIsParentNotSuiteName() throws Exception {
         List<CaseResult> suiteResults = store.collectCasesForScope("SUITE", suiteDir);
         assertFalse(suiteResults.isEmpty());

@@ -149,4 +149,39 @@
 - Add unit tests verifying stack traces are omitted while error reasons and reproduction steps are rich and accurate.
 - Run full regression suite (`mvn clean test`).
 
+## Phase 14: Inactive Entity Execution Guard & Universal Entity Deletion
+- **Execution Guard for Inactive Suite & Test Case**:
+  - `ProjectStore`:
+    - Fix `collectSuiteCases(Path suiteDir)` to check `suiteActive` (`"ACTIVE".equalsIgnoreCase(suite.getStatus())`) and skip all cases with `cr.setStatus("SKIPPED")`, reason `Suite status is INACTIVE`.
+    - Fix `collectSuiteCases(Path suiteDir)` to check `tc.getStatus()`: skip inactive cases (`"INACTIVE".equalsIgnoreCase(tc.getStatus()) || "Inactive".equalsIgnoreCase(tc.getStatus())`) with `cr.setStatus("SKIPPED")`, reason `Case is inactive`.
+    - Fix `enumerateSuiteCases` (group/all run) to specifically skip inactive cases with reason `Case is inactive` instead of generic draft reason.
+    - Fix `collectSingleCase` to check both suite active state and case inactive state.
+  - `ExplorerPageController`:
+    - When running a group ("Chạy nhóm"), check if the group has any runnable cases; if none are runnable, toast `⚠️ Nhóm không có test case hoặc suite nào đang hoạt động để chạy` and do not run.
+    - When running a suite ("Chạy suite"), check if the suite has any runnable cases; if none are runnable, toast `⚠️ Suite không có test case nào đang hoạt động để chạy` and do not run.
+    - In TreeView row inline actions (`setupTreeView`), dynamically hide/disable `runBtn` for inactive suites, inactive cases, and groups without active runnable cases.
+  - `SuiteWorkspacePageController`:
+    - When `runSuite()` is clicked, check if suite has any runnable cases; if none, toast `⚠️ Suite không có test case nào đang hoạt động để chạy` and do not run.
+- **Universal Delete Buttons (Group, Suite, Case)**:
+  - `Explorer Toolbar` (`explorer_page.fxml` & `ExplorerPageController`):
+    - Add `deleteBtn` ("Xóa") on the toolbar with `UiIcons.TRASH`, `.toolbar-btn-danger`, disabled when root or nothing selected.
+    - Hook to `#deleteItem`.
+  - `Explorer Tree Cells` (`ExplorerPageController`):
+    - Add inline `deleteBtn` to `actionsBox` on tree cells for any non-root item (`!isRootItem(treeItem)`).
+    - Set `UiIcons.TRASH`, `.tree-action-delete`.
+    - Triggers `deleteItem()` with existing confirmation dialog.
+  - `Explorer Preview Panel` (`explorer_page.fxml` & `ExplorerPageController`):
+    - Add `previewDeleteBtn` ("Xóa") with `.btn-danger` in `previewViewBox` next to `previewEditBtn`.
+  - `Suite Workspace` (`suite_workspace_page.fxml` & `SuiteWorkspacePageController`):
+    - In `caseListView`: add inline `deleteBtn` (`.case-row-delete-btn` with `UiIcons.TRASH`) to every case row.
+    - In `buildCaseContextMenu`: add "Xóa Case" menu item.
+    - In `suiteInfoPanel`: add `deleteSuiteBtn` ("Xóa Suite") with `.toolbar-btn-danger`.
+    - Implement `deleteCaseFromRow(caseName)` with confirmation dialog, calling `projectStore.deleteCase(...)` and refreshing views.
+    - Implement `deleteSuite()` in `SuiteWorkspacePageController` with confirmation dialog, calling `projectStore.deleteSuite(...)` and navigating back to Explorer.
+- **TDD & Verification**:
+  - Unit tests in `ProjectStoreCollectCasesTest` for inactive suite in `SUITE` scope and inactive test case in both `SUITE` and `GROUP` scopes.
+  - UI controller unit tests for delete buttons and execution guards.
+  - Run full regression suite (`mvn clean test`).
+
+
 

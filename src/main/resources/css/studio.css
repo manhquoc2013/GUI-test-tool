@@ -787,6 +787,29 @@
 .case-row-run-btn:disabled {
     -fx-opacity: 0.45;
 }
+.case-row-delete-btn {
+    -fx-background-color: #3d2228;
+    -fx-text-fill: #ff7a93;
+    -fx-background-radius: 6;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-font-size: 13px;
+    -fx-min-width: 28;
+    -fx-max-width: 28;
+    -fx-min-height: 28;
+    -fx-max-height: 28;
+    -fx-pref-width: 28;
+    -fx-pref-height: 28;
+    -fx-alignment: center;
+    -fx-border-color: #6b3038;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.case-row-delete-btn:hover {
+    -fx-background-color: #5a3038;
+    -fx-text-fill: #ffa0b4;
+    -fx-border-color: #f7768e;
+}
 .assert-row {
     -fx-alignment: center-left;
     -fx-padding: 2 0;
@@ -2001,6 +2024,14 @@
 .tree-action-run:hover {
     -fx-background-color: #9ece6a;
     -fx-text-fill: #1a1b26;
+}
+.tree-action-delete {
+    -fx-text-fill: #f7768e;
+}
+.tree-action-delete:hover {
+    -fx-background-color: #5a3038;
+    -fx-text-fill: #ffa0b4;
+    -fx-border-color: #f7768e;
 }
 
 /* --- Consolidated Workspace Action Bar --- */

@@ -49,6 +49,7 @@
             <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
             <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
             <Button text="Xuất Excel" fx:id="exportExcelBtn" onAction="#exportSuiteExcel" styleClass="toolbar-btn-excel"/>
+            <Button text="Xóa case" fx:id="deleteCaseBtn" onAction="#deleteSelectedCase" styleClass="toolbar-btn-danger" visible="false" managed="false"/>
         </HBox>
 
         <Separator orientation="VERTICAL" styleClass="action-bar-sep"/>
@@ -96,6 +97,7 @@
                            styleClass="toolbar-label" wrapText="true"/>
                     <HBox spacing="8" alignment="CENTER_LEFT">
                         <Button text="Case mới" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
+                        <Button text="Xóa Suite" fx:id="deleteSuiteBtn" onAction="#deleteCurrentSuite" styleClass="toolbar-btn-danger"/>
                     </HBox>
                 </VBox>
 

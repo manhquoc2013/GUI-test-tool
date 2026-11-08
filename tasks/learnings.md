@@ -552,6 +552,31 @@
   - Trích xuất thông minh phần tử gặp sự cố (`extractTargetLocator`): Tự động bắt selector/locator từ thông điệp ngoại lệ để hiển thị ngay tại phần đầu báo cáo.
   - Tái hiện chi tiết theo từng bước (`CÁCH TÁI HIỆN`): Tích hợp trực tiếp các bước NLP tuần tự từ `TestCase.getTestSteps()` kèm dữ liệu kiểm thử, giúp người dùng có thể thực hiện lại chính xác kịch bản thao tác để kiểm chứng lỗi mà không cần phải đọc mã nguồn Java.
 
+### 7. Inactive Entity Execution Guard & Universal Entity Deletion UX
+- **Rigorous Execution Status Gating in Multi-Tier Scope (`ProjectStore`)**:
+  - Khi người dùng bấm chạy theo Suite (`collectSuiteCases`) hoặc theo Group / All (`enumerateSuiteCases`), việc chỉ kiểm tra trạng thái `"Draft"` dẫn đến lỗi nghiêm trọng: các test case có trạng thái `"Inactive"` ("Không hoạt động") hoặc `"INACTIVE"` bị coi là hợp lệ (`PENDING`) và bị Playwright kích hoạt chạy thực tế.
+  - Tương tự, nếu TestSuite có trạng thái `"INACTIVE"` nhưng được gọi trực tiếp qua phạm vi `SUITE`, việc thiếu kiểm tra `suiteActive` khiến toàn bộ case trong suite không hoạt động vẫn bị chạy.
+  - Giải pháp kiến trúc: Chuẩn hóa logic kiểm tra qua `applySkipEvaluation(suite, tc, cr)` dùng chung cho cả 3 phạm vi: `SUITE`, `GROUP`/`ALL`, và `CASE`.
+    - Suite không hoạt động (`!ACTIVE`): Đánh dấu ngay lập tức toàn bộ case là `SKIPPED` với lý do `Suite status is INACTIVE`.
+    - Case không hoạt động (`INACTIVE`/`Inactive`): Đánh dấu ngay `SKIPPED` với lý do `Case is inactive`.
+    - Case bản nháp (`Draft`): Đánh dấu `SKIPPED` với lý do `No script (case Draft)`.
+    - Case chưa có assertion hợp lệ: Đánh dấu `SKIPPED`.
+- **Proactive UI Pre-Check & Action Button State Integrity**:
+  - Tại `ExplorerPageController`:
+    - Phương thức `countRunnableCasesUnderItem(TreeItem)` đệ quy kiểm tra số lượng case thực sự có thể chạy. Nếu suite con không hoạt động, các case bên dưới không được tính.
+    - Cả nút "Chạy" trên Preview, nút inline `runBtn` trên từng hàng TreeCell, menu chuột phải context menu, và lệnh `runSelected()` đều kiểm tra điều kiện này. Nếu một nhóm hoặc suite không có bất kỳ case nào đang hoạt động, hệ thống từ chối chạy ngay lập tức và đưa ra Toast thông báo rõ ràng thay vì khởi động runner rỗng.
+  - Tại `SuiteWorkspacePageController`:
+    - `runSuite()` kiểm tra `runnableCount == 0` trước khi khởi tạo tiến trình chạy ngầm.
+    - `runSuiteBtn` được vô hiệu hóa (`disabled`) khi suite không hoạt động hoặc không có case nào runnable.
+- **Universal Deletion Ergonomics Across Workspaces**:
+  - Bổ sung nút xóa toàn diện cho cả 3 cấp độ (Nhóm / Suite / Case):
+    - **Explorer Toolbar**: Nút `deleteBtn` ("Xóa") màu đỏ nguy hiểm (`.toolbar-btn-danger`), biểu tượng thùng rác `UiIcons.TRASH`, tự động kích hoạt khi chọn Nhóm (khác root), Suite hoặc Case.
+    - **Explorer Tree Rows**: Nút `deleteBtn` inline (`.tree-action-delete`) xuất hiện khi di chuột hoặc chọn hàng, cho phép xóa nhanh trực tiếp từ cây dự án.
+    - **Explorer Preview Panel**: Nút `previewDeleteBtn` ngay cạnh nút "Sửa" trong form thông tin.
+    - **Suite Workspace**: Nút `deleteBtn` (`.case-row-delete-btn`) trên từng hàng của danh sách case `caseListView`, tùy chọn "Xóa Case" trong menu ngữ cảnh chuột phải, nút "Xóa case" trên thanh công cụ Workspace, và nút "Xóa Suite" (`deleteSuiteBtn`) trong bảng thông tin Suite.
+  - Tất cả các nút xóa đều tích hợp hộp thoại xác nhận chi tiết số lượng mục con bị ảnh hưởng trước khi thực thi xóa an toàn qua `projectStore.delete*` và dọn sạch file script `.java` liên quan.
+
+
 
 
 

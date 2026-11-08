@@ -775,6 +775,39 @@
     -fx-border-color: #2563eb;
 }
 
+.tree-action-delete {
+    -fx-text-fill: #dc2626;
+}
+.tree-action-delete:hover {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #b91c1c;
+    -fx-border-color: #ef4444;
+}
+
+.case-row-delete-btn {
+    -fx-background-color: #fef2f2;
+    -fx-text-fill: #dc2626;
+    -fx-background-radius: 6;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-font-size: 13px;
+    -fx-min-width: 28;
+    -fx-max-width: 28;
+    -fx-min-height: 28;
+    -fx-max-height: 28;
+    -fx-pref-width: 28;
+    -fx-pref-height: 28;
+    -fx-alignment: center;
+    -fx-border-color: #fca5a5;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.case-row-delete-btn:hover {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #991b1b;
+    -fx-border-color: #dc2626;
+}
+
 /* === WORKSPACE CASE & ASSERT LISTS === */
 .case-list, .assert-list {
     -fx-background-color: #ffffff;
