@@ -2,7 +2,7 @@
 ; Test Studio - Full Offline Windows Installer
 
 #define MyAppName "Test Studio"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Test Studio Team"
 #define MyAppURL "https://github.com"
 #define MyAppExeName "TestStudio.exe"

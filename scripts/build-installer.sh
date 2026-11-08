@@ -6,7 +6,7 @@ cd "$DIR"
 
 APP_NAME="TestStudio"
 APP_DISPLAY_NAME="Test Studio"
-VERSION="1.0.0"
+VERSION="2.0.0"
 JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 JPACKAGE_INPUT="target/jpackage-input"
 JPACKAGE_OUT="target/jpackage-out"
