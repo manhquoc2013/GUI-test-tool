@@ -221,11 +221,12 @@ public class OpenAiClient {
         }
 
         String targetUrl = baseUrl + "/chat/completions";
+        int requestedMaxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : 4096;
 
         ObjectNode root = mapper.createObjectNode();
         root.put("model", config.getEffectiveModel());
         root.put("temperature", config.getTemperature());
-        root.put("max_tokens", config.getMaxTokens());
+        root.put("max_tokens", requestedMaxTokens);
 
         ArrayNode messagesNode = root.putArray("messages");
         for (ChatMessage msg : messages) {
@@ -250,6 +251,9 @@ public class OpenAiClient {
         }
 
         String requestBody = mapper.writeValueAsString(root);
+        AiLoggingService.info("AI-REQUEST", "Gửi yêu cầu tới " + config.getEffectiveModel() + " (" + targetUrl
+                + ") | max_tokens=" + requestedMaxTokens + " | temp=" + config.getTemperature()
+                + " | messages=" + messages.size());
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(targetUrl))
@@ -260,20 +264,36 @@ public class OpenAiClient {
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
+        long startTime = System.currentTimeMillis();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        long latency = System.currentTimeMillis() - startTime;
 
         if (response.statusCode() != 200) {
             String err = extractErrorMessage(response.body());
             String safeErr = com.studio.util.SecuritySanitizer.sanitize(err, apiKey);
+            AiLoggingService.error("AI-RESPONSE", "Lỗi HTTP " + response.statusCode() + " sau " + latency + "ms: " + safeErr);
             throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + safeErr);
         }
 
         JsonNode resJson = mapper.readTree(response.body());
         JsonNode choices = resJson.path("choices");
         if (choices.isArray() && !choices.isEmpty()) {
-            JsonNode msg = choices.get(0).path("message");
-            return msg.path("content").asText("");
+            JsonNode choice0 = choices.get(0);
+            String finishReason = choice0.path("finish_reason").asText("unknown");
+            JsonNode usage = resJson.path("usage");
+            int promptTokens = usage.path("prompt_tokens").asInt(0);
+            int compTokens = usage.path("completion_tokens").asInt(0);
+            String content = choice0.path("message").path("content").asText("");
+
+            AiLoggingService.info("AI-RESPONSE", "Thành công HTTP 200 sau " + latency + "ms | finish_reason=" + finishReason
+                    + " | prompt_tokens=" + promptTokens + " | completion_tokens=" + compTokens + " | output_chars=" + content.length());
+
+            if ("length".equalsIgnoreCase(finishReason)) {
+                AiLoggingService.warn("AI-RESPONSE", "⚠️ Phản hồi bị CẮT NGANG do chạm giới hạn token (finish_reason=length)! Hệ thống sẽ tự động kích hoạt cơ chế vá JSON để phục hồi kịch bản.");
+            }
+            return content;
         }
+        AiLoggingService.warn("AI-RESPONSE", "Phản hồi HTTP 200 nhưng không tìm thấy choices[] hợp lệ.");
         return "";
     }
 

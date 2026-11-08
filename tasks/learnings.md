@@ -319,4 +319,39 @@
 - **Dialog Button Text Truncation Prevention**:
   - In `DialogTheme.styleButtons()` and `AiSettingsDialog`, applied `setMinWidth(Region.USE_PREF_SIZE)` and `ButtonBar.setButtonUniformSize(btn, false)` to prevent custom Vietnamese button text (e.g. "Lưu cài đặt") from being truncated.
 
+## 12. AI Truncation Auto-Repair, Persistent Logging & Diagnostic Telemetry
+
+### 1. Root Cause of `Unexpected end-of-input` in Flash Models
+- **Token Budget Exhaustion (`finish_reason: length`)**: Khi người dùng yêu cầu sinh test case kèm thông tin đăng nhập và assertions, các mô hình flash/fast (như `deepseek-v4.1-flash`) thường sinh rất chi tiết cấu trúc PRD (preconditions, testSteps, testDataSets, mã Playwright và mảng assertions). Khi chạm ngưỡng `max_tokens`, stream phản hồi bị ngắt đột ngột giữa chừng (ví dụ ở dòng 192, khi đang viết dở mảng `assertions`).
+- **Jackson Strict JSON Parser Failure**: Khi gặp chuỗi JSON bị ngắt giữa chừng, Jackson ném ngoại lệ `com.fasterxml.jackson.core.JsonParseException: Unexpected end-of-input: expected close marker for Array...`. Hệ thống trước đây bỏ qua toàn bộ phản hồi (kể cả mã kịch bản Playwright đã sinh hoàn chỉnh) và báo lỗi ra UI.
+- **Substring Slicing Bug in `extractJsonBlock`**: Khi JSON chưa đóng, hàm `s.lastIndexOf('}')` vô tình tìm thấy dấu `}` của class Java bên trong trường `scriptCode` (`public class TC {}`), dẫn đến việc cắt bỏ toàn bộ phần sau của JSON (bao gồm toàn bộ mảng `assertions`) trước khi đưa vào bộ phân tích.
+- **No Diagnostics Visibility**: Toàn bộ luồng gọi AI (`OpenAiClient`, `AiTestGeneratorService`, `AiCasePromptDialog`) không hề ghi log ra đĩa hay console, khiến người dùng và lập trình viên không có bằng chứng để kiểm tra payload, latency, hay token count.
+
+### 2. Multi-Tier Resilient Recovery Architecture (`AiTestGeneratorService`)
+- **Tier 1 (Strict JSON)**: Phân tích chuẩn bằng Jackson. Nếu cú pháp đầy đủ, hoàn thành ngay.
+- **Tier 2 (Self-Healing Auto-Repair `autoRepairTruncatedJson`)**:
+  - **Depth-aware Block Extraction**: `extractJsonBlock` duyệt đếm độ sâu ngoặc nhọn `{` và `}` bên ngoài chuỗi string. Nếu depth về 0, cắt chính xác root object; nếu depth > 0 (bị cắt cụt), bảo toàn 100% nội dung đến ký tự cuối cùng thay vì cắt cụt tại một dấu `}` ngẫu nhiên.
+  - **Mid-quote String Closure**: Tự động phát hiện và đóng các chuỗi string dở dang, chuyển các ký tự xuống dòng thô (`\n`, `\r`, `\t`) thành JSON escape sequences hợp lệ (`\\n`, `\\r`, `\\t`).
+  - **Dangling Commas & Keys Cleanup**: Loại bỏ các dấu phẩy lơ lửng `,` và các key dở dang `, "key"` trước ngoặc đóng bằng vòng lặp regex thay thế liên tục.
+  - **LIFO Bracket Stack Closure**: Tự động đóng các cặp ngoặc mảng `]` và đối tượng `}` theo đúng thứ tự ngăn xếp LIFO cho đến khi cấu trúc JSON hợp lệ hoàn toàn.
+- **Tier 3 (Tolerant Direct Scraping `extractDirectlyFromRawResponse`)**:
+  - Nếu JSON bị hỏng nặng không thể parse, dùng regex tolerant bóc tách trực tiếp mã nguồn Java Playwright từ trường `"scriptCode"` hoặc block ` ```java `, kết hợp trích xuất các assertions đã có.
+- **Tier 4 (Markdown Code Block Scraping `extractCasesFromMarkdown`)**:
+  - Quét tất cả các khối mã Playwright Java trong Markdown và tự động đóng gói thành các đối tượng `AiGeneratedCase`.
+- **Targeted Single-Case Prompting**:
+  - Tinh chỉnh prompt sinh single case (`generateOrUpdateSingleCase`): yêu cầu AI tập trung tối đa token vào `scriptCode` và `assertions`, giữ `testSteps` (tối đa 4-5 bước) và `testDataSets` (1 bộ) ngắn gọn, giúp tiết kiệm ~60% token và loại bỏ nguy cơ tràn token.
+
+### 3. Centralized AI Logging System (`AiLoggingService`, `data/logs/ai.log`)
+- **File Rotation & Thread-Safety**:
+  - Tự động ghi nhật ký tuần tự vào `data/logs/ai.log` với cơ chế xoay vòng tự động khi file vượt quá 5MB (`ai.log.1`).
+  - Format log chuẩn chuyên nghiệp: `[YYYY-MM-DD HH:mm:ss.SSS] [LEVEL] [CATEGORY] Message`.
+  - Bộ đệm vòng trong bộ nhớ (In-memory ring buffer 200 dòng gần nhất) cho phép truy xuất và render tức thì trên giao diện đồ họa.
+- **End-to-End Diagnostic Tracing**:
+  - `OpenAiClient`: Ghi nhận URL endpoint, model, max_tokens, số lượng message gửi đi, thời gian phản hồi (latency tính bằng mili-giây), token usage (`prompt_tokens`, `completion_tokens`), và cảnh báo đặc biệt khi `finish_reason == "length"`.
+  - `AiTestGeneratorService`: Ghi log từng bước phân tích kết quả (Tier 1 -> Tier 2 -> Tier 3 -> Tier 4).
+- **1-Click "Xem Log AI" Dialog**:
+  - Bổ sung nút "Xem Log AI" (icon `TERMINAL`) ngay trên thanh tác vụ `AiCasePromptDialog`.
+  - Hộp thoại hiển thị log thời gian thực với font Monospace, hỗ trợ nút "Sao chép toàn bộ log" để gửi hỗ trợ kỹ thuật hoặc kiểm tra lỗi ngay lập tức.
+  - Sửa màu sắc thông báo trạng thái trên dialog thành mã màu tương phản cao theo theme (`#15803d` cho thành công, `#b45309` cho cảnh báo, `#b91c1c` cho lỗi), khắc phục triệt để lỗi chữ màu đào nhạt khó đọc trên nền trắng.
+
 

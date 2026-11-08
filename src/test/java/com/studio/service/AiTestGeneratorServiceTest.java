@@ -301,5 +301,101 @@ class AiTestGeneratorServiceTest {
         assertEquals("https://app.test", reloaded.getCases().get(0).getStartUrl());
         assertEquals(1, reloaded.getCases().get(0).getAssertions().size());
     }
+
+    @Test
+    void testExtractJsonBlock_WithoutClosingFence() {
+        String truncatedMarkdown = "```json\n{\n  \"summary\": \"Test without closing fence\",\n  \"cases\": []";
+        String extracted = AiTestGeneratorService.extractJsonBlock(truncatedMarkdown);
+        assertTrue(extracted.startsWith("{"));
+        assertTrue(extracted.contains("\"summary\": \"Test without closing fence\""));
+    }
+
+    @Test
+    void testAutoRepairTruncatedJson_UnclosedArrayAndString() {
+        // Truncated at line 192 column 23 (similar to user's real error screenshot)
+        String truncatedJson = """
+            {
+              "summary": "Tạo kịch bản quản lý thu chi",
+              "cases": [
+                {
+                  "name": "TC01_ThuChi",
+                  "description": "Đăng nhập và kiểm tra",
+                  "startUrl": "https://example.com/thu-chi",
+                  "scriptCode": "package com.test; public class TC01_ThuChi {}",
+                  "assertions": [
+                    {
+                      "type": "ELEMENT_VISIBLE",
+                      "locator": "input#desc
+            """;
+
+        String repaired = AiTestGeneratorService.autoRepairTruncatedJson(truncatedJson);
+        assertNotNull(repaired);
+        // Must be valid JSON parseable by Jackson
+        assertDoesNotThrow(() -> new ObjectMapper().readTree(repaired));
+
+        // When parsed by service, it should recover the case and assertions!
+        AiTestGeneratorService.GenerationResult res = service.parseResponse(truncatedJson);
+        assertNotNull(res);
+        assertFalse(res.getCases().isEmpty(), "Should recover truncated case");
+        AiGeneratedCase c = res.getCases().get(0);
+        assertEquals("TC01_ThuChi", c.getName());
+        assertEquals("https://example.com/thu-chi", c.getStartUrl());
+        assertTrue(c.getScriptCode().contains("public class TC01_ThuChi"));
+        assertEquals(1, c.getAssertions().size());
+        assertEquals("ELEMENT_VISIBLE", c.getAssertions().get(0).getType());
+    }
+
+    @Test
+    void testAutoRepairTruncatedJson_DanglingCommaAndTrailingKey() {
+        String truncatedJson = """
+            {
+              "summary": "Test dangling comma",
+              "cases": [
+                {
+                  "name": "TC02_Dangling",
+                  "scriptCode": "package com.test; public class TC02_Dangling {}",
+                  "assertions": [
+                    {
+                      "type": "PAGE_HAS_TEXT",
+                      "value": "Thành công",
+                    }
+                  ],
+            """;
+
+        String repaired = AiTestGeneratorService.autoRepairTruncatedJson(truncatedJson);
+        assertNotNull(repaired);
+        assertDoesNotThrow(() -> new ObjectMapper().readTree(repaired));
+
+        AiTestGeneratorService.GenerationResult res = service.parseResponse(truncatedJson);
+        assertNotNull(res);
+        assertFalse(res.getCases().isEmpty());
+        assertEquals("TC02_Dangling", res.getCases().get(0).getName());
+    }
+
+    @Test
+    void testExtractDirectlyFromRawResponse_TolerantFallback() {
+        // Completely broken JSON syntax where parser and repair fail, but scriptCode is present
+        String brokenJson = """
+            MALFORMED PREAMBLE
+            "summary": "Phục hồi khẩn cấp",
+            "name": "TC_Emergency",
+            "startUrl": "https://app.test/login",
+            "scriptCode": "package com.test;\\npublic class TC_Emergency {\\n    public static void main(String[] args) {\\n        Page page = com.studio.runtime.StudioRuntime.page();\\n        page.navigate(\\\"https://app.test/login\\\");\\n    }\\n}",
+            "assertions": [
+              { "type": "TITLE_CONTAINS", "value": "Dashboard" }
+            RANDOM GARBAGE TRUNCATION
+            """;
+
+        AiTestGeneratorService.GenerationResult res = service.extractDirectlyFromRawResponse(brokenJson);
+        assertNotNull(res);
+        assertFalse(res.getCases().isEmpty());
+        AiGeneratedCase c = res.getCases().get(0);
+        assertEquals("TC_Emergency", c.getName());
+        assertEquals("https://app.test/login", c.getStartUrl());
+        assertTrue(c.getScriptCode().contains("public class TC_Emergency"));
+        assertEquals(1, c.getAssertions().size());
+        assertEquals("TITLE_CONTAINS", c.getAssertions().get(0).getType());
+        assertEquals("Dashboard", c.getAssertions().get(0).getValue());
+    }
 }
 

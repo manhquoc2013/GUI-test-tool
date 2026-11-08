@@ -147,6 +147,7 @@ public class StudioPaths {
     public static Path getReportsDir() { return resolve("data", "reports"); }
     public static Path getConfigDir() { return resolve("data", "config"); }
     public static Path getExportsDir() { return resolve("data", "exports"); }
+    public static Path getLogsDir() { return resolve("data", "logs"); }
     public static Path getWorkDir() { return resolve("work"); }
     public static Path getCompileDir() { return resolve("work", "compile"); }
     public static Path getHarnessDir() { return resolve("work", "harness"); }
@@ -226,6 +227,7 @@ public class StudioPaths {
         Files.createDirectories(getReportsDir());
         Files.createDirectories(getConfigDir());
         Files.createDirectories(getExportsDir());
+        Files.createDirectories(getLogsDir());
         Files.createDirectories(getWorkDir());
         Files.createDirectories(getCompileDir());
         Files.createDirectories(getHarnessDir());

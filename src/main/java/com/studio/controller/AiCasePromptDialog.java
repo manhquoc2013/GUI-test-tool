@@ -4,8 +4,10 @@ import com.studio.model.AiConfig;
 import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
 import com.studio.model.TestCase;
+import com.studio.service.AiLoggingService;
 import com.studio.service.AiTestGeneratorService;
 import com.studio.service.DocumentParserService;
+import com.studio.service.ThemeService;
 import com.studio.service.ToastService;
 import com.studio.store.ProjectStore;
 import com.studio.store.SettingsStore;
@@ -14,8 +16,11 @@ import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.io.File;
 import java.io.IOException;
@@ -180,10 +185,17 @@ public class AiCasePromptDialog {
         Label statusLbl = new Label("");
         statusLbl.setStyle("-fx-font-size: 12px;");
         statusLbl.setWrapText(true);
-        statusLbl.setMaxWidth(380);
+        statusLbl.setMaxWidth(340);
         HBox.setHgrow(statusLbl, Priority.ALWAYS);
 
-        HBox genActionRow = new HBox(12, generateBtn, progress, statusLbl);
+        Button viewLogBtn = new Button("Xem Log AI");
+        viewLogBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(viewLogBtn, com.studio.util.UiIcons.TERMINAL, 12);
+        viewLogBtn.setVisible(false);
+        viewLogBtn.setManaged(false);
+        viewLogBtn.setOnAction(ev -> showAiLogDialog(dialog.getOwner()));
+
+        HBox genActionRow = new HBox(10, generateBtn, progress, statusLbl, viewLogBtn);
         genActionRow.setAlignment(Pos.CENTER_LEFT);
 
         // Result Preview tabpane
@@ -257,12 +269,18 @@ public class AiCasePromptDialog {
                             assertTab.setText("Danh sách Assertions (" + generated.getAssertions().size() + ")");
 
                             statusLbl.setText(result.getSummary());
-                            statusLbl.setStyle("-fx-text-fill: #a6e3a1;");
+                            statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
+                                    + (ThemeService.isDark() ? "#a6e3a1" : "#15803d") + ";");
+                            viewLogBtn.setVisible(false);
+                            viewLogBtn.setManaged(false);
                             applyBtn.setDisable(false);
                             ToastService.success("Đã sinh kịch bản thành công! Hãy xem trước và bấm Áp dụng.");
                         } else {
-                            statusLbl.setText("AI không thể tạo cấu trúc test case: " + result.getSummary());
-                            statusLbl.setStyle("-fx-text-fill: #f9e2af;");
+                            statusLbl.setText("AI không thể tạo cấu trúc: " + result.getSummary());
+                            statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
+                                    + (ThemeService.isDark() ? "#f9e2af" : "#b45309") + ";");
+                            viewLogBtn.setVisible(true);
+                            viewLogBtn.setManaged(true);
                         }
                     });
                 } catch (Exception ex) {
@@ -274,7 +292,10 @@ public class AiCasePromptDialog {
                         String shortMsg = errMsg.length() > 140 ? errMsg.substring(0, 140) + "..." : errMsg;
                         statusLbl.setText("Lỗi: " + shortMsg);
                         com.studio.util.UiTooltips.install(statusLbl, errMsg);
-                        statusLbl.setStyle("-fx-text-fill: #f38ba8;");
+                        statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
+                                + (ThemeService.isDark() ? "#f38ba8" : "#b91c1c") + ";");
+                        viewLogBtn.setVisible(true);
+                        viewLogBtn.setManaged(true);
                         ToastService.error("Lỗi AI: " + errMsg);
                     });
                 }
@@ -337,5 +358,48 @@ public class AiCasePromptDialog {
 
         chip.getChildren().addAll(label, removeBtn);
         container.getChildren().add(chip);
+    }
+
+    private static void showAiLogDialog(Window owner) {
+        Dialog<Void> logDialog = new Dialog<>();
+        logDialog.setTitle("Nhật ký tương tác AI (AI Diagnostic Log)");
+        logDialog.setHeaderText("Chi tiết các lượt gọi API, độ trễ và phản hồi thô từ mô hình");
+        if (owner != null) {
+            logDialog.initOwner(owner);
+        }
+
+        DialogPane pane = logDialog.getDialogPane();
+        pane.getButtonTypes().add(ButtonType.CLOSE);
+
+        VBox box = new VBox(10);
+        box.setPadding(new Insets(12));
+        box.setPrefSize(700, 450);
+
+        TextArea logArea = new TextArea();
+        logArea.setEditable(false);
+        logArea.setWrapText(false);
+        logArea.getStyleClass().add("code-editor");
+        logArea.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
+        logArea.setText(AiLoggingService.getRecentLogsAsString(200));
+        VBox.setVgrow(logArea, Priority.ALWAYS);
+
+        Button copyBtn = new Button("Sao chép Log");
+        copyBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(copyBtn, com.studio.util.UiIcons.COPY, 12);
+        copyBtn.setOnAction(e -> {
+            ClipboardContent cc = new ClipboardContent();
+            cc.putString(logArea.getText());
+            Clipboard.getSystemClipboard().setContent(cc);
+            ToastService.success("Đã sao chép toàn bộ log AI vào Clipboard!");
+        });
+
+        HBox bar = new HBox(10, copyBtn);
+        bar.setAlignment(Pos.CENTER_RIGHT);
+
+        box.getChildren().addAll(logArea, bar);
+        pane.setContent(box);
+        DialogTheme.apply(logDialog);
+
+        logDialog.showAndWait();
     }
 }

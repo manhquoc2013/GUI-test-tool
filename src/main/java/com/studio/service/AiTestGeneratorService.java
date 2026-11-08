@@ -294,14 +294,15 @@ public class AiTestGeneratorService {
                                                        TestCase currentCase, String currentScript) throws IOException, InterruptedException {
         StringBuilder context = new StringBuilder();
         if (currentCase != null) {
-            context.append("Case Name: ").append(currentCase.getName()).append("\n");
-            context.append("Current URL: ").append(currentCase.getStartUrl()).append("\n");
+            context.append("Target Case Name: ").append(currentCase.getName()).append("\n");
+            context.append("Target Start URL: ").append(currentCase.getStartUrl()).append("\n");
             context.append("Current Description: ").append(currentCase.getDescription()).append("\n");
             context.append("Current Assertions count: ").append(currentCase.getAssertions().size()).append("\n");
             if (currentScript != null && !currentScript.isBlank()) {
                 context.append("Existing Java Script:\n```java\n").append(currentScript).append("\n```\n");
             }
         }
+        context.append("\nINSTRUCTION FOR SINGLE CASE: Focus primarily on writing the complete, runnable `scriptCode` in Playwright Java and accurate `assertions`. Keep `testSteps` concise (at most 4-5 steps) and `testDataSets` minimal (1 entry) to maximize token budget for the Java code.\n");
         String targetUrl = LiveDomScanner.extractFirstUrl(userPrompt);
         if (targetUrl == null && currentCase != null && currentCase.getStartUrl() != null && !currentCase.getStartUrl().isBlank()) {
             targetUrl = LiveDomScanner.extractFirstUrl(currentCase.getStartUrl());
@@ -333,8 +334,12 @@ public class AiTestGeneratorService {
      */
     public GenerationResult parseResponse(String rawResponse, AiSkill skill) {
         if (rawResponse == null || rawResponse.isBlank()) {
+            AiLoggingService.warn("AI-PARSE", "Phản hồi thô từ AI rỗng.");
             return new GenerationResult("Không nhận được phản hồi từ AI.", List.of(), "");
         }
+
+        AiLoggingService.info("AI-PARSE", "Bắt đầu phân tích phản hồi AI (độ dài: " + rawResponse.length()
+                + " ký tự, skill=" + (skill != null ? skill.getDisplayName() : "PLAYWRIGHT_E2E") + ")");
 
         // For non-E2E skills (Exhaustive Unit Test, RCA, Security Fuzzing), AI outputs Markdown matrices & code
         if (skill != null && skill != AiSkill.PLAYWRIGHT_E2E && skill != AiSkill.AUTO) {
@@ -348,17 +353,53 @@ public class AiTestGeneratorService {
             return new GenerationResult(rawResponse.trim(), cases, rawResponse);
         }
 
-        // Default: Playwright E2E JSON extraction
+        // Default: Playwright E2E JSON extraction with 4-tier resilient recovery
         String jsonText = extractJsonBlock(rawResponse);
+
+        // Tier 1: Parse strict JSON
         try {
-            return parseJsonCases(jsonText, rawResponse);
-        } catch (Exception e) {
-            List<AiGeneratedCase> cases = extractCasesFromMarkdown(rawResponse);
-            if (!cases.isEmpty() || rawResponse.contains("##")) {
-                return new GenerationResult(rawResponse.trim(), cases, rawResponse);
+            GenerationResult res = parseJsonCases(jsonText, rawResponse);
+            if (!res.getCases().isEmpty()) {
+                AiLoggingService.info("AI-PARSE", "Tier 1: Phân tích JSON chuẩn thành công. Trích xuất " + res.getCases().size() + " case(s).");
+                return res;
             }
-            return new GenerationResult("Lỗi khi phân tích JSON phản hồi từ AI: " + e.getMessage(), List.of(), rawResponse);
+        } catch (Exception e1) {
+            AiLoggingService.warn("AI-PARSE", "Tier 1 JSON parsing thất bại (" + e1.getMessage() + "). Đang thử Tier 2 (Tự động vá JSON bị cắt ngang)...");
         }
+
+        // Tier 2: Try JSON Auto-repair (handles unclosed strings, arrays, objects due to max_tokens truncation)
+        try {
+            String repairedJson = autoRepairTruncatedJson(jsonText);
+            GenerationResult res = parseJsonCases(repairedJson, rawResponse);
+            if (!res.getCases().isEmpty()) {
+                AiLoggingService.info("AI-PARSE", "Tier 2: Tự động vá JSON thành công! Đã khôi phục " + res.getCases().size() + " case(s).");
+                return res;
+            }
+        } catch (Exception e2) {
+            AiLoggingService.warn("AI-PARSE", "Tier 2 Auto-repair thất bại (" + e2.getMessage() + "). Đang thử Tier 3 (Tolerant extraction)...");
+        }
+
+        // Tier 3: Tolerant regex / pattern extraction directly from raw text
+        try {
+            GenerationResult res = extractDirectlyFromRawResponse(rawResponse);
+            if (!res.getCases().isEmpty()) {
+                AiLoggingService.info("AI-PARSE", "Tier 3: Trích xuất trực tiếp script & assertions thành công. Đã phục hồi " + res.getCases().size() + " case(s).");
+                return res;
+            }
+        } catch (Exception e3) {
+            AiLoggingService.warn("AI-PARSE", "Tier 3 Tolerant extraction thất bại (" + e3.getMessage() + "). Đang thử Tier 4 (Markdown blocks)...");
+        }
+
+        // Tier 4: Fallback to Markdown code blocks
+        List<AiGeneratedCase> cases = extractCasesFromMarkdown(rawResponse);
+        if (!cases.isEmpty() || rawResponse.contains("##")) {
+            AiLoggingService.info("AI-PARSE", "Tier 4: Trích xuất thành công " + cases.size() + " case(s) từ khối Markdown.");
+            return new GenerationResult(rawResponse.trim(), cases, rawResponse);
+        }
+
+        AiLoggingService.error("AI-PARSE", "Tất cả 4 tầng trích xuất đều thất bại cho phản hồi AI. Chi tiết: "
+                + (rawResponse.length() > 300 ? rawResponse.substring(0, 300) + "..." : rawResponse));
+        return new GenerationResult("Lỗi khi phân tích JSON phản hồi từ AI: Cấu trúc bị cắt ngang hoặc không hợp lệ. Vui lòng xem log chi tiết.", List.of(), rawResponse);
     }
 
     public static List<AiGeneratedCase> extractCasesFromMarkdown(String text) {
@@ -651,27 +692,318 @@ public class AiTestGeneratorService {
 
     public static String extractJsonBlock(String text) {
         if (text == null) return "{}";
-        int jsonStart = text.indexOf("```json");
+        String s = text.trim();
+        int jsonStart = s.indexOf("```json");
         if (jsonStart >= 0) {
             int blockStart = jsonStart + 7;
-            int blockEnd = text.indexOf("```", blockStart);
+            int blockEnd = s.indexOf("```", blockStart);
             if (blockEnd > blockStart) {
-                return text.substring(blockStart, blockEnd).trim();
+                return s.substring(blockStart, blockEnd).trim();
             }
+            // Truncated: no closing fence -> return everything after ```json
+            return s.substring(blockStart).trim();
         }
-        int codeStart = text.indexOf("```");
+        int codeStart = s.indexOf("```");
         if (codeStart >= 0) {
             int blockStart = codeStart + 3;
-            int blockEnd = text.indexOf("```", blockStart);
+            int blockEnd = s.indexOf("```", blockStart);
             if (blockEnd > blockStart) {
-                return text.substring(blockStart, blockEnd).trim();
+                return s.substring(blockStart, blockEnd).trim();
+            }
+            return s.substring(blockStart).trim();
+        }
+        int firstBrace = s.indexOf('{');
+        if (firstBrace >= 0) {
+            // Find where the root object actually closes by counting depth outside quotes
+            int depth = 0;
+            boolean inStr = false;
+            boolean esc = false;
+            int rootEnd = -1;
+            for (int i = firstBrace; i < s.length(); i++) {
+                char c = s.charAt(i);
+                if (inStr) {
+                    if (esc) esc = false;
+                    else if (c == '\\') esc = true;
+                    else if (c == '"') inStr = false;
+                } else {
+                    if (c == '"') {
+                        inStr = true;
+                    } else if (c == '{') {
+                        depth++;
+                    } else if (c == '}') {
+                        depth--;
+                        if (depth == 0) {
+                            rootEnd = i;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (rootEnd >= 0) {
+                return s.substring(firstBrace, rootEnd + 1).trim();
+            }
+            return s.substring(firstBrace).trim();
+        }
+        return s;
+    }
+
+    /**
+     * Automatically fixes truncated JSON strings (e.g. cut off by max_tokens limit) by closing
+     * open strings, balancing arrays and objects in LIFO order, and cleaning dangling commas/colons.
+     */
+    public static String autoRepairTruncatedJson(String text) {
+        if (text == null || text.isBlank()) return "{}";
+        String trimmed = text.trim();
+
+        int jsonIdx = trimmed.indexOf("```json");
+        if (jsonIdx >= 0) {
+            trimmed = trimmed.substring(jsonIdx + 7).trim();
+            int endFence = trimmed.indexOf("```");
+            if (endFence >= 0) {
+                trimmed = trimmed.substring(0, endFence).trim();
+            }
+        } else {
+            int codeIdx = trimmed.indexOf("```");
+            if (codeIdx >= 0) {
+                trimmed = trimmed.substring(codeIdx + 3).trim();
+                int endFence = trimmed.indexOf("```");
+                if (endFence >= 0) {
+                    trimmed = trimmed.substring(0, endFence).trim();
+                }
             }
         }
-        int firstBrace = text.indexOf('{');
-        int lastBrace = text.lastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace) {
-            return text.substring(firstBrace, lastBrace + 1).trim();
+
+        int firstBrace = trimmed.indexOf('{');
+        if (firstBrace < 0) return "{}";
+        trimmed = trimmed.substring(firstBrace);
+
+        StringBuilder sb = new StringBuilder();
+        boolean inString = false;
+        boolean escape = false;
+
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (inString) {
+                if (c == '\n') {
+                    sb.append("\\n");
+                } else if (c == '\r') {
+                    sb.append("\\r");
+                } else if (c == '\t') {
+                    sb.append("\\t");
+                } else {
+                    sb.append(c);
+                }
+
+                if (escape) {
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    inString = false;
+                }
+            } else {
+                if (c == '"') {
+                    inString = true;
+                    sb.append(c);
+                } else {
+                    sb.append(c);
+                }
+            }
         }
-        return text.trim();
+
+        // If string was truncated mid-quote, close it
+        if (inString) {
+            if (escape && sb.length() > 0 && sb.charAt(sb.length() - 1) == '\\') {
+                sb.deleteCharAt(sb.length() - 1);
+            }
+            sb.append('"');
+        }
+
+        String s = sb.toString().trim();
+        // Remove trailing comma or dangling colon before unclosed containers
+        while (!s.isEmpty()) {
+            char last = s.charAt(s.length() - 1);
+            if (last == ',' || Character.isWhitespace(last)) {
+                s = s.substring(0, s.length() - 1).trim();
+            } else if (last == ':') {
+                s = s + "\"\"";
+                break;
+            } else {
+                break;
+            }
+        }
+
+        // If it ends with a dangling key like: , "fieldName" without colon, strip it
+        s = s.replaceAll(",\\s*\"[^\"]*\"\\s*$", "");
+
+        // Count open brackets/braces outside strings
+        java.util.Deque<Character> stack = new java.util.ArrayDeque<>();
+        boolean str = false;
+        boolean esc = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (str) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') str = false;
+            } else {
+                if (c == '"') {
+                    str = true;
+                } else if (c == '{' || c == '[') {
+                    stack.push(c);
+                } else if (c == '}' && !stack.isEmpty() && stack.peek() == '{') {
+                    stack.pop();
+                } else if (c == ']' && !stack.isEmpty() && stack.peek() == '[') {
+                    stack.pop();
+                }
+            }
+        }
+
+        StringBuilder res = new StringBuilder(s);
+        while (!stack.isEmpty()) {
+            char open = stack.pop();
+            if (open == '{') res.append('}');
+            else if (open == '[') res.append(']');
+        }
+
+        String fixed = res.toString();
+        // Clean any trailing commas before } or ] repeatedly
+        String prev;
+        do {
+            prev = fixed;
+            fixed = fixed.replaceAll(",\\s*([}\\]])", "$1");
+        } while (!fixed.equals(prev));
+
+        return fixed;
+    }
+
+    /**
+     * Tier 3 Tolerant extraction: Scrapes scriptCode, assertions, name and summary directly
+     * from raw text when full JSON parsing and repair both fail.
+     */
+    public GenerationResult extractDirectlyFromRawResponse(String rawResponse) {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            return new GenerationResult("Phản hồi rỗng", List.of(), rawResponse);
+        }
+
+        String summary = "Kịch bản phục hồi từ phản hồi AI";
+        java.util.regex.Matcher sumMatcher = java.util.regex.Pattern.compile("\"summary\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (sumMatcher.find()) {
+            summary = sumMatcher.group(1);
+        }
+
+        // 1. Try to extract scriptCode from JSON string
+        String scriptCode = null;
+        java.util.regex.Matcher scriptMatcher = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(rawResponse);
+        if (scriptMatcher.find()) {
+            scriptCode = unescapeJsonString(scriptMatcher.group(1));
+        } else {
+            // Check if truncated before closing quote: "scriptCode"\s*:\s*"(.*)
+            java.util.regex.Matcher truncMatcher = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"(.*)", java.util.regex.Pattern.DOTALL).matcher(rawResponse);
+            if (truncMatcher.find()) {
+                String potential = truncMatcher.group(1);
+                int nextKey = potential.indexOf("\",\n");
+                if (nextKey > 0) {
+                    potential = potential.substring(0, nextKey);
+                }
+                scriptCode = unescapeJsonString(potential);
+            }
+        }
+
+        // If not found in JSON field, search for markdown java code block
+        if (scriptCode == null || scriptCode.length() < 30) {
+            List<AiGeneratedCase> mdCases = extractCasesFromMarkdown(rawResponse);
+            if (!mdCases.isEmpty()) {
+                return new GenerationResult(summary, mdCases, rawResponse);
+            }
+        }
+
+        if (scriptCode == null || scriptCode.length() < 30) {
+            return new GenerationResult("Không tìm thấy mã kịch bản Playwright", List.of(), rawResponse);
+        }
+
+        AiGeneratedCase genCase = new AiGeneratedCase();
+        genCase.setName("Case_Recovered_" + (System.currentTimeMillis() % 10000));
+
+        java.util.regex.Matcher nameMatcher = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (nameMatcher.find()) {
+            genCase.setName(sanitizeCaseName(nameMatcher.group(1)));
+        }
+
+        java.util.regex.Matcher descMatcher = java.util.regex.Pattern.compile("\"description\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (descMatcher.find()) {
+            genCase.setDescription(descMatcher.group(1));
+        }
+
+        java.util.regex.Matcher urlMatcher = java.util.regex.Pattern.compile("\"startUrl\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (urlMatcher.find()) {
+            genCase.setStartUrl(urlMatcher.group(1));
+        }
+
+        String validated = validateAndFixScript(scriptCode, genCase.getName(), genCase.getStartUrl());
+        genCase.setScriptCode(validated);
+
+        // Extract assertions
+        List<Assertion> assertions = new ArrayList<>();
+        java.util.regex.Pattern assertPat = java.util.regex.Pattern.compile(
+                "\\{\\s*\"type\"\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*\"locator\"\\s*:\\s*\"([^\"]*)\")?(?:\\s*,\\s*\"value\"\\s*:\\s*\"([^\"]*)\")?",
+                java.util.regex.Pattern.DOTALL
+        );
+        java.util.regex.Matcher aMatcher = assertPat.matcher(rawResponse);
+        while (aMatcher.find()) {
+            String type = aMatcher.group(1);
+            String loc = aMatcher.group(2) != null ? aMatcher.group(2) : "";
+            String val = aMatcher.group(3) != null ? aMatcher.group(3) : "";
+            Assertion a = new Assertion();
+            a.setType(normalizeAssertionType(type));
+            a.setLocator(loc);
+            a.setValue(val);
+            a.setStatus("ACTIVE");
+            assertions.add(a);
+        }
+        genCase.setAssertions(assertions);
+
+        return new GenerationResult(summary, List.of(genCase), rawResponse);
+    }
+
+    private static String unescapeJsonString(String input) {
+        if (input == null) return "";
+        StringBuilder sb = new StringBuilder(input.length());
+        boolean escape = false;
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (escape) {
+                switch (c) {
+                    case 'n' -> sb.append('\n');
+                    case 'r' -> sb.append('\r');
+                    case 't' -> sb.append('\t');
+                    case 'b' -> sb.append('\b');
+                    case 'f' -> sb.append('\f');
+                    case '"' -> sb.append('"');
+                    case '\\' -> sb.append('\\');
+                    case '/' -> sb.append('/');
+                    case 'u' -> {
+                        if (i + 4 < input.length()) {
+                            try {
+                                int hex = Integer.parseInt(input.substring(i + 1, i + 5), 16);
+                                sb.append((char) hex);
+                                i += 4;
+                            } catch (NumberFormatException ignored) {
+                                sb.append(c);
+                            }
+                        } else {
+                            sb.append(c);
+                        }
+                    }
+                    default -> sb.append(c);
+                }
+                escape = false;
+            } else if (c == '\\') {
+                escape = true;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

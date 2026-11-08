@@ -92,6 +92,7 @@ class StudioPathsTest {
         assertTrue(Files.isDirectory(StudioPaths.getReportsDir()));
         assertTrue(Files.isDirectory(StudioPaths.getConfigDir()));
         assertTrue(Files.isDirectory(StudioPaths.getExportsDir()));
+        assertTrue(Files.isDirectory(StudioPaths.getLogsDir()));
         assertTrue(Files.isDirectory(StudioPaths.getWorkDir()));
         assertTrue(Files.isDirectory(StudioPaths.getCompileDir()));
         assertTrue(Files.isDirectory(StudioPaths.getHarnessDir()));
