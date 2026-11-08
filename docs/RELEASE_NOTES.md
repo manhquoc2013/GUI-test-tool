@@ -2,42 +2,52 @@
 
 ## Playwright Automation Studio v1.0.0
 
-**Release date:** 2026-07-25
+**Release date:** 2026-11-08
 
-First production release of **Playwright Automation Studio** — a JavaFX desktop application for managing and running Playwright test automation without writing code manually.
+First production release of **Playwright Automation Studio** — an enterprise-ready JavaFX desktop application for visual, AI-assisted, and self-healing Playwright test automation with offline installer packaging.
 
 ---
 
-### What's New
+### Key Capabilities in v1.0.0
 
-#### Visual Test Tree Management
+#### 1. Visual Test Tree & Modern IDE Workspace
+- **Three-Level Tree Management**: Group → Suite → Case hierarchy with drag-and-drop reordering, copy/duplicate, and live state filters.
+- **Multi-Tab Document Workspace**: `TabManager` supporting simultaneous case script editing, DOM inspection, and assertion building.
+- **Inline Hover Action Buttons**: Quick-run, edit, and deletion directly on tree items with smooth animations.
+- **Dual-Theme Catppuccin Mocha**: Refined dark theme with vector SVG icons (`UiIcons`).
 
-Organize tests in a three-level hierarchy: **Group → Suite → Case**. Full CRUD with rename, delete, and duplicate. Drag-and-drop reorder within the Explorer tree and Assertion Builder.
+#### 2. Autonomous AI Assistant & Test Generator
+- **Multi-Stage Generation**: Natural language prompts produce dual representation (NLP steps + test data matrix + Playwright Java code).
+- **Vietnamese AI Skill Suite**: Built-in specialized skills (`/testplan`, `/edgecase`, `/data`, `/healing`, `/summary`) with automatic heuristic routing.
+- **Live DOM Scanner**: In-memory LRU cache with TTL for rapid interactive page element extraction.
+- **Vision/Multimodal Inspection**: High-fidelity visual analysis for complex web applications.
 
-#### Record & Replay
+#### 3. 5-Tier Self-Healing Runtime Engine
+- **Zero-Latency Heuristics (<30ms)**: Intelligent automatic recovery from dynamic IDs, text shifts, and ARIA roles.
+- **Dynamic Proxy Locator**: Seamless chaining (`.first()`, `.last()`, `.nth()`, `.filter()`) preserving native auto-waiting.
+- **VLM Vision Fallback**: Multimodal visual recovery for altered UI components.
+- **Atomic Mutation Persistence**: Automatically updates Java source files and assertion metadata without file corruption risks.
 
-Record browser interactions via Playwright codegen in your chosen browser (Chromium, Firefox, WebKit, Chrome, Edge). Close the browser when done — the **Assertion Builder** opens automatically so you can add pass/fail conditions immediately.
+#### 4. High-Speed Embedded Database (H2) & Dual Persistence
+- **Dual-Layer Cache**: Durable JSON on disk paired with embedded H2 database for sub-millisecond FTS search and analytics.
+- **Recursive Directory Sync**: Automatically discovers and indexes deeply nested groups and suites.
+- **Batch Querying**: Eliminates N+1 query latency when loading test suites.
 
-#### 46 Assertion Types
+#### 5. Enterprise Reporting & Bilingual Export
+- **ISTQB / IEEE 829 Compliant Excel Exports**: 3-sheet execution reports and comprehensive test case documentation.
+- **Standalone HTML Report**: Self-contained single-file HTML reports styled with Catppuccin dark theme.
+- **Screenshot Evidence Viewer**: Full-screen modal evidence viewer with zoom and path resolution.
+- **Bilingual Export Selection**: One-click language switching between Tiếng Việt (default) and English.
 
-A comprehensive catalog of assertions across 8 categories, all accessible through a visual builder:
+#### 6. Enterprise Security & Resource Reclamation
+- **AES-256-GCM Key Encryption**: Transparent encryption at rest bound to physical hardware entropy with dual-key fallback.
+- **Continuous Secret Sanitization**: Redacts tokens from terminal logs, exceptions, and toasts.
+- **Automatic Memory Reclamation**: Uncommits unused heap memory to the OS on window minimization or idle.
 
-| Category | Types |
-|----------|-------|
-| **Page Content** | TEXT_VISIBLE, TEXT_NOT_VISIBLE, TEXT_EXACT, HEADING_VISIBLE, TITLE_CONTAINS/EQUALS, URL_CONTAINS/EQUALS/MATCHES, PAGE_HAS_TEXT |
-| **Elements / UI** | ELEMENT_VISIBLE/HIDDEN/ENABLED/DISABLED/EDITABLE/CHECKED/UNCHECKED, ELEMENT_COUNT, ELEMENT_HAS_TEXT/VALUE, ATTRIBUTE_EQUALS, CSS_CONTAINS, LINK_HREF_CONTAINS |
-| **Images / Media** | IMAGE_VISIBLE, IMAGE_COUNT, VIDEO_VISIBLE, AUDIO_VISIBLE |
-| **File / Download** | FILE_DOWNLOADED, FILE_NAMED, FILE_EXTENSION |
-| **Tables** | TABLE_HAS_TEXT, TABLE_ROW_COUNT, TABLE_CELL_EQUALS, TABLE_HEADER_CONTAINS |
-| **Forms** | INPUT_VALUE_EQUALS/CONTAINS, PLACEHOLDER_EQUALS, SELECT_HAS_OPTION, FORM_VALID/INVALID |
-| **Page / Network State** | NO_CONSOLE_ERROR, COOKIE_EXISTS, LOCAL_STORAGE_EQUALS, SESSION_STORAGE_EQUALS |
-| **Custom** | CUSTOM (locator + expect operator), CUSTOM_JS (arbitrary JavaScript) |
-
-Each assertion has a status: **DRAFT** (not ready), **ACTIVE** (will execute), **INACTIVE** (temporarily disabled). Only ACTIVE assertions run.
-
-#### 4 Run Scopes
-
-- **Run All** — Every eligible case in the project (suites must be ACTIVE, cases must be Ready with active assertions).
+#### 7. Multi-Platform Offline Installers
+- **macOS Drag-and-Drop `.dmg`**: Full offline package with bundled JRE 26, Node.js 20, and offline Chromium.
+- **Windows Setup `.exe`**: Professional Inno Setup installer wizard with desktop shortcuts and uninstaller.
+- **GitHub Actions CI/CD**: Automated multi-OS releases across macOS, Windows, and Ubuntu.
 - **Run Group** — Recursively run all eligible cases within a group.
 - **Run Suite** — Run all eligible cases in a single suite (allows DRAFT/INACTIVE suites for debugging).
 - **Run Case** — Run a single case.

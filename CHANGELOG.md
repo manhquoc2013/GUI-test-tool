@@ -6,48 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [1.0.0] — 2026-07-25
+## [1.0.0] — 2026-11-08
 
 ### Added
 
-- Full Playwright Automation Studio desktop application
-- 4 run scopes: **Run All**, **Run Group**, **Run Suite**, **Run Case**
-- Shared browser context for multi-case runs (Suite / Group / All)
-- Per-case isolated context (Run Case single)
-- Assertion Builder with **46 assertion types** across 8 categories:
-  - Page content (TEXT_VISIBLE, TEXT_NOT_VISIBLE, TEXT_EXACT, HEADING_VISIBLE, TITLE_CONTAINS/EQUALS, URL_CONTAINS/EQUALS/MATCHES, PAGE_HAS_TEXT)
-  - Elements/UI (ELEMENT_VISIBLE/HIDDEN/ENABLED/DISABLED/EDITABLE/CHECKED/UNCHECKED, ELEMENT_COUNT, ELEMENT_HAS_TEXT/VALUE, ATTRIBUTE_EQUALS, CSS_CONTAINS, LINK_HREF_CONTAINS)
-  - Images/Media (IMAGE_VISIBLE, IMAGE_COUNT, VIDEO_VISIBLE, AUDIO_VISIBLE)
-  - File/Download (FILE_DOWNLOADED, FILE_NAMED, FILE_EXTENSION)
-  - Tables (TABLE_HAS_TEXT, TABLE_ROW_COUNT, TABLE_CELL_EQUALS, TABLE_HEADER_CONTAINS)
-  - Forms (INPUT_VALUE_EQUALS/CONTAINS, PLACEHOLDER_EQUALS, SELECT_HAS_OPTION, FORM_VALID/INVALID)
-  - Page/Network state (NO_CONSOLE_ERROR, COOKIE_EXISTS, LOCAL_STORAGE_EQUALS, SESSION_STORAGE_EQUALS)
-  - Custom (CUSTOM, CUSTOM_JS)
-- Assert status lifecycle: DRAFT → ACTIVE → INACTIVE
-- Record & replay via Playwright codegen with automatic Assertion Builder popup after recording
-- Soft-assert injection with pass/fail/skip tracking per assertion
-- Assert-results file per case for detailed failure analysis
-- Screenshot capture on test completion — screenshots saved for both PASSED and FAILED cases
-- Toast notification system (SUCCESS / INFO / WARN / ERROR) for every user action
-- Cross-platform browser detection — Playwright-bundled Chromium, Firefox, WebKit + system Chrome and Edge channels
-- Browser selection combo on Workspace with preference persistence
-- Collapsible sidebar (expanded 220px / collapsed 44px)
-- Auto-show terminal on Record and Run
-- Drag-and-drop reorder in Explorer tree (Groups, Suites, Cases) and Assertion Builder (assertions)
-- Suite Detail / Preview view with run eligibility per case
-- Excel report export — 3 sheets: Summary, Cases, Asserts
-- Report filtering by suite name, result (All / Passed / Failed), and scope
-- Report persistence to `data/reports/` with screenshots
-- Project tree filesystem mirror in `data/project/` — `group.json` per group, `suite.json` per suite, `.java` scripts per case
-- CRUD + Copy/Duplicate for Suites, Cases, and Assertions
-- Suite and Case status management (Suite: DRAFT/ACTIVE/INACTIVE; Case: Draft/Ready)
-- Stop-on-first-failure toggle (default: false)
-- User settings persistence in `data/config/settings.json`
-- `APP_HOME` resolution chain: `studio.home` property → `STUDIO_HOME` env → JAR location → `user.dir`
-- Portable build scripts (macOS/Linux + Windows) — Node.js 20.18.0 LTS + Playwright CLI + Chromium bundled
-- GitHub Actions CI/CD — build verification (`ci.yml`) and matrix portable release (`release-portable.yml`) only on version tags (`v*`)
-- Catppuccin Mocha dark theme (`studio.css`)
-- FXML-based UI — 6 layouts with dedicated controllers
+- **Full Modern Pro IDE Workspace**:
+  - Three-level tree hierarchy (**Group → Suite → Case**) with drag-and-drop reordering.
+  - Multi-tab document workspace (`TabManager`) for editing scripts, viewing DOM, and configuring assertions.
+  - Inline hover action buttons for instant run, edit, record, and delete.
+  - Catppuccin Mocha dark theme and vector SVG icons (`UiIcons`).
+- **Autonomous AI Assistant & Test Generator**:
+  - Natural Language test case generation with dual representation (NLP steps + test data matrix + Playwright Java code).
+  - Vietnamese AI Skill Suite with auto-routing (`/testplan`, `/edgecase`, `/data`, `/healing`, `/summary`).
+  - `LiveDomScanner` with in-memory LRU cache with TTL for remote and active browser inspection.
+  - Vision/Multimodal element analysis for complex layouts.
+- **5-Tier Self-Healing Runtime Engine**:
+  - Dynamic Proxy `Locator` wrapping with deep chaining support (`.first()`, `.last()`, `.nth()`, `.filter()`).
+  - Rule-based Heuristic repair (<30ms, zero cost) for dynamic IDs, text shifts, and ARIA roles.
+  - VLM Multimodal fallback for visual element recovery.
+  - Automatic mutation persistence into Java source files (`writeTextAtomic`) and `suite.json`.
+- **4 Run Scopes & In-Process Compilation**:
+  - Run All, Run Group, Run Suite, and Run Case via `javax.tools.JavaCompiler` and `URLClassLoader`.
+  - Shared browser session across cases with persisted auth cookies and storage.
+  - Non-blocking hard-cancel coordination (`RunCancelService`).
+- **Assertion Builder with 46 Assertion Types**:
+  - 8 categories: Page Content, Elements/UI, Media, Download, Tables, Forms, State, and Custom JS.
+  - Lifecycle states: DRAFT, ACTIVE, INACTIVE with soft-assert scoring.
+- **High-Performance Embedded Database (H2)**:
+  - Dual-persistence architecture: human-readable disk JSON + H2 in-memory/file cache.
+  - Recursive project synchronization for nested groups.
+  - Full-text search and batch assertion query loading (eliminating N+1 overhead).
+- **Enterprise Reporting & Bilingual Export**:
+  - ISTQB / IEEE 829-compliant 3-sheet Excel report and Test Case documentation export.
+  - Single-file standalone HTML report with dark theme styling.
+  - Visual screenshot evidence viewer with zoom dialog.
+  - Bilingual export support (Tiếng Việt default / English).
+- **Security & Data Protection**:
+  - Transparent AES-256-GCM encryption at rest for API keys with physical machine-bound entropy.
+  - Automated redaction of secrets in terminal logs, toasts, and exception messages (`SecuritySanitizer`).
+  - Active-run guard preventing accidental deletion during test runs.
+- **OS Resource Reclamation**:
+  - Automatic uncommit of heap memory back to OS upon minimization or idle.
+  - Graceful shutdown lifecycle killing all background Playwright and Node processes.
+- **Multi-Platform Offline Installers**:
+  - Native macOS `.dmg` drag-and-drop installer with bundled JRE 26, Node.js, and offline Chromium.
+  - Native Windows Setup `.exe` wizard installer (Inno Setup) with desktop shortcuts and uninstaller.
+  - GitHub Actions CI/CD matrix workflows for automated builds across Ubuntu, macOS, and Windows.
 
 ### Fixed
 
