@@ -633,6 +633,20 @@
   - Khi đóng gói file `.deb` bằng `jpackage --type deb --app-image <DIR>`, `jpackage` sẽ sao chép toàn bộ cây thư mục bên trong `<DIR>` vào `/opt/<package_name>/`.
   - Cần bảo đảm `<DIR>` là thư mục đã tích hợp đầy đủ các phụ thuộc ngoại vi (`browsers/`, `tools/node/`). Script đóng gói Linux cần ưu tiên kiểm tra `dist/${APP_NAME}/${APP_NAME}/browsers` thay vì `target/jpackage-out/` vốn chỉ chứa app-image sơ khai chưa có Playwright Chromium.
 
+### 15. AI Assistant Multi-Session Architecture & Context Optimization
+- **Multi-Session Storage & Migration Isolation**:
+  - Lưu trữ đa phiên theo Suite/Workspace trong thư mục `.ai_chats/<sessionId>.json` giúp các phiên độc lập, dễ dàng sao lưu, di chuyển và xóa bỏ atomic mà không gặp nguy cơ file corruption.
+  - Tự động di chuyển (auto-migration) mượt mà từ file `.ai_chat.json` cũ sang session đầu tiên, bảo đảm 100% không mất dữ liệu của người dùng khi nâng cấp.
+  - Phản ánh tức thời dữ liệu phiên vào bảng H2 Database `ai_chat_sessions` và cột `session_id` của `ai_chat_messages` để tính toán tổng số token và truy vấn nhanh.
+- **Large Context Optimization (Hybrid Rolling Summary + Code/DOM Truncation)**:
+  - Khi lịch sử cuộc trò chuyện kéo dài qua hàng chục lượt trao đổi, việc gửi toàn bộ code Playwright sinh ra ở các lượt trước làm bùng nổ token context (dẫn đến vượt quá max_tokens hoặc phản hồi chậm).
+  - Áp dụng kỹ thuật kép:
+    1. **Historical Bulky Code & DOM Truncation**: Đối với các lượt trao đổi cũ nằm ngoài lượt kề cận (turns older than the immediate last turn), tự động rút gọn thân code Playwright/JSON DOM dài thành chữ ký phương thức ngắn gọn kèm chú thích `// ... [Đã thu gọn mã nguồn cũ để tối ưu context] ...`, giúp tiết kiệm đến 75% lượng token tiêu thụ.
+    2. **Structured Progressive Rolling Summary**: Các lượt bị cắt khỏi sliding window được tổng hợp lũy tiến thành một bản tóm tắt cấu trúc (`• Yêu cầu & Mục tiêu`, `• Ca kiểm thử / Kết quả đã sinh`), giữ lại toàn bộ ngữ cảnh quan trọng mà không lãng phí token.
+    3. **Token Budget Hard Enforcement**: Kiểm soát ngân sách token nghiêm ngặt, tự động điều chỉnh sliding window thu nhỏ linh hoạt nếu ngữ cảnh quá dài.
+- **Auto-Naming Sessions**:
+  - Tự động lấy trích đoạn từ yêu cầu đầu tiên của người dùng để đặt tên phiên hội thoại (tối đa 28 ký tự), giúp người dùng dễ dàng nhận diện và chuyển đổi giữa các chủ đề mà không cần gõ tên thủ công.
+
 
 
 
