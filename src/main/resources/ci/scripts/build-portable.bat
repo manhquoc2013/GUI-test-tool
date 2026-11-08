@@ -5,7 +5,10 @@ set DIR=%~dp0..
 cd /d "%DIR%"
 
 set APP_NAME=TestStudio
-set JAR_NAME=playwright-automation-studio-2.3.0.jar
+set VERSION=
+for /f "usebackq delims=" %%v in (`mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2^>nul`) do set VERSION=%%v
+if not defined VERSION set VERSION=2.3.0
+set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set DIST_ROOT=dist\%APP_NAME%
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out
@@ -37,7 +40,7 @@ copy target\%JAR_NAME% %JPACKAGE_INPUT%\ >nul
 xcopy /e /y /q target\lib\* %JPACKAGE_INPUT%\lib\ >nul
 
 echo Step 3: Creating app-image with embedded JRE (including javac compiler)...
-jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.App --dest %JPACKAGE_OUT% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
+jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.Launcher --dest %JPACKAGE_OUT% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,java.scripting,java.xml,java.net.http,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 echo Step 4: Assembling portable layout...

@@ -6,7 +6,9 @@ cd /d "%DIR%"
 
 set APP_NAME=TestStudio
 set APP_DISPLAY_NAME=Test Studio
-set VERSION=2.3.0
+set VERSION=
+for /f "usebackq delims=" %%v in (`mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2^>nul`) do set VERSION=%%v
+if not defined VERSION set VERSION=2.3.0
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out
@@ -46,7 +48,7 @@ if exist assets\icon.ico (
   set ICON_ARG=--icon assets\icon.ico
 )
 
-jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.App --dest %JPACKAGE_OUT% %ICON_ARG% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
+jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.Launcher --dest %JPACKAGE_OUT% %ICON_ARG% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,java.scripting,java.xml,java.net.http,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 set APP_IMAGE_DIR=%JPACKAGE_OUT%\%APP_NAME%
@@ -123,7 +125,7 @@ where ISCC.exe >nul 2>&1 && set "ISCC_EXE=ISCC.exe"
 if not defined ISCC_EXE goto NO_INNO
 
 echo   Using Inno Setup: "%ISCC_EXE%"
-"%ISCC_EXE%" scripts\installer.iss
+"%ISCC_EXE%" /DMyAppVersion=%VERSION% scripts\installer.iss
 if %ERRORLEVEL% neq 0 (
   echo ERROR: Inno Setup compilation failed!
   exit /b %ERRORLEVEL%

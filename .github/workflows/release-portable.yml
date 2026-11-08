@@ -1,4 +1,4 @@
-name: Release CI/CD (Multi-Platform Portable)
+name: Release CI/CD (Multi-Platform Portable & Installers)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version tag (e.g. v1.0.0)'
+        description: 'Release version tag (e.g. v2.3.0)'
         required: false
         default: ''
 
@@ -52,7 +52,15 @@ jobs:
 
       - name: Install Linux Headless Display Server (Xvfb)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb fakeroot
+
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --yes
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+          echo "C:\Program Files\Inno Setup 6" >> $env:GITHUB_PATH
 
       - name: Run Automated Test Suite (Linux)
         if: runner.os == 'Linux'
@@ -74,11 +82,27 @@ jobs:
         if: runner.os == 'Windows'
         run: scripts\build-portable.bat
 
-      - name: Upload Platform Package Artifact
+      - name: Build Setup Installer (Windows)
+        if: runner.os == 'Windows'
+        run: call scripts\build-installer.bat
+
+      - name: Build DMG Installer (macOS)
+        if: runner.os == 'macOS'
+        run: bash scripts/build-installer.sh
+
+      - name: Build Debian Installer (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/build-installer-linux.sh
+
+      - name: Upload Platform Package Artifacts (Portable + Installers)
         uses: actions/upload-artifact@v4
         with:
           name: TestStudio-${{ runner.os }}
-          path: dist/TestStudio-*.zip
+          path: |
+            dist/TestStudio-*.zip
+            dist/TestStudio-*-Setup.exe
+            dist/TestStudio-*.dmg
+            dist/*.deb
           if-no-files-found: error
 
   publish:
@@ -120,14 +144,24 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT
 
+      - name: Extract Release Notes for Current Version
+        shell: bash
+        run: |
+          mkdir -p dist
+          python3 scripts/extract-release-notes.py "${{ steps.release_info.outputs.tag }}" dist/CURRENT_RELEASE_NOTES.md
+
       - name: Publish GitHub Release & Attach Assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_info.outputs.tag }}
           name: ${{ steps.release_info.outputs.title }}
-          body_path: docs/RELEASE_NOTES.md
-          generate_release_notes: true
-          files: artifacts/*.zip
-          fail_on_unmatched_files: true
+          body_path: dist/CURRENT_RELEASE_NOTES.md
+          generate_release_notes: false
+          files: |
+            artifacts/*.zip
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.deb
+          fail_on_unmatched_files: false
           draft: false
           prerelease: false

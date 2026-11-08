@@ -144,3 +144,13 @@
 - [x] 13.4 Align `ExplorerPageController.countRunnableCasesUnderItem` with active assertion requirement
 - [x] 13.5 Friendly guidance prompt in `AiProjectAdvisorService.analyzeSuiteGaps` when suiteDir is null
 - [x] 13.6 Run full test suite regression (`mvn clean test`), update `tasks/learnings.md`, and commit.
+
+## Phase 14: Unified CI/CD Dual Release (Portable & In-Place Upgrading Installers)
+- [x] 14.1 Upgrade `scripts/installer.iss` with active process detection, user prompt-to-close with `taskkill`, in-place override, and system version registry entries <!-- id: 1401 -->
+- [x] 14.2 Update `scripts/build-installer.bat` with dynamic version resolution from `pom.xml` and parameter injection `/DMyAppVersion` <!-- id: 1402 -->
+- [x] 14.3 Create `scripts/build-installer-linux.sh` for Debian `.deb` installer packaging <!-- id: 1403 -->
+- [x] 14.4 Update `scripts/build-installer.sh` for macOS with dynamic version resolution <!-- id: 1404 -->
+- [x] 14.5 Upgrade `.github/workflows/release-portable.yml` and `src/main/resources/ci/.github/workflows/release-portable.yml` to build and upload both Portable ZIPs and Installers across Windows, macOS, Linux <!-- id: 1405 -->
+- [x] 14.6 Run full test regression suite (`mvn test`) and verify scripts syntax <!-- id: 1406 -->
+- [x] 14.7 Update `tasks/learnings.md`, check all todo items, and commit <!-- id: 1407 -->
+

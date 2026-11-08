@@ -5,7 +5,9 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
 APP_NAME="TestStudio"
-JAR_NAME="playwright-automation-studio-2.3.0.jar"
+VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.0')"
+if [ -z "${VERSION}" ]; then VERSION="2.3.0"; fi
+JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 DIST_ROOT="dist/${APP_NAME}"
 JPACKAGE_INPUT="target/jpackage-input"
 JPACKAGE_OUT="target/jpackage-out"
@@ -48,9 +50,9 @@ jpackage \
   --name "${APP_NAME}" \
   --input "${JPACKAGE_INPUT}" \
   --main-jar "${JAR_NAME}" \
-  --main-class com.studio.App \
+  --main-class com.studio.Launcher \
   --dest "${JPACKAGE_OUT}" \
-  --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,jdk.compiler,jdk.unsupported \
+  --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,java.scripting,java.xml,java.net.http,jdk.compiler,jdk.unsupported \
   --java-options "-Dstudio.home=\$ROOTDIR" \
   --java-options "-Dfile.encoding=UTF-8" \
   --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"

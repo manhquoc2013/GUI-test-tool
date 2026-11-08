@@ -220,3 +220,22 @@
   - Write comprehensive automated tests for the full clarification flow, chatbot actions, and generator output.
   - Run full test suite: `mvn test` (must pass 269+ tests).
   - Extract learnings and report final summary.
+
+## Phase 14: Unified CI/CD Multi-Platform Dual Releases (Portable ZIP & In-Place Upgrading Installers)
+- **Slice 1: Windows Inno Setup Upgrade & Active Process Guard**:
+  - Update `scripts/installer.iss` with `CloseApplications=yes`, `UsePreviousAppDir=yes`, `DirExistsWarning=no`, `[Code]` process detection & prompt-to-close with `taskkill /F /IM TestStudio.exe /T`.
+  - Add `[Registry]` entries for `HKLM\Software\Test Studio` (`CurrentVersion`, `InstallLocation`, `LastUpdated`).
+  - Make `MyAppVersion` dynamic via `/DMyAppVersion=%VERSION%`.
+  - Update `scripts/build-installer.bat` to evaluate version from `pom.xml` and pass it to Inno Setup.
+- **Slice 2: Linux Debian Installer Package**:
+  - Create `scripts/build-installer-linux.sh` to package Debian `.deb` installer using `jpackage --type deb`.
+  - Pre-configure desktop shortcut and menu categories.
+- **Slice 3: Dynamic Version Resolution in macOS Installer**:
+  - Update `scripts/build-installer.sh` to dynamically query version from `pom.xml`.
+- **Slice 4: Unified GitHub Actions Release Pipeline**:
+  - Upgrade `.github/workflows/release-portable.yml` to build both Portable ZIPs and Installers across Windows, macOS, and Linux.
+  - Sync `src/main/resources/ci/.github/workflows/release-portable.yml`.
+  - Integrate `scripts/extract-release-notes.py` into publish step.
+- **Slice 5: Verification & Regression Tests**:
+  - Run regression tests (`mvn test`) and verify scripts syntax and execution.
+
