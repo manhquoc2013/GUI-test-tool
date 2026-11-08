@@ -136,13 +136,19 @@ public class OptimizedSelfHealingExecutor {
     private Locator createProxy(String activeSelector, Locator targetLocator, String actionDescription, ChainedStep parentStep) {
         return (Locator) java.lang.reflect.Proxy.newProxyInstance(
                 Locator.class.getClassLoader(),
-                new Class<?>[]{Locator.class},
+                new Class<?>[]{Locator.class, HealedLocatorWrapper.class},
                 new java.lang.reflect.InvocationHandler() {
                     private String currentActive = activeSelector;
                     private Locator currentLoc = targetLocator;
 
                     @Override
                     public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
+                        if ("unwrap".equals(method.getName()) && (args == null || args.length == 0)) {
+                            return currentLoc;
+                        }
+                        if ("getActiveSelector".equals(method.getName()) && (args == null || args.length == 0)) {
+                            return currentActive;
+                        }
                         if ("toString".equals(method.getName())) {
                             return "HealedLocator[" + currentActive + "]";
                         }
@@ -151,6 +157,11 @@ public class OptimizedSelfHealingExecutor {
                         }
                         if ("hashCode".equals(method.getName())) {
                             return currentActive.hashCode();
+                        }
+                        if ("first".equals(method.getName()) && (args == null || args.length == 0)) {
+                            Locator visibleLoc = StudioRuntime.findFirstVisible(currentLoc);
+                            ChainedStep nextStep = new ChainedStep(parentStep, method, args);
+                            return createProxy(currentActive, visibleLoc != null ? visibleLoc : currentLoc.first(), actionDescription, nextStep);
                         }
 
                         try {
@@ -163,6 +174,21 @@ public class OptimizedSelfHealingExecutor {
                         } catch (java.lang.reflect.InvocationTargetException ite) {
                             Throwable cause = ite.getCause();
                             if (cause instanceof PlaywrightException) {
+                                String msg = cause.getMessage();
+                                if (msg != null && (msg.contains("strict mode violation") || msg.contains("not visible") || msg.contains("Timeout"))) {
+                                    try {
+                                        Locator visibleLoc = StudioRuntime.findFirstVisible(currentLoc);
+                                        if (visibleLoc != null) {
+                                            Object result = method.invoke(visibleLoc, args);
+                                            System.out.printf("[Self-Healing Disambiguation] Resolved to visible matching element for '%s'%n", currentActive);
+                                            if (result instanceof Locator childLoc && !"page".equals(method.getName())) {
+                                                ChainedStep nextStep = new ChainedStep(parentStep, method, args);
+                                                return createProxy(currentActive, childLoc, actionDescription, nextStep);
+                                            }
+                                            return result;
+                                        }
+                                    } catch (Throwable ignored) {}
+                                }
                                 String repaired = repairSelector(
                                         currentActive,
                                         actionDescription != null ? actionDescription : method.getName(),

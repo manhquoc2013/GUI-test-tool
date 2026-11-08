@@ -103,4 +103,24 @@ class ScriptHarnessTransformerTest {
         assertTrue(out.contains("StudioRuntime.healLocator(\"button#submit-btn\").click()"), out);
         assertTrue(out.contains("StudioRuntime.healLocator(\"input[name='user']\").fill(\"admin\")"), out);
     }
+
+    @Test
+    void transformsPlaywrightAssertionsToStudioAssertions() {
+        String script = """
+                package com.test;
+                import com.microsoft.playwright.*;
+                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+                public class Example {
+                  public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    assertThat(page.locator("button#submit")).isVisible();
+                  }
+                }
+                """;
+
+        String out = ScriptHarnessTransformer.transform(script, false, "/tmp/shot", "tc_assert_Run");
+        assertTrue(out.contains("import static com.studio.runtime.StudioAssertions.assertThat;"), out);
+        assertFalse(out.contains("PlaywrightAssertions.assertThat"), out);
+        assertTrue(out.contains("StudioRuntime.healLocator(\"button#submit\")"), out);
+    }
 }

@@ -50,6 +50,26 @@ public class ScriptHarnessTransformer {
                 "(?m)^\\s*(?:\\w+\\.)?(?:browser|playwright|context|page)\\.close\\(\\)\\s*;\\s*$",
                 "// close handled by StudioRuntime");
 
+        // Assertions: rewrite PlaywrightAssertions to StudioAssertions so dynamic proxies unwrap cleanly
+        code = code.replaceAll(
+                "import\\s+static\\s+com\\.microsoft\\.playwright\\.assertions\\.PlaywrightAssertions\\.assertThat\\s*;",
+                "import static com.studio.runtime.StudioAssertions.assertThat;");
+        code = code.replaceAll(
+                "\\bcom\\.microsoft\\.playwright\\.assertions\\.PlaywrightAssertions\\.assertThat\\b",
+                "com.studio.runtime.StudioAssertions.assertThat");
+        code = code.replaceAll(
+                "\\bPlaywrightAssertions\\.assertThat\\b",
+                "com.studio.runtime.StudioAssertions.assertThat");
+
+        // Ensure StudioAssertions.assertThat is imported if assertThat is used
+        if (code.contains("assertThat(") && !code.contains("com.studio.runtime.StudioAssertions")) {
+            if (code.contains("package ")) {
+                code = code.replaceFirst("(?m)^(package\\s+[^;]+;)", "$1\nimport static com.studio.runtime.StudioAssertions.assertThat;");
+            } else {
+                code = "import static com.studio.runtime.StudioAssertions.assertThat;\n" + code;
+            }
+        }
+
         // Self-Healing: wrap page.locator("...") with StudioRuntime.healLocator("...")
         code = code.replaceAll(
                 "(?m)(\\b(?:page|p)\\b)\\.locator\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)",

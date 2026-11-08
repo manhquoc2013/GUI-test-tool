@@ -100,34 +100,40 @@ public class AiTestGeneratorService {
              }
              ```
 
-        3. **Resilience & Autonomous Self-Healing**:
+        4. **Resilience, Autonomous Self-Healing & Strict Mode Disambiguation**:
            - For element interactions, wrap dynamic selectors using the Studio's built-in self-healing proxy:
              `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").click();`
              or `com.studio.runtime.StudioRuntime.healLocator("selector", "Action description").fill("value");`
            - Interleave explicit wait conditions where page state shifts or navigates:
              `page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);`
-           - Prefer semantic selectors (`[data-testid='...']`, `[aria-label='...']`, `role=button[name='...']`, text locator). If live DOM elements are provided in the prompt, prioritize those exact candidate selectors!
+           - **Tuyệt đối phòng tránh Strict Mode Violation trong Playwright**: Playwright mặc định bật Strict Mode cho cả tương tác (`.click()`, `.fill()`) và assertion (`assertThat(loc).isVisible()`). Nếu một bộ chọn khớp với nhiều hơn 1 phần tử (ví dụ: `a:has-text('...')` khớp cả link trên breadcrumbs, header nav lẫn tiêu đề trang), Playwright sẽ dừng với lỗi: `Error: strict mode violation: locator(...) resolved to N elements`.
+           - **Quy tắc bắt buộc khi sinh selector**:
+             + Ưu tiên bộ chọn định danh duy nhất: `[data-testid='...']`, `[aria-label='...']`, hoặc `#id`.
+             + Nếu sử dụng text selector hoặc selector chung chung có nguy cơ trùng lặp (ví dụ: links trên GitHub, navigation tabs, buttons lặp lại): BẮT BUỘC dùng selector có phạm vi cụ thể (ví dụ: `[data-testid='repo-name-link']` hoặc `nav a:has-text('...')`) hoặc bổ sung `.first()` khi khởi tạo locator hoặc assertion, ví dụ:
+               `Locator repoTitle = StudioRuntime.healLocator("a:has-text('AI-Kit')", "Repository Title").first();`
+               `assertThat(repoTitle).isVisible();`
+           - If live DOM elements are provided in the prompt, prioritize those exact candidate selectors!
 
-        4. **Execution Environment Rules**:
+        5. **Execution Environment Rules**:
            - Browser and Page lifecycles are managed automatically by the Studio. Scripts must follow this Java template:
         ```java
         package com.test;
 
         import com.microsoft.playwright.*;
-        import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+        import static com.studio.runtime.StudioAssertions.assertThat;
 
         public class <CaseClassName> {
             public static void main(String[] args) {
                 Page page = com.studio.runtime.StudioRuntime.page();
                 page.navigate("<StartUrl>");
                 page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);
-                // User interactions and assertions using StudioRuntime.healLocator(...)
+                // User interactions and assertions using StudioRuntime.healLocator(...) & assertThat(...)
             }
         }
         ```
            - DO NOT call `playwright.chromium().launch()`, `Playwright.create()`, `browser.newContext()`, or `page.close()`. The Studio manages these.
 
-        5. **Supported Assertion Types**:
+        6. **Supported Assertion Types**:
            - TITLE_CONTAINS (value: text)
            - TITLE_EQUALS (value: title)
            - URL_CONTAINS (value: substring)
@@ -144,19 +150,19 @@ public class AiTestGeneratorService {
            - ATTRIBUTE_EQUALS (locator, attribute, expectedValue)
            - CUSTOM_JS (value: javascript expression returning boolean)
 
-        6. **Quality & Assertion Integrity (ECC Standard)**:
+        7. **Quality & Assertion Integrity (ECC Standard)**:
            - Every generated case MUST contain specific, verifiable assertions verifying state or content.
            - NEVER include empty try-catch blocks or swallow exceptions in `scriptCode`.
            - Always cover boundary scenarios (empty fields, max length, invalid formats) in `testDataSets`.
 
-        7. **Test Case Priority Evaluation (P0 - P3)**:
+        8. **Test Case Priority Evaluation (P0 - P3)**:
            - You MUST evaluate and classify each test case into an appropriate priority tier based on business impact:
              - "P0" (Critical / Smoke): Blocker workflows (Authentication, Core Checkout, Payment, Security).
              - "P1" (High / Core Flow): Essential business workflows, primary CRUD, and major validations.
              - "P2" (Medium / Regression): Secondary workflows, search/filtering, pagination, error handling.
              - "P3" (Low / Edge Case): UI polish, formatting, tooltips, rare edge scenarios.
 
-        8. **Response Format**:
+        9. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
@@ -549,7 +555,7 @@ public class AiTestGeneratorService {
 
                 import com.microsoft.playwright.*;
                 import com.microsoft.playwright.options.*;
-                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+                import static com.studio.runtime.StudioAssertions.assertThat;
 
                 public class %s {
                     public static void main(String[] args) {
@@ -579,7 +585,7 @@ public class AiTestGeneratorService {
 
                 import com.microsoft.playwright.*;
                 import com.microsoft.playwright.options.*;
-                import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+                import static com.studio.runtime.StudioAssertions.assertThat;
 
                 public class %s {
                     public static void main(String[] args) {
@@ -597,7 +603,7 @@ public class AiTestGeneratorService {
 
         // Ensure standard imports
         if (!cleaned.contains("import com.microsoft.playwright.*;")) {
-            cleaned = cleaned.replace("package com.test;\n", "package com.test;\n\nimport com.microsoft.playwright.*;\nimport com.microsoft.playwright.options.*;\nimport static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;\n");
+            cleaned = cleaned.replace("package com.test;\n", "package com.test;\n\nimport com.microsoft.playwright.*;\nimport com.microsoft.playwright.options.*;\nimport static com.studio.runtime.StudioAssertions.assertThat;\n");
         } else if (!cleaned.contains("import com.microsoft.playwright.options.*;")) {
             cleaned = cleaned.replace("import com.microsoft.playwright.*;\n", "import com.microsoft.playwright.*;\nimport com.microsoft.playwright.options.*;\n");
         }

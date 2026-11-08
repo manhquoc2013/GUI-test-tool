@@ -56,6 +56,58 @@ public class StudioRuntime {
     }
 
     /**
+     * Unwraps any self-healing dynamic proxy to retrieve the underlying concrete Playwright Locator
+     * (com.microsoft.playwright.impl.LocatorImpl). This is essential before passing locators to
+     * PlaywrightAssertions.assertThat(locator) which internally casts to LocatorImpl.
+     */
+    public static Locator unwrap(Locator locator) {
+        if (locator == null) return null;
+        Locator current = locator;
+        while (current instanceof HealedLocatorWrapper wrapper) {
+            Locator inner = wrapper.unwrap();
+            if (inner == null || inner == current) break;
+            current = inner;
+        }
+        while (current != null && java.lang.reflect.Proxy.isProxyClass(current.getClass())) {
+            try {
+                java.lang.reflect.InvocationHandler ih = java.lang.reflect.Proxy.getInvocationHandler(current);
+                java.lang.reflect.Method unwrapMethod = ih.getClass().getMethod("unwrap");
+                Object inner = unwrapMethod.invoke(ih);
+                if (inner instanceof Locator loc && inner != current) {
+                    current = loc;
+                    continue;
+                }
+            } catch (Throwable ignored) {}
+            break;
+        }
+        return current;
+    }
+
+    /**
+     * Resolves the first currently visible Locator among multiple matches.
+     * Prevents false failures where a generic selector (e.g. a:has-text('Code'))
+     * matches hidden navigation/dropdown elements before the visible target element.
+     */
+    public static Locator findFirstVisible(Locator locator) {
+        if (locator == null) return null;
+        try {
+            int count = locator.count();
+            if (count <= 1) return locator;
+            for (int i = 0; i < count; i++) {
+                Locator candidate = locator.nth(i);
+                try {
+                    if (candidate.isVisible()) {
+                        return candidate;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            return locator.first();
+        } catch (Throwable ignored) {
+            return locator;
+        }
+    }
+
+    /**
      * Executes an action with self-healing protection.
      */
     public static void executeWithHealing(String selector, String actionDescription,
