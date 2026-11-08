@@ -167,15 +167,8 @@ Quy trình CI/CD hoàn toàn tự động cho 3 nền tảng (**macOS**, **Windo
 2. Kiểm tra công cụ jpackage.
 3. Chạy toàn bộ bộ kiểm thử tự động (**260 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
 4. Chạy `scripts/build-portable.sh` / `scripts/build-portable.bat` để đóng gói jpackage app-image kèm JRE nhúng, Node.js và Playwright Chromium.
-5. Upload artifacts của 3 hệ điều hành lên GitHub Actions.
-6. Job `publish` gom toàn bộ 3 file ZIP và đính kèm vào mục Assets của GitHub Release chính thức.
-
-### `.github/workflows/build-installers.yml`
-
-Quy trình tự động xây dựng và xuất bản bộ cài đặt offline native:
-- **macOS DMG**: Đóng gói tệp `.dmg` kéo-thả cho kiến trúc Apple Silicon và Intel x64.
-- **Windows Setup**: Tự động cài đặt Inno Setup và biên dịch tệp Setup `.exe` hoàn chỉnh.
-- Tự động kích hoạt khi có tag release `v*` hoặc publish release.
+5. Upload artifacts của 3 hệ điều hành (bao gồm cả bản Portable ZIP và Native Installers: `.exe`, `.dmg`, `.deb`).
+6. Job `publish` gom toàn bộ các tệp phân phối và đính kèm vào mục Assets của GitHub Release chính thức kèm Release Notes được trích xuất tự động theo phiên bản.
 
 ### Required permissions
 - `contents: write` để tự động tạo và tải assets lên GitHub Releases.

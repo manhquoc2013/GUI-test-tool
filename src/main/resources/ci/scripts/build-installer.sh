@@ -6,7 +6,10 @@ cd "$DIR"
 
 APP_NAME="TestStudio"
 APP_DISPLAY_NAME="Test Studio"
-VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || echo '2.3.1')"
+VERSION="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('pom.xml').getroot().find('{http://maven.apache.org/POM/4.0.0}version').text)" 2>/dev/null || true)"
+if [ -z "${VERSION}" ]; then
+  VERSION="$(sed -n 's/.*<version>\([0-9][^<]*\)<\/version>.*/\1/p' pom.xml 2>/dev/null | head -n 1)"
+fi
 if [ -z "${VERSION}" ]; then VERSION="2.3.1"; fi
 JAR_NAME="playwright-automation-studio-${VERSION}.jar"
 JPACKAGE_INPUT="target/jpackage-input"

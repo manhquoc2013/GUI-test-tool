@@ -1,86 +1,91 @@
-# Hướng dẫn sử dụng Test Studio
+# Hướng dẫn sử dụng Test Studio (User Guide)
 
-> Ứng dụng desktop JavaFX giúp **ghi hình, tổ chức và chạy tự động** kiểm thử web bằng Playwright — không cần viết code thủ công.
+> Ứng dụng desktop JavaFX chuyên nghiệp giúp **ghi hình, tổ chức, tự phục hồi và chạy tự động** kiểm thử web bằng Playwright — không đòi hỏi viết code thủ công.
 
-Bộ tài liệu này mô tả **đúng trạng thái hiện tại của mã nguồn** (nhánh `main`). Hình ảnh là ảnh chụp thật do chính bộ FXML/CSS/controller của ứng dụng dựng lên với dữ liệu mẫu.
+---
 
-| | |
+> 🌐 **Ngôn ngữ / Language:** **Tiếng Việt (Hiện tại)** · [English Guide (Bản tiếng Anh)](USER_GUIDE_EN.md)
+
+Bộ tài liệu này phản ánh **chính xác trạng thái thực tế của phiên bản mới nhất** (nhánh `main`). Toàn bộ hình ảnh minh họa được trích xuất trực tiếp từ giao diện thực tế của ứng dụng với dữ liệu mẫu hoàn chỉnh.
+
+| Thông số | Giá trị |
 |---|---|
-| Phiên bản | 2.3.1 (`pom.xml`) |
-| Nền tảng | JavaFX 26.0.1 · Playwright Java 1.61.0 · JDK 26+ |
-| Chủ đề | Tối (Catppuccin Mocha) / Sáng — đổi bằng nút *Sáng/Tối* ở góc trên phải |
-| Ngôn ngữ giao diện | Tiếng Việt |
+| **Phiên bản (Version)** | **2.3.1** (`pom.xml`) |
+| **Nền tảng (Platform)** | JavaFX 26.0.1 · Playwright Java 1.61.0 · OpenJDK 26+ · Node.js 20+ LTS |
+| **Chủ đề giao diện (Themes)** | Tối (**Catppuccin Mocha**) / Sáng (**Modern Light**) — chuyển tức thời |
+| **Bộ cài đặt (Installers)** | Windows Setup (`.exe`), macOS Disk Image (`.dmg`), Linux Debian (`.deb`), Portable (`.zip`) |
+| **Trợ lý AI & Cố vấn (AI Core)** | OpenAI (GPT-4o, o3-mini) / Ollama / LocalAI / DeepSeek / Azure OpenAI |
 
 ---
 
 ## Mục lục
 
-1. [Giới thiệu](#1-giới-thiệu)
-2. [Cài đặt & khởi chạy](#2-cài-đặt--khởi-chạy)
-3. [Giao diện tổng quan](#3-giao-diện-tổng-quan)
-4. [Explorer — quản lý cây dự án](#4-explorer--quản-lý-cây-dự-án)
-5. [Tạo Nhóm / Suite / Case](#5-tạo-nhóm--suite--case)
-6. [Workspace — ghi hình & chạy test](#6-workspace--ghi-hình--chạy-test)
-7. [Assertion Builder — 46 loại kiểm tra](#7-assertion-builder--46-loại-kiểm-tra)
-8. [Báo cáo, bằng chứng và xuất file](#8-báo-cáo-bằng-chứng-và-xuất-file)
-9. [Trợ lý AI](#9-trợ-lý-ai)
-10. [Cài đặt, dọn dẹp dữ liệu & chủ đề](#10-cài-đặt-dọn-dẹp-dữ-liệu--chủ-đề)
-11. [Ngăn trợ giúp trong ứng dụng](#11-ngăn-trợ-giúp-trong-ứng-dụng)
-12. [Chạy trên dòng lệnh, đóng gói & tích hợp CI](#12-chạy-trên-dòng-lệnh-đóng-gói--tích-hợp-ci)
-13. [Cấu trúc dữ liệu & đường dẫn](#13-cấu-trúc-dữ-liệu--đường-dẫn)
-14. [Mẹo sử dụng](#14-mẹo-sử-dụng)
-15. [Xử lý sự cố](#15-xử-lý-sự-cố)
-16. [Câu hỏi thường gặp](#16-câu-hỏi-thường-gặp)
+1. [Giới thiệu tổng quan](#1-giới-thiệu-tổng-quan)
+2. [Cài đặt & Khởi chạy](#2-cài-đặt--khởi-chạy)
+3. [Giao diện tổng quan & Bảng phím tắt](#3-giao-diện-tổng-quan--bảng-phím-tắt)
+4. [Explorer — Quản lý cây dự án](#4-explorer--quản-lý-cây-dự-án)
+5. [Tạo và cấu hình Nhóm / Suite / Case](#5-tạo-và-cấu-hình-nhóm--suite--case)
+6. [Workspace — Ghi hình, Soạn thảo & Chạy kiểm thử](#6-workspace--ghi-hình-soạn-thảo--chạy-kiểm-thử)
+7. [Động cơ tự phục hồi locator (Optimized Self-Healing)](#7-động-cơ-tự-phục-hồi-locator-optimized-self-healing)
+8. [Assertion Builder — Catalog 46 loại kiểm tra](#8-assertion-builder--catalog-46-loại-kiểm-tra)
+9. [Báo cáo, Bằng chứng & Phân loại lỗi chuẩn hóa](#9-báo-cáo-bằng-chứng--phân-loại-lỗi-chuẩn-hóa)
+10. [Trợ lý AI, Thẻ làm rõ & Cố vấn dự án đàm thoại](#10-trợ-lý-ai-thẻ-làm-rõ--cố-vấn-dự-án-đàm-thoại)
+11. [Cài đặt, Dọn dẹp dữ liệu & Quản lý chủ đề](#11-cài-đặt-dọn-dẹp-dữ-liệu--quản-lý-chủ-đề)
+12. [Ngăn trợ giúp & Trình xem tài liệu tích hợp](#12-ngăn-trợ-giúp--trình-xem-tài-liệu-tích-hợp)
+13. [Đóng gói bộ cài đặt ngoại tuyến & Tích hợp CI/CD](#13-đóng-gói-bộ-cài-đặt-ngoại-tuyến--tích-hợp-cicd)
+14. [Cấu trúc dữ liệu & Đặc tả lưu trữ](#14-cấu-trúc-dữ-liệu--đặc-tả-lưu-trữ)
+15. [Mẹo tối ưu & Thực hành tốt nhất](#15-mẹo-tối-ưu--thực-hành-tốt-nhất)
+16. [Xử lý sự cố & Câu hỏi thường gặp (FAQ)](#16-xử-lý-sự-cố--câu-hỏi-thường-gặp-faq)
 
 ---
 
-## 1. Giới thiệu
+## 1. Giới thiệu tổng quan
 
-**Test Studio** là công cụ kiểm thử tự động tự chứa: bạn thao tác trên trình duyệt, Playwright Codegen ghi lại thành kịch bản Java, bạn bổ sung điều kiện đạt/không đạt (assertion) bằng giao diện, rồi chạy lại — từng case, từng suite, hay toàn bộ dự án.
-
-Điểm khác biệt chính:
-
-- **Chạy trong chính JVM của ứng dụng** — không mở terminal, không cấu hình Playwright runtime riêng.
-- **Cùng một bộ mã ở cấu hình dev và bản portable** (gói kèm JRE + Node.js + Playwright CLI + Chromium).
-- **Báo cáo có bằng chứng**: mỗi case sau khi chạy đều có ảnh chụp màn hình, xem được trong ứng dụng và xuất được thành HTML/Excel.
-- **Trợ lý AI** phân tích tài liệu nghiệp vụ hoặc ảnh mockup để sinh case + kịch bản Playwright.
-
-### Luồng làm việc
+**Test Studio** là giải pháp kiểm thử web tự động hoá All-in-One: bạn tương tác trực quan trên trình duyệt thật, **Playwright Codegen** tự động ghi nhận thành kịch bản mã nguồn Java, bạn gắn thêm các điều kiện kiểm tra (assertions) thông qua giao diện trực quan và chạy lại bất kỳ lúc nào — theo từng ca kiểm thử lẻ, từng bộ kiểm thử (Suite), hay toàn bộ dự án.
 
 ```mermaid
 flowchart LR
-    A["Tạo dự án<br/>Nhóm → Suite → Case"] --> B["Ghi hình<br/>Playwright Codegen"]
-    B --> C["Bổ sung assertion<br/>46 loại"]
-    C --> D["Chạy test<br/>4 phạm vi"]
-    D --> E["Báo cáo + ảnh bằng chứng"]
-    E --> F["Xuất HTML / Excel"]
-    E -.->|Sửa kịch bản| B
-    E -.->|Sửa điều kiện| C
+    A["1. Tổ chức dự án<br/>Nhóm → Suite → Case"] --> B["2. Ghi hình tương tác<br/>Playwright Codegen"]
+    B --> C["3. Gắn Assertion<br/>Catalog 46 loại"]
+    C --> D["4. Chạy kiểm thử<br/>4 cấp độ + Self-Healing"]
+    D --> E["5. Báo cáo & Bằng chứng<br/>Ảnh chụp + Phân loại lỗi"]
+    E --> F["6. Xuất bản kết quả<br/>HTML độc lập / Excel ISTQB"]
+    E -.->|Chỉnh sửa mã| B
+    E -.->|Cập nhật điều kiện| C
 ```
+
+### Các ưu điểm vượt trội
+
+- **Kiến trúc thực thi In-Process JVM**: Kịch bản kiểm thử được biên dịch động và chạy ngay trong JVM ứng dụng thông qua `JavaCompiler` và `URLClassLoader`, không phụ thuộc CLI rời, không mở terminal phụ.
+- **Chia sẻ phiên trình duyệt (Shared Browser Context)**: Duy trì trạng thái đăng nhập, Cookie và `localStorage` liên tục qua các case mà không cần đăng nhập lại từ đầu.
+- **Động cơ tự phục hồi thông minh (Self-Healing)**: Tự động phát hiện và khắc phục các locator bị vỡ do ID động hay cấu trúc DOM thay đổi trong thời gian dưới 30ms.
+- **Trợ lý AI & Cố vấn đàm thoại v2.3**: Phân tích tài liệu đặc tả nghiệp vụ, đặt câu hỏi làm rõ qua thẻ tương tác trực quan, kiểm toán chất lượng kịch bản (xếp hạng A-D) và phát hiện khoảng trống kiểm thử.
+- **Báo cáo chuẩn hóa ISTQB/IEEE 829**: Loại bỏ stack trace thô; tự động trích xuất chuỗi bước tái hiện và bằng chứng ảnh chụp toàn màn hình độ phân giải cao.
 
 ---
 
-## 2. Cài đặt & khởi chạy
+## 2. Cài đặt & Khởi chạy
 
-### 2.1. Yêu cầu
+### 2.1. Yêu cầu môi trường
 
-| Thành phần | Phiên bản | Ghi chú |
+| Thành phần | Phiên bản | Ghi chú bắt buộc |
 |---|---|---|
-| JDK | 26 trở lên | `maven-enforcer-plugin` chặn build nếu JDK cũ hơn |
-| Maven | 3.9+ | Chỉ cần khi chạy từ mã nguồn |
-| Node.js | 20+ | Cần cho chức năng **Ghi hình** ở bản dev; bản portable đã kèm sẵn |
+| **JDK** | **26 trở lên** | Khuyến nghị Eclipse Temurin. Trình biên dịch `javac` bắt buộc phải có mặt. |
+| **Maven** | **3.9+** | Chỉ yêu cầu khi biên dịch và chạy từ mã nguồn. |
+| **Node.js** | **20+ LTS** | Bắt buộc cho tính năng Ghi hình (Codegen) ở chế độ dev. Bản Portable/Installer đã tích hợp sẵn. |
 
-### 2.2. Chạy từ mã nguồn
+### 2.2. Khởi chạy từ mã nguồn
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/tranquoc/GUI-test-tool.git
 cd GUI-test-tool
 mvn javafx:run
 ```
 
-Ứng dụng khởi động với cây dự án hiện có trong `data/project` (rỗng nếu là lần đầu). Nếu chưa có gì, bắt đầu bằng **+ Nhóm mới**.
+> [!NOTE]
+> Khi khởi chạy lần đầu tiên, Test Studio tự động khởi tạo cấu trúc thư mục lưu trữ cục bộ tại `data/project`, `data/config` và `data/reports`. Nếu chưa có dữ liệu, hãy bắt đầu bằng nút **+ Nhóm mới**.
 
-### 2.3. Bản portable (không cần cài đặt)
+### 2.3. Bản phân phối Portable (Không cần cài đặt)
 
 ```bash
 # macOS / Linux
@@ -90,17 +95,23 @@ bash scripts/build-portable.sh
 scripts\build-portable.bat
 ```
 
-Lệnh trên tạo gói trong `dist/` chứa JRE, Node.js và Chromium; giải nén và chạy `run.sh` / `run.bat`. Máy đích **không cần** JDK, Node hay Maven. Chi tiết đóng gói: [docs/BUILD.md](../BUILD.md). Có cả script tạo bộ cài (`scripts/build-installer.sh` / `.bat`).
+Gói portable được xuất ra thư mục `dist/`, tích hợp sẵn JRE 26, Node.js LTS, Playwright CLI và Chromium offline. Người dùng cuối chỉ cần giải nén và nhấp đúp vào `run.sh` hoặc `run.bat` để chạy ngay mà không cần cài đặt thêm bất kỳ phần mềm nào.
 
-### 2.4. Chủ đề Tối và Sáng
+### 2.4. Chủ đề Tối và Sáng linh hoạt
 
-Mọi màn hình trong tài liệu này có **hai phiên bản ảnh**: chủ đề Tối (mặc định, `images/01-explorer.png`) và chủ đề Sáng (`images/light-01-explorer.png`). Chuyển bằng nút **Sáng / Tối** ở góc trên phải — giao diện đổi ngay, không cần khởi động lại.
+Test Studio hỗ trợ 2 bộ giao diện hoàn chỉnh:
+- **Chủ đề Tối (Mặc định)**: Bảng màu chuẩn **Catppuccin Mocha** êm mắt, độ tương phản cao, tối ưu cho lập trình viên và QA.
+- **Chủ đề Sáng**: Bảng màu tươi sáng, sắc nét, thích hợp môi trường văn phòng nhiều ánh sáng.
+
+Chuyển đổi tức thì thông qua nút **Sáng / Tối** tại góc trên bên phải màn hình — giao diện cập nhật ngay lập tức mà không cần khởi động lại.
 
 ---
 
-## 3. Giao diện tổng quan
+## 3. Giao diện tổng quan & Bảng phím tắt
 
-**Chủ đề Tối (mặc định):**
+### 3.1. Bố cục 4 phân vùng chính
+
+**Chủ đề Tối (Mặc định):**
 
 ![Màn hình Explorer — giao diện chính của Test Studio, chủ đề Tối](images/01-explorer.png)
 
@@ -108,61 +119,70 @@ Mọi màn hình trong tài liệu này có **hai phiên bản ảnh**: chủ đ
 
 ![Cùng màn hình Explorer ở chủ đề Sáng](images/light-01-explorer.png)
 
-Bố cục gồm bốn vùng cố định:
-
-| Vùng | Nội dung |
+| Phân vùng | Mô tả chức năng |
 |---|---|
-| **Thanh bên trái** (220 px, thu gọn còn 56 px) | `Khám phá`, `Báo cáo`, `Trợ lý AI`; khối **SUITE ĐANG MỞ**; nút **Chạy tất cả** |
-| **Thanh tab** trên cùng | Mỗi trang/suite/báo cáo là một tab — `Explorer` luôn mở, các tab khác có nút ✕ |
-| **Breadcrumb** (`Dự án / …`) | Cho biết bạn đang ở đâu: `Dự án / Khám phá`, `Dự án > Suite: X`, `Dự án > Báo cáo > …` |
-| **Thanh trạng thái** dưới cùng | Trạng thái hiện tại (`Sẵn sàng`, `Đang chạy…`, `Đang ghi hình…`) và trình duyệt đang dùng |
+| **Thanh điều hướng bên trái** (Sidebar, 220px / thu gọn 56px) | Chuyển đổi giữa `Khám phá (Explorer)`, `Báo cáo (Reports)`, `Trợ lý AI (AI Assistant)`; hiển thị khối `SUITE ĐANG MỞ` và nút `Chạy tất cả`. |
+| **Thanh Tab đa nhiệm** (Document Tabs) | Quản lý đồng thời nhiều Suite, Báo cáo và Trợ lý AI đang mở; theo dõi trạng thái chưa lưu (`● Chưa lưu`) và hỗ trợ đóng nhanh tab `✕`. |
+| **Thanh Breadcrumb** (`Dự án > ...`) | Định vị theo ngữ cảnh thời gian thực: `Dự án > Nhóm > Suite > Case` giúp người dùng luôn nắm rõ vị trí làm việc. |
+| **Thanh trạng thái đáy** (Status Bar) | Hiển thị trạng thái máy học (`Sẵn sàng`, `Đang chạy...`, `Đang ghi hình...`), trình duyệt kích hoạt và tiến trình ngầm. |
 
-Bốn nút ở góc trên phải:
+Các nút chức năng góc trên bên phải:
+- **Sáng / Tối**: Hoán đổi theme runtime.
+- **Dọn dẹp**: Mở hộp thoại giải phóng dung lượng báo cáo, cache và ảnh bằng chứng.
+- **Cài đặt (⚙)**: Cấu hình trình duyệt mặc định, tham số chạy và API Key AI.
+- **Trợ giúp (❓)**: Mở ngăn cẩm nang trợ giúp nhanh bên phải.
+- **⏹ Dừng**: Tự động xuất hiện khi có lượt chạy kiểm thử đang diễn ra để dừng khẩn cấp.
 
-- **Sáng / Tối** — đổi chủ đề, lưu vào `data/config/settings.json`.
-- **Dọn dẹp** — mở hộp thoại dọn dữ liệu (mục [10.3](#103-dọn-dẹp-dữ-liệu)).
-- **Cài đặt** — trình duyệt mặc định, tuỳ chọn chạy và cấu hình AI.
-- **Trợ giúp** — mở ngăn hướng dẫn nhanh bên phải (mục [11](#11-ngăn-trợ-giúp-trong-ứng-dụng)).
+> [!TIP]
+> **Hệ thống thông báo Toast (Toast Notification)**: Mọi thao tác người dùng (tạo/sửa/xóa, ghi hình, chạy test, xuất file) đều phát tín hiệu phản hồi tức thì ở góc dưới bên phải màn hình với 4 mức màu: Thành công (Xanh lá), Thông tin (Xanh dương), Cảnh báo (Vàng) và Lỗi (Đỏ).
 
-Khi đang chạy test, nút **⏹ Dừng** xuất hiện cạnh nhóm nút này.
+### 3.2. Bảng phím tắt & Thao tác nhanh (Cheat Sheet)
 
-> **Thông báo (toast):** mọi thao tác (tạo/sửa/xoá, ghi hình, chạy, xuất file) đều hiện toast ở góc dưới phải, phân biệt thành công / thông tin / cảnh báo / lỗi.
+| Thao tác | Phím tắt / Hành động | Ngữ cảnh |
+|---|---|---|
+| **Lưu kịch bản mã nguồn** | `Ctrl + S` (Win/Linux) hoặc `Cmd + S` (macOS) | Suite Workspace (Code Editor) |
+| **Gửi câu lệnh / Tin nhắn AI** | `Enter` hoặc `Ctrl/Cmd + Enter` | Khung hội thoại AI Assistant |
+| **Đóng hộp thoại modal** | `Esc` | Hộp thoại Cài đặt, Form, Assert Builder |
+| **Mở nhanh Suite Workspace** | Nhấp đúp chuột (**Double Click**) vào Suite | Explorer Tree |
+| **Mở menu thao tác nhanh** | Nhấp chuột phải (**Right Click**) vào nút cây | Explorer Tree |
+| **Chạy kiểm thử nhanh** | Nhấp biểu tượng `▶` trên dòng cây hoặc bảng case | Explorer / Workspace |
+| **Đổi chế độ xem Code / Assert** | Nhấp nút `[◫ Chia đôi]` hoặc `[🗖 Toàn màn hình]` | Suite Workspace |
 
 ---
 
-## 4. Explorer — quản lý cây dự án
+## 4. Explorer — Quản lý cây dự án
 
-Explorer tổ chức kiểm thử theo **ba cấp**: `Nhóm → Suite → Case`, lưu trên đĩa trong `data/project`.
-
-### 4.1. Bố cục
+Explorer tổ chức toàn bộ tài sản kiểm thử theo mô hình phân cấp 3 tầng chặt chẽ: `Nhóm (Group) → Bộ kiểm thử (Suite) → Ca kiểm thử (Case)`.
 
 ![Explorer — chủ đề Sáng, với cây ThuChi / HoiQuy](images/light-01-explorer.png)
 
-- **Cột trái** — cây dự án. Mỗi dòng có nhãn trạng thái: `● Đang hoạt động` (Suite ACTIVE), `● Sẵn sàng` (Case Ready), `● Nháp` (Draft/DRAFT), `● Ngừng` (Inactive/INACTIVE).
-- **Cột phải — Xem trước** — thông tin của mục đang chọn (tên, mô tả, trạng thái, thống kê `Nhóm / Suite / Case`), kèm nút **Sửa** để cập nhật metadata ngay tại Explorer.
-- **Thanh công cụ** — `+ Nhóm mới`, `+ Suite mới`, ô `Tìm theo tên…`, bộ lọc trạng thái (`Tất cả`, `Hoạt động`, `Nháp`, `Ngừng`).
+### 4.1. Cấu trúc và Vùng xem trước
+
+- **Cột cây bên trái (Project Tree)**: Hiển thị danh mục lồng nhau. Mỗi mục đều gắn huy hiệu trạng thái trực quan:
+  - `● Hoạt động` (`ACTIVE` / `Ready`): Sẵn sàng thực thi.
+  - `● Nháp` (`DRAFT` / `Draft`): Đang xây dựng, tự động bỏ qua khi chạy hàng loạt.
+  - `● Ngừng` (`INACTIVE` / `Inactive`): Tạm ngưng áp dụng.
+- **Thanh công cụ lọc (Filter Toolbar)**: Nút `+ Nhóm mới`, `+ Suite mới`, ô tìm kiếm theo tên và các chip lọc trạng thái nhanh (`[Tất cả]`, `[Hoạt động]`, `[Nháp]`, `[Ngừng]`).
+- **Khung Xem trước bên phải (Preview Pane)**: Khi chọn bất kỳ mục nào trên cây, khung bên phải hiển thị chi tiết metadata: tên, mô tả, trạng thái hoạt động, thống kê số lượng con và nút **Sửa / Xóa** trực tiếp.
 
 ### 4.2. Thao tác trên cây
 
-| Thao tác | Cách làm |
+| Thao tác | Hướng dẫn thực hiện |
 |---|---|
-| Chọn | Click một dòng — bảng Xem trước cập nhật ngay; click lần nữa để bỏ chọn |
-| Mở Workspace | Double-click vào **Suite** |
-| Menu ngữ cảnh | Chuột phải: `Sửa`, `Sao chép`, `Xóa`, `Chạy` (tuỳ cấp) |
-| Di chuyển | Kéo-thả Suite sang Nhóm khác; kéo-thả để đổi thứ tự |
-| Thêm nhanh | Di chuột lên dòng để hiện nút `+ Thêm` / `▶ Chạy` / `✏️ Sửa` / `📋 Sao chép` |
+| **Chọn mục** | Nhấp chuột một lần. Bảng xem trước cập nhật ngay tức thì. Nhấp lại để bỏ chọn. |
+| **Mở Suite** | Nhấp đúp vào Suite để mở một tab Workspace riêng biệt trên thanh Tab. |
+| **Menu ngữ cảnh** | Chuột phải để hiển thị menu: `Sửa`, `Sao chép`, `Xóa`, `Chạy`. |
+| **Thao tác lơ lửng (Hover Actions)** | Rê chuột lên hàng bất kỳ để hiện các nút bấm nhanh: `[▶ Chạy]`, `[+ Thêm]`, `[✏️ Sửa]`, `[📋 Sao chép]`, `[🗑️ Xóa]`. |
+| **Kéo-thả sắp xếp (Drag & Drop)** | Kéo Suite chuyển sang Nhóm khác hoặc kéo để thay đổi thứ tự thực thi. |
 
-### 4.3. Quy tắc dữ liệu
-
-- Một thư mục là **Nhóm** khi có `group.json`, là **Suite** khi có `suite.json`.
-- Mỗi case là một file `.java` trong thư mục suite, tên file = trường `scriptFile` của case.
-- Cây được đọc lại từ đĩa mỗi lần mở Explorer, nên chỉnh sửa thủ công trong thư mục cũng được phản ánh.
+> [!IMPORTANT]
+> Toàn bộ cấu trúc thư mục và tập tin được đồng bộ trực tiếp với ổ đĩa (`data/project`). Mọi thay đổi tập tin từ bên ngoài (như git checkout hay sửa file JSON thủ công) đều được ứng dụng tự động tải lại khi làm mới cây.
 
 ---
 
-## 5. Tạo Nhóm / Suite / Case
+## 5. Tạo và cấu hình Nhóm / Suite / Case
 
-Bấm **+ Nhóm mới**, **+ Suite mới** (Explorer) hoặc **+ Case mới** (Workspace) để mở biểu mẫu.
+Bấm **+ Nhóm mới**, **+ Suite mới** tại Explorer hoặc **+ Case mới** trong Workspace để mở biểu mẫu cấu hình chuyên dụng.
 
 | Tạo Nhóm mới (Tối) | Tạo Case mới (Tối) |
 |---|---|
@@ -172,427 +192,456 @@ Bấm **+ Nhóm mới**, **+ Suite mới** (Explorer) hoặc **+ Case mới** (W
 |---|---|
 | ![Hộp thoại Tạo nhóm mới ở chủ đề Sáng](images/light-02-dialog-new-group.png) | ![Hộp thoại Tạo case mới ở chủ đề Sáng](images/light-09-dialog-new-case.png) |
 
-| Cấp | Trường bắt buộc | Trường tuỳ chọn |
-|---|---|---|
-| **Nhóm** | Tên | Mô tả |
-| **Suite** | Tên | Mô tả, Trạng thái (`DRAFT` / `ACTIVE` / `INACTIVE`), Trình duyệt, *Ẩn trình duyệt* |
-| **Case** | Tên | Mô tả, Trạng thái (`Draft` / `Ready` / `Inactive`), **URL bắt đầu**, Trình duyệt, *Ẩn trình duyệt* |
+### 5.1. Bảng trường thông tin cấu hình
 
-- Biểu mẫu Case có thêm nút **Lưu và ghi** — lưu case rồi mở trình duyệt ghi hình ngay (phải nhập URL bắt đầu trước).
-- Tên không được để trống: biểu mẫu báo `⚠️ Tên không được để trống` ngay dưới ô nhập.
-- Case mới có kịch bản khung (`package com.test; … public static void main`) — hãy ghi hình hoặc viết lại trước khi đặt trạng thái `Ready`.
-- Chọn *Ẩn trình duyệt* sẽ ẩn ô chọn trình duyệt (dùng cho CI / chạy nền).
-- **Sửa** mở lại biểu mẫu với giá trị đã điền; **Sao chép** nhân bản mục (kể cả file kịch bản) cùng cấp; **Xóa** yêu cầu xác nhận và áp dụng cho cả cây con.
+| Cấp | Trường bắt buộc | Trường tùy chọn | Ý nghĩa kỹ thuật |
+|---|---|---|---|
+| **Nhóm** | Tên nhóm | Mô tả | Thư mục vật lý nhóm các bài kiểm thử liên quan. |
+| **Suite** | Tên suite | Mô tả, Trạng thái, Trình duyệt, Chạy ẩn (`Headless`) | Bộ kịch bản kiểm thử dùng chung ngữ cảnh. Trạng thái `ACTIVE` mới được phép chạy. |
+| **Case** | Tên case | Mô tả, Trạng thái, **URL bắt đầu**, Trình duyệt, Chạy ẩn | Kịch bản kiểm thử đơn lẻ (`.java`). URL bắt đầu là địa chỉ đích mở trình duyệt. |
+
+### 5.2. Tính năng Lưu và Ghi hình ngay (Save & Record)
+
+Khi tạo Case mới, bạn có thể nhập URL bắt đầu rồi bấm nút **Lưu và ghi**:
+1. Hệ thống lưu metadata case vào `suite.json`.
+2. Tạo tập tin mã nguồn `.java` khung.
+3. Lập tức khởi chạy Playwright Codegen mở trình duyệt tương ứng tới đúng URL đích.
 
 ---
 
-## 6. Workspace — ghi hình & chạy test
+## 6. Workspace — Ghi hình, Soạn thảo & Chạy kiểm thử
 
-Mở bằng double-click vào Suite trong Explorer.
+Workspace là môi trường làm việc tập trung mô phỏng Pro-IDE (tương tự VS Code / IntelliJ) giúp kiểm thử viên thao tác mượt mà giữa mã nguồn, assertions và terminal.
 
 ![Workspace — danh sách case, trình soạn code và danh mục assertion (chủ đề Tối)](images/03-workspace.png)
 
 ![Cùng Workspace ở chủ đề Sáng](images/light-03-workspace.png)
 
-### 6.1. Các vùng trong Workspace
+### 6.1. Bố cục phân vùng Workspace
 
-| Vùng | Chức năng |
-|---|---|
-| **Cột Case** (trái) | Danh sách case của suite, ô tìm kiếm, nút `+ Case mới`; mỗi dòng có nút ▶ để chạy riêng case |
-| **Thanh hành động** (trên) | `Quay lại`, `Case: <tên>`, URL bắt đầu, `Ghi hình`, `Chạy case`, `Chạy suite`, `AI Hỗ trợ`, `Lưu code`, `Xuất Excel`, `Chia đôi`, tuỳ chọn `Dừng khi lỗi` / `Chung context` |
-| **Code editor** (giữa) | Kịch bản Java Playwright của case đang chọn; nhãn `● Chưa lưu` cảnh báo thay đổi chưa ghi đĩa |
-| **Danh mục Asserts** (phải) | Assertion của case, ô `Tìm assert…`, lọc theo nhóm, nút `+ Quản lý Asserts` |
-| **Terminal** (dưới, tự hiện) | Log của lượt ghi hình/chạy; nút `Xóa log`, `Ẩn` |
+1. **Cột danh sách Case (Trái)**: Liệt kê các case trong suite hiện tại, ô tìm kiếm nhanh, nút `+ Case mới` và nút `▶` chạy riêng từng case.
+2. **Thanh tác vụ tập trung (Top Action Bar)**: Gồm tiêu đề Case, nhãn trạng thái, ô URL bắt đầu, `[🔴 Ghi hình]`, `[▶ Chạy case]`, `[▶ Chạy suite]`, `[✨ AI Hỗ trợ]`, `[💾 Lưu code]`, `[Xuất Excel]`, nút bố cục `[Chia đôi]` và tùy chọn `Dừng khi lỗi` / `Chung context`.
+3. **Trình soạn thảo mã (Center Code Editor)**: Soạn thảo mã Java Playwright với đánh dấu cú pháp; nhãn cảnh báo `● Chưa lưu` xuất hiện khi có chỉnh sửa.
+4. **Cột quản lý Assertions (Phải)**: Danh sách kiểm tra của case, bộ lọc 8 danh mục và nút `+ Quản lý Asserts`.
+5. **Cửa sổ Terminal (Dưới cùng)**: Tự động trượt lên khi ghi hình hoặc chạy test để hiển thị stdout/stderr thời gian thực.
 
-Khi chưa chọn case, Workspace hiện **Thông tin Suite**: tên, bộ đổi trạng thái, thống kê `Case / Sẵn sàng / Có thể chạy`, mô tả và nút `+ Case mới`.
+### 6.2. Quy trình Ghi hình kịch bản (Playwright Codegen)
 
-### 6.2. Ghi hình một case
+1. Chọn ca kiểm thử cần ghi hình ở cột trái.
+2. Nhập URL trang web đích vào ô URL (ví dụ: `https://example.com/login`).
+3. Bấm nút **🔴 Ghi hình** → Playwright Codegen kích hoạt mở trình duyệt sạch (Chromium/Firefox/WebKit).
+4. Thực hiện các thao tác người dùng (nhập liệu, click chuột, chọn dropdown, cuộn trang).
+5. **Đóng cửa sổ trình duyệt** → Kịch bản tương tác được tự động chuyển đổi thành mã Java Playwright chuẩn mực và ghi xuống file `.java`.
+6. Hộp thoại **Assertion Builder** tự động mở ra để bạn thiết lập tiêu chí Pass/Fail.
 
-1. Chọn case ở cột trái (case phải có **URL bắt đầu**).
-2. Kiểm tra/điền URL trong ô `https://example.com — dùng khi ghi hình / chạy`.
-3. Bấm **🔴 Ghi hình** → Playwright Codegen mở trình duyệt (Chromium mặc định, hoặc trình duyệt cấu hình cho case/suite).
-4. Thao tác trên trình duyệt như người dùng thật.
-5. **Đóng trình duyệt** → kịch bản được sinh và lưu vào file `.java` của case.
-6. Assertion Builder mở tự động để bạn thêm điều kiện kiểm tra.
+### 6.3. Bốn cấp độ thực thi kiểm thử
 
-> Trong lúc ghi, thanh trạng thái hiện `Đang ghi hình…`. Cần Node.js + Playwright CLI ở bản dev; bản portable đã kèm sẵn.
-
-### 6.3. Sửa kịch bản
-
-- Gõ trực tiếp vào editor, nhãn `● Chưa lưu` xuất hiện khi nội dung khác bản trên đĩa.
-- Bấm **💾 Lưu code** để ghi xuống file. Rời case khi còn thay đổi → ứng dụng hỏi xác nhận.
-- **Chia đôi** bố trí Code và Asserts cạnh nhau; **Toàn màn hình Code** gộp lại một cột.
-
-### 6.4. Chạy test
-
-| Phạm vi | Cách vào | Đặc điểm |
+| Cấp độ | Vị trí kích hoạt | Phạm vi thực thi |
 |---|---|---|
-| **Case** | `▶ Chạy case` trong Workspace hoặc ▶ trên dòng case | Chạy một case |
-| **Suite** | `▶ Chạy suite` trong Workspace | Mọi case *Ready* của suite |
-| **Nhóm** | Chuột phải vào Nhóm ở Explorer → `Chạy` | Đệ quy xuống các Suite |
-| **Toàn dự án** | Nút `Chạy tất cả` ở thanh bên | Mọi case *Ready* trong dự án |
+| **Chạy Case** | Nút `▶ Chạy case` trong Workspace hoặc biểu tượng `▶` trên dòng | Chạy duy nhất một kịch bản đang chọn |
+| **Chạy Suite** | Nút `▶ Chạy suite` trong Workspace | Chạy toàn bộ các case có trạng thái `Ready` trong Suite |
+| **Chạy Nhóm** | Chuột phải vào Nhóm trong Explorer → Chọn `Chạy` | Quét đệ quy và chạy mọi Suite `ACTIVE` trực thuộc |
+| **Chạy Toàn bộ** | Nút `Chạy tất cả` màu tím tại thanh điều hướng bên trái | Chạy toàn bộ các case hợp lệ trong toàn bộ dự án |
 
-Tuỳ chọn chạy:
-
-- **Dừng khi lỗi** — dừng lượt chạy ngay khi gặp case FAILED đầu tiên.
-- **Chung context** — bật (mặc định): cả lượt chạy dùng **một BrowserContext**, nên cookie, `localStorage` và phiên đăng nhập được giữ qua các case. Tắt để chạy mỗi case trong context sạch.
-
-Trong lúc chạy: thanh trạng thái hiện `Đang chạy…`, nút **⏹ Dừng** xuất hiện để huỷ lượt chạy, terminal hiển thị log từng bước. **Khi lượt chạy kết thúc, ứng dụng tự mở trang Báo cáo chi tiết** của lượt đó.
-
-**Điều kiện chạy:** Suite phải `ACTIVE`, case phải `Ready`, và phải có ít nhất một assertion `ACTIVE`. Mục không đạt điều kiện bị bỏ qua kèm lý do trong report.
-
-### 6.5. Xuất danh sách case
-
-Nút **Xuất Excel** trong Workspace xuất danh sách case của suite hiện tại (kèm bước và assertion) ra file `.xlsx`.
-
-### 6.6. Động cơ Tự phục hồi Playwright Tối ưu (Optimized Self-Healing Engine)
-
-Trong kiểm thử E2E, selector phần tử web rất dễ bị gãy do ID sinh động (`#btn-submit-89312`), hash class thay đổi sau mỗi lần build Webpack/Vite (`.button__3x9a`), hoặc cấu trúc phân cấp DOM thay đổi nhẹ.
-
-Test Studio tích hợp động cơ tự phục hồi thông minh `OptimizedSelfHealingExecutor`:
-- **Fast-path Execution**: Khi selector gốc vẫn tìm thấy phần tử, Playwright thực thi ngay lập tức mà không phát sinh bất kỳ độ trễ hay chi phí tính toán nào.
-- **Đa chiến lược Heuristic tức thời (<30ms)**: Khi locator gặp lỗi `PlaywrightException`:
-  1. *Lọc bỏ ID động*: Chuyển `#input-username-9821` thành `[id^='input-username']`.
-  2. *Chuẩn hóa văn bản*: Tìm kiếm text mờ không phân biệt hoa thường và loại bỏ khoảng trắng thừa.
-  3. *Ánh xạ vai trò ARIA & Thuộc tính ngữ nghĩa*: Tìm theo `data-testid`, `aria-label`, placeholder, role (`button`, `textbox`).
-- **Bộ bọc trong suốt `HealedLocatorWrapper`**: Bọc Playwright Locator trong suốt, tự động phục hồi và phát sự kiện `HealedEvent` để ghi nhận selector thay thế vào kết quả chạy và nhật ký.
-- **Bộ nhớ đệm tự phục hồi (Self-Healing Cache)**: Lưu lại selector đã vá thành công kèm thời gian sống (TTL), giúp các bước kiểm thử kế tiếp trong phiên chạy tái sử dụng ngay tức thì (<1ms).
+> [!NOTE]
+> **Cơ chế Chia sẻ Ngữ cảnh (Shared Context)**: Khi bật tùy chọn *Chung context* (mặc định), toàn bộ các case trong một lượt chạy sẽ dùng chung một `BrowserContext`. Nhờ đó, phiên đăng nhập, JWT token, cookie và session storage được bảo toàn xuyên suốt các bước kiểm thử kế tiếp. Khi cần kiểm tra tính độc lập tuyệt đối, hãy tắt tùy chọn này.
 
 ---
 
-## 7. Assertion Builder — 46 loại kiểm tra
+## 7. Động cơ tự phục hồi locator (Optimized Self-Healing)
 
-Mở bằng nút **+ Quản lý Asserts** trong Workspace (chọn case trước).
+Trong kiểm thử tự động E2E, selector của phần tử giao diện thường xuyên bị gãy hỏng do:
+- ID sinh ngẫu nhiên từ framework: `#btn-submit-a931c8`
+- Hash class thay đổi sau mỗi lần build Webpack/Vite: `.btn_submit__2zKq1`
+- Thay đổi cấu trúc lồng nhau trong cây DOM
 
-![Assertion Builder — danh sách assertion của case (chủ đề Tối)](images/04-assert-builder.png)
+```mermaid
+flowchart TD
+    A["Thực thi Locator"] --> B{"Fast-Path:<br/>Phần tử hợp lệ?"}
+    B -- Có (0ms overhead) --> C["Thực hiện thao tác Playwright"]
+    B -- Không (Lỗi PlaywrightException) --> D{"Bộ nhớ đệm Cache:<br/>Có chiến lược còn hạn (TTL)?"}
+    D -- Có Hit (<1ms) --> E["Áp dụng Locator từ Cache"]
+    D -- Không Miss --> F["Kích hoạt Heuristic Recovery (<30ms)"]
+    F --> G["1. Bóc tách ID động & Regex Clean"]
+    F --> H["2. Chuẩn hóa Text & So khớp mờ"]
+    F --> I["3. Ánh xạ ARIA Role, data-testid, placeholder"]
+    G & H & I --> J{"Tìm thấy phần tử thay thế?"}
+    J -- Thành công --> K["1. Ghi nhận Cache<br/>2. Phát HealedEvent<br/>3. Tiếp tục chạy không đứt quãng"]
+    J -- Thất bại --> L["Báo lỗi LocatorNotFound chuẩn hóa"]
+```
 
-![Assertion Builder ở chủ đề Sáng](images/light-04-assert-builder.png)
+### Các thành phần cốt lõi của Động cơ
 
-> Ảnh chụp cho thấy đủ các thành phần: tiêu đề, ô tìm, danh sách assertion (kèm nút **Xóa**), hàng thêm mới (Loại / Giá trị / Trạng thái / Thêm), hàng Locator, tuỳ chọn *Khớp chính xác* + *Timeout*, và nút `Đóng` / `Lưu Assertions`.
+1. **Đường truyền siêu tốc (Fast-Path Zero-Overhead Execution)**: Khi locator gốc vẫn hoạt động bình thường, Playwright thực thi ngay lập tức mà không tiêu tốn bất kỳ chu kỳ CPU nào cho bộ giải thuật.
+2. **Thuật toán Heuristic đa chiến lược (<30ms)**:
+   - *Lọc bỏ ID động*: Chuyển đổi selector `#login-btn-98214` thành `[id^='login-btn']`.
+   - *Chuẩn hóa văn bản*: Loại bỏ khoảng trắng thừa, so khớp chữ hoa/thường không phân biệt (`text="Đăng nhập"`).
+   - *Ánh xạ thuộc tính ngữ nghĩa*: Tự động dò tìm qua `data-testid`, `data-qa`, `aria-label`, `placeholder`, `title` và ARIA role (`button`, `textbox`, `link`).
+3. **Bộ bọc trong suốt `HealedLocatorWrapper`**: Bọc đối tượng `Locator` của Playwright, tự động chuyển đổi locator bị lỗi sang selector mới, đồng thời phát sự kiện `HealedEvent` để ghi nhận vào báo cáo chạy và nhật ký kiểm thử.
+4. **Bộ nhớ đệm tự phục hồi (Self-Healing Strategy Cache)**: Lưu giữ các selector đã vá thành công kèm thời gian sống (TTL), giúp các bước kiểm thử lặp lại kế tiếp đạt tốc độ phục hồi tức thời (<1ms).
 
-### 7.1. Thành phần
+---
 
-| Trường | Ý nghĩa |
+## 8. Assertion Builder — Catalog 46 loại kiểm tra
+
+Mở bằng nút **+ Quản lý Asserts** trong Workspace khi đang chọn một case.
+
+| Assertion Builder (Tối) | Assertion Builder (Sáng) |
 |---|---|
-| Ô tìm | Lọc danh sách theo loại, giá trị, locator |
-| **Loại kiểm tra** | Một trong 46 loại (bảng 7.2), hiển thị bằng nhãn tiếng Việt |
-| **Giá trị / text cần kiểm tra** | Văn bản mong đợi, số lượng, hoặc biểu thức tuỳ loại |
-| **Trạng thái** | `ACTIVE` (chạy) · `DRAFT` (nháp, không chạy) · `INACTIVE` (tắt) |
-| **Locator** | Selector Playwright — `#submit`, `.btn-login`, `text=Đăng nhập`, `role=button[name="Lưu"]` |
-| **Khớp chính xác** | So khớp nguyên văn thay vì "chứa" |
-| **Timeout** | Giờ chờ tối đa cho assertion (ms) |
+| ![Assertion Builder — danh sách assertion của case (chủ đề Tối)](images/04-assert-builder.png) | ![Assertion Builder ở chủ đề Sáng](images/light-04-assert-builder.png) |
 
-Nhấn **Thêm** để đưa assertion vào danh sách (chọn một dòng để sửa lại), **Lưu Assertions** để ghi xuống `suite.json`, **Đóng** (hoặc `Esc`) để thoát — có cảnh báo khi còn thay đổi chưa lưu. **Kéo-thả** trong danh sách để đổi thứ tự thực thi.
+### 8.1. Các thông số kiểm tra
 
-> Assertion nhóm `ELEMENT_*`, `TABLE_*`, `INPUT_*`, `SELECT_*`, `ATTRIBUTE_EQUALS`… **bắt buộc** có Locator. Locator do bạn nhập tay (CSS / `text=` / `role=`), không tự lấy từ bước ghi hình.
+- **Loại kiểm tra**: Chọn trong danh mục 46 loại hỗ trợ.
+- **Giá trị kỳ vọng (Expected Value)**: Nội dung văn bản, số đếm phần tử, hoặc giá trị thuộc tính cần đối soát.
+- **Trạng thái**:
+  - `ACTIVE`: Có hiệu lực và được đối soát khi chạy.
+  - `DRAFT`: Bản nháp, tạm thời bỏ qua.
+  - `INACTIVE`: Tắt kích hoạt.
+- **Locator (Selector)**: Bắt buộc đối với các kiểm tra phần tử (`#id`, `.class`, `text=...`, `role=button[name="..."]`).
+- **Khớp chính xác (Exact Match)**: So khớp từng ký tự thay vì chứa văn bản.
+- **Thời gian chờ (Timeout ms)**: Thời gian chờ tối đa cho điều kiện assertion (mặc định 30,000ms).
 
-### 7.2. Danh mục 46 loại
+### 8.2. Danh mục 46 loại Assertions theo 8 nhóm nghiệp vụ
 
-| Nhóm | Loại (mã) |
+| Nhóm | Danh sách các loại kiểm tra |
 |---|---|
-| **Văn bản** | `TEXT_VISIBLE`, `TEXT_NOT_VISIBLE`, `TEXT_EXACT`, `HEADING_VISIBLE`, `PAGE_HAS_TEXT` |
+| **Văn bản (Text)** | `TEXT_VISIBLE`, `TEXT_NOT_VISIBLE`, `TEXT_EXACT`, `HEADING_VISIBLE`, `PAGE_HAS_TEXT` |
 | **Tiêu đề & URL** | `TITLE_CONTAINS`, `TITLE_EQUALS`, `URL_CONTAINS`, `URL_EQUALS`, `URL_MATCHES` |
-| **Phần tử** | `ELEMENT_VISIBLE`, `ELEMENT_HIDDEN`, `ELEMENT_ENABLED`, `ELEMENT_DISABLED`, `ELEMENT_EDITABLE`, `ELEMENT_CHECKED`, `ELEMENT_UNCHECKED`, `ELEMENT_COUNT`, `ELEMENT_HAS_TEXT`, `ELEMENT_HAS_VALUE`, `ATTRIBUTE_EQUALS`, `CSS_CONTAINS`, `LINK_HREF_CONTAINS` |
-| **Ảnh & media** | `IMAGE_VISIBLE`, `IMAGE_COUNT`, `VIDEO_VISIBLE`, `AUDIO_VISIBLE` |
-| **File & tải xuống** | `FILE_DOWNLOADED`, `FILE_NAMED`, `FILE_EXTENSION` |
-| **Bảng** | `TABLE_HAS_TEXT`, `TABLE_ROW_COUNT`, `TABLE_CELL_EQUALS`, `TABLE_HEADER_CONTAINS` |
-| **Form & nhập liệu** | `INPUT_VALUE_EQUALS`, `INPUT_VALUE_CONTAINS`, `PLACEHOLDER_EQUALS`, `SELECT_HAS_OPTION`, `FORM_VALID`, `FORM_INVALID` |
-| **Trang & lưu trữ** | `NO_CONSOLE_ERROR`, `COOKIE_EXISTS`, `LOCAL_STORAGE_EQUALS`, `SESSION_STORAGE_EQUALS` |
-| **Tuỳ chỉnh** | `CUSTOM`, `CUSTOM_JS` |
+| **Phần tử DOM (Element)** | `ELEMENT_VISIBLE`, `ELEMENT_HIDDEN`, `ELEMENT_ENABLED`, `ELEMENT_DISABLED`, `ELEMENT_EDITABLE`, `ELEMENT_CHECKED`, `ELEMENT_UNCHECKED`, `ELEMENT_COUNT`, `ELEMENT_HAS_TEXT`, `ELEMENT_HAS_VALUE`, `ATTRIBUTE_EQUALS`, `CSS_CONTAINS`, `LINK_HREF_CONTAINS` |
+| **Hình ảnh & Media** | `IMAGE_VISIBLE`, `IMAGE_COUNT`, `VIDEO_VISIBLE`, `AUDIO_VISIBLE` |
+| **Tập tin & Tải xuống** | `FILE_DOWNLOADED`, `FILE_NAMED`, `FILE_EXTENSION` |
+| **Bảng dữ liệu (Table)** | `TABLE_HAS_TEXT`, `TABLE_ROW_COUNT`, `TABLE_CELL_EQUALS`, `TABLE_HEADER_CONTAINS` |
+| **Biểu mẫu & Nhập liệu (Form)** | `INPUT_VALUE_EQUALS`, `INPUT_VALUE_CONTAINS`, `PLACEHOLDER_EQUALS`, `SELECT_HAS_OPTION`, `FORM_VALID`, `FORM_INVALID` |
+| **Trang thái & Bộ nhớ** | `NO_CONSOLE_ERROR`, `COOKIE_EXISTS`, `LOCAL_STORAGE_EQUALS`, `SESSION_STORAGE_EQUALS` |
+| **Tùy biến (Custom)** | `CUSTOM`, `CUSTOM_JS` |
 
-### 7.3. Danh mục Asserts trong Workspace
+### 8.3. Cơ chế Khẳng định mềm & Đối soát Runtime (Soft-Assert Reconciliation)
 
-Cột phải lọc theo 8 nhóm: `Văn bản`, `Phần tử`, `URL`, `Tiêu đề`, `Bảng`, `Form`, `Lưu trữ`, `Tuỳ chỉnh`. Mỗi dòng hiển thị nhãn loại + giá trị rút gọn + locator kèm chấm trạng thái (🟢 hoạt động / 🟡 nháp / ⚪ ngừng).
-
-### 7.4. Soft-assert & Điểm số bao phủ
-
-Trong một case, **mọi assertion ACTIVE đều được thực thi** dù có assertion trước đó thất bại. Kết quả từng assertion (đạt / sai / bỏ qua kèm lý do) được ghi nhận chi tiết; case chỉ PASSED khi tất cả assertion ACTIVE đều đạt.
-
-### 7.5. Đối soát kết quả runtime (Reconciliation)
-
-Tầng kiểm thử `StudioAssertions` và `StudioRuntime` thực hiện:
-- Biên dịch 46 loại assertion từ giao diện thành mã kiểm tra Java native thông qua `AssertCodeGenerator`.
-- Tự động đối soát (Reconciliation) giữa các điều kiện assertion định nghĩa trong `suite.json` với dữ liệu thực tế thu được trong quá trình chạy.
-- Ghi nhận trạng thái chính xác (`PASSED`, `FAILED`, `SKIPPED`) và giá trị thực tế/kỳ vọng vào mô hình `AssertResult` để hiển thị trực tiếp trên báo cáo lượt chạy.
+- **Soft Assertion**: Trong một case, sự thất bại của một assertion không làm ngắt ngang các assertion tiếp theo. Toàn bộ các assertion `ACTIVE` đều được thực thi để đưa ra bức tranh toàn cảnh về chất lượng phần mềm.
+- **Đối soát tự động (Reconciliation Engine)**: Tầng `StudioAssertions` tự động so khớp giá trị thực tế nhận được từ trình duyệt với giá trị kỳ vọng trong `suite.json` và phân loại kết quả: `PASSED`, `FAILED` hoặc `SKIPPED`.
 
 ---
 
-## 8. Báo cáo, bằng chứng và xuất file
+## 9. Báo cáo, Bằng chứng & Phân loại lỗi chuẩn hóa
 
-### 8.1. Danh sách báo cáo
+### 9.1. Lịch sử lượt chạy kiểm thử
 
-Mở bằng `Báo cáo` ở thanh bên.
+Bấm vào mục **Báo cáo (Reports)** ở thanh điều hướng bên trái để theo dõi lịch sử.
 
 ![Trang Báo cáo — lịch sử các lượt chạy (chủ đề Tối)](images/05-reports.png)
 
 ![Trang Báo cáo ở chủ đề Sáng](images/light-05-reports.png)
 
-Cột: **Mã chạy**, **Phạm vi** (Case / Suite / Group / All), **Mục tiêu**, **Kết quả** (`x Đạt · y Lỗi · z Bỏ qua`), **Thời gian**, **Trình duyệt**, **Bắt đầu**, **Thao tác** (`Mở`, `Html`, `Excel`, `Xóa`). Bộ lọc phía trên: phạm vi, kết quả, suite; nút `Làm mới`.
+Bảng quản lý gồm các cột: **Mã chạy**, **Phạm vi** (`Case` / `Suite` / `Group` / `All`), **Mục tiêu**, **Kết quả** (số lượng Đạt / Lỗi / Bỏ qua), **Thời lượng**, **Trình duyệt**, **Thời điểm bắt đầu** và các nút thao tác nhanh (`Mở`, `Html`, `Excel`, `Xóa`).
 
-### 8.2. Chi tiết lượt chạy
+### 9.2. Chi tiết kết quả & Bằng chứng chụp màn hình
 
 ![Chi tiết báo cáo (chủ đề Tối)](images/08-report-detail.png)
 
 ![Chi tiết báo cáo ở chủ đề Sáng](images/light-08-report-detail.png)
 
-- **Tổng quan** kèm `Xuất HTML`, `Xuất Excel`, `Xóa báo cáo`, `Quay lại`; bộ lọc trạng thái.
-- Bảng **Case**: tên, suite, trạng thái, thời gian, cột **Bằng chứng** (mở ảnh chụp), lý do lỗi.
-- Chi tiết **assertion** theo từng case: đạt/sai/bỏ qua, giá trị mong đợi và giá trị thực tế.
-- **Ảnh bằng chứng**: mỗi case đã chạy đều có ảnh `PASSED` hoặc `FAILED`, lưu ở `data/reports/<mã chạy>/screenshots/`. Mở ảnh bằng **trình xem bằng chứng** toàn màn hình (có phóng to và nút mở bằng ứng dụng ngoài).
+- **Thẻ tóm tắt KPI**: Tỷ lệ Pass Rate, thời gian thực thi, tổng số assertions.
+- **Bảng kết quả ca kiểm thử**: Tên case, trạng thái, thời gian chạy, nút xem bằng chứng và lý do lỗi.
+- **Trình xem bằng chứng độ nét cao (Evidence Viewer)**: Mỗi case khi chạy xong đều tự động lưu ảnh chụp màn hình (`PASSED` hoặc `FAILED`) tại thư mục `data/reports/<run-id>/screenshots/`. Người dùng có thể nhấp vào để phóng to toàn màn hình, kiểm tra chi tiết lỗi và mở nhanh bằng công cụ ngoài hệ điều hành.
 
-### 8.3. Xuất báo cáo
+### 9.3. Xuất báo cáo độc lập (HTML & Excel ISTQB)
 
-| Định dạng | Nội dung |
-|---|---|
-| **HTML** | Một file tự chứa, ảnh nhúng Base64, bộ lọc đạt/sai tương tác, thẻ KPI, chi tiết assertion — gửi/nhận offline được |
-| **Excel** | Workbook 3 sheet: `Summary`, `Cases`, `Asserts` |
+| Định dạng | Đặc điểm kỹ thuật | Mục đích sử dụng |
+|---|---|---|
+| **HTML Độc lập** | Tự chứa hoàn toàn (Self-contained), nhúng toàn bộ ảnh chụp bằng chuẩn **Base64 Data URI**, tích hợp bộ lọc tương tác Pass/Fail/Skip và thẻ tóm tắt KPI. | Gửi email báo cáo nghiệm thu, đính kèm Jira/GitLab, xem ngoại tuyến không cần internet. |
+| **Excel Báo cáo** | Định dạng `.xlsx` gồm 3 sheet chuẩn mực: `Summary` (Tổng quan), `Cases` (Danh sách ca kiểm thử), `Asserts` (Chi tiết từng điều kiện đối soát). Hỗ trợ xuất song ngữ Anh/Việt. | Bàn giao cho khách hàng, lưu trữ hồ sơ QA kiểm toán theo chuẩn ISTQB/IEEE 829. |
 
-File xuất mặc định nằm trong `data/exports/`; hộp thoại lưu cho phép chọn nơi khác. Báo cáo Excel có thể chọn **ngôn ngữ** (Việt / Anh) trước khi xuất.
+### 9.4. Chuẩn đoán lỗi có cấu trúc & Các bước tái hiện
 
-### 8.4. Chuẩn đoán lỗi có cấu trúc & Các bước tái hiện
+Nhằm phục vụ tốt nhất cho QA và lập trình viên, báo cáo Test Studio loại bỏ toàn bộ stack trace Java khó hiểu và thay thế bằng phân loại lỗi chuẩn hóa:
 
-Báo cáo kiểm thử tự động loại bỏ stack trace kỹ thuật thô và thay thế bằng các thông tin trực quan:
-- **Phân loại lỗi chuẩn hóa**:
-  - `LocatorNotFound`: Không tìm thấy phần tử giao diện sau khi đã kích hoạt toàn bộ chiến lược tự phục hồi.
-  - `Timeout`: Thao tác vượt quá ngưỡng thời gian chờ cấu hình.
-  - `AssertionFailure`: Điều kiện khẳng định không thỏa mãn (ví dụ: văn bản không khớp, giá trị sai lệch).
-  - `NavigationError` / `NetworkError`: Lỗi kết nối mạng, tải trang thất bại hoặc mã phản hồi HTTP lỗi.
-- **Các bước tái hiện (Reproduction Steps)**: Tự động tổng hợp chuỗi thao tác dẫn đến thời điểm lỗi, giúp lập trình viên và QA tái hiện sự cố nhanh chóng.
-- **Báo cáo đa định dạng**: Toàn bộ thông tin lỗi cấu trúc và bằng chứng ảnh chụp được tích hợp hoàn chỉnh trên cả file HTML độc lập và file Excel ISTQB.
+```
+❌ Lỗi kiểm thử: LocatorNotFound
+📍 Phần tử gây lỗi: #btn-confirm-checkout
+🕒 Thời gian chờ: 30000ms vượt ngưỡng (Timeout)
+📋 Các bước tái hiện sự cố:
+   1. Mở trang https://shop.example.com/cart
+   2. Bấm vào nút "Thanh toán ngay" (role=button[name="Thanh toán ngay"])
+   3. Điền thông tin giao hàng "Nguyen Van A"
+   4. Tìm kiếm nút xác nhận đơn hàng "#btn-confirm-checkout" (Không tìm thấy trên DOM)
+```
+
+- Các nhóm lỗi chuẩn hóa:
+  - `LocatorNotFound`: Không tìm thấy phần tử trên giao diện sau khi đã kích hoạt mọi chiến lược tự phục hồi.
+  - `Timeout`: Vượt quá thời gian chờ đợi trang tải hoặc sự kiện mạng.
+  - `AssertionFailure`: Điều kiện khẳng định không thỏa mãn (sai lệch giá trị, text không khớp).
+  - `NavigationError` / `NetworkError`: Trang web không thể truy cập, đứt kết nối hoặc HTTP status 5xx.
 
 ---
 
-## 9. Trợ lý AI
+## 10. Trợ lý AI, Thẻ làm rõ & Cố vấn dự án đàm thoại
 
-Mở bằng `Trợ lý AI` ở thanh bên.
+Mở bằng mục **Trợ lý AI (AI Assistant)** trên thanh bên trái.
 
 ![Trang Trợ lý AI (chủ đề Tối)](images/06-ai-assistant.png)
 
 ![Trang Trợ lý AI ở chủ đề Sáng](images/light-06-ai-assistant.png)
 
-### 9.1. Bố cục
+### 10.1. Thẻ tương tác làm rõ yêu cầu (Interactive Clarification Cards)
 
-- **Cột trái — hội thoại**: *Chế độ kỹ năng*, **Đích lưu** (`Nhóm` + `Suite`, nút `Làm mới`), khung hội thoại có nút *Sao chép* / *Hoàn tác*, ô nhập yêu cầu, nút `+ Đính kèm`, `Quét Live DOM`, `▶ Gửi (Enter)` và các gợi ý nhanh (*Test Case Biên*, *Playwright E2E*, *RCA Sâu Lỗi*, *Fuzzing Bảo Mật*).
-- **Cột phải — kết quả**: các tab `Các bước kiểm thử`, `Playwright Java Script`, `Assertions`, `Dữ liệu kiểm thử`, `Phản hồi` và nút **Nhập vào Suite**.
-- **Chỉ số token** (góc trên): `Tokens: x/4.000 (Prompt: y)` và mô hình đang dùng; nút `Cấu hình AI`, `Xóa chat`.
+Khi người dùng nhập yêu cầu kiểm thử quá ngắn hoặc mơ hồ (ví dụ: *"test chức năng đăng nhập"*), hệ thống tự động kích hoạt **Bộ phân tích độ mơ hồ (Ambiguity Analyzer)**:
 
-### 9.2. Quy trình sinh test case
+```mermaid
+sequenceDiagram
+    actor User as Kiểm thử viên (User)
+    participant Chat as AI Assistant Chat
+    participant Analyzer as Ambiguity Analyzer
+    participant Card as Clarification Card UI
+    participant Gen as Agency-Agents Generator
 
-1. Mở **Cài đặt** → tab AI, nhập API key, endpoint và mô hình (mục [10.2](#102-cấu-hình-ai)).
-2. Ở Trợ lý AI, chọn nơi lưu case, mô tả kịch bản cần kiểm thử.
-3. (Tuỳ chọn) Đính kèm tài liệu nghiệp vụ hoặc ảnh mockup — hỗ trợ `.txt`, `.md`, `.json`, `.csv`, `.docx`, `.pdf`, `.png`, `.jpg`.
-4. Gửi yêu cầu (`Enter` hoặc `Ctrl/Cmd + Enter`).
-5. Xem trước các tab kết quả, chỉnh nếu cần, rồi bấm **Nhập vào Suite** để tạo case và kịch bản.
+    User->>Chat: "Test chức năng đăng nhập"
+    Chat->>Analyzer: Phân tích độ đầy đủ của prompt
+    Analyzer-->>Chat: Phát hiện mơ hồ (thiếu scope, tài khoản, assertion)
+    Chat->>Card: Hiển thị Thẻ làm rõ với các chip tùy chọn
+    Note over Card: 1. Phạm vi: Happy Path / Sai mật khẩu / Khóa tài khoản<br/>2. Quyền: Admin / User / Guest<br/>3. Tiêu chí: Text chào mừng / Chuyển hướng URL
+    User->>Card: Nhấp chọn chip + Nhập ghi chú bổ sung
+    Card->>Gen: Tăng cường câu lệnh (Prompt Augmentation)
+    Gen-->>Chat: Trả về bộ Test Cases chuẩn hóa + Kịch bản Playwright hoàn chỉnh
+```
 
-### 9.3. Hộp thoại Sinh Test Case Trực quan (AiCasePromptDialog)
+- **Thẻ lựa chọn trực quan**: Cung cấp các chip bấm chọn một chạm cho:
+  - *Phạm vi kịch bản*: Luồng chính (Happy Path), Kiểm tra dữ liệu sai (Negative), Giá trị biên (BVA).
+  - *Tiền đề kiểm thử*: Loại tài khoản, quyền hạn, dữ liệu chuẩn bị sẵn.
+  - *Tiêu chí xác minh*: Xác minh thông báo, xác minh URL điều hướng, kiểm tra phần tử xuất hiện.
+- **Tăng cường câu lệnh (Prompt Augmentation)**: Tự động tổng hợp các lựa chọn thành đặc tả nghiệp vụ chi tiết theo chuẩn chuyên gia Agency-Agents.
 
-Bấm nút **✨ AI Hỗ trợ** trong thanh hành động Workspace (hoặc tạo ca kiểm thử mới từ prompt) để mở hộp thoại `AiCasePromptDialog`:
-- Nhập mô tả kịch bản kiểm thử bằng ngôn ngữ tự nhiên (tiếng Việt hoặc tiếng Anh).
-- Tùy chọn đội ngũ chuyên gia AI chuyên sâu (Agency-Agents Roster) phù hợp với mục tiêu kiểm thử:
-  - 🎭 **QA Architect**: Thiết kế kịch bản chuẩn Playwright E2E, bao quát luồng nghiệp vụ chính (Happy Path).
-  - 🛡️ **Security Specialist**: Kiểm thử bảo mật giao diện, form injection, phân quyền, dữ liệu nhạy cảm.
-  - 🔬 **Edge-case Analyst**: Tìm kiếm các trường hợp biên, giá trị cực đại/cực tiểu, luồng hủy ngang và dữ liệu lỗi.
-  - 📊 **Test Data Engineer**: Xây dựng ma trận bộ dữ liệu kiểm thử (Test Data Schema) đa dạng.
-- **Bộ phân tích phản hồi 3 tầng siêu bền bỉ (3-Tier Robust Parser)**:
-  - *Tier 1*: Phân tích cấu trúc JSON chuẩn.
-  - *Tier 2*: Tự động bóc tách từ khối Markdown code block / fenced block.
-  - *Tier 3*: Tự vá lỗi bằng biểu thức chính quy (Regex Repair) khi model trả về định dạng khiếm khuyết.
-- Tự động sinh trọn bộ: Mã Playwright Java chạy được ngay + Ma trận dữ liệu mẫu + Danh sách bước NLP tương ứng.
+### 10.2. Trợ lý đàm thoại & Cố vấn chất lượng dự án (Conversational Project Advisor)
 
-### 9.4. Quét Live DOM
+Trợ lý AI hỗ trợ chế độ hội thoại tư vấn kỹ thuật thông minh (`CHAT_ADVICE`):
+- **Tìm kiếm kịch bản toàn cục (`searchCases`)**: Tìm kiếm tức thì ca kiểm thử trên toàn bộ dự án dựa trên từ khóa tên, URL, bước thao tác hoặc mã lệnh Java.
+- **Đánh giá & Chấm điểm kịch bản (`evaluateCase`)**:
+  - Kiểm toán chất lượng kịch bản Playwright Java theo chuẩn Agency-Agents, xếp hạng từ **A đến D**.
+  - Phát hiện các mẫu code xấu (Anti-patterns) như gọi `Thread.sleep()` gây chậm trễ, selector mong manh, thiếu assertions hoặc thiếu xử lý chờ đợi bất đồng bộ.
+  - Cung cấp đoạn mã đã tái cấu trúc (refactored code) tối ưu chạy nhanh hơn.
+- **Phân tích khoảng trống kiểm thử (`analyzeSuiteGaps`)**: Đánh giá mức độ bao phủ của Test Suite, phát hiện các luồng kiểm thử quan trọng bị bỏ sót (như thiếu ca kiểm thử phân quyền, thiếu xác thực form dữ liệu rỗng, thiếu xử lý ngắt kết nối).
+- **Tư vấn kỹ thuật trực tiếp**: Trả lời mọi câu hỏi về kỹ thuật Playwright, chiến lược thiết kế kiểm thử tự động trực tiếp bằng Markdown thân thiện.
 
-Nút **Quét Live DOM** trích xuất cấu trúc trang đang chạy để AI chọn locator ổn định thay vì đoán theo ảnh.
+### 10.3. Đội ngũ chuyên gia AI chuyên sâu (Agency-Agents Roster)
 
-### 9.5. Bộ chuyển đổi tài liệu hybrid MarkItDown (Multi-Format Document Ingestion)
+Hộp thoại `AiCasePromptDialog` (nút **✨ AI Hỗ trợ** trên Workspace) cho phép chọn chuyên gia phù hợp:
+- 🎭 **QA Architect**: Thiết kế kịch bản chuẩn Playwright E2E, bao quát luồng nghiệp vụ chính.
+- 🛡️ **Security Specialist**: Tập trung phát hiện lỗ hổng XSS, Form Injection, phân quyền và dữ liệu nhạy cảm.
+- 🔬 **Edge-case Analyst**: Tìm kiếm các trường hợp biên cực đoan, lỗi chuỗi ký tự đặc biệt, ngắt kết nối giữa chừng.
+- 📊 **Test Data Engineer**: Xây dựng ma trận bộ dữ liệu kiểm thử (Test Data Schema) đa dạng.
 
-Trợ lý AI tích hợp bộ chuyển đổi tài liệu đa định dạng `MarkdownConverterEngine`:
-- Hỗ trợ nhập tài liệu đặc tả yêu cầu, tài liệu nghiệp vụ từ định dạng Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`), PowerPoint (`.pptx`), và HTML.
-- Tự động trích xuất và chuẩn hóa văn bản thành Markdown cấu trúc cao để đưa vào ngữ cảnh prompt AI mà không làm tràn giới hạn token.
+### 10.4. Quét Live DOM & Chuyển đổi tài liệu Hybrid MarkItDown
 
----
-
-## 10. Cài đặt, dọn dẹp dữ liệu & chủ đề
-
-### 10.1. Hộp thoại Cài đặt
-
-Mở bằng nút **Cài đặt** (⚙) ở góc trên phải — một hộp thoại dạng tab:
-
-- **Tab Chung**: trình duyệt mặc định, chế độ ẩn, chia sẻ context, dừng khi lỗi, xuất/nhập file cấu hình.
-- **Tab AI**: API key, Base URL, mô hình, temperature, nút **Kiểm tra kết nối** (đo độ trễ).
-
-### 10.2. Cấu hình AI
-
-| Trường | Ví dụ |
-|---|---|
-| API key | `sk-…` — lưu dạng mã hoá (`ApiKeyCipher`), có thể dùng biến môi trường `OPENAI_API_KEY` |
-| Base URL | `https://api.openai.com/v1` hoặc nhà cung cấp tương thích: OpenRouter, DeepSeek, Groq, Gemini, Ollama/LocalAI, Azure |
-| Model | Danh sách gợi ý tự đổi theo Base URL (`gpt-4o`, `deepseek-chat`, `llama3.2` khi chạy local…) |
-
-### 10.3. Dọn dẹp dữ liệu
-
-Nút **Dọn dẹp** mở hộp thoại quản lý dung lượng: xem dung lượng và xoá báo cáo cũ, ảnh bằng chứng, log, cache chỉ mục H2 — chỉ xoá khi bạn xác nhận.
-
-### 10.4. Chủ đề
-
-Nút **Sáng/Tối** đổi giao diện tức thời (không cần khởi động lại) và lưu lựa chọn. Hai stylesheet: `css/studio.css` (tối, Catppuccin Mocha) và `css/studio-light.css` (sáng); hộp thoại và popup cũng áp cùng chủ đề.
+- **Nút Quét Live DOM**: Trích xuất cấu trúc ngữ nghĩa của trang web đang mở để AI sinh ra các locator bền bỉ nhất dựa trên cây DOM thực tế.
+- **Trình nạp tài liệu MarkItDown Hybrid**: Hỗ trợ đính kèm trực tiếp tài liệu đặc tả yêu cầu dạng Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`), PowerPoint (`.pptx`), và HTML. Hệ thống tự động chuyển đổi sang định dạng Markdown rút gọn để làm ngữ cảnh chuẩn xác cho mô hình ngôn ngữ lớn mà không gây tràn token.
 
 ---
 
-## 11. Ngăn trợ giúp trong ứng dụng
+## 11. Cài đặt, Dọn dẹp dữ liệu & Quản lý chủ đề
 
-### 11.1. Tóm tắt thao tác nhanh
+Bấm nút **Cài đặt (⚙)** ở góc trên bên phải để mở bảng thiết lập:
 
-Nút **Trợ giúp** (❓) mở ngăn bên phải (khoảng 2/3 chiều rộng) — bản tóm tắt thao tác dùng ngay trong lúc làm việc:
+![Hộp thoại Cài đặt (chủ đề Tối)](images/10-settings.png)
+
+![Hộp thoại Cài đặt ở chủ đề Sáng](images/light-10-settings.png)
+
+### 11.1. Cấu hình Chung & Tùy chọn chạy
+
+- **Trình duyệt mặc định**: Chromium, Firefox, WebKit, Google Chrome, Microsoft Edge.
+- **Chế độ chạy ẩn (Headless)**: Tắt để quan sát trực tiếp trình duyệt, bật để tăng tốc độ chạy nền hoặc trên CI.
+- **Chia sẻ ngữ cảnh (Share Context)**: Duy trì phiên làm việc chung cho mọi ca kiểm thử trong một lượt chạy.
+- **Dừng khi lỗi đầu tiên (Stop on First Failure)**: Dừng ngay khi có ca kiểm thử thất bại để tiết kiệm thời gian gỡ lỗi.
+
+### 11.2. Cấu hình kết nối AI
+
+| Tham số | Giá trị đề xuất | Ghi chú bảo mật |
+|---|---|---|
+| **API Key** | `sk-...` | Được mã hóa an toàn bằng thuật toán **AES-256-GCM** gắn liền với phần cứng (`ApiKeyCipher`). Có thể dùng biến môi trường `OPENAI_API_KEY`. |
+| **Base URL** | `https://api.openai.com/v1` | Hỗ trợ endpoint tùy chỉnh: OpenRouter, DeepSeek, Azure OpenAI, Ollama, LocalAI. |
+| **Model** | `gpt-4o`, `gpt-4o-mini`, `o3-mini`, `deepseek-chat` | Tự động đồng bộ danh sách mô hình tương thích với nhà cung cấp. |
+| **Temperature** | `0.2` - `0.5` | Giá trị thấp giúp mã sinh ra chuẩn xác và tuân thủ cú pháp nghiêm ngặt. |
+
+### 11.3. Dọn dẹp dữ liệu & Quản lý dung lượng
+
+Nút **Dọn dẹp** giúp kiểm tra dung lượng ổ đĩa đang sử dụng và cho phép dọn dẹp có chọn lọc:
+- Xóa các báo cáo kiểm thử cũ quá hạn.
+- Xóa ảnh chụp bằng chứng không còn dùng.
+- Dọn dẹp tập tin nhật ký (`logs/`) và giải phóng cache chỉ mục H2 Database.
+
+---
+
+## 12. Ngăn trợ giúp & Trình xem tài liệu tích hợp
+
+### 12.1. Ngăn trợ giúp nhanh (Help Drawer)
+
+Nhấp nút **Trợ giúp (❓)** ở góc trên bên phải để mở ngăn hướng dẫn trượt từ cạnh phải màn hình:
 
 ![Ngăn trợ giúp bên phải (chủ đề Tối)](images/07-help-drawer.png)
 
 ![Ngăn trợ giúp ở chủ đề Sáng](images/light-07-help-drawer.png)
 
-Các mục: Giới thiệu · Thanh bên & thanh trên · Explorer · Workspace · Ghi hình · Chạy test · Assertion Builder · Báo cáo & xuất Excel · Mẹo nhanh. Bấm ra ngoài hoặc `✕` để đóng.
+Cung cấp tóm tắt các thao tác quan trọng nhất: khởi tạo dự án, phím tắt, quy trình ghi hình, chạy test và mẹo chọn assertion.
 
-### 11.2. Trình xem Hướng dẫn Sử dụng Tích hợp (In-App User Guide Viewer)
+### 12.2. Trình duyệt tài liệu tích hợp (In-App User Guide Viewer)
 
-Trong ngăn Trợ giúp (Help Drawer), bấm nút **"Xem toàn bộ hướng dẫn"** để mở trình duyệt cẩm nang người dùng:
-- Hiển thị toàn bộ hướng dẫn sử dụng Markdown ngay bên trong giao diện ứng dụng mà không cần mở trình duyệt web bên ngoài.
-- **Hỗ trợ song ngữ**: Chuyển đổi linh hoạt giữa Tiếng Việt và English.
-- **Mục lục điều hướng nhanh (TOC)**: Nhấp chuột vào bất kỳ đề mục nào để cuộn ngay đến phần tương ứng.
-- **Ảnh chụp giao diện theo chủ đề**: Toàn bộ ảnh chụp màn hình minh họa tự động hiển thị theo chủ đề Sáng hoặc Tối (Catppuccin Mocha) và được nhúng sẵn ngoại tuyến trong ứng dụng.
+Nhấp nút **"📖 Mở hướng dẫn đầy đủ (USER_GUIDE.md)"** trong ngăn trợ giúp để mở trình xem cẩm nang:
+- Đọc toàn bộ tài liệu hướng dẫn sử dụng Markdown trực tiếp ngay trong giao diện ứng dụng.
+- **Hỗ trợ song ngữ**: Chuyển đổi qua lại giữa tiếng Việt và tiếng Anh.
+- **Mục lục điều hướng nhanh (TOC)**: Nhấp vào từng đề mục để nhảy đến nội dung tương ứng.
+- **Ảnh chụp ngoại tuyến theo chủ đề**: Toàn bộ hình ảnh minh họa tự động thích ứng với chủ đề Sáng hoặc Tối hiện tại và được nhúng sẵn dưới dạng Base64 data URI, hiển thị mượt mà khi không có internet.
 
 ---
 
-## 12. Chạy trên dòng lệnh, đóng gói & tích hợp CI
+## 13. Đóng gói bộ cài đặt ngoại tuyến & Tích hợp CI/CD
 
-### 12.1. Đóng gói bộ cài đặt ngoại tuyến (Offline Installers)
+Test Studio cung cấp quy trình đóng gói đa nền tảng hoàn chỉnh, đóng gói sẵn JRE 26, Node.js LTS, Playwright CLI và Chromium ngoại tuyến:
 
-Ứng dụng hỗ trợ đóng gói đầy đủ JRE 26, Node.js LTS, Playwright CLI và Chromium offline:
-
-| Hệ điều hành | Định dạng | Lệnh đóng gói | Đặc điểm |
-|---|---|---|---|
-| **macOS** | `.dmg` | `./scripts/build-installer.sh` | File cài đặt kéo-thả vào Applications (hỗ trợ Apple Silicon ARM64 và Intel x64) |
-| **Windows** | Setup `.exe` | `scripts\build-installer.bat` | Bộ cài Wizard Inno Setup với shortcut Desktop, Start Menu và trình gỡ cài đặt |
-| **Multi-platform** | `.zip` (Portable) | `scripts/build-portable.sh` / `.bat` | Thư mục ứng dụng portable tự chứa, chạy trực tiếp không cần cài đặt |
-
-### 12.2. Lệnh dòng lệnh cục bộ
-
-```bash
-mvn -q -DskipTests compile      # Biên dịch mã nguồn
-mvn test                        # Chạy toàn bộ 260 unit & integration test
-bash scripts/build-installer.sh # Đóng gói DMG cho macOS
-scripts\build-installer.bat     # Đóng gói Windows Setup (.exe)
+```mermaid
+flowchart TD
+    A["Mã nguồn Test Studio"] --> B["Maven Build & Tests"]
+    B --> C{"Loại bản phân phối"}
+    C -->|Portable Archive| D["scripts/build-portable.sh / .bat<br/>ZIP tự chứa đa nền tảng"]
+    C -->|Windows Installer| E["scripts/build-installer.bat<br/>Inno Setup 6 Wizard (.exe)"]
+    C -->|macOS Installer| F["scripts/build-installer.sh<br/>Apple Disk Image (.dmg)"]
+    C -->|Linux Installer| G["scripts/build-installer-linux.sh<br/>Debian Package (.deb)"]
+    D & E & F & G --> H[".github/workflows/release-portable.yml<br/>Unified Dual Release CI/CD"]
+    H --> I["GitHub Release v2.3.1<br/>6 Artifacts trọn gói kèm Release Notes chuẩn"]
 ```
 
-### 12.3. Tự động hóa CI/CD (GitHub Actions)
+### 13.1. Ma trận bộ cài đặt hệ thống
 
-- `ci.yml` — Biên dịch và chạy bộ test khi push/PR lên nhánh `main`.
-- `release-portable.yml` — Đóng gói bản Portable đa nền tảng (macOS, Windows, Linux) khi gắn tag release `v*`.
-- `build-installers.yml` — Tự động build bộ cài đặt ngoại tuyến (macOS `.dmg` & Windows Setup `.exe`) khi phát hành phiên bản mới.
+| Nền tảng | Định dạng tập tin | Lệnh đóng gói cục bộ | Đặc điểm kỹ thuật nổi bật |
+|---|---|---|---|
+| **Windows** | Setup `.exe` | `scripts\build-installer.bat` | Bộ cài Inno Setup Wizard; ghi Registry `HKA` hỗ trợ Non-Admin; tự động đóng tiến trình `TestStudio.exe` đang chạy qua `taskkill` an toàn; hỗ trợ nâng cấp đè (In-Place Upgrade) giữ nguyên cấu hình. |
+| **macOS** | `.dmg` | `bash scripts/build-installer.sh` | Disk Image kéo-thả chuẩn `/Applications`; hỗ trợ cả kiến trúc Apple Silicon (ARM64) và Intel (x64); tích hợp icon Retina độ nét cao. |
+| **Linux** | `.deb` | `bash scripts/build-installer-linux.sh` | Gói cài đặt Debian/Ubuntu chuẩn; kiểm định toàn vẹn thư mục Chromium offline; tích hợp shortcut ứng dụng trên desktop và menu hệ thống. |
+| **Tất cả** | `.zip` (Portable) | `bash scripts/build-portable.sh` | Bản giải nén chạy ngay, không yêu cầu quyền Admin, không ghi Registry hệ thống. |
+
+### 13.2. Đường ống phát hành kép tự động (Unified Dual Release CI/CD)
+
+Khi gắn thẻ phiên bản mới (`git tag v2.3.1 && git push origin v2.3.1`):
+1. Quy trình `.github/workflows/release-portable.yml` tự động khởi chạy trên GitHub Actions.
+2. Ma trận build song song 3 nền tảng (Windows, macOS, Ubuntu) sản xuất đồng thời **cả 3 bản Portable ZIP** và **cả 3 bản Cài đặt chuyên nghiệp (EXE, DMG, DEB)**.
+3. Tập lệnh `scripts/extract-release-notes.py` tự động bóc tách đúng phần ghi chú phát hành của phiên bản mục tiêu trong `docs/RELEASE_NOTES.md` để đính kèm vào GitHub Release.
 
 ---
 
-## 13. Cấu trúc dữ liệu & đường dẫn
+## 14. Cấu trúc dữ liệu & Đặc tả lưu trữ
 
-### 13.1. Thư mục dữ liệu
+### 14.1. Thư mục dữ liệu người dùng (`APP_HOME/data`)
 
-`APP_HOME` được xác định theo thứ tự:
-
-1. `-Dstudio.home=/path`
-2. Biến môi trường `STUDIO_HOME`
-3. Thư mục cha của file JAR (bản portable)
-4. Thư mục làm việc hiện tại (bản dev)
-
-Dữ liệu nằm ở `APP_HOME/data`; override bằng `-Dstudio.data.dir` hoặc `STUDIO_DATA_DIR` (hữu ích khi ứng dụng nằm ở vị trí chỉ đọc như `/Applications`):
+Thư mục gốc `APP_HOME` được nhận diện theo thứ tự ưu tiên:
+1. Tham số dòng lệnh `-Dstudio.home=/path`
+2. Biến môi trường hệ thống `STUDIO_HOME`
+3. Thư mục cha của tập tin JAR thực thi (đối với bản Portable/Installer)
+4. Thư mục làm việc hiện tại (đối với chế độ chạy mã nguồn)
 
 ```
 data/
-├── config/settings.json      # browser, theme, aiConfig (API key đã mã hoá)
-├── project/                  # cây Nhóm → Suite → Case
-│   └── <Nhóm>/group.json
-│       └── <Suite>/suite.json + <Case>.java
-├── reports/<mã chạy>/report.json + screenshots/
-├── exports/                  # đích mặc định khi xuất Excel/HTML
-└── logs/ai.log
+├── config/
+│   └── settings.json               # Cấu hình browser, theme, AI config (API key mã hóa)
+├── project/                        # Cây dự án kiểm thử
+│   └── <Ten-Nhom>/
+│       ├── group.json              # Metadata nhóm
+│       └── <Ten-Suite>/
+│           ├── suite.json          # Metadata suite & danh sách assertions/steps
+│           └── <Ten-Case>.java     # Mã nguồn Playwright Java biên dịch in-process
+├── reports/
+│   └── <run-id>/
+│       ├── report.json             # Kết quả chạy, chẩn đoán lỗi có cấu trúc
+│       └── screenshots/            # Ảnh chụp bằng chứng màn hình (Pass/Fail)
+├── exports/                        # Thư mục xuất file Excel và HTML mặc định
+└── logs/
+    └── ai.log                      # Nhật ký truy vấn AI và audit lỗi
 ```
 
-### 13.2. Định dạng `suite.json`
+### 14.2. Đặc tả lược đồ `suite.json`
 
 ```json
 {
-  "name": "Smoke Thu Chi",
+  "name": "Bộ kiểm thử Đăng nhập & Đơn hàng",
   "status": "ACTIVE",
-  "description": "Bộ kiểm thử khói",
-  "browser": "",
+  "description": "Kiểm thử luồng nghiệp vụ mua hàng trực tuyến",
+  "browser": "chromium",
   "headless": false,
   "cases": [
     {
-      "id": "tc-3c7bb1ab",
-      "name": "Tao giao dich Thu va Chi",
-      "scriptFile": "TaoGiaoDich.java",
+      "id": "tc-e4b102ca",
+      "name": "DangNhapThanhCong",
+      "scriptFile": "DangNhapThanhCong.java",
       "status": "Ready",
-      "startUrl": "https://example.com",
+      "startUrl": "https://example.com/login",
       "assertions": [
-        { "type": "PAGE_HAS_TEXT", "value": "Lương tháng 10", "status": "ACTIVE",
-          "exact": false, "timeoutMs": 30000, "locator": "" }
+        {
+          "type": "URL_CONTAINS",
+          "value": "/dashboard",
+          "status": "ACTIVE",
+          "exact": false,
+          "timeoutMs": 10000,
+          "locator": ""
+        },
+        {
+          "type": "TEXT_VISIBLE",
+          "value": "Xin chào quản trị viên",
+          "status": "ACTIVE",
+          "exact": true,
+          "timeoutMs": 5000,
+          "locator": "#welcome-banner"
+        }
       ],
-      "testSteps": [ { "stepNumber": 1, "action": "NAVIGATE", "target": "https://example.com" } ]
+      "testSteps": [
+        { "stepNumber": 1, "action": "NAVIGATE", "target": "https://example.com/login" },
+        { "stepNumber": 2, "action": "FILL", "target": "#username", "value": "admin" },
+        { "stepNumber": 3, "action": "CLICK", "target": "#btn-login" }
+      ]
     }
   ]
 }
 ```
 
-- `browser` rỗng = dùng trình duyệt mặc định trong Cài đặt (mặc định Playwright Chromium).
-- `status` của Suite: `DRAFT` | `ACTIVE` | `INACTIVE`; của Case: `Draft` | `Ready` | `Inactive`.
-- `testSteps` / `testDataSets` do Trợ lý AI điền và dùng cho quản lý dữ liệu kiểm thử; lượt chạy dùng file `.java` của case.
+---
 
-### 13.3. Tự sửa locator (self-healing)
+## 15. Mẹo tối ưu & Thực hành tốt nhất
 
-Kịch bản sinh ra gọi `StudioRuntime.healLocator(selector, mô tả)`. Khi selector không tìm thấy, runtime thử lần lượt các chiến lược thay thế (thuộc tính, văn bản, vị trí) và ghi lại bước đã tự sửa để xem trong report. Thiết kế chi tiết: [docs/SELF_HEALING_DESIGN.md](../SELF_HEALING_DESIGN.md).
+1. **Đặt tên Case rõ ràng theo nghiệp vụ**: Sử dụng tên thể hiện hành vi (ví dụ: `TaoMoiDonHang_ThanhCong`, `DangNhap_SaiMatKhau_BaoLoi`). Tên này sẽ xuất hiện nhất quán trên toàn bộ báo cáo HTML, Excel và bảng KPI.
+2. **Khai thác tối đa Shared Context**: Thiết lập case đầu tiên làm bước đăng nhập, các case tiếp theo thực hiện các nghiệp vụ sâu hơn mà không phải lặp lại thao tác đăng nhập.
+3. **Ưu tiên Semantic Selector**: Khi viết hoặc chỉnh sửa assertion, ưu tiên sử dụng `data-testid`, `role` hoặc văn bản hiển thị thay vì các đường dẫn XPath phức tạp (`/div/div[2]/span`) để tận dụng trọn vẹn sức mạnh của động cơ tự phục hồi Heuristic.
+4. **Kiểm tra trạng thái trước khi chạy hồi quy**: Đảm bảo Suite ở trạng thái `ACTIVE`, Case ở trạng thái `Ready` và ít nhất một Assertion đang ở trạng thái `ACTIVE`.
+5. **Dọn dẹp định kỳ**: Sử dụng tính năng **Dọn dẹp** hàng tháng để thu hồi không gian lưu trữ từ các ảnh chụp bằng chứng của các lần chạy cũ.
 
 ---
 
-## 14. Mẹo sử dụng
+## 16. Xử lý sự cố & Câu hỏi thường gặp (FAQ)
 
-- Double-click Suite để mở Workspace; click **SUITE ĐANG MỞ** ở thanh bên để mở lại sau khi chuyển trang (nút ✕ để bỏ).
-- Dùng **Chung context** khi các case phụ thuộc phiên đăng nhập; tắt để cô lập trạng thái.
-- Đặt tên case theo hành vi (`Tao giao dich Thu va Chi`) — tên xuất hiện xuyên suốt report, HTML và Excel.
-- Trước khi chạy hồi quy: chuyển Suite sang `ACTIVE`, kiểm tra case `Ready` và có ít nhất một assertion `ACTIVE`.
-- Code chưa lưu → nhãn `● Chưa lưu` trên khung code; chuyển case sẽ hỏi xác nhận.
-- Terminal tự hiện khi ghi hình/chạy; nút `Ẩn` để đóng, `Xóa log` để dọn.
+### 16.1. Bảng hướng dẫn xử lý sự cố
 
----
-
-## 15. Xử lý sự cố
-
-| Hiện tượng | Nguyên nhân thường gặp | Cách xử lý |
+| Hiện tượng sự cố | Nguyên nhân khả dĩ | Biện pháp xử lý dứt điểm |
 |---|---|---|
-| `Ghi hình` không mở trình duyệt | Thiếu Node.js / Playwright CLI ở bản dev | Cài Node 20+, chạy `npx playwright install`; bản portable đã kèm sẵn |
-| Case bị bỏ qua khi chạy | Suite chưa `ACTIVE`, case chưa `Ready`, hoặc thiếu assertion `ACTIVE` | Sửa trạng thái / thêm assertion rồi chạy lại |
-| `Timeout 30000ms exceeded` | Locator không còn đúng sau thay đổi UI | Sửa locator trong Assertion Builder hoặc kịch bản; tăng `Timeout` khi trang chậm |
-| Ảnh bằng chứng thiếu | Lượt chạy bị huỷ trước khi case kết thúc | Xem log trong report; chạy lại case |
-| Trợ lý AI báo lỗi kết nối | API key / Base URL / mô hình chưa đúng | `Cài đặt → Kiểm tra kết nối` để xem độ trễ và thông báo |
-| Ứng dụng nặng dần sau nhiều lượt chạy | Log/ảnh/cache tích tụ | Dùng **Dọn dẹp**; ứng dụng cũng tự nhả bộ nhớ khi thu nhỏ cửa sổ |
+| Bấm **Ghi hình** nhưng không thấy mở trình duyệt | Thiếu Node.js hoặc Playwright CLI ở bản chạy từ mã nguồn | Cài đặt Node.js 20+ LTS và chạy `npx playwright install`. Nếu dùng bản Portable hoặc Installer, hãy kiểm tra quyền thực thi tập tin. |
+| Ca kiểm thử bị bỏ qua (Skip 100%) khi chạy | Case chưa chuyển sang `Ready` hoặc chưa có assertion `ACTIVE` | Mở case, chuyển trạng thái sang `Ready`, thêm hoặc kích hoạt ít nhất một assertion `ACTIVE`. |
+| Lỗi `Timeout 30000ms exceeded` khi chạy | Trang web phản hồi chậm hoặc phần tử thay đổi vượt quá khả năng tự phục hồi | Mở Assertion Builder tăng `Timeout ms` lên 45000ms hoặc cập nhật lại locator qua nút **Quét Live DOM**. |
+| Bộ cài Windows báo lỗi tập tin đang bị khóa | Ứng dụng Test Studio phiên bản trước đang chạy nền | Bộ cài v2.3.1 tự động phát hiện và hỏi đóng tiến trình qua `taskkill`. Bạn cũng có thể mở Task Manager và kết thúc tiến trình `TestStudio.exe`. |
+| Trợ lý AI báo lỗi `Connection refused` hoặc timeout | Sai Base URL hoặc mạng bị chặn proxy | Vào **Cài đặt → tab AI**, kiểm tra Base URL và bấm nút **Kiểm tra kết nối** để đo độ trễ và nhận diện thông báo lỗi chi tiết. |
+
+### 16.2. Các câu hỏi thường gặp (FAQ)
+
+**Q1: Tôi không biết lập trình Java, tôi có sử dụng được Test Studio không?**
+> Hoàn toàn được. Test Studio được thiết kế theo triết lý No-Code/Low-Code. Bạn chỉ cần thao tác trên trình duyệt, hệ thống sẽ tự động ghi hình kịch bản và cho phép gắn điều kiện kiểm tra hoàn toàn bằng giao diện đồ họa.
+
+**Q2: Dữ liệu kiểm thử của tôi có bị tải lên máy chủ bên ngoài không?**
+> Tuyệt đối không. Toàn bộ cây dự án, mã kiểm thử, báo cáo và ảnh bằng chứng đều được lưu trữ cục bộ 100% trên máy tính của bạn trong thư mục `data/`. Khi sử dụng Trợ lý AI, chỉ các đoạn mô tả prompt bạn gửi mới được chuyển đến nhà cung cấp API bạn đã cấu hình với khóa API mã hóa AES-256-GCM.
+
+**Q3: Tôi có thể chạy kiểm thử trên các máy chủ CI/CD không có màn hình (Headless Server) không?**
+> Có. Ứng dụng hỗ trợ tùy chọn `Headless` cho phép chạy trình duyệt ngầm không giao diện, rất phù hợp khi tích hợp vào Jenkins, GitHub Actions hoặc GitLab CI.
 
 ---
 
-## 16. Câu hỏi thường gặp
+## Tài liệu liên kết
 
-**Có cần biết lập trình Java không?** Không. Ghi hình sinh kịch bản, assertion thêm bằng giao diện; biết Java giúp xử lý trường hợp đặc biệt.
-
-**Một case có thể gồm nhiều bước?** Có — mỗi case là một kịch bản nhiều bước; assertion kiểm tra kết quả ở cuối hoặc bất kỳ điểm nào trong luồng.
-
-**Report lưu ở đâu sau khi đóng ứng dụng?** Trong `data/reports/<mã chạy>` — mở lại bất cứ lúc nào ở trang Báo cáo.
-
-**Có thể đưa dự án lên Git không?** Có. `data/project` và `data/reports` mặc định nằm trong `.gitignore`; bỏ các dòng tương ứng nếu muốn chia sẻ test.
-
-**Có chạy được trên máy không có JDK?** Có, với gói portable hoặc bộ cài (kèm JRE).
-
----
-
-## Tài liệu liên quan
-
-| Tài liệu | Nội dung |
-|---|---|
-| [README.md](../../README.md) | Tổng quan nhanh, tính năng, cấu hình |
-| [docs/BUILD.md](../BUILD.md) | Hướng dẫn build và đóng gói |
-| [docs/ARCHITECTURE.md](../ARCHITECTURE.md) | Kiến trúc, luồng dữ liệu, cấu trúc package |
-| [docs/RELEASE_NOTES.md](../RELEASE_NOTES.md) | Ghi chú phát hành |
-| [CHANGELOG.md](../../CHANGELOG.md) | Lịch sử thay đổi |
+| Tài liệu | Đường dẫn | Nội dung chính |
+|---|---|---|
+| **English User Guide** | [docs/guide/USER_GUIDE_EN.md](USER_GUIDE_EN.md) | Bản tiếng Anh chuẩn mực của cẩm nang người dùng |
+| **README Dự án** | [README.md](../../README.md) | Tổng quan giới thiệu, huy hiệu, bảng so sánh và hướng dẫn nhanh |
+| **Kiến trúc hệ thống** | [docs/ARCHITECTURE.md](../ARCHITECTURE.md) | Sơ đồ phân tầng kiến trúc, luồng dữ liệu và thiết kế chi tiết |
+| **Cẩm nang Đóng gói** | [docs/BUILD.md](../BUILD.md) | Hướng dẫn chi tiết biên dịch, đóng gói installers và cấu hình môi trường |
+| **Ghi chú phát hành** | [docs/RELEASE_NOTES.md](../RELEASE_NOTES.md) | Chi tiết các thay đổi qua từng phiên bản phát hành |

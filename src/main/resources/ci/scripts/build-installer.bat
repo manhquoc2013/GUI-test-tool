@@ -7,8 +7,16 @@ cd /d "%DIR%"
 set APP_NAME=TestStudio
 set APP_DISPLAY_NAME=Test Studio
 set VERSION=
-for /f "usebackq delims=" %%v in (`mvn -q help:evaluate -Dexpression=project.version -DforceStdout 2^>nul`) do set VERSION=%%v
+if exist pom.xml (
+  for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "try { ([xml](Get-Content pom.xml)).project.version } catch { '' }" 2^>nul`) do set VERSION=%%v
+)
+if not defined VERSION (
+  for /f "tokens=2 delims=<>" %%v in ('findstr /r "<version>[0-9]" pom.xml 2^>nul') do (
+    if not defined VERSION set VERSION=%%v
+  )
+)
 if not defined VERSION set VERSION=2.3.1
+for /f "tokens=1" %%v in ("%VERSION%") do set VERSION=%%v
 set JAR_NAME=playwright-automation-studio-%VERSION%.jar
 set JPACKAGE_INPUT=target\jpackage-input
 set JPACKAGE_OUT=target\jpackage-out
@@ -48,7 +56,7 @@ if exist assets\icon.ico (
   set ICON_ARG=--icon assets\icon.ico
 )
 
-jpackage --type app-image --name %APP_NAME% --input %JPACKAGE_INPUT% --main-jar %JAR_NAME% --main-class com.studio.Launcher --dest %JPACKAGE_OUT% %ICON_ARG% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,java.scripting,java.xml,java.net.http,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
+jpackage --type app-image --name "%APP_NAME%" --input "%JPACKAGE_INPUT%" --main-jar "%JAR_NAME%" --main-class com.studio.Launcher --dest "%JPACKAGE_OUT%" %ICON_ARG% --add-modules java.base,java.desktop,java.sql,java.naming,java.management,java.instrument,java.scripting,java.xml,java.net.http,jdk.compiler,jdk.unsupported --java-options "-Dstudio.home=$ROOTDIR" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=javafx.graphics,ALL-UNNAMED"
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 set APP_IMAGE_DIR=%JPACKAGE_OUT%\%APP_NAME%
@@ -138,10 +146,10 @@ goto BUILD_DONE
 
 :NO_INNO
 echo   Inno Setup not detected. Generating standard installer via jpackage...
-jpackage --type exe --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
+jpackage --type exe --name "%APP_NAME%" --app-image "%APP_IMAGE_DIR%" --dest "%DIST_DIR%" --win-shortcut --win-menu --win-dir-chooser
 if %ERRORLEVEL% neq 0 (
   echo   jpackage exe failed, trying msi...
-  jpackage --type msi --name %APP_NAME% --app-image %APP_IMAGE_DIR% --dest %DIST_DIR% --win-shortcut --win-menu --win-dir-chooser
+  jpackage --type msi --name "%APP_NAME%" --app-image "%APP_IMAGE_DIR%" --dest "%DIST_DIR%" --win-shortcut --win-menu --win-dir-chooser
 )
 echo =================================================================
 echo  BUILD SUCCESSFUL!
