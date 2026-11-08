@@ -261,3 +261,35 @@
   - Kiểm tra năng lực hỗ trợ thị giác của mô hình trước khi chụp ảnh màn hình và đính kèm base64 JPEG trong VLM Tier 3. Các mô hình thuần text (`gpt-3.5-turbo`, `deepseek-chat`, `deepseek-reasoner`, embedding models) được bỏ qua êm thuận mà không phải chịu độ trễ của lỗi HTTP 400 Bad Request.
 - **Quiet i18n Logging (`I18nService.java`)**:
   - Loại bỏ log cảnh báo gây nhiễu ra `stderr` đối với các ngôn ngữ tùy chọn chưa có file bundle, chỉ log khi file cấu hình của ngôn ngữ mặc định (`vi`) bị thiếu.
+
+## 10. Autonomous System Remediation & Cross-Platform Integrity
+
+### 1. Cross-Platform Filename & Screenshot Path Sanitization (`TestRunnerService`, `StringEscapeUtil`)
+- **Vấn đề**: Tên test case người dùng đặt tự do thường chứa các ký tự cấm trên Windows (`:`, `*`, `?`, `"`, `<`, `>`, `|`) hoặc ký tự phân cấp thư mục (`/`, `\`). Khi `TestRunnerService` tạo đường dẫn ảnh chụp màn hình trực tiếp bằng `cr.getTestCaseName() + "_PASSED.png"`, Windows sẽ ném `InvalidPathException` làm sập chu trình test, còn Linux/macOS sẽ giải quyết thành các thư mục con không tồn tại khiến Playwright chụp ảnh thất bại trong im lặng (`ENOENT`).
+- **Giải pháp**:
+  - Bổ sung `StringEscapeUtil.safeFileName(name, fallback)` loại bỏ triệt để các ký tự cấm của hệ điều hành và chuỗi traversal (`..`), bảo toàn ký tự khoảng trắng tự nhiên.
+  - Áp dụng `safeCaseName` khi khởi tạo `ssPassed`, `ssFailed`, và `harnessScreenshotBase`, đảm bảo kịch bản chạy an toàn và 100% bằng chứng ảnh chụp được ghi nhận thành công trên mọi hệ điều hành.
+
+### 2. Recursive Nested Group Traversal & Indexing (`LocalDataIndexService`)
+- **Vấn đề**: `syncProjectDirectory` duyệt cố định 2 vòng lặp cấp 1 (`projectDir` -> `groupDir` -> `suiteDir`). Khi người dùng tổ chức các nhóm lồng nhau (Nested Groups, vốn được `ProjectStore` hỗ trợ đệ quy), toàn bộ các suite và case nằm trong các nhóm con (như `Project/Regression/Auth/LoginSuite`) bị bỏ quên, không được nạp vào H2.
+- **Giải pháp**:
+  - Tách logic thành hàm đệ quy `syncGroupDirectory(Path groupDir, String groupPath)` duyệt mọi tầng thư mục con chứa `group.json` hoặc `suite.json`.
+  - Cập nhật đúng đường dẫn cha lồng nhau (`groupPath + "/" + childName`) vào trường `group_name` của bảng `test_suites` và `test_cases`, đảm bảo tìm kiếm FTS và truy vấn theo cây hoạt động hoàn hảo.
+
+### 3. API Key Leak Prevention in AI Gateway Error Responses (`OpenAiClient`)
+- **Vấn đề**: Các gateway AI (LiteLLM, Cloudflare AI Gateway, reverse proxy nội bộ) thường vọng lại (echo) các header HTTP hoặc chuỗi query param chứa Bearer token khi trả về lỗi HTTP 400/401/403. Nếu không lọc bí mật ở tầng ngoại lệ, chuỗi lỗi thô chứa API key sẽ bị lưu vào tin nhắn chat và hiển thị lên thanh Toast UI.
+- **Giải pháp**:
+  - Bọc `SecuritySanitizer.sanitize(err, apiKey)` ngay trong phương thức `OpenAiClient.chatCompletion` và `fetchModels` trước khi ném `IOException`.
+  - Kiểm thử tích hợp bằng `HttpServer` nhúng của JDK chứng minh API key luôn được che giấu thành dấu đạn (`••••`) trong mọi thông điệp ngoại lệ.
+
+### 4. Zero-Corruption Atomic File Writes for Java Scripts (`ProjectStore`, `OptimizedSelfHealingExecutor`)
+- **Vấn đề**: Việc gọi trực tiếp `Files.writeString(scriptPath, ...)` có nguy cơ làm hỏng hoặc xóa trắng file `.java` thành 0 byte nếu tiến trình bị kill hoặc máy tính sập nguồn giữa lúc ghi đè (khi lưu file hoặc trong chu kỳ Self-Healing tự sửa locator).
+- **Giải pháp**:
+  - Triển khai `ProjectStore.writeTextAtomic(targetPath, content)` ghi trước nội dung ra file tạm `.tmp` cùng thư mục, sau đó thực hiện hoán đổi nguyên tử (`ATOMIC_MOVE` với fallback `REPLACE_EXISTING`).
+  - Đồng bộ cơ chế này cho `ProjectStore.createCase`, `ProjectStore.saveCaseScript`, và `OptimizedSelfHealingExecutor.persistMutation`.
+
+### 5. Defensive Path Resolution in Excel Exports (`ExcelReportService`)
+- **Vấn đề**: `Path.of(raw).getFileName().toString()` ném `NullPointerException` nếu đường dẫn ảnh là root path (`/` hoặc `C:\`) do `getFileName()` trả về `null`.
+- **Giải pháp**:
+  - Kiểm tra `Path fn = p.getFileName()` trước khi gọi `.toString()` kết hợp khối `try-catch` dự phòng chuyển về nhãn gốc an toàn, ngăn ngừa việc gián đoạn xuất báo cáo Excel khi có case mang đường dẫn ảnh bất thường.
+

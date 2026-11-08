@@ -331,11 +331,11 @@ public class OptimizedSelfHealingExecutor {
                 String quotedNew = "\"" + newEsc + "\"";
 
                 if (content.contains(quotedOldEsc)) {
-                    Files.writeString(scriptPath, content.replace(quotedOldEsc, quotedNew));
+                    ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldEsc, quotedNew));
                     System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
                             scriptFileName, newSelector);
                 } else if (content.contains(quotedOldRaw)) {
-                    Files.writeString(scriptPath, content.replace(quotedOldRaw, quotedNew));
+                    ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldRaw, quotedNew));
                     System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
                             scriptFileName, newSelector);
                 }

@@ -55,3 +55,12 @@
 - **Vision Model Capability Check**: Skip Tier 3 VLM screenshot and image payload when non-vision/text-only models are configured.
 - **Quiet I18n Resource Fallback**: Restrict missing bundle logging in `I18nService` to default language only.
 - **Verification & Git Push**: Ensure all unit tests pass, commit atomically, and push to remote.
+
+## Phase 9: Comprehensive Review Remediation & Architectural Optimizations
+- **Task A (Must fix)**: Sanitize screenshot file names and paths in `TestRunnerService.java` against path separators (`/`, `\`) and illegal Windows characters (`:`, `*`, `?`, `"`, `<`, `>`, `|`) to ensure cross-platform test execution and screenshot evidence retention.
+- **Task B (Must fix)**: Implement recursive project traversal in `LocalDataIndexService.java` to index all nested groups, suites, and cases into H2 cache on startup and resync.
+- **Task C (Must fix)**: Redact API keys from `OpenAiClient.chatCompletion` error responses using `SecuritySanitizer.sanitize(err, apiKey)` before raising `IOException`.
+- **Task D (Should fix)**: Implement atomic file writes for `.java` test scripts in `ProjectStore.java` and `OptimizedSelfHealingExecutor.java` to prevent script corruption upon unexpected shutdowns.
+- **Task E (Should fix)**: Guard against `NullPointerException` and `InvalidPathException` when parsing screenshot file labels in `ExcelReportService.java`.
+- **Task F (Nice to have)**: Centralize string, case name, and identifier sanitization into `StringEscapeUtil.java` and refactor duplicate sanitization logic.
+- **Task G (Verification)**: Add comprehensive unit tests covering all 6 fixes, run full test regression suite, update documentation, and perform atomic commits.

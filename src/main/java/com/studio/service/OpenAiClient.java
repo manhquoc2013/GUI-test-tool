@@ -203,7 +203,8 @@ public class OpenAiClient {
             return models;
         } else {
             String errorMsg = extractErrorMessage(response.body());
-            throw new IOException("HTTP " + response.statusCode() + ": " + errorMsg);
+            String safeMsg = com.studio.util.SecuritySanitizer.sanitize(errorMsg, apiKey);
+            throw new IOException("HTTP " + response.statusCode() + ": " + safeMsg);
         }
     }
 
@@ -263,7 +264,8 @@ public class OpenAiClient {
 
         if (response.statusCode() != 200) {
             String err = extractErrorMessage(response.body());
-            throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + err);
+            String safeErr = com.studio.util.SecuritySanitizer.sanitize(err, apiKey);
+            throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + safeErr);
         }
 
         JsonNode resJson = mapper.readTree(response.body());

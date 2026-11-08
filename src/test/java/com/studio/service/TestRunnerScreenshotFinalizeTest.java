@@ -45,6 +45,25 @@ class TestRunnerScreenshotFinalizeTest {
     }
 
     @Test
+    void testSafeCaseNameScreenshotResolutionWithSlashesAndWindowsChars() {
+        String testCaseName = "TC 01: Login / Sign-up <Quick>?";
+        String safeName = com.studio.util.StringEscapeUtil.safeFileName(testCaseName, "tc_1");
+
+        // Asserts no illegal path chars exist in the resolved filename
+        assertFalse(safeName.contains("/"), "Safe filename must not contain forward slash");
+        assertFalse(safeName.contains("\\"), "Safe filename must not contain backslash");
+        assertFalse(safeName.contains(":"), "Safe filename must not contain colon");
+        assertFalse(safeName.contains("<"), "Safe filename must not contain less than");
+        assertFalse(safeName.contains(">"), "Safe filename must not contain greater than");
+        assertFalse(safeName.contains("?"), "Safe filename must not contain question mark");
+
+        Path ssPassed = tempDir.resolve(safeName + "_PASSED.png");
+        assertDoesNotThrow(() -> Files.writeString(ssPassed, "dummy-png"),
+                "Filesystem must accept sanitized screenshot path on all OSes");
+        assertTrue(Files.exists(ssPassed));
+    }
+
+    @Test
     void testRunHarnessClassResolvesPackagedClass() throws Exception {
         // Create compiled dummy class in com/test/
         Path pkgDir = tempDir.resolve("com/test");

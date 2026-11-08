@@ -315,7 +315,14 @@ public class ExcelReportService {
             cell.setCellStyle(styles.data(zebra));
             return;
         }
-        String label = Path.of(raw).getFileName().toString();
+        String label = raw;
+        try {
+            Path p = Path.of(raw);
+            Path fn = p.getFileName();
+            if (fn != null) {
+                label = fn.toString();
+            }
+        } catch (Exception ignored) {}
         cell.setCellValue(label);
         cell.setCellStyle(styles.link(zebra));
         try {

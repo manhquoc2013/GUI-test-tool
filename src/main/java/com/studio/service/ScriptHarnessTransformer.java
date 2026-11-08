@@ -64,17 +64,7 @@ public class ScriptHarnessTransformer {
     }
 
     public static String sanitizeClassName(String name) {
-        if (name == null || name.isBlank()) {
-            return "HarnessRun";
-        }
-        String safe = name.replaceAll("[^A-Za-z0-9_]", "_");
-        if (safe.isEmpty()) {
-            return "HarnessRun";
-        }
-        if (!Character.isJavaIdentifierStart(safe.charAt(0)) || javax.lang.model.SourceVersion.isKeyword(safe)) {
-            safe = "C_" + safe;
-        }
-        return safe;
+        return com.studio.util.StringEscapeUtil.sanitizeJavaIdentifier(name, "HarnessRun");
     }
 
     private static String wrapMainBodyWithScreenshot(String code, String screenshotPath) {

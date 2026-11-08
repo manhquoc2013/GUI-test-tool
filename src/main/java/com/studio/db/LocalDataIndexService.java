@@ -51,28 +51,53 @@ public class LocalDataIndexService {
     }
 
     public void syncProjectDirectory(Path projectDir) {
+        if (projectDir == null || !Files.exists(projectDir)) return;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(projectDir)) {
-            for (Path groupDir : stream) {
-                if (!Files.isDirectory(groupDir)) continue;
-                Path groupJson = groupDir.resolve("group.json");
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                Path groupJson = entry.resolve("group.json");
+                Path suiteJson = entry.resolve("suite.json");
                 if (Files.exists(groupJson)) {
+                    syncGroupDirectory(entry, entry.getFileName().toString());
+                } else if (Files.exists(suiteJson)) {
+                    try {
+                        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+                        indexSuite(suite, entry, "");
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void syncGroupDirectory(Path groupDir, String groupPath) {
+        try {
+            Path groupJson = groupDir.resolve("group.json");
+            if (Files.exists(groupJson)) {
+                try {
                     TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
                     indexGroup(group, groupDir);
-                }
+                } catch (Exception ignored) {}
+            }
 
-                try (DirectoryStream<Path> suiteStream = Files.newDirectoryStream(groupDir)) {
-                    for (Path suiteDir : suiteStream) {
-                        if (!Files.isDirectory(suiteDir)) continue;
-                        Path suiteJson = suiteDir.resolve("suite.json");
-                        if (Files.exists(suiteJson)) {
-                            TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
-                            indexSuite(suite, suiteDir, groupDir.getFileName().toString());
-                        }
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupDir)) {
+                for (Path entry : stream) {
+                    if (!Files.isDirectory(entry)) continue;
+                    Path childGroupJson = entry.resolve("group.json");
+                    Path childSuiteJson = entry.resolve("suite.json");
+                    if (Files.exists(childGroupJson)) {
+                        String nestedPath = (groupPath != null && !groupPath.isBlank())
+                                ? groupPath + "/" + entry.getFileName().toString()
+                                : entry.getFileName().toString();
+                        syncGroupDirectory(entry, nestedPath);
+                    } else if (Files.exists(childSuiteJson)) {
+                        try {
+                            TestSuite suite = mapper.readValue(childSuiteJson.toFile(), TestSuite.class);
+                            indexSuite(suite, entry, groupPath);
+                        } catch (Exception ignored) {}
                     }
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
     }
 
     public void syncReportsDirectory(Path reportsDir) {

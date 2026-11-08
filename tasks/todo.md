@@ -43,4 +43,11 @@
 - [x] Task 41: Add vision model capability check in `OptimizedSelfHealingExecutor` and quiet i18n logging <!-- id: 51 -->
 - [x] Task 42: Comprehensive unit tests and full suite regression verification <!-- id: 52 -->
 - [x] Task 43: Update `tasks/learnings.md`, atomic commit and git push <!-- id: 53 -->
+- [x] Task 44: Centralize filename & identifier sanitization in `StringEscapeUtil` <!-- id: 54 -->
+- [x] Task 45: Sanitize screenshot file names & paths in `TestRunnerService` <!-- id: 55 -->
+- [x] Task 46: Recursive nested group & suite indexing in `LocalDataIndexService` <!-- id: 56 -->
+- [x] Task 47: Sanitize API Key in `OpenAiClient.chatCompletion` error responses <!-- id: 57 -->
+- [x] Task 48: Atomic file writes for `.java` test scripts in `ProjectStore` and `OptimizedSelfHealingExecutor` <!-- id: 58 -->
+- [x] Task 49: Null and path safety for screenshot link labels in `ExcelReportService` <!-- id: 59 -->
+- [x] Task 50: Add targeted unit tests for all remediations & verify full suite <!-- id: 60 -->
 

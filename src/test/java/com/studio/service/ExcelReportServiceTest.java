@@ -106,5 +106,18 @@ class ExcelReportServiceTest {
             assertEquals("Status", hCases.getCell(4).getStringCellValue());
         }
     }
+
+    @Test
+    void testExportWithRootOrMalformedScreenshotPathDoesNotThrow() {
+        CaseResult cSpecial = new CaseResult(3, "GroupA", "SuiteA", "tc-3", "TC03_Root_Path",
+                "TC03.java", "PASSED", null, 100, null, "Log", 0, null);
+        // Root path where getFileName() would be null
+        cSpecial.setScreenshotPath("/");
+        report.setCases(new java.util.ArrayList<>(List.of(report.getCases().get(0), report.getCases().get(1), cSpecial)));
+
+        Path out = tempDir.resolve("report_special_path.xlsx");
+        assertDoesNotThrow(() -> ExcelReportService.export(report, out));
+        assertTrue(Files.exists(out), "Excel export must succeed without NullPointerException on root path");
+    }
 }
 

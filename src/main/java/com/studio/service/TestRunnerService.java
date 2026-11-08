@@ -232,10 +232,13 @@ public class TestRunnerService {
                     break;
                 }
 
-                // Prepare screenshot paths
-                Path ssPassed = screenshotDir.resolve(cr.getTestCaseName() + "_PASSED.png");
-                Path ssFailed = screenshotDir.resolve(cr.getTestCaseName() + "_FAILED.png");
-                String harnessScreenshotBase = screenshotDir.resolve(cr.getTestCaseName()).toString();
+                // Prepare screenshot paths with filesystem-safe names (guards against Windows forbidden chars and subfolder slashes)
+                String safeCaseName = com.studio.util.StringEscapeUtil.safeFileName(
+                        cr.getTestCaseName(),
+                        cr.getTestCaseId() != null ? cr.getTestCaseId() : "case");
+                Path ssPassed = screenshotDir.resolve(safeCaseName + "_PASSED.png");
+                Path ssFailed = screenshotDir.resolve(safeCaseName + "_FAILED.png");
+                String harnessScreenshotBase = screenshotDir.resolve(safeCaseName).toString();
 
                 // Transform script for in-process execution
                 String harnessClass = ScriptHarnessTransformer.sanitizeClassName(
@@ -864,7 +867,9 @@ public class TestRunnerService {
         try {
             if (rawFromHarness != null && Files.isRegularFile(rawFromHarness)) {
                 if (preferred != null && !rawFromHarness.equals(preferred)) {
-                    Files.createDirectories(preferred.getParent());
+                    if (preferred.getParent() != null) {
+                        Files.createDirectories(preferred.getParent());
+                    }
                     Files.move(rawFromHarness, preferred,
                             java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     return preferred.toString();

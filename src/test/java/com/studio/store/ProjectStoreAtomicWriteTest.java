@@ -44,5 +44,44 @@ class ProjectStoreAtomicWriteTest {
         assertEquals("AtomicSuite", reloaded.getName());
         assertEquals("Description for atomic test", reloaded.getDescription());
     }
+
+    @Test
+    void testWriteTextAtomicCreatesFileAndParentDirectories() throws IOException {
+        Path deepScript = tempDir.resolve("scripts").resolve("nested").resolve("MyTest.java");
+        String javaCode = "public class MyTest { public static void main(String[] args) {} }";
+
+        ProjectStore.writeTextAtomic(deepScript, javaCode);
+
+        assertTrue(Files.exists(deepScript), "Script file must exist after atomic write");
+        assertEquals(javaCode, Files.readString(deepScript));
+    }
+
+    @Test
+    void testSaveCaseScriptUsesAtomicWrite() throws IOException {
+        ProjectStore store = new ProjectStore();
+        Path suiteDir = tempDir.resolve("ScriptSuite");
+        Files.createDirectories(suiteDir);
+        Files.writeString(suiteDir.resolve("suite.json"), """
+            {
+              "name": "ScriptSuite",
+              "cases": [
+                {
+                  "id": "tc-101",
+                  "name": "Login Case",
+                  "scriptFile": "Login_Case.java",
+                  "status": "Draft",
+                  "assertions": []
+                }
+              ]
+            }
+            """);
+
+        String code = "// Valid test script";
+        store.saveCaseScript(suiteDir, "tc-101", code);
+
+        Path script = suiteDir.resolve("Login_Case.java");
+        assertTrue(Files.exists(script), "Script file must be saved");
+        assertEquals(code, Files.readString(script));
+    }
 }
 

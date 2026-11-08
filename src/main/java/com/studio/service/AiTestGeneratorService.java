@@ -646,10 +646,7 @@ public class AiTestGeneratorService {
     }
 
     private String sanitizeCaseName(String name) {
-        if (name == null || name.isBlank()) return "Case_" + System.currentTimeMillis();
-        String safe = name.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        if (safe.isBlank()) return "Case_" + System.currentTimeMillis();
-        return safe;
+        return com.studio.util.StringEscapeUtil.safeFileName(name, "Case_" + System.currentTimeMillis());
     }
 
     public static String extractJsonBlock(String text) {

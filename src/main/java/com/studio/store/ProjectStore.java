@@ -121,6 +121,30 @@ public class ProjectStore {
         }
     }
 
+    /**
+     * Atomically writes string content (e.g. Java source code) to a file via a temporary sibling file and atomic move.
+     * Prevents partial/corrupted files in case of sudden power loss or process kill.
+     */
+    public static void writeTextAtomic(Path targetPath, String content) throws IOException {
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent != null ? parent : Path.of("."), targetPath.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(tempFile, content != null ? content : "");
+            try {
+                Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tempFile, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (Exception ignored) {}
+        }
+    }
+
     public void saveGroup(TestGroup group, Path groupDir) throws IOException {
         Files.createDirectories(groupDir);
         writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
@@ -240,9 +264,11 @@ public class ProjectStore {
         TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
 
         String caseId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
+        String safeFileBase = com.studio.util.StringEscapeUtil.safeFileName(name, "case");
+        String scriptFileName = safeFileBase + ".java";
         TestCase tc = new TestCase(caseId, name,
                 description != null ? description : "",
-                name + ".java",
+                scriptFileName,
                 status != null && !status.isBlank() ? status : "Draft");
         tc.setStartUrl(startUrl != null ? startUrl : "");
         tc.setBrowser(browser != null ? browser : "");
@@ -259,7 +285,7 @@ public class ProjectStore {
         String stub = String.format(
                 "package com.test;\n\nimport com.microsoft.playwright.*;\n\npublic class %s {\n    public static void main(String[] args) {\n        // Test case: %s\n    }\n}\n",
                 safeClass, name);
-        Files.writeString(suiteDir.resolve(name + ".java"), stub);
+        writeTextAtomic(suiteDir.resolve(scriptFileName), stub);
 
         return tc;
     }
@@ -605,9 +631,9 @@ public class ProjectStore {
         }
         String fileName = matched.getScriptFile() != null && !matched.getScriptFile().isBlank()
                 ? matched.getScriptFile()
-                : matched.getName() + ".java";
+                : com.studio.util.StringEscapeUtil.safeFileName(matched.getName(), "case") + ".java";
         matched.setScriptFile(fileName);
-        Files.writeString(suiteDir.resolve(fileName), javaCode);
+        writeTextAtomic(suiteDir.resolve(fileName), javaCode);
         if ("Draft".equals(matched.getStatus()) && javaCode != null && !javaCode.isBlank()) {
             matched.setStatus("Ready");
         }

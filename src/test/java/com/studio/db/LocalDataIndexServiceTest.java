@@ -136,4 +136,42 @@ public class LocalDataIndexServiceTest {
         assertEquals(0, chatDb.getMessages("Auth/LoginSuite").size());
         assertEquals(0, chatDb.calculateTotalTokens("Auth/LoginSuite"));
     }
+
+    @Test
+    public void testRecursiveNestedGroupSynchronization(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        java.nio.file.Path parentGroup = tempDir.resolve("ParentGroup");
+        java.nio.file.Path childGroup = parentGroup.resolve("ChildGroup");
+        java.nio.file.Path nestedSuite = childGroup.resolve("NestedSuite");
+        java.nio.file.Files.createDirectories(nestedSuite);
+
+        java.nio.file.Files.writeString(parentGroup.resolve("group.json"), "{\"name\":\"ParentGroup\",\"description\":\"Parent\"}");
+        java.nio.file.Files.writeString(childGroup.resolve("group.json"), "{\"name\":\"ChildGroup\",\"description\":\"Child\"}");
+
+        String suiteJson = """
+            {
+              "name": "NestedSuite",
+              "cases": [
+                {
+                  "id": "tc-nested-1",
+                  "name": "NestedCase",
+                  "status": "Ready",
+                  "assertions": []
+                }
+              ]
+            }
+            """;
+        java.nio.file.Files.writeString(nestedSuite.resolve("suite.json"), suiteJson);
+
+        indexService.syncProjectDirectory(tempDir);
+
+        assertEquals(1, projectDb.getTotalCasesCount(), "Nested test case must be indexed into H2 database");
+        List<TestCase> found = projectDb.searchCases("NestedCase", null);
+        assertEquals(1, found.size());
+        assertEquals("NestedCase", found.get(0).getName());
+        assertEquals("Ready", found.get(0).getStatus());
+
+        List<TestCase> suiteCases = projectDb.getCasesForSuite("ParentGroup/ChildGroup", "NestedSuite");
+        assertEquals(1, suiteCases.size());
+        assertEquals("NestedCase", suiteCases.get(0).getName());
+    }
 }
