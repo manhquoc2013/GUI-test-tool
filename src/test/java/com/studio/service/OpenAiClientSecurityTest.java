@@ -86,3 +86,4 @@ class OpenAiClientSecurityTest {
         assertTrue(ex.getMessage().contains("••••"), "Secret key must be masked with bullets");
     }
 }
+
