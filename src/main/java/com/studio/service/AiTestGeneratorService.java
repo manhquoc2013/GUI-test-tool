@@ -13,6 +13,7 @@ import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
 import com.studio.service.DocumentParserService.ParsedDocument;
 import com.studio.store.ProjectStore;
+import com.studio.util.StudioPaths;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -33,30 +34,50 @@ public class AiTestGeneratorService {
     private final OpenAiClient openAiClient;
     private final ObjectMapper mapper;
     private final AiTokenOptimizer tokenOptimizer;
+    private final AiAmbiguityAnalyzer ambiguityAnalyzer;
+    private final AiProjectAdvisorService advisorService;
 
     public AiTestGeneratorService() {
-        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer());
+        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper) {
-        this(openAiClient, mapper, new AiTokenOptimizer());
+        this(openAiClient, mapper, new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer) {
+        this(openAiClient, mapper, tokenOptimizer, new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
+    }
+
+    public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
+                                  AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService) {
         this.openAiClient = openAiClient;
         this.mapper = mapper;
         this.tokenOptimizer = tokenOptimizer != null ? tokenOptimizer : new AiTokenOptimizer();
+        this.ambiguityAnalyzer = ambiguityAnalyzer != null ? ambiguityAnalyzer : new AiAmbiguityAnalyzer();
+        this.advisorService = advisorService != null ? advisorService : new AiProjectAdvisorService();
     }
 
     public static class GenerationResult {
         private final String summary;
         private final List<AiGeneratedCase> cases;
         private final String rawResponse;
+        private final boolean clarification;
+        private final List<com.studio.model.AiClarificationQuestion> questions;
+        private final String intent;
 
         public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse) {
+            this(summary, cases, rawResponse, false, List.of(), "GENERATE_TESTS");
+        }
+
+        public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse,
+                                boolean clarification, List<com.studio.model.AiClarificationQuestion> questions, String intent) {
             this.summary = summary != null ? summary : "";
             this.cases = cases != null ? cases : new ArrayList<>();
             this.rawResponse = rawResponse != null ? rawResponse : "";
+            this.clarification = clarification;
+            this.questions = questions != null ? new ArrayList<>(questions) : new ArrayList<>();
+            this.intent = intent != null ? intent : "GENERATE_TESTS";
         }
 
         public String getSummary() {
@@ -69,6 +90,18 @@ public class AiTestGeneratorService {
 
         public String getRawResponse() {
             return rawResponse;
+        }
+
+        public boolean isClarification() {
+            return clarification;
+        }
+
+        public List<com.studio.model.AiClarificationQuestion> getQuestions() {
+            return questions;
+        }
+
+        public String getIntent() {
+            return intent;
         }
     }
 
@@ -165,14 +198,22 @@ public class AiTestGeneratorService {
              + Nếu trang đăng nhập chứa trường CAPTCHA (nhãn "Mã bảo vệ", "Captcha", có ảnh mã bảo vệ):
                Đối với kịch bản kiểm tra ngoại lệ/đăng nhập sai, kịch bản cần điền thông tin (có thể nhập sai captcha hoặc để trống) và kiểm tra thông báo cảnh báo/lỗi xuất hiện (`assertThat(alert).isVisible()`).
 
-        8. **Test Case Priority Evaluation (P0 - P3)**:
+        8. **Exhaustive Multi-Scenario Standard (ANTI-SUPERFICIAL GENERATION RULE - Agency-Agents & Fabric Standard)**:
+           - **TUYỆT ĐỐI KHÔNG sinh test case sơ sài** (ví dụ: chỉ có 1-2 click đơn giản hoặc thiếu assertions kiểm thử).
+           - Với mỗi yêu cầu kiểm thử tính năng hoặc luồng nghiệp vụ, bạn BẮT BUỘC sinh ít nhất 2 đến 3 test cases hoàn chỉnh bao quát các khía cạnh:
+             1. **TC01_<Feature>_HappyPath** (Luồng thành công chuẩn): Toàn bộ hành trình người dùng từ đầu đến cuối, điền đầy đủ form, nhấn nút, chờ chuyển hướng và xác minh kết quả đa điểm.
+             2. **TC02_<Feature>_NegativeValidation** (Luồng kiểm tra lỗi & xác thực): Nhập dữ liệu sai, bỏ trống trường bắt buộc, kiểm tra thông báo cảnh báo/lỗi xuất hiện (`assertThat(error).isVisible()`) và nút submit không gửi được.
+             3. **TC03_<Feature>_BoundaryEdgeCase** (Trường hợp biên / Giới hạn): Kiểm tra giá trị biên (độ dài tối đa, ký tự đặc biệt, định dạng đặc biệt, số âm/0), hoặc xử lý timeout/hủy bỏ.
+           - Mỗi test case BẮT BUỘC có ít nhất 4 - 8 bước `testSteps` chi tiết và ít nhất 2 - 4 `assertions` kiểm thử thực tế.
+
+        9. **Test Case Priority Evaluation (P0 - P3)**:
            - You MUST evaluate and classify each test case into an appropriate priority tier based on business impact:
              - "P0" (Critical / Smoke): Blocker workflows (Authentication, Core Checkout, Payment, Security).
              - "P1" (High / Core Flow): Essential business workflows, primary CRUD, and major validations.
              - "P2" (Medium / Regression): Secondary workflows, search/filtering, pagination, error handling.
              - "P3" (Low / Edge Case): UI polish, formatting, tooltips, rare edge scenarios.
 
-        9. **Response Format**:
+        10. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
@@ -279,6 +320,56 @@ public class AiTestGeneratorService {
                                              List<com.studio.model.AiChatMessage> history,
                                              java.util.function.Consumer<String> progressListener,
                                              AiSkill selectedSkill) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, domJson, history, progressListener, selectedSkill, null);
+    }
+
+    /**
+     * Generate test cases with Live DOM context injection, live progress reporting, specialized AiSkill routing, and suite directory.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history,
+                                             java.util.function.Consumer<String> progressListener,
+                                             AiSkill selectedSkill,
+                                             Path suiteDir) throws IOException, InterruptedException {
+        // 1. Analyze ambiguity and user intent
+        AiAmbiguityAnalyzer.AnalysisResult analysis = ambiguityAnalyzer.analyze(
+                userPrompt,
+                attachments != null && !attachments.isEmpty(),
+                domJson != null && !domJson.isBlank() && !"[]".equals(domJson)
+        );
+
+        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.SEARCH_TESTS) {
+            if (progressListener != null) progressListener.accept("Đang tìm kiếm test cases trong dự án...");
+            AiProjectAdvisorService.SearchResult searchRes = advisorService.searchCases(analysis.targetEntity(), StudioPaths.getProjectDir());
+            return new GenerationResult(searchRes.markdownReport(), List.of(), searchRes.markdownReport(), false, List.of(), "SEARCH_TESTS");
+        }
+
+        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.EVALUATE_TEST) {
+            if (progressListener != null) progressListener.accept("Đang phân tích & đánh giá chất lượng test case...");
+            AiProjectAdvisorService.EvaluationResult evalRes = advisorService.evaluateCase(analysis.targetEntity(), suiteDir);
+            return new GenerationResult(evalRes.markdownReport(), List.of(), evalRes.markdownReport(), false, List.of(), "EVALUATE_TEST");
+        }
+
+        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.GAP_ANALYSIS) {
+            if (progressListener != null) progressListener.accept("Đang phân tích độ bao phủ và khoảng trống kiểm thử...");
+            AiProjectAdvisorService.GapAnalysisResult gapRes = advisorService.analyzeSuiteGaps(suiteDir);
+            return new GenerationResult(gapRes.markdownReport(), List.of(), gapRes.markdownReport(), false, List.of(), "GAP_ANALYSIS");
+        }
+
+        if (analysis.needsClarification()) {
+            return new GenerationResult(
+                    analysis.initialClarificationMessage(),
+                    List.of(),
+                    analysis.initialClarificationMessage(),
+                    true,
+                    analysis.questions(),
+                    "CLARIFICATION"
+            );
+        }
+
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
         if (progressListener != null) {
             progressListener.accept("Đang tối ưu ngữ cảnh & lịch sử hội thoại...");
@@ -317,6 +408,14 @@ public class AiTestGeneratorService {
         }
 
         return parseResponse(reply, effectiveSkill);
+    }
+
+    public AiAmbiguityAnalyzer getAmbiguityAnalyzer() {
+        return ambiguityAnalyzer;
+    }
+
+    public AiProjectAdvisorService getAdvisorService() {
+        return advisorService;
     }
 
     /**

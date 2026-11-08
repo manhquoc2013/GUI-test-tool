@@ -185,3 +185,38 @@
 
 
 
+
+
+## Phase 12: Interactive Ambiguity Clarification, Conversational Intelligence & Deep Test Generation
+- **Vertical Slice 1: Models & Data Structures**:
+  - Create `com.studio.model.AiClarificationQuestion.java` (id, question, options, multiSelect, allowCustomInput, selectedAnswer).
+  - Update `com.studio.model.AiChatMessage.java` with clarification fields (`clarificationQuestions`, `clarificationAnswers`, `clarificationAnswered`, `intent`).
+  - Unit tests for serialization and answer handling.
+
+- **Vertical Slice 2: Project Intelligence Advisor Service**:
+  - Create `com.studio.service.AiProjectAdvisorService.java`:
+    - `searchCases(query, suiteFilter, projectDir)`: search test cases across project.
+    - `evaluateCase(caseNameOrCode, suiteDir)`: audit test quality, locator resilience, hard sleep detection, assertion depth.
+    - `analyzeSuiteGaps(suiteDir)`: detect missing negative/boundary/edge scenarios.
+  - Unit tests for `AiProjectAdvisorService`.
+
+- **Vertical Slice 3: Clarification Analyzer & Generator Upgrade**:
+  - Create `com.studio.service.AiAmbiguityAnalyzer.java`:
+    - Evaluates prompt completeness; returns structured `AiClarificationQuestion`s when requirements are vague.
+  - Upgrade `AiTestGeneratorService.java`:
+    - Handle intent routing (`CLARIFICATION`, `SEARCH_TESTS`, `EVALUATE_TEST`, `GAP_ANALYSIS`, `GENERATE_TESTS`).
+    - Upgrade `SYSTEM_PROMPT` to enforce comprehensive, multi-scenario test suites (Happy Path + Negative/Validation + Boundary/Edge case) with dual representation, resilient role locators, zero hard sleeps, and web-first assertions.
+  - Unit tests for `AiAmbiguityAnalyzer` and upgraded generation parsing.
+
+- **Vertical Slice 4: UI Interactive Clarification Card & Chatbot Flow**:
+  - Update `AiAssistantPageController.java`:
+    - Render interactive question card inside chat bubble when message has clarification questions.
+    - Provide option chips/buttons with selection highlight, custom text field, and "Xác nhận & Tiếp tục" action.
+    - Support conversational chat for test search, audit, and advice without generating empty cases.
+    - Add quick action chips for Search, Audit, Gap Analysis, and Deep Generation.
+  - Add styles in `src/main/resources/css/studio.css` for interactive clarification cards and option chips.
+
+- **Vertical Slice 5: Verification & Zero Regressions**:
+  - Write comprehensive automated tests for the full clarification flow, chatbot actions, and generator output.
+  - Run full test suite: `mvn test` (must pass 269+ tests).
+  - Extract learnings and report final summary.
