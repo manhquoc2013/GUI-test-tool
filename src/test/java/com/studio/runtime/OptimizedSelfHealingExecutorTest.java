@@ -120,4 +120,45 @@ class OptimizedSelfHealingExecutorTest {
         assertTrue(updatedCode.contains("button:has-text(\\\"Đăng nhập\\\")"), "Script should contain properly escaped new selector");
         assertFalse(updatedCode.contains("old-btn"), "Old selector should have been replaced");
     }
+
+    @Test
+    @DisplayName("Anti-thrashing guard halts speculative mutations after 3 patches on the same case")
+    void testAntiThrashingGuardHaltsAfterThreeMutations(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        TestCase tc = new TestCase("tc_thrash", "ThrashCase", "Desc", "ThrashCase.java", "Ready");
+        java.nio.file.Path scriptFile = tempDir.resolve("ThrashCase.java");
+        java.nio.file.Files.writeString(scriptFile, "package com.test;\npublic class ThrashCase {\n    String s = \"btn_0\";\n}");
+
+        OptimizedSelfHealingExecutor executor = new OptimizedSelfHealingExecutor(
+                null, null, null, null, tempDir, null, tc
+        );
+
+        java.lang.reflect.Method m = OptimizedSelfHealingExecutor.class.getDeclaredMethod("persistMutation", String.class, String.class);
+        m.setAccessible(true);
+
+        // Patch 1
+        m.invoke(executor, "btn_0", "btn_1");
+        assertEquals(1, OptimizedSelfHealingExecutor.getMutationCount("tc_thrash"));
+        assertTrue(java.nio.file.Files.readString(scriptFile).contains("btn_1"));
+
+        // Patch 2
+        m.invoke(executor, "btn_1", "btn_2");
+        assertEquals(2, OptimizedSelfHealingExecutor.getMutationCount("tc_thrash"));
+        assertTrue(java.nio.file.Files.readString(scriptFile).contains("btn_2"));
+
+        // Patch 3
+        m.invoke(executor, "btn_2", "btn_3");
+        assertEquals(3, OptimizedSelfHealingExecutor.getMutationCount("tc_thrash"));
+        assertTrue(java.nio.file.Files.readString(scriptFile).contains("btn_3"));
+
+        // Patch 4 -> Should be BLOCKED by Anti-Thrashing Guard!
+        m.invoke(executor, "btn_3", "btn_4_should_not_exist");
+        assertEquals(3, OptimizedSelfHealingExecutor.getMutationCount("tc_thrash"));
+        String finalContent = java.nio.file.Files.readString(scriptFile);
+        assertFalse(finalContent.contains("btn_4_should_not_exist"), "4th mutation should have been halted by anti-thrashing guard");
+        assertTrue(finalContent.contains("btn_3"), "Script should retain the 3rd mutation");
+
+        // Verify forensic audit log entry was added
+        List<HealedStepMeta> logs = executor.getAuditLogs();
+        assertTrue(logs.stream().anyMatch(l -> "ANTI_THRASHING_GUARD".equals(l.getMethod())));
+    }
 }

@@ -337,20 +337,26 @@ public class ProjectStore {
 
     /** Deletes group directory and all nested groups / suites / cases on disk. */
     public void deleteGroup(Path groupDir) throws IOException {
-        Files.walk(groupDir)
-                .sorted(Comparator.reverseOrder())
-                .forEach(p -> {
-                    try { Files.delete(p); } catch (IOException ignored) {}
-                });
+        if (groupDir != null && Files.exists(groupDir)) {
+            try (var walk = Files.walk(groupDir)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try { Files.delete(p); } catch (IOException ignored) {}
+                        });
+            }
+        }
         indexService.deleteGroup(groupDir.getFileName().toString());
     }
 
     public void deleteSuite(Path suiteDir) throws IOException {
-        Files.walk(suiteDir)
-                .sorted(Comparator.reverseOrder())
-                .forEach(p -> {
-                    try { Files.delete(p); } catch (IOException ignored) {}
-                });
+        if (suiteDir != null && Files.exists(suiteDir)) {
+            try (var walk = Files.walk(suiteDir)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try { Files.delete(p); } catch (IOException ignored) {}
+                        });
+            }
+        }
         String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
         indexService.deleteSuite(groupName, suiteDir.getFileName().toString());
     }
@@ -440,16 +446,18 @@ public class ProjectStore {
 
     private void copyDirectory(Path from, Path to) throws IOException {
         try {
-            Files.walk(from).forEach(source -> {
-                try {
-                    Path dest = to.resolve(from.relativize(source));
-                    if (!Files.exists(dest)) {
-                        Files.copy(source, dest);
+            try (var walk = Files.walk(from)) {
+                walk.forEach(source -> {
+                    try {
+                        Path dest = to.resolve(from.relativize(source));
+                        if (!Files.exists(dest)) {
+                            Files.copy(source, dest);
+                        }
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
                     }
-                } catch (IOException e) {
-                    throw new java.io.UncheckedIOException(e);
-                }
-            });
+                });
+            }
         } catch (java.io.UncheckedIOException e) {
             throw e.getCause();
         }

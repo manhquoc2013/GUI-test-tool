@@ -174,4 +174,57 @@ public class LocalDataIndexServiceTest {
         assertEquals(1, suiteCases.size());
         assertEquals("NestedCase", suiteCases.get(0).getName());
     }
+
+    @Test
+    public void testMtimeCacheSkipsUnmodifiedFilesOnResync(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        java.nio.file.Path groupDir = tempDir.resolve("MtimeGroup");
+        java.nio.file.Files.createDirectories(groupDir);
+        java.nio.file.Files.writeString(groupDir.resolve("group.json"), "{\"name\":\"MtimeGroup\",\"description\":\"Desc\"}");
+
+        java.nio.file.Path suiteDir = groupDir.resolve("MtimeSuite");
+        java.nio.file.Files.createDirectories(suiteDir);
+        java.nio.file.Files.writeString(suiteDir.resolve("suite.json"), """
+            {
+              "name": "MtimeSuite",
+              "cases": [
+                {
+                  "id": "tc-mtime-1",
+                  "name": "MtimeCase",
+                  "status": "Ready",
+                  "assertions": []
+                }
+              ]
+            }
+            """);
+
+        // First sync indexes the case
+        indexService.syncProjectDirectory(tempDir);
+        assertEquals(1, projectDb.getTotalCasesCount());
+
+        // Second sync should safely complete without errors
+        indexService.syncProjectDirectory(tempDir);
+        assertEquals(1, projectDb.getTotalCasesCount());
+
+        // Modify file -> MTime increases -> resync updates case
+        java.nio.file.Files.writeString(suiteDir.resolve("suite.json"), """
+            {
+              "name": "MtimeSuite",
+              "cases": [
+                {
+                  "id": "tc-mtime-1",
+                  "name": "MtimeCaseUpdated",
+                  "status": "Ready",
+                  "assertions": []
+                }
+              ]
+            }
+            """);
+        java.nio.file.Files.setLastModifiedTime(suiteDir.resolve("suite.json"),
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 2000));
+
+        indexService.syncProjectDirectory(tempDir);
+        assertEquals(1, projectDb.getTotalCasesCount());
+        List<TestCase> updated = projectDb.searchCases("MtimeCaseUpdated", null);
+        assertEquals(1, updated.size());
+    }
 }

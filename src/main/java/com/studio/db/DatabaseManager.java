@@ -3,12 +3,17 @@ package com.studio.db;
 import com.studio.util.StudioPaths;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Manages the embedded H2 database connection and schema lifecycle.
@@ -21,6 +26,8 @@ public class DatabaseManager {
     private final String jdbcUrl;
     private final String user;
     private final String password;
+    private final BlockingQueue<Connection> pool = new LinkedBlockingQueue<>(10);
+    private final AtomicBoolean isShutdown = new AtomicBoolean(false);
 
     public DatabaseManager() {
         this(resolveDefaultUrl(), "sa", "");
@@ -58,7 +65,56 @@ public class DatabaseManager {
     }
 
     public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl, user, password);
+        if (isShutdown.get()) {
+            throw new SQLException("DatabaseManager has been shut down");
+        }
+        Connection physical = pool.poll();
+        try {
+            if (physical != null && (physical.isClosed() || !physical.isValid(1))) {
+                try { physical.close(); } catch (Exception ignored) {}
+                physical = null;
+            }
+        } catch (Exception e) {
+            physical = null;
+        }
+
+        if (physical == null) {
+            physical = DriverManager.getConnection(jdbcUrl, user, password);
+        }
+
+        final Connection target = physical;
+        return (Connection) Proxy.newProxyInstance(
+                Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class},
+                (proxy, method, args) -> {
+                    if ("close".equals(method.getName())) {
+                        if (!isShutdown.get() && !target.isClosed() && pool.offer(target)) {
+                            return null;
+                        }
+                        target.close();
+                        return null;
+                    }
+                    if ("isClosed".equals(method.getName())) {
+                        return target.isClosed();
+                    }
+                    if ("unwrap".equals(method.getName()) && args != null && args.length == 1 && ((Class<?>) args[0]).isInstance(target)) {
+                        return target;
+                    }
+                    if ("isWrapperFor".equals(method.getName()) && args != null && args.length == 1 && ((Class<?>) args[0]).isInstance(target)) {
+                        return true;
+                    }
+                    try {
+                        return method.invoke(target, args);
+                    } catch (InvocationTargetException ite) {
+                        Throwable cause = ite.getCause();
+                        throw cause != null ? cause : ite;
+                    }
+                }
+        );
+    }
+
+    public int getIdlePoolSize() {
+        return pool.size();
     }
 
     public String getJdbcUrl() {
@@ -173,7 +229,15 @@ public class DatabaseManager {
      * Performs a graceful database shutdown, defragmenting and releasing all file locks and OS buffers.
      */
     public synchronized void shutdown() {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+        if (!isShutdown.compareAndSet(false, true)) {
+            return;
+        }
+        Connection pooledConn;
+        while ((pooledConn = pool.poll()) != null) {
+            try { pooledConn.close(); } catch (Exception ignored) {}
+        }
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, user, password);
+             Statement stmt = conn.createStatement()) {
             stmt.execute("SHUTDOWN COMPACT");
         } catch (Exception ignored) {}
     }

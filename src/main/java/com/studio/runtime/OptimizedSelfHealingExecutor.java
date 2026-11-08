@@ -31,6 +31,8 @@ public class OptimizedSelfHealingExecutor {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Map<String, String> LOCATE_CACHE = new ConcurrentHashMap<>();
+    public static final int MAX_MUTATIONS_PER_CASE = 3;
+    private static final Map<String, Integer> MUTATION_COUNTS = new ConcurrentHashMap<>();
 
     private final Page page;
     private final OpenAiClient openAiClient;
@@ -59,6 +61,22 @@ public class OptimizedSelfHealingExecutor {
 
     public static void clearCache() {
         LOCATE_CACHE.clear();
+        MUTATION_COUNTS.clear();
+    }
+
+    public static void resetMutationCounts() {
+        MUTATION_COUNTS.clear();
+    }
+
+    public static int getMutationCount(String caseKey) {
+        if (caseKey == null) return 0;
+        return MUTATION_COUNTS.getOrDefault(caseKey, 0);
+    }
+
+    public static void resetMutationCount(String caseKey) {
+        if (caseKey != null) {
+            MUTATION_COUNTS.remove(caseKey);
+        }
     }
 
     public static Map<String, String> getLocateCache() {
@@ -316,6 +334,22 @@ public class OptimizedSelfHealingExecutor {
         if (suiteDir == null || currentCase == null) {
             return;
         }
+
+        // Anti-Thrashing Guard: halt speculative mutations if a case is patched more than 3 times
+        String caseKey = currentCase.getId() != null ? currentCase.getId() : currentCase.getName();
+        if (caseKey != null) {
+            int currentCount = MUTATION_COUNTS.getOrDefault(caseKey, 0);
+            if (currentCount >= MAX_MUTATIONS_PER_CASE) {
+                System.err.printf("[Anti-Thrashing GUARD] Case '%s' has reached the maximum patch limit (%d). Halting speculative mutations to prevent file thrashing.%n",
+                        caseKey, MAX_MUTATIONS_PER_CASE);
+                String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                auditLogs.add(new HealedStepMeta(caseKey, "ANTI_THRASHING_HALT", oldSelector, newSelector,
+                        "ANTI_THRASHING_GUARD", 0.0, now));
+                return;
+            }
+            MUTATION_COUNTS.put(caseKey, currentCount + 1);
+        }
+
         try {
             // 1. Persist mutation into script file (strictly targeting quoted string literals to protect Java code)
             String scriptFileName = currentCase.getScriptFile() != null && !currentCase.getScriptFile().isBlank()

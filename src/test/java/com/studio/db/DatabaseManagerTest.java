@@ -52,4 +52,29 @@ public class DatabaseManagerTest {
             }
         }
     }
+
+    @Test
+    public void testConnectionPoolingAndReusability() throws SQLException {
+        DatabaseManager db = DatabaseManager.createInMemory("db_pool_test");
+        // initializeSchema() runs during constructor and returns its connection to the pool
+        assertEquals(1, db.getIdlePoolSize(), "Pool should have 1 idle connection initialized from schema DDL");
+
+        // Subsequent getConnection should reuse the connection from pool
+        try (Connection conn = db.getConnection()) {
+            assertEquals(0, db.getIdlePoolSize(), "Pooled connection should be checked out");
+            assertNotNull(conn);
+            assertFalse(conn.isClosed());
+            assertTrue(conn.isWrapperFor(Connection.class));
+            assertNotNull(conn.unwrap(Connection.class));
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
+            }
+        }
+
+        assertEquals(1, db.getIdlePoolSize(), "Connection should be returned to pool again");
+        db.shutdown();
+        assertEquals(0, db.getIdlePoolSize(), "Shutdown should clear pooled connections");
+    }
 }

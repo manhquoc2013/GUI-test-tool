@@ -1,6 +1,7 @@
 package com.studio.service;
 
 import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
@@ -26,6 +27,34 @@ public class LiveDomScanner {
 
     private static final Pattern URL_PATTERN =
             Pattern.compile("https?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/[^\\s\"'<>]*)?", Pattern.CASE_INSENSITIVE);
+
+    private static volatile Playwright sharedPlaywright = null;
+    private static volatile Browser sharedBrowser = null;
+
+    static {
+        ResourceReleaseService.registerCleanupTask("dom-scanner-browser", LiveDomScanner::closeSharedBrowser);
+    }
+
+    public static synchronized Browser getOrCreateBrowser() {
+        if (sharedPlaywright == null) {
+            sharedPlaywright = PlaywrightUtil.create();
+        }
+        if (sharedBrowser == null || !sharedBrowser.isConnected()) {
+            sharedBrowser = sharedPlaywright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+        }
+        return sharedBrowser;
+    }
+
+    public static synchronized void closeSharedBrowser() {
+        if (sharedBrowser != null) {
+            try { sharedBrowser.close(); } catch (Exception ignored) {}
+            sharedBrowser = null;
+        }
+        if (sharedPlaywright != null) {
+            try { sharedPlaywright.close(); } catch (Exception ignored) {}
+            sharedPlaywright = null;
+        }
+    }
 
     private static class CacheEntry {
         final String domJson;
@@ -100,14 +129,13 @@ public class LiveDomScanner {
         }
 
         int timeout = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
-        Playwright playwright = null;
-        Browser browser = null;
+        BrowserContext context = null;
         Page page = null;
 
         try {
-            playwright = PlaywrightUtil.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
-            page = browser.newPage();
+            Browser browser = getOrCreateBrowser();
+            context = browser.newContext();
+            page = context.newPage();
             page.setDefaultNavigationTimeout(timeout);
             page.setDefaultTimeout(timeout);
 
@@ -131,16 +159,14 @@ public class LiveDomScanner {
             return extracted;
         } catch (Exception e) {
             System.err.println("[LiveDomScanner] Failed to scan URL '" + normalizedUrl + "': " + e.getMessage());
+            closeSharedBrowser();
             return "[]";
         } finally {
             if (page != null) {
                 try { page.close(); } catch (Exception ignored) {}
             }
-            if (browser != null) {
-                try { browser.close(); } catch (Exception ignored) {}
-            }
-            if (playwright != null) {
-                try { playwright.close(); } catch (Exception ignored) {}
+            if (context != null) {
+                try { context.close(); } catch (Exception ignored) {}
             }
         }
     }

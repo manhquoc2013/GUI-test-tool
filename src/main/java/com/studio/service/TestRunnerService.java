@@ -515,11 +515,12 @@ public class TestRunnerService {
     private static void deleteQuietly(Path dir) {
         if (dir == null || !Files.exists(dir)) return;
         try {
-            Files.walk(dir)
-                    .sorted(java.util.Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try { Files.deleteIfExists(p); } catch (Exception ignored) { }
-                    });
+            try (var walk = Files.walk(dir)) {
+                walk.sorted(java.util.Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try { Files.deleteIfExists(p); } catch (Exception ignored) { }
+                        });
+            }
         } catch (Exception ignored) { }
     }
 

@@ -12,10 +12,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * High-performance synchronization service that mirrors file-based project assets,
@@ -36,12 +41,16 @@ public class LocalDataIndexService {
     }
 
     /**
-     * Complete synchronization of workspace files and reports into H2 cache.
+     * Complete synchronization of workspace files and reports into H2 cache with MTime caching.
+     * Files unchanged since their recorded database timestamp are skipped.
      */
     public synchronized void syncAllFromDisk() {
         Path projectDir = StudioPaths.getProjectDir();
+        Map<String, Long> groupMtimes = loadGroupMtimes();
+        Map<String, Long> suiteMtimes = loadSuiteMtimes();
+
         if (Files.exists(projectDir)) {
-            syncProjectDirectory(projectDir);
+            syncProjectDirectoryInternal(projectDir, groupMtimes, suiteMtimes);
         }
 
         Path reportsDir = StudioPaths.getDataDir().resolve("reports");
@@ -52,31 +61,40 @@ public class LocalDataIndexService {
 
     public void syncProjectDirectory(Path projectDir) {
         if (projectDir == null || !Files.exists(projectDir)) return;
+        Map<String, Long> groupMtimes = loadGroupMtimes();
+        Map<String, Long> suiteMtimes = loadSuiteMtimes();
+        syncProjectDirectoryInternal(projectDir, groupMtimes, suiteMtimes);
+    }
+
+    private void syncProjectDirectoryInternal(Path projectDir, Map<String, Long> groupMtimes, Map<String, Long> suiteMtimes) {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(projectDir)) {
             for (Path entry : stream) {
                 if (!Files.isDirectory(entry)) continue;
                 Path groupJson = entry.resolve("group.json");
                 Path suiteJson = entry.resolve("suite.json");
                 if (Files.exists(groupJson)) {
-                    syncGroupDirectory(entry, entry.getFileName().toString());
+                    syncGroupDirectoryInternal(entry, entry.getFileName().toString(), groupMtimes, suiteMtimes);
                 } else if (Files.exists(suiteJson)) {
-                    try {
-                        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
-                        indexSuite(suite, entry, "");
-                    } catch (Exception ignored) {}
+                    syncSuiteFileIfModified(entry, "", childSuiteId("", entry.getFileName().toString()), suiteJson, suiteMtimes);
                 }
             }
         } catch (Exception ignored) {}
     }
 
-    private void syncGroupDirectory(Path groupDir, String groupPath) {
+    private void syncGroupDirectoryInternal(Path groupDir, String groupPath, Map<String, Long> groupMtimes, Map<String, Long> suiteMtimes) {
         try {
             Path groupJson = groupDir.resolve("group.json");
             if (Files.exists(groupJson)) {
-                try {
-                    TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
-                    indexGroup(group, groupDir);
-                } catch (Exception ignored) {}
+                String groupName = groupDir.getFileName().toString();
+                long fileMtime = Files.getLastModifiedTime(groupJson).toMillis();
+                Long cached = groupMtimes.get(groupName);
+                if (cached == null || fileMtime > cached) {
+                    try {
+                        TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
+                        indexGroup(group, groupDir);
+                        groupMtimes.put(groupName, System.currentTimeMillis());
+                    } catch (Exception ignored) {}
+                }
             }
 
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupDir)) {
@@ -88,22 +106,52 @@ public class LocalDataIndexService {
                         String nestedPath = (groupPath != null && !groupPath.isBlank())
                                 ? groupPath + "/" + entry.getFileName().toString()
                                 : entry.getFileName().toString();
-                        syncGroupDirectory(entry, nestedPath);
+                        syncGroupDirectoryInternal(entry, nestedPath, groupMtimes, suiteMtimes);
                     } else if (Files.exists(childSuiteJson)) {
-                        try {
-                            TestSuite suite = mapper.readValue(childSuiteJson.toFile(), TestSuite.class);
-                            indexSuite(suite, entry, groupPath);
-                        } catch (Exception ignored) {}
+                        syncSuiteFileIfModified(entry, groupPath, childSuiteId(groupPath, entry.getFileName().toString()), childSuiteJson, suiteMtimes);
                     }
                 }
             }
         } catch (Exception ignored) {}
     }
 
+    private static String childSuiteId(String groupPath, String suiteName) {
+        return (groupPath != null && !groupPath.isBlank() ? groupPath : "") + "/" + suiteName;
+    }
+
+    private void syncSuiteFileIfModified(Path suiteDir, String groupPath, String suiteId, Path suiteJson, Map<String, Long> suiteMtimes) {
+        try {
+            long suiteLastMod = Files.getLastModifiedTime(suiteJson).toMillis();
+            Long cachedSuite = suiteMtimes.get(suiteId);
+            if (cachedSuite == null || suiteLastMod > cachedSuite || hasModifiedScripts(suiteDir, cachedSuite)) {
+                TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+                indexSuite(suite, suiteDir, groupPath);
+                suiteMtimes.put(suiteId, System.currentTimeMillis());
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private boolean hasModifiedScripts(Path suiteDir, long cachedMtime) {
+        try (DirectoryStream<Path> js = Files.newDirectoryStream(suiteDir, "*.java")) {
+            for (Path p : js) {
+                if (Files.getLastModifiedTime(p).toMillis() > cachedMtime) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     public void syncReportsDirectory(Path reportsDir) {
+        if (reportsDir == null || !Files.exists(reportsDir)) return;
+        Set<String> indexedReports = loadIndexedReportIds();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(reportsDir)) {
             for (Path runDir : stream) {
                 if (!Files.isDirectory(runDir)) continue;
+                String runId = runDir.getFileName().toString();
+                if (indexedReports.contains(runId)) {
+                    continue; // Skip already indexed reports
+                }
                 Path summaryJson = runDir.resolve("summary.json");
                 if (Files.exists(summaryJson)) {
                     try {
@@ -112,8 +160,43 @@ public class LocalDataIndexService {
                     } catch (Exception ignored) {}
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
+    }
+
+    private Map<String, Long> loadGroupMtimes() {
+        Map<String, Long> map = new HashMap<>();
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT name, updated_at FROM test_groups")) {
+            while (rs.next()) {
+                map.put(rs.getString(1), rs.getLong(2));
+            }
+        } catch (Exception ignored) {}
+        return map;
+    }
+
+    private Map<String, Long> loadSuiteMtimes() {
+        Map<String, Long> map = new HashMap<>();
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT id, updated_at FROM test_suites")) {
+            while (rs.next()) {
+                map.put(rs.getString(1), rs.getLong(2));
+            }
+        } catch (Exception ignored) {}
+        return map;
+    }
+
+    private Set<String> loadIndexedReportIds() {
+        Set<String> set = new HashSet<>();
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT run_id FROM run_reports")) {
+            while (rs.next()) {
+                set.add(rs.getString(1));
+            }
+        } catch (Exception ignored) {}
+        return set;
     }
 
     // ── Group Indexing ──

@@ -9,6 +9,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.net.NetworkInterface;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
@@ -184,7 +187,7 @@ public final class ApiKeyCipher {
                 SecretKey tmp = factory.generateSecret(spec);
                 cachedKey = new SecretKeySpec(tmp.getEncoded(), "AES");
             } catch (Exception e) {
-                cachedKey = new SecretKeySpec(STATIC_SALT, 0, 16, "AES");
+                cachedKey = getOrGeneratePersistentFallbackKey();
             }
             return cachedKey;
         }
@@ -205,9 +208,48 @@ public final class ApiKeyCipher {
                 SecretKey tmp = factory.generateSecret(spec);
                 cachedLegacyKey = new SecretKeySpec(tmp.getEncoded(), "AES");
             } catch (Exception e) {
-                cachedLegacyKey = new SecretKeySpec(STATIC_SALT, 0, 16, "AES");
+                cachedLegacyKey = getOrGeneratePersistentFallbackKey();
             }
             return cachedLegacyKey;
+        }
+    }
+
+    private static SecretKey getOrGeneratePersistentFallbackKey() {
+        try {
+            Path configDir = StudioPaths.getConfigDir();
+            Files.createDirectories(configDir);
+            Path secretFile = configDir.resolve(".device_entropy");
+            byte[] keyBytes;
+            if (Files.exists(secretFile)) {
+                keyBytes = Files.readAllBytes(secretFile);
+                if (keyBytes.length == 32) {
+                    return new SecretKeySpec(keyBytes, "AES");
+                }
+            }
+            keyBytes = new byte[32];
+            SECURE_RANDOM.nextBytes(keyBytes);
+            try {
+                Files.write(secretFile, keyBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                try {
+                    java.nio.file.attribute.PosixFileAttributeView posix = Files.getFileAttributeView(
+                            secretFile, java.nio.file.attribute.PosixFileAttributeView.class);
+                    if (posix != null) {
+                        posix.setPermissions(java.util.Set.of(
+                                java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                                java.nio.file.attribute.PosixFilePermission.OWNER_WRITE
+                        ));
+                    }
+                } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+            return new SecretKeySpec(keyBytes, "AES");
+        } catch (Exception ex) {
+            byte[] fallback = new byte[32];
+            byte[] userBytes = (System.getProperty("user.name", "user") + "|" + System.getProperty("user.home", "/")).getBytes(StandardCharsets.UTF_8);
+            System.arraycopy(STATIC_SALT, 0, fallback, 0, Math.min(STATIC_SALT.length, 16));
+            for (int i = 0; i < userBytes.length && i < 16; i++) {
+                fallback[16 + i] = (byte) (userBytes[i] ^ (i * 31));
+            }
+            return new SecretKeySpec(fallback, "AES");
         }
     }
 
