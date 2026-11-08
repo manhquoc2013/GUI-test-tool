@@ -56,7 +56,7 @@ public class MarkdownPreviewDialog {
         Path mdPath = doc.getMarkdownPath();
         String pathStr = mdPath != null ? mdPath.toAbsolutePath().normalize().toString() : "Chưa lưu file";
         Label pathLabel = new Label("📁 " + pathStr);
-        pathLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted;");
+        pathLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext;");
         HBox.setHgrow(pathLabel, Priority.ALWAYS);
 
         if (doc.getConversionResult() != null) {

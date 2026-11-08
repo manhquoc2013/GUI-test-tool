@@ -9,6 +9,12 @@
     -color-subtext: #64748b;
     -color-primary: #2563eb;
     -color-primary-dim: #eff6ff;
+    -color-primary-subtle: #eff6ff;
+    -color-border: #cbd5e1;
+    -color-border-subtle: #e2e8f0;
+    -color-text-muted: #64748b;
+    -fx-accent-color: #2563eb;
+    -fx-text-muted-color: #64748b;
 }
 
 /* === MAIN WINDOW & BASE === */

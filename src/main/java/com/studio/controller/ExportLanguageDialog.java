@@ -54,11 +54,11 @@ public final class ExportLanguageDialog {
         Label titleLabel = new Label(exportTitle != null && !exportTitle.isBlank()
                 ? exportTitle
                 : I18nService.get(I18nService.getDefaultLanguage(), "export.dialog.header_default"));
-        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -fx-text-base-color;");
+        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold;");
 
         Label descLabel = new Label(I18nService.get(I18nService.getDefaultLanguage(), "export.dialog.desc"));
         descLabel.setWrapText(true);
-        descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: -fx-text-muted-color;");
+        descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-subtext;");
 
         VBox headerBox = new VBox(4, titleLabel, descLabel);
 
@@ -78,7 +78,7 @@ public final class ExportLanguageDialog {
 
             Label desc = new Label(lang.getDescription());
             desc.setWrapText(true);
-            desc.setStyle("-fx-font-size: 11px; -fx-text-fill: -fx-text-muted-color; -fx-padding: 0 0 0 24px;");
+            desc.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-subtext; -fx-padding: 0 0 0 24px;");
 
             VBox card = new VBox(3, rb, desc);
             card.setOnMouseClicked(e -> rb.setSelected(true));
@@ -97,9 +97,9 @@ public final class ExportLanguageDialog {
             for (Map.Entry<RadioButton, ExportLanguage> entry : radioMap.entrySet()) {
                 VBox card = cards.get(i++);
                 if (entry.getKey().isSelected()) {
-                    card.setStyle("-fx-background-color: -fx-control-inner-background; -fx-padding: 12px 14px; -fx-background-radius: 8px; -fx-border-color: -fx-accent-color; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;");
+                    card.setStyle("-fx-background-color: -color-surface; -fx-padding: 12px 14px; -fx-background-radius: 8px; -fx-border-color: -color-primary; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;");
                 } else {
-                    card.setStyle("-fx-background-color: -fx-control-inner-background; -fx-padding: 12px 14px; -fx-background-radius: 8px; -fx-border-color: -fx-box-border; -fx-border-radius: 8px; -fx-border-width: 1px; -fx-cursor: hand;");
+                    card.setStyle("-fx-background-color: -color-surface; -fx-padding: 12px 14px; -fx-background-radius: 8px; -fx-border-color: -color-border; -fx-border-radius: 8px; -fx-border-width: 1px; -fx-cursor: hand;");
                 }
             }
         };

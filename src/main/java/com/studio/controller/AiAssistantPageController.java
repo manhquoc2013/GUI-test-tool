@@ -412,7 +412,7 @@ public class AiAssistantPageController implements Initializable {
 
         if (!doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank()) {
             Button previewMdBtn = new Button("👁️ Xem MD");
-            previewMdBtn.setStyle("-fx-font-size: 10px; -fx-padding: 1 5; -fx-background-color: -color-primary-subtle; -fx-text-fill: -color-primary; -fx-background-radius: 3; -fx-cursor: hand;");
+            previewMdBtn.setStyle("-fx-font-size: 10px; -fx-padding: 1 5; -fx-background-color: -color-primary-dim; -fx-text-fill: -color-primary; -fx-background-radius: 3; -fx-cursor: hand;");
             previewMdBtn.setOnAction(e -> MarkdownPreviewDialog.show(doc));
             chip.getChildren().add(previewMdBtn);
         }

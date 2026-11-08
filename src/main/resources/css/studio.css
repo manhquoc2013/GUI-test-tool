@@ -5,6 +5,12 @@
     -color-subtext: #9aa5ce;
     -color-primary: #7aa2f7;
     -color-primary-dim: #22325b;
+    -color-primary-subtle: #22325b;
+    -color-border: #3b3d57;
+    -color-border-subtle: #2a2b3d;
+    -color-text-muted: #9aa5ce;
+    -fx-accent-color: #7aa2f7;
+    -fx-text-muted-color: #9aa5ce;
 }
 /*
  * Icon size scale (same role → same size):

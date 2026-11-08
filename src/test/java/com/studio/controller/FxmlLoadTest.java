@@ -122,5 +122,46 @@ class FxmlLoadTest {
             }
         });
     }
+
+    @Test
+    void testDialogCssBorderColorPaintResolution() throws Exception {
+        runFx(() -> {
+            try {
+                javafx.scene.layout.VBox root = new javafx.scene.layout.VBox(10);
+                javafx.scene.Scene scene = new javafx.scene.Scene(root);
+                scene.getStylesheets().add(getClass().getResource("/css/studio.css").toExternalForm());
+
+                // Test 1: VBox with -fx-border-color: -color-border
+                javafx.scene.layout.VBox box1 = new javafx.scene.layout.VBox();
+                box1.setStyle("-fx-border-color: -color-border; -fx-background-color: -color-surface;");
+                root.getChildren().add(box1);
+
+                // Test 2: VBox with -fx-border-color: -color-primary
+                javafx.scene.layout.VBox box2 = new javafx.scene.layout.VBox();
+                box2.setStyle("-fx-border-color: -color-primary; -fx-background-color: -color-surface;");
+                root.getChildren().add(box2);
+
+                // Apply CSS and verify calculation resolves paint without ClassCastException
+                root.applyCss();
+                box1.applyCss();
+                box2.applyCss();
+
+                assertNotNull(box1.getBorder(), "box1 border should be parsed");
+                assertNotNull(box2.getBorder(), "box2 border should be parsed");
+
+                // Switch to light theme and verify
+                scene.getStylesheets().clear();
+                scene.getStylesheets().add(getClass().getResource("/css/studio-light.css").toExternalForm());
+                root.applyCss();
+                box1.applyCss();
+                box2.applyCss();
+
+                assertNotNull(box1.getBorder(), "box1 border in light theme should be parsed");
+                assertNotNull(box2.getBorder(), "box2 border in light theme should be parsed");
+            } catch (Exception e) {
+                fail("CSS calculation threw exception: " + e.getMessage(), e);
+            }
+        });
+    }
 }
 
