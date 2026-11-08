@@ -354,4 +354,23 @@
   - Hộp thoại hiển thị log thời gian thực với font Monospace, hỗ trợ nút "Sao chép toàn bộ log" để gửi hỗ trợ kỹ thuật hoặc kiểm tra lỗi ngay lập tức.
   - Sửa màu sắc thông báo trạng thái trên dialog thành mã màu tương phản cao theo theme (`#15803d` cho thành công, `#b45309` cho cảnh báo, `#b91c1c` cho lỗi), khắc phục triệt để lỗi chữ màu đào nhạt khó đọc trên nền trắng.
 
+## 13. Cross-Platform Path Handling & CI/CD Test Isolation (Linux & Windows)
+
+### 1. Root Cause of Failures in GitHub Actions Matrix
+- **Windows File Separators (`\`) in Path Normalization**:
+  - `StudioPaths.isSystemOrReadOnlyLocation(Path path)` trước đây kiểm tra chuỗi với dấu gạch chéo Unix `/` (ví dụ: `contains("/applications/")`, `contains(".app/contents")`).
+  - Khi chạy trên Windows runner, `path.toAbsolutePath().normalize().toString()` biến đường dẫn thành `D:\Applications\PlaywrightAutomationStudio.app\Contents` (dùng dấu gạch chéo ngược `\`).
+  - Do đó, các điều kiện kiểm tra với `/` đều trả về `false`, khiến `isSystemOrReadOnlyLocation` thất bại trên Windows.
+- **Linux XDG Lowercase Directory Name (`playwright-automation-studio`)**:
+  - Trên Linux, `StudioPaths.getDefaultUserDataDir()` tuân thủ chuẩn freedesktop.org XDG nên sử dụng tên thư mục dạng kebab-case: `~/.local/share/playwright-automation-studio`.
+  - Trong khi đó, trên macOS và Windows, tên thư mục là dạng PascalCase: `PlaywrightAutomationStudio`.
+  - Bài test `StudioPathsTest` trước đây kiểm tra cứng `assertTrue(StudioPaths.getDataHome().toString().contains("PlaywrightAutomationStudio"))` (phân biệt hoa thường), dẫn đến test bị fail trên Linux runner.
+
+### 2. Remediation
+- **Cross-Platform Separator Normalization**:
+  - Trong `StudioPaths.isSystemOrReadOnlyLocation`, chuẩn hóa cả đường dẫn gốc `raw` và đường dẫn tuyệt đối `abs` sang dạng forward slash `/` (`.replace('\\', '/')`) trước khi so khớp bất kỳ mẫu thư mục hệ thống nào (macOS `/applications/`, Windows `program files`, Unix `/usr/`, `/opt/`, `/etc/`, `/windows/`).
+- **OS-Agnostic Assertions**:
+  - Cập nhật các assertions trong `StudioPathsTest` kiểm tra nhận diện ứng dụng không phân biệt hoa thường (`.toLowerCase(Locale.ROOT).contains("playwright") && contains("studio")`), tương thích hoàn hảo với cả 3 hệ điều hành (macOS, Windows, Linux).
+  - Bổ sung test case `testUnixSystemDirectoriesModeRedirectsDataHome` bao phủ đường dẫn cài đặt chuẩn trên Linux (`/opt/...`).
+
 

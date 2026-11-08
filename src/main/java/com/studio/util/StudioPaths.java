@@ -89,20 +89,28 @@ public class StudioPaths {
         if (path == null) {
             return true;
         }
-        String p = path.toAbsolutePath().normalize().toString();
-        String pLower = p.toLowerCase(Locale.ROOT);
+        String raw = path.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+        String abs = path.toAbsolutePath().normalize().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
 
         // macOS app bundles or Applications folder
-        if (pLower.contains("/applications/") || pLower.startsWith("/applications")
-                || pLower.contains(".app/contents") || pLower.endsWith(".app")) {
+        if (raw.contains("/applications/") || raw.startsWith("/applications")
+                || raw.contains(".app/contents") || raw.endsWith(".app")
+                || abs.contains("/applications/") || abs.contains(".app/contents") || abs.endsWith(".app")) {
             return true;
         }
         // Windows Program Files
-        if (pLower.contains("program files") || pLower.contains("program files (x86)")) {
+        if (raw.contains("program files") || raw.contains("program files (x86)")
+                || abs.contains("program files") || abs.contains("program files (x86)")) {
             return true;
         }
         // Unix system directories
-        if (pLower.startsWith("/usr/") || pLower.startsWith("/opt/") || pLower.startsWith("/etc/")) {
+        if (raw.startsWith("/usr/") || raw.startsWith("/opt/") || raw.startsWith("/etc/")
+                || abs.startsWith("/usr/") || abs.startsWith("/opt/") || abs.startsWith("/etc/")
+                || abs.contains("/usr/") || abs.contains("/opt/") || abs.contains("/etc/")) {
+            return true;
+        }
+        // Windows system directories (Windows\System32 etc)
+        if (raw.contains("/windows/") || abs.contains("/windows/")) {
             return true;
         }
         // If not writable

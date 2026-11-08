@@ -49,7 +49,9 @@ class StudioPathsTest {
 
         assertEquals(mockMacApp, StudioPaths.getAppHome());
         assertNotEquals(mockMacApp, StudioPaths.getDataHome());
-        assertTrue(StudioPaths.getDataHome().toString().contains("PlaywrightAutomationStudio"));
+        String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"),
+                "Data home should contain app identifier regardless of OS (mac, win, or linux xdg): " + dataHomeStr);
         assertEquals(StudioPaths.getDataHome().resolve("data"), StudioPaths.getDataDir());
         assertEquals(StudioPaths.getDataHome().resolve("work"), StudioPaths.getWorkDir());
         // Static resources still point to APP_HOME
@@ -65,7 +67,22 @@ class StudioPathsTest {
 
         assertEquals(mockWinApp, StudioPaths.getAppHome());
         assertNotEquals(mockWinApp, StudioPaths.getDataHome());
-        assertTrue(StudioPaths.getDataHome().toString().contains("PlaywrightAutomationStudio"));
+        String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"),
+                "Data home should contain app identifier: " + dataHomeStr);
+    }
+
+    @Test
+    void testUnixSystemDirectoriesModeRedirectsDataHome() {
+        Path mockUnixApp = Paths.get("/opt/playwright-automation-studio");
+        assertTrue(StudioPaths.isSystemOrReadOnlyLocation(mockUnixApp));
+
+        StudioPaths.setPathsForTesting(mockUnixApp, null);
+
+        assertEquals(mockUnixApp, StudioPaths.getAppHome());
+        assertNotEquals(mockUnixApp, StudioPaths.getDataHome());
+        String dataHomeStr = StudioPaths.getDataHome().toString().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(dataHomeStr.contains("playwright") && dataHomeStr.contains("studio"));
     }
 
     @Test
