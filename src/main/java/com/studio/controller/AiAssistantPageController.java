@@ -366,8 +366,8 @@ public class AiAssistantPageController implements Initializable {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Chọn tài liệu hoặc ảnh chụp giao diện");
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("Tất cả tài liệu hỗ trợ", "*.txt", "*.md", "*.json", "*.csv", "*.docx", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.webp"),
-                new FileChooser.ExtensionFilter("Văn bản & Specs (*.txt, *.md, *.docx, *.pdf)", "*.txt", "*.md", "*.json", "*.csv", "*.docx", "*.pdf"),
+                new FileChooser.ExtensionFilter("Tất cả tài liệu hỗ trợ", "*.txt", "*.md", "*.json", "*.csv", "*.tsv", "*.docx", "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.html", "*.xml", "*.png", "*.jpg", "*.jpeg", "*.webp"),
+                new FileChooser.ExtensionFilter("Văn bản, Bảng tính & Specs (*.docx, *.xlsx, *.pptx, *.pdf, *.md, *.txt, *.csv)", "*.docx", "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.txt", "*.md", "*.json", "*.csv", "*.tsv", "*.html", "*.xml"),
                 new FileChooser.ExtensionFilter("Hình ảnh / UI Screenshots (*.png, *.jpg)", "*.png", "*.jpg", "*.jpeg", "*.webp")
         );
         List<File> files = chooser.showOpenMultipleDialog(promptInputArea.getScene().getWindow());
@@ -408,6 +408,15 @@ public class AiAssistantPageController implements Initializable {
         Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
         label.getStyleClass().add("ai-file-chip-label");
 
+        chip.getChildren().add(label);
+
+        if (!doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank()) {
+            Button previewMdBtn = new Button("👁️ Xem MD");
+            previewMdBtn.setStyle("-fx-font-size: 10px; -fx-padding: 1 5; -fx-background-color: -color-primary-subtle; -fx-text-fill: -color-primary; -fx-background-radius: 3; -fx-cursor: hand;");
+            previewMdBtn.setOnAction(e -> MarkdownPreviewDialog.show(doc));
+            chip.getChildren().add(previewMdBtn);
+        }
+
         Button removeBtn = new Button("✕");
         removeBtn.getStyleClass().add("ai-file-chip-remove");
         removeBtn.setOnAction(e -> {
@@ -416,7 +425,7 @@ public class AiAssistantPageController implements Initializable {
             updateAttachmentsVisibility();
         });
 
-        chip.getChildren().addAll(label, removeBtn);
+        chip.getChildren().add(removeBtn);
         attachedChipsPane.getChildren().add(chip);
     }
 
@@ -467,6 +476,9 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void applyQuickDoc() {
+        if (skillComboBox != null) {
+            skillComboBox.setValue(com.studio.model.AiSkill.UNIVERSAL_DOCUMENT_COMPILER);
+        }
         promptInputArea.setText("Phân tích kỹ các yêu cầu trong tài liệu đính kèm và sinh bộ Test Cases bao quát các trường hợp chính (Happy path, Negative path, và Edge cases) kèm đầy đủ Assertions kiểm thử.");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }

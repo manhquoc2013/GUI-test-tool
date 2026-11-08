@@ -76,13 +76,17 @@ public class AiTestGeneratorService {
         You are an expert QA Automation Architect specialized in Playwright Java for "Test Studio".
         Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or live UI DOM elements, and generate complete, ready-to-run Playwright Java test cases with dual representations (declarative NLP test steps and runnable script code).
 
-        ### Core Architectural Principles (Inspired by Testsigma, Midscene, Skyvern):
+        ### Core Architectural Principles (Inspired by Testsigma, Midscene, Skyvern & Agency-Agents):
         1. **Dual Representation**:
            - Provide human-readable declarative test steps (`testSteps`): Step #, Action, Target, Test Data, Description, Expected Result.
            - Provide parameterized test data sets (`testDataSets`): Cover Equivalence Partitioning & Boundary Value Analysis (e.g., Valid credentials, Invalid input, Empty fields, Extreme length).
            - Provide executable Java code in `scriptCode`.
 
-        2. **Authentication & Precondition Handling (CRITICAL)**:
+        2. **Deterministic Playwright Engineering (Zero Hard Sleeps - Agency-Agents Standard)**:
+           - **Tuyệt đối không dùng hard sleep**: `Thread.sleep(...)` hoặc `page.waitForTimeout(...)` bị cấm hoàn toàn vì gây flake và lãng phí thời gian.
+           - Chờ đợi trên điều kiện thực tế: `page.waitForLoadState(LoadState.DOMCONTENTLOADED)`, `page.waitForLoadState(LoadState.NETWORKIDLE)`, `page.waitForURL(...)`, hoặc auto-waiting locators (`assertThat(locator).isVisible()`).
+
+        3. **Authentication & Precondition Handling (CRITICAL)**:
            - **Quy tắc bắt buộc**: Nếu URL đích hoặc danh sách phần tử DOM thực tế (Live Page Elements) chứa form Đăng nhập / Xác thực (chẳng hạn các bộ chọn: `#auth-email`, `#auth-password`, `input[type='email']`, `input[type='password']`, `button[type='submit']`, text "Đăng nhập", "Login", "Sign in"):
              AI BẮT BUỘC phải sinh bước Đăng nhập trước (nhập email/tên đăng nhập, nhập mật khẩu, bấm nút Đăng nhập và chờ trang tải xong) trước khi thực hiện các luồng nghiệp vụ bên trong (như thêm giao dịch, tạo đơn hàng, quản lý danh sách, checkout).
            - Trong kịch bản Playwright `scriptCode`, thực hiện kiểm tra hoặc bọc bước đăng nhập an toàn ngay sau khi điều hướng:
@@ -563,6 +567,9 @@ public class AiTestGeneratorService {
         cleaned = cleaned.replaceAll("(?m)^\\s*Playwright\\s+\\w+\\s*=\\s*Playwright\\.create\\(\\);?", "");
         cleaned = cleaned.replaceAll("(?m)^\\s*Browser\\s+\\w+\\s*=\\s*\\w+\\.\\w+\\(\\)\\.launch\\([^)]*\\);?", "");
         cleaned = cleaned.replaceAll("(?m)^\\s*\\w+\\.close\\(\\);?", "// Studio manages page/browser lifecycle");
+        // Agency-Agents standard: eliminate flaky hard sleeps automatically
+        cleaned = cleaned.replaceAll("(?m)^\\s*Thread\\.sleep\\([^)]*\\);?", "// Eliminated hard sleep (Agency-Agents standard)");
+        cleaned = cleaned.replaceAll("(?m)^\\s*page\\.waitForTimeout\\([^)]*\\);?", "page.waitForLoadState(LoadState.NETWORKIDLE); // Replaced hard sleep with condition wait");
 
         // If it's missing standard package or class wrapper
         if (!cleaned.contains("public class") && !cleaned.contains("class ")) {

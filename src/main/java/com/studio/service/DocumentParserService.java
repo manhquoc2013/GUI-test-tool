@@ -1,5 +1,7 @@
 package com.studio.service;
 
+import com.studio.util.StudioPaths;
+import com.studio.util.StringEscapeUtil;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -21,20 +23,39 @@ import java.util.Set;
 
 /**
  * Service to parse requirements and specifications from multiple document formats:
- * - Plaintext, Markdown, JSON, CSV (.txt, .md, .json, .csv, etc.)
+ * - Plaintext, Markdown, JSON, CSV, TSV, XML, HTML (.txt, .md, .json, .csv, etc.)
  * - Word documents (.docx) via Apache POI
+ * - Excel spreadsheets (.xlsx, .xls) via Apache POI
+ * - PowerPoint presentations (.pptx) via Apache POI
  * - PDF documents (.pdf) via Apache PDFBox
  * - Screenshots and UI mockups (.png, .jpg, .jpeg, .webp, .gif) to Base64 data URLs for Vision
+ *
+ * Automatically converts documents to normalized Markdown files in data/converted_docs/
+ * for token-efficient and AST-structured LLM ingestion.
  */
 public class DocumentParserService {
 
     private static final Set<String> TEXT_EXTENSIONS = Set.of(
-            "txt", "md", "markdown", "json", "csv", "xml", "html", "yaml", "yml", "java", "js", "ts", "sql", "log"
+            "txt", "md", "markdown", "json", "csv", "tsv", "xml", "html", "htm", "yaml", "yml", "java", "js", "ts", "sql", "log"
+    );
+
+    private static final Set<String> OFFICE_EXTENSIONS = Set.of(
+            "docx", "xlsx", "xls", "pptx", "pdf"
     );
 
     private static final Set<String> IMAGE_EXTENSIONS = Set.of(
             "png", "jpg", "jpeg", "webp", "gif", "bmp"
     );
+
+    private final MarkdownConverterEngine markdownConverter;
+
+    public DocumentParserService() {
+        this(new MarkdownConverterEngine());
+    }
+
+    public DocumentParserService(MarkdownConverterEngine markdownConverter) {
+        this.markdownConverter = markdownConverter != null ? markdownConverter : new MarkdownConverterEngine();
+    }
 
     public static class ParsedDocument {
         private final String fileName;
@@ -43,14 +64,23 @@ public class DocumentParserService {
         private final String content;
         private final String mimeType;
         private final long sizeBytes;
+        private final Path markdownPath;
+        private final MarkdownConverterEngine.ConversionResult conversionResult;
 
         public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType, long sizeBytes) {
+            this(fileName, path, image, content, mimeType, sizeBytes, null, null);
+        }
+
+        public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType, long sizeBytes,
+                              Path markdownPath, MarkdownConverterEngine.ConversionResult conversionResult) {
             this.fileName = fileName;
             this.path = path;
             this.image = image;
             this.content = content;
             this.mimeType = mimeType;
             this.sizeBytes = sizeBytes;
+            this.markdownPath = markdownPath;
+            this.conversionResult = conversionResult;
         }
 
         public String getFileName() {
@@ -65,7 +95,7 @@ public class DocumentParserService {
             return image;
         }
 
-        /** Text content if document/text; Base64 data URL if image. */
+        /** Text content if document/text (in Markdown format); Base64 data URL if image. */
         public String getContent() {
             return content;
         }
@@ -76,6 +106,14 @@ public class DocumentParserService {
 
         public long getSizeBytes() {
             return sizeBytes;
+        }
+
+        public Path getMarkdownPath() {
+            return markdownPath;
+        }
+
+        public MarkdownConverterEngine.ConversionResult getConversionResult() {
+            return conversionResult;
         }
     }
 
@@ -93,22 +131,37 @@ public class DocumentParserService {
             byte[] bytes = Files.readAllBytes(file);
             String b64 = Base64.getEncoder().encodeToString(bytes);
             String dataUrl = "data:" + mime + ";base64," + b64;
-            return new ParsedDocument(fileName, file, true, dataUrl, mime, size);
+            return new ParsedDocument(fileName, file, true, dataUrl, mime, size, null, null);
         }
 
-        if ("docx".equals(ext)) {
-            String text = parseDocx(file);
-            return new ParsedDocument(fileName, file, false, text, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size);
-        }
+        // Convert document to high-fidelity Markdown
+        MarkdownConverterEngine.ConversionResult convResult = markdownConverter.convert(file);
+        String markdownText = convResult.getMarkdown();
 
-        if ("pdf".equals(ext)) {
-            String text = parsePdf(file);
-            return new ParsedDocument(fileName, file, false, text, "application/pdf", size);
-        }
+        // Automatically persist to data/converted_docs/<sanitized_name>_<timestamp>.md
+        Path savedMdPath = saveConvertedMarkdown(fileName, markdownText);
 
-        // Default or text-based files
-        String text = parseTextFile(file);
-        return new ParsedDocument(fileName, file, false, text, "text/plain", size);
+        return new ParsedDocument(fileName, file, false, markdownText, "text/markdown", size, savedMdPath, convResult);
+    }
+
+    private Path saveConvertedMarkdown(String originalFileName, String markdownContent) {
+        try {
+            Path targetDir = StudioPaths.getDataDir().resolve("converted_docs");
+            Files.createDirectories(targetDir);
+
+            String base = originalFileName.contains(".")
+                    ? originalFileName.substring(0, originalFileName.lastIndexOf('.'))
+                    : originalFileName;
+            String safeBase = StringEscapeUtil.safeFileName(base, "doc");
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            Path targetFile = targetDir.resolve(safeBase + "_" + timestamp + ".md");
+
+            Files.writeString(targetFile, markdownContent, StandardCharsets.UTF_8);
+            return targetFile;
+        } catch (Exception e) {
+            // Non-fatal if disk write fails, in-memory markdown content is preserved
+            return null;
+        }
     }
 
     public String parseTextFile(Path file) throws IOException {
@@ -120,39 +173,11 @@ public class DocumentParserService {
     }
 
     public String parseDocx(Path file) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        try (InputStream is = new FileInputStream(file.toFile());
-             XWPFDocument document = new XWPFDocument(is)) {
-
-            for (XWPFParagraph p : document.getParagraphs()) {
-                String text = p.getText();
-                if (text != null && !text.isBlank()) {
-                    sb.append(text.trim()).append("\n");
-                }
-            }
-
-            for (XWPFTable table : document.getTables()) {
-                sb.append("\n[Table]\n");
-                for (XWPFTableRow row : table.getRows()) {
-                    sb.append("| ");
-                    row.getTableCells().forEach(cell -> {
-                        String cellText = cell.getText() != null ? cell.getText().replace("\n", " ").trim() : "";
-                        sb.append(cellText).append(" | ");
-                    });
-                    sb.append("\n");
-                }
-                sb.append("\n");
-            }
-        }
-        return sb.toString().trim();
+        return markdownConverter.convertDocx(file);
     }
 
     public String parsePdf(Path file) throws IOException {
-        File f = file.toFile();
-        try (PDDocument doc = Loader.loadPDF(f)) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            return stripper.getText(doc).trim();
-        }
+        return markdownConverter.convertPdf(file).markdown();
     }
 
     public static String getExtension(String fileName) {
@@ -175,7 +200,6 @@ public class DocumentParserService {
     public static boolean isSupportedExtension(String ext) {
         if (ext == null) return false;
         String e = ext.toLowerCase(Locale.ROOT);
-        return TEXT_EXTENSIONS.contains(e) || IMAGE_EXTENSIONS.contains(e) || "docx".equals(e) || "pdf".equals(e);
+        return TEXT_EXTENSIONS.contains(e) || OFFICE_EXTENSIONS.contains(e) || IMAGE_EXTENSIONS.contains(e);
     }
 }
-

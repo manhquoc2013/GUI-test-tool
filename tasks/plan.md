@@ -110,3 +110,26 @@
 - Update `TestCaseExcelExportService.java` & `ExcelReportService.java` with priority column.
 - Update `.agents/qa-planner.md` with priority guidelines.
 - Add unit tests for `TestPriority`, targeted execution, and verify full test suite (`mvn clean test`).
+
+## Phase 12: MarkItDown Universal Ingestion & Agency-Agents Specialist Roster
+- Create `com.studio.service.MarkdownConverterEngine`:
+  - Pure Java document to Markdown converter for `.docx`, `.xlsx`, `.pptx`, `.pdf`, `.csv`, `.json`, `.html`, `.txt`.
+  - MarkItDown CLI / Python bridge adapter with seamless fallback.
+  - Frontmatter metadata generation and token estimation.
+- Enhance `DocumentParserService`:
+  - Auto-convert non-image documents to Markdown.
+  - Persist converted `.md` files to `data/converted_docs/<sanitized_name>_<timestamp>.md`.
+  - Expose `getMarkdownPath()` and markdown preview access.
+- Upgrade `com.studio.model.AiSkill`:
+  - Integrate `UNIVERSAL_DOCUMENT_COMPILER` and `ACCESSIBILITY_AUDITOR` alongside upgraded `TEST_AUTOMATION_ENGINEER`, `FAILURE_RCA`, `SECURITY_FUZZING`, and `EXHAUSTIVE_UNIT_TEST`.
+  - Incorporate strict rules from `agency-agents` (zero hard sleeps, role selectors, isolated test data, WCAG 2.1 AA checks).
+  - Add slash commands `/doc`, `/compiler`, `/e2e`, `/playwright`, `/a11y`, `/rca`, `/fuzz`, `/unit`.
+- UI & Controller Integration:
+  - Add Markdown Preview Dialog (`MarkdownPreviewDialog`) in `com.studio.controller`.
+  - Update `AiAssistantPageController` with Markdown preview button on file chips.
+  - Update skill dropdown and quick prompt templates.
+- Verification & TDD:
+  - Write comprehensive tests for `MarkdownConverterEngineTest`.
+  - Write tests for `AiSkill` and updated `DocumentParserService`.
+  - Full suite regression with `mvn clean test`.
+

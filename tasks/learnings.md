@@ -485,5 +485,31 @@
 ### 3. DOM Text Signature for Action-Delta Verification
 - Bổ sung `domSignature` (dựa trên hash độ dài nội dung DOM và cây con) vào `DeltaSnapshot`, giúp nhận biết ngay biến đổi nội dung trang (như text thông báo lỗi, cập nhật giỏ hàng) và triệt tiêu click lặp không mong muốn.
 
+## 19. MarkItDown Universal Ingestion & Agency-Agents Specialist Roster
+
+### 1. Hybrid Document-to-Markdown Architecture (Inspired by Microsoft MarkItDown)
+- **Zero-Dependency Native Java Markdown Converter**:
+  - Tích hợp `MarkdownConverterEngine` sử dụng Apache POI (`poi-ooxml`) và Apache PDFBox để bóc tách và chuyển đổi định dạng tài liệu bất kỳ (`.docx`, `.xlsx`, `.pptx`, `.pdf`, `.csv`, `.tsv`, `.json`, `.html`, `.xml`) thành cây cú pháp trừu tượng (AST) Markdown chuẩn.
+  - Tự động sinh bảng Markdown (`| col | col |`), tiêu đề (`#`, `##`, `###`), danh sách, khối mã và phần siêu dữ liệu (YAML Frontmatter: `source_file`, `source_type`, `converted_at`, `word_count`, `estimated_tokens`, `converter_engine`).
+- **MarkItDown Python/CLI Adapter & Fallback**:
+  - Kiểm tra tính khả dụng của CLI `markitdown` trên môi trường máy; hỗ trợ gọi thực thi nếu có Python/MarkItDown và tự động fallback sang Native Java Engine nếu môi trường không cài đặt Python.
+- **Tự động chuyển đổi & Lưu trữ vòng đời file**:
+  - Khi người dùng tải lên bất kỳ tài liệu nào (specs, PRD, ma trận test Excel, slides thuyết trình, tài liệu hướng dẫn PDF), hệ thống tự động convert sang Markdown và lưu trữ tại `data/converted_docs/<sanitized_name>_<timestamp>.md`.
+  - Trên giao diện `AiAssistantPageController`, mỗi tài liệu đính kèm được gắn huy hiệu tương tác `[👁️ Xem MD]` mở hộp thoại `MarkdownPreviewDialog`, cho phép người dùng xem trước AST Markdown, thống kê token và sao chép hoặc mở file `.md` trên máy tính.
+  - AI Agent nhận trực tiếp ngữ cảnh Markdown đã tối ưu, giúp giảm tới 60-70% lượng token dư thừa so với dữ liệu thô, đồng thời bảo toàn nguyên vẹn cấu trúc bảng biểu và tiêu chí chấp nhận (acceptance criteria).
+
+### 2. Agency-Agents Specialist Roster Integration (msitarzewski/agency-agents)
+- Tích hợp toàn diện các Agent chuyên trách từ Agency-Agents vào `AiSkill`:
+  - **`UNIVERSAL_DOCUMENT_COMPILER`** (`/doc`, `/compiler`, `/specs`): Đóng vai trò kiến trúc sư phân rã tài liệu AST. Bóc tách yêu cầu nghiệp vụ thành ma trận kiểm thử (Coverage Matrix), phân vùng tương đương, giá trị biên và các vertical slices kịch bản test.
+  - **`TEST_AUTOMATION_ENGINEER`** (`/e2e`, `/playwright`): Áp dụng triết lý kỷ luật determinism:
+    - **Không bao giờ dùng hard sleep**: Cấm triệt để `Thread.sleep` và `page.waitForTimeout`; tự động thay thế bằng wait conditions (`waitForLoadState`, `waitForResponse`, `waitForURL`).
+    - **Chọn selector như người dùng**: Ưu tiên `getByRole`, `getByLabel`, `getByPlaceholder`, `getByText` và `StudioRuntime.healLocator` cascade; không dùng chuỗi CSS selector mong manh.
+    - **Độc lập dữ liệu**: Test case tự khởi tạo và làm chủ dữ liệu của mình, không phụ thuộc vào trạng thái thừa của test khác.
+  - **`ACCESSIBILITY_AUDITOR`** (`/a11y`, `/wcag`): Chuyên gia kiểm định tiêu chuẩn tiếp cận WCAG 2.1 AA & Section 508 (tỷ lệ tương phản tối thiểu 4.5:1, kích thước vùng chạm >= 44x44px, không bẫy bàn phím, nhãn ARIA).
+  - **`FAILURE_RCA`** (`/rca`, `/fix`): Chẩn đoán nguyên nhân gốc rễ và triệt tiêu flaky tests dựa trên trace/log/DOM timing.
+  - **`SECURITY_FUZZING`** (`/fuzz`): Ma trận vector fuzzing bảo mật (XSS, SQLi, Buffer overflow, Unicode injection).
+- Hỗ trợ định tuyến thông minh theo Slash Commands và phân tích ngữ nghĩa (Semantic Intent Detection) trong chế độ Auto.
+
+
 
 

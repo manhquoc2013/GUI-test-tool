@@ -93,3 +93,12 @@
 - [x] Task 86: Harden browser process cleanup and temporary profile reclamation in `PlaywrightUtil` & `ResourceReleaseService` <!-- id: 96 -->
 - [x] Task 87: Add comprehensive unit tests for `TestDataProfileStore` & runner integration, verify 100% green test suite <!-- id: 97 -->
 - [x] Task 88: Update `SPEC.md`, `tasks/learnings.md`, and commit changes <!-- id: 98 -->
+
+- [x] Task 89: Create `MarkdownConverterEngine.java` for high-fidelity conversion of docx, xlsx, pptx, pdf, html, csv, json to Markdown AST with YAML frontmatter <!-- id: 99 -->
+- [x] Task 90: Enhance `DocumentParserService.java` to auto-convert uploaded documents to Markdown and persist into `data/converted_docs/` <!-- id: 100 -->
+- [x] Task 91: Upgrade `AiSkill.java` with Agency-Agents specialist roster (Universal Document Compiler, Test Automation Engineer, Accessibility Auditor, RCA & Flake Eliminator) and strict testing rules <!-- id: 101 -->
+- [x] Task 92: Update `AiAssistantPageController.java` with Markdown preview button on file chips and new Agent skills <!-- id: 102 -->
+- [x] Task 93: Create `MarkdownPreviewDialog.java` for viewing and inspecting converted Markdown AST <!-- id: 103 -->
+- [x] Task 94: Write comprehensive unit tests for `MarkdownConverterEngineTest`, `DocumentParserServiceTest`, and `AiSkillTest` <!-- id: 104 -->
+- [x] Task 95: Run full test suite regression (`mvn clean test`), update `tasks/learnings.md`, and atomic git commit <!-- id: 105 -->
+

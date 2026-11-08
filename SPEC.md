@@ -58,6 +58,37 @@ Upgrade the AI capabilities in Playwright Automation Studio (`GUI-test-tool`) in
 - "Quét DOM Trình duyệt (Scan Live DOM)" toolbar action to inject active browser DOM into prompt context.
 - Updated counters and badges (`Steps (N)`, `Assertions (N)`, `Data (N)`).
 
+## 3. MarkItDown Ingestion & Agency-Agents Specialist Roster
+
+### 3.1 Hybrid Document-to-Markdown Engine (`MarkdownConverterEngine`)
+- **Pure Java High-Fidelity Conversion**:
+  - Apache POI `.xlsx` / `.xls`: Converts all sheets into standard Markdown tables with sheet headers, aligned columns, and cell format rendering.
+  - Apache POI `.docx`: Converts headings (`Heading 1-4` -> `#`, `##`, `###`), bullet/numbered lists, inline bold/italics, code blocks, and tables.
+  - Apache POI `.pptx`: Extracts slides, slide titles, bullet points, presenter notes into structured slide markdown.
+  - Apache PDFBox `.pdf`: Strips and structures text into clean sectioned Markdown with page markers.
+  - Native text / CSV / TSV / JSON / HTML: Converts into formatted code fences or aligned Markdown tables.
+- **YAML Frontmatter Metadata**:
+  - Automatically prepends document metadata (`source_file`, `source_type`, `converted_at`, `word_count`, `estimated_tokens`, `sheets_or_pages`).
+- **MarkItDown Python/CLI Adapter**:
+  - Checks if `markitdown` CLI or python module is available; provides optional delegation for advanced OCR/media formats while safely falling back to native Java.
+- **Auto-Conversion & Persistence**:
+  - When user attaches any document (`.docx`, `.xlsx`, `.pptx`, `.pdf`, `.csv`, `.json`, etc.), the system automatically converts it into clean Markdown and persists to `data/converted_docs/<sanitized_name>_<timestamp>.md`.
+  - Injected into the AI prompt as structured Markdown, maximizing reasoning accuracy and eliminating hallucinated context.
+
+### 3.2 Agency-Agents Specialist Roster Integration
+- Ported from `msitarzewski/agency-agents`:
+  - **`UNIVERSAL_DOCUMENT_COMPILER`**: Schema-agnostic AST document compiler that ingests converted markdown, decomposes requirements, and maps out functional test matrices.
+  - **`TEST_AUTOMATION_ENGINEER`**: Deterministic Playwright engineer with zero tolerance for `sleep()`, strict auto-waiting, user-facing role locators, and failure artifacts.
+  - **`ACCESSIBILITY_AUDITOR`**: WCAG 2.1 AA and Section 508 accessibility testing specialist (contrast, keyboard navigation, ARIA, touch targets).
+  - **`FAILURE_RCA`**: Root Cause Analysis and flake elimination specialist.
+  - **`SECURITY_FUZZING`**: Input fuzzing, injection matrices, and boundary attacks.
+  - **`EXHAUSTIVE_UNIT_TEST`**: High-coverage parameterized unit tests.
+- **Interactive UI**:
+  - Multi-agent dropdown in `AiAssistantPageController`.
+  - Slash command routing: `/doc`, `/compiler`, `/e2e`, `/playwright`, `/a11y`, `/rca`, `/fuzz`, `/unit`.
+  - One-click "Xem Markdown" preview dialog for all attached documents.
+
+
 ### 2.6 Security & Storage Encryption (`ApiKeyCipher` & `SecuritySanitizer`)
 - **Encryption at Rest**: AES-256-GCM encryption with machine-bound PBKDF2WithHmacSHA256 entropy (deterministic sorted network interfaces and OS metadata) in `settings.json` and H2 database.
 - **Leak-Proof Export & Import**: Automatic API key masking (`sk-••••...`) on settings export, and preservation of existing local keys on import.
