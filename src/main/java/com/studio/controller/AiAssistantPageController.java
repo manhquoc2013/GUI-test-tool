@@ -50,38 +50,70 @@ import java.util.ResourceBundle;
  */
 public class AiAssistantPageController implements Initializable {
 
-    @FXML private Label tokenUsageBadge;
-    @FXML private Label modelIndicatorLabel;
-    @FXML private Button settingsBtn;
-    @FXML private Button clearChatBtn;
-    @FXML private ComboBox<String> targetGroupCombo;
-    @FXML private ComboBox<String> targetSuiteCombo;
-    @FXML private Button refreshTargetsBtn;
-    @FXML private ComboBox<com.studio.model.AiSkill> skillComboBox;
-    @FXML private ScrollPane chatScroll;
-    @FXML private VBox chatMessagesBox;
-    @FXML private VBox attachedFilesBox;
-    @FXML private FlowPane attachedChipsPane;
-    @FXML private TextArea promptInputArea;
-    @FXML private Button attachFileBtn;
-    @FXML private Button scanDomBtn;
-    @FXML private Button clearAttachmentsBtn;
-    @FXML private ProgressIndicator generationProgress;
-    @FXML private Button sendBtn;
-    @FXML private Label resultSummaryLabel;
-    @FXML private Button applyToSuiteBtn;
-    @FXML private ListView<AiGeneratedCase> generatedCasesListView;
-    @FXML private Label previewCaseNameLabel;
-    @FXML private Label previewCaseUrlLabel;
-    @FXML private TabPane detailTabPane;
-    @FXML private Tab previewStepsTab;
-    @FXML private ListView<String> previewStepsListView;
-    @FXML private TextArea previewScriptEditor;
-    @FXML private Tab previewAssertsTab;
-    @FXML private ListView<String> previewAssertsListView;
-    @FXML private Tab previewTestDataTab;
-    @FXML private ListView<String> previewTestDataListView;
-    @FXML private TextArea rawResponseViewer;
+    @FXML
+    private Label tokenUsageBadge;
+    @FXML
+    private Label modelIndicatorLabel;
+    @FXML
+    private Button settingsBtn;
+    @FXML
+    private Button clearChatBtn;
+    @FXML
+    private ComboBox<String> targetGroupCombo;
+    @FXML
+    private ComboBox<String> targetSuiteCombo;
+    @FXML
+    private Button refreshTargetsBtn;
+    @FXML
+    private ComboBox<com.studio.model.AiSkill> skillComboBox;
+    @FXML
+    private ScrollPane chatScroll;
+    @FXML
+    private VBox chatMessagesBox;
+    @FXML
+    private VBox attachedFilesBox;
+    @FXML
+    private FlowPane attachedChipsPane;
+    @FXML
+    private TextArea promptInputArea;
+    @FXML
+    private Button attachFileBtn;
+    @FXML
+    private Button scanDomBtn;
+    @FXML
+    private Button clearAttachmentsBtn;
+    @FXML
+    private ProgressIndicator generationProgress;
+    @FXML
+    private Button sendBtn;
+    @FXML
+    private Label resultSummaryLabel;
+    @FXML
+    private Button applyToSuiteBtn;
+    @FXML
+    private ListView<AiGeneratedCase> generatedCasesListView;
+    @FXML
+    private Label previewCaseNameLabel;
+    @FXML
+    private Label previewCaseUrlLabel;
+    @FXML
+    private TabPane detailTabPane;
+    @FXML
+    private Tab previewStepsTab;
+    @FXML
+    private ListView<String> previewStepsListView;
+    @FXML
+    private TextArea previewScriptEditor;
+    @FXML
+    private Tab previewAssertsTab;
+    @FXML
+    private ListView<String> previewAssertsListView;
+    @FXML
+    private Tab previewTestDataTab;
+    @FXML
+    private ListView<String> previewTestDataListView;
+    @FXML
+    private TextArea rawResponseViewer;
 
     private final SettingsStore settingsStore = new SettingsStore();
     private final ProjectStore projectStore = new ProjectStore();
@@ -223,7 +255,8 @@ public class AiAssistantPageController implements Initializable {
                 stream.filter(Files::isDirectory).forEach(dir -> {
                     targetGroupCombo.getItems().add(dir.getFileName().toString());
                 });
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
         }
 
         if (prevGroup != null && targetGroupCombo.getItems().contains(prevGroup)) {
@@ -241,7 +274,8 @@ public class AiAssistantPageController implements Initializable {
     private void onGroupSelected() {
         String groupName = targetGroupCombo.getValue();
         targetSuiteCombo.getItems().clear();
-        if (groupName == null || groupName.isBlank()) return;
+        if (groupName == null || groupName.isBlank())
+            return;
 
         Path groupDir = StudioPaths.getProjectDir().resolve(groupName);
         if (Files.exists(groupDir)) {
@@ -249,7 +283,8 @@ public class AiAssistantPageController implements Initializable {
                 stream.filter(Files::isDirectory).forEach(suiteDir -> {
                     targetSuiteCombo.getItems().add(suiteDir.getFileName().toString());
                 });
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
         }
         if (!targetSuiteCombo.getItems().isEmpty()) {
             targetSuiteCombo.getSelectionModel().select(0);
@@ -282,7 +317,7 @@ public class AiAssistantPageController implements Initializable {
             // Add default welcome message
             AiChatMessage welcomeMsg = new AiChatMessage("assistant",
                     "Xin chào! Tôi là Trợ lý AI của Test Studio.\n\n"
-                    + "Bạn có thể gửi yêu cầu viết test case, hoặc đính kèm tài liệu yêu cầu (.txt, .md, Word .docx, PDF .pdf) hoặc ảnh chụp màn hình UI (.png, .jpg) để tôi tự động phân tích và sinh kịch bản Playwright runnable kèm các Assertions kiểm thử!");
+                            + "Bạn có thể gửi yêu cầu viết test case, hoặc đính kèm tài liệu yêu cầu (.txt, .md, Word .docx, PDF .pdf) hoặc ảnh chụp màn hình UI (.png, .jpg) để tôi tự động phân tích và sinh kịch bản Playwright runnable kèm các Assertions kiểm thử!");
             welcomeMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(welcomeMsg));
             renderMessageBubble(welcomeMsg, false);
             clearPreviewArea();
@@ -323,7 +358,8 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private void updateTokenUsageDisplay() {
-        if (tokenUsageBadge == null) return;
+        if (tokenUsageBadge == null)
+            return;
         int promptTokens = tokenOptimizer.estimateTokens(promptInputArea.getText());
         int historyTokens = currentSession != null ? currentSession.calculateTotalTokens() : 0;
         int total = promptTokens + historyTokens;
@@ -353,7 +389,8 @@ public class AiAssistantPageController implements Initializable {
             Path suiteDir = getSelectedSuiteDir();
             try {
                 chatHistoryStore.clearSession(suiteDir);
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             currentSession = new AiChatSession(suiteDir != null ? suiteDir.getFileName().toString() : "global");
             renderChatHistory();
             updateTokenUsageDisplay();
@@ -366,10 +403,15 @@ public class AiAssistantPageController implements Initializable {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Chọn tài liệu hoặc ảnh chụp giao diện");
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("Tất cả tài liệu hỗ trợ", "*.txt", "*.md", "*.json", "*.csv", "*.tsv", "*.docx", "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.html", "*.xml", "*.png", "*.jpg", "*.jpeg", "*.webp"),
-                new FileChooser.ExtensionFilter("Văn bản, Bảng tính & Specs (*.docx, *.xlsx, *.pptx, *.pdf, *.md, *.txt, *.csv)", "*.docx", "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.txt", "*.md", "*.json", "*.csv", "*.tsv", "*.html", "*.xml"),
-                new FileChooser.ExtensionFilter("Hình ảnh / UI Screenshots (*.png, *.jpg)", "*.png", "*.jpg", "*.jpeg", "*.webp")
-        );
+                new FileChooser.ExtensionFilter("Tất cả tài liệu hỗ trợ", "*.txt", "*.md", "*.json", "*.csv", "*.tsv",
+                        "*.docx", "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.html", "*.xml", "*.png", "*.jpg", "*.jpeg",
+                        "*.webp"),
+                new FileChooser.ExtensionFilter(
+                        "Văn bản, Bảng tính & Specs (*.docx, *.xlsx, *.pptx, *.pdf, *.md, *.txt, *.csv)", "*.docx",
+                        "*.xlsx", "*.xls", "*.pptx", "*.pdf", "*.txt", "*.md", "*.json", "*.csv", "*.tsv", "*.html",
+                        "*.xml"),
+                new FileChooser.ExtensionFilter("Hình ảnh / UI Screenshots (*.png, *.jpg)", "*.png", "*.jpg", "*.jpeg",
+                        "*.webp"));
         List<File> files = chooser.showOpenMultipleDialog(promptInputArea.getScene().getWindow());
         if (files != null && !files.isEmpty()) {
             for (File f : files) {
@@ -412,7 +454,8 @@ public class AiAssistantPageController implements Initializable {
 
         if (!doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank()) {
             Button previewMdBtn = new Button("👁️ Xem MD");
-            previewMdBtn.setStyle("-fx-font-size: 10px; -fx-padding: 1 5; -fx-background-color: -color-primary-dim; -fx-text-fill: -color-primary; -fx-background-radius: 3; -fx-cursor: hand;");
+            previewMdBtn.setStyle(
+                    "-fx-font-size: 10px; -fx-padding: 1 5; -fx-background-color: -color-primary-dim; -fx-text-fill: -color-primary; -fx-background-radius: 3; -fx-cursor: hand;");
             previewMdBtn.setOnAction(e -> MarkdownPreviewDialog.show(doc));
             chip.getChildren().add(previewMdBtn);
         }
@@ -434,7 +477,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.EXHAUSTIVE_UNIT_TEST);
         }
-        promptInputArea.setText("Phân tích luồng điều kiện (Control Flow), xác định tập giá trị biên (BVA) và sinh mã nguồn Unit Test có tham số hóa cho đoạn logic sau:\n\n");
+        promptInputArea.setText(
+                "Phân tích luồng điều kiện (Control Flow), xác định tập giá trị biên (BVA) và sinh mã nguồn Unit Test có tham số hóa cho đoạn logic sau:\n\n");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -443,7 +487,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
         }
-        promptInputArea.setText("Viết kịch bản Playwright E2E cho trang đăng nhập: Nhập email hợp lệ và mật khẩu, bấm nút Đăng nhập, xác minh người dùng được chuyển hướng vào Dashboard và hiển thị lời chào.");
+        promptInputArea.setText(
+                "Viết kịch bản Playwright E2E cho trang đăng nhập: Nhập email hợp lệ và mật khẩu, bấm nút Đăng nhập, xác minh người dùng được chuyển hướng vào Dashboard và hiển thị lời chào.");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -452,7 +497,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.FAILURE_RCA);
         }
-        promptInputArea.setText("Phân tích nguyên nhân gốc rễ (RCA) và đưa ra mã sửa lỗi drop-in cho log lỗi kiểm thử sau:\n\n");
+        promptInputArea.setText(
+                "Phân tích nguyên nhân gốc rễ (RCA) và đưa ra mã sửa lỗi drop-in cho log lỗi kiểm thử sau:\n\n");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -461,7 +507,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.SECURITY_FUZZING);
         }
-        promptInputArea.setText("Sinh ma trận vector kiểm thử bảo mật & fuzzing dữ liệu đầu vào (XSS, SQLi, Buffer Overflow, Unicode injection) cho form sau:\n\n");
+        promptInputArea.setText(
+                "Sinh ma trận vector kiểm thử bảo mật & fuzzing dữ liệu đầu vào (XSS, SQLi, Buffer Overflow, Unicode injection) cho form sau:\n\n");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -470,7 +517,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
         }
-        promptInputArea.setText("Viết kịch bản kiểm thử quy trình mua hàng: Thêm sản phẩm vào giỏ, kiểm tra số lượng và tổng tiền cập nhật chính xác, tiến hành thanh toán.");
+        promptInputArea.setText(
+                "Viết kịch bản kiểm thử quy trình mua hàng: Thêm sản phẩm vào giỏ, kiểm tra số lượng và tổng tiền cập nhật chính xác, tiến hành thanh toán.");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -479,7 +527,8 @@ public class AiAssistantPageController implements Initializable {
         if (skillComboBox != null) {
             skillComboBox.setValue(com.studio.model.AiSkill.UNIVERSAL_DOCUMENT_COMPILER);
         }
-        promptInputArea.setText("Phân tích kỹ các yêu cầu trong tài liệu đính kèm và sinh bộ Test Cases bao quát các trường hợp chính (Happy path, Negative path, và Edge cases) kèm đầy đủ Assertions kiểm thử.");
+        promptInputArea.setText(
+                "Phân tích kỹ các yêu cầu trong tài liệu đính kèm và sinh bộ Test Cases bao quát các trường hợp chính (Happy path, Negative path, và Edge cases) kèm đầy đủ Assertions kiểm thử.");
         promptInputArea.positionCaret(promptInputArea.getText().length());
     }
 
@@ -522,7 +571,8 @@ public class AiAssistantPageController implements Initializable {
                 try {
                     settings = settingsStore.load();
                     aiConfig = settings.getAiConfig();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
             if (!aiConfig.hasApiKey()) {
                 return;
@@ -574,11 +624,13 @@ public class AiAssistantPageController implements Initializable {
                     for (TestCase tc : s.getCases()) {
                         if (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) {
                             promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(tc.getStartUrl());
-                            if (promptUrl != null) break;
+                            if (promptUrl != null)
+                                break;
                         }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         final String detectedTargetUrl = promptUrl;
         String domContext = liveDomJson;
@@ -587,15 +639,19 @@ public class AiAssistantPageController implements Initializable {
         Thread thread = new Thread(() -> {
             try {
                 String activeDomContext = domContext;
-                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM ngầm!
-                if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext)) && detectedTargetUrl != null) {
-                    Platform.runLater(() -> updateThinkingStatus("Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "..."));
+                // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM
+                // ngầm!
+                if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
+                        && detectedTargetUrl != null) {
+                    Platform.runLater(() -> updateThinkingStatus(
+                            "Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "..."));
                     try {
                         String autoScannedDom = domScanner.scanUrl(detectedTargetUrl, 10000);
                         if (autoScannedDom != null && !autoScannedDom.isBlank() && !"[]".equals(autoScannedDom)) {
                             activeDomContext = autoScannedDom;
                             liveDomJson = autoScannedDom; // Cache cho phiên làm việc
-                            Platform.runLater(() -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
+                            Platform.runLater(
+                                    () -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
                         }
                     } catch (Exception ex) {
                         System.err.println("[AiAssistant] Tự động quét DOM ngầm thất bại: " + ex.getMessage());
@@ -603,10 +659,10 @@ public class AiAssistantPageController implements Initializable {
                 }
 
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext, currentSession.getMessages(),
+                        effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
+                        currentSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status)),
-                        activeSkill
-                );
+                        activeSkill);
 
                 Platform.runLater(() -> {
                     removeThinkingBubble();
@@ -623,7 +679,8 @@ public class AiAssistantPageController implements Initializable {
                     // Persist updated history
                     try {
                         chatHistoryStore.saveSession(suiteDir, currentSession);
-                    } catch (IOException ignored) {}
+                    } catch (IOException ignored) {
+                    }
 
                     renderMessageBubble(assistantMsg, true);
                     updateTokenUsageDisplay();
@@ -717,7 +774,7 @@ public class AiAssistantPageController implements Initializable {
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
 
         // Animated progression stages
-        String[] stages = new String[]{
+        String[] stages = new String[] {
                 "Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...",
                 "Đang phân tích yêu cầu kiểm thử & ngữ cảnh tài liệu...",
                 "Đang thiết kế kịch bản Playwright & Assertions kiểm thử...",
@@ -725,8 +782,8 @@ public class AiAssistantPageController implements Initializable {
                 "Đang hoàn thiện và định dạng mã nguồn runnable..."
         };
 
-        final int[] stageIdx = {0};
-        final int[] dotStep = {0};
+        final int[] stageIdx = { 0 };
+        final int[] dotStep = { 0 };
 
         thinkingTimeline = new Timeline(new KeyFrame(Duration.millis(500), ev -> {
             dotStep[0]++;
@@ -772,10 +829,14 @@ public class AiAssistantPageController implements Initializable {
             previewScriptEditor.clear();
             previewAssertsListView.getItems().clear();
             previewAssertsTab.setText("Assertions (0)");
-            if (previewStepsListView != null) previewStepsListView.getItems().clear();
-            if (previewStepsTab != null) previewStepsTab.setText("Các bước kiểm thử (0)");
-            if (previewTestDataListView != null) previewTestDataListView.getItems().clear();
-            if (previewTestDataTab != null) previewTestDataTab.setText("Dữ liệu kiểm thử (0)");
+            if (previewStepsListView != null)
+                previewStepsListView.getItems().clear();
+            if (previewStepsTab != null)
+                previewStepsTab.setText("Các bước kiểm thử (0)");
+            if (previewTestDataListView != null)
+                previewTestDataListView.getItems().clear();
+            if (previewTestDataTab != null)
+                previewTestDataTab.setText("Dữ liệu kiểm thử (0)");
             return;
         }
 
@@ -804,7 +865,8 @@ public class AiAssistantPageController implements Initializable {
         if (previewTestDataListView != null) {
             previewTestDataListView.getItems().clear();
             for (com.studio.model.TestDataItem item : c.getTestDataSets()) {
-                previewTestDataListView.getItems().add(item.getScenario() + " -> " + item.getParameters() + " [" + item.getExpectedOutcome() + "]");
+                previewTestDataListView.getItems().add(
+                        item.getScenario() + " -> " + item.getParameters() + " [" + item.getExpectedOutcome() + "]");
             }
             if (previewTestDataTab != null) {
                 previewTestDataTab.setText("Dữ liệu (" + c.getTestDataSets().size() + ")");
@@ -830,7 +892,8 @@ public class AiAssistantPageController implements Initializable {
                             }
                         }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
             TextInputDialog dialog = new TextInputDialog(defaultUrl);
             dialog.setTitle("Quét Live DOM Trang Web");
@@ -882,7 +945,8 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private String extractUrl(String text) {
-        if (text == null) return null;
+        if (text == null)
+            return null;
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://[^\\s\"'<>]+").matcher(text);
         if (m.find()) {
             return m.group();
@@ -935,7 +999,8 @@ public class AiAssistantPageController implements Initializable {
             chatHistoryStore.saveSession(suiteDir, currentSession);
             renderChatHistory();
 
-            ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.");
+            ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite
+                    + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.");
 
             // Re-open workspace for this suite
             SuiteWorkspacePageController ctrl = ViewNavigator.navigateToWorkspace(group, suite, suiteDir);
@@ -962,7 +1027,8 @@ public class AiAssistantPageController implements Initializable {
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        String title = ("user".equalsIgnoreCase(role) ? "Bạn" : "Trợ lý AI") + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
+        String title = ("user".equalsIgnoreCase(role) ? "Bạn" : "Trợ lý AI") + "  •  " + formattedTime + "  •  ~"
+                + msg.getEstimatedTokens() + " tokens";
         Label headerLabel = new Label(title);
         headerLabel.getStyleClass().add("ai-chat-bubble-header");
         HBox.setHgrow(headerLabel, Priority.ALWAYS);
@@ -1018,14 +1084,16 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private void handleUndoMessage(AiChatMessage targetMsg) {
-        if (targetMsg == null) return;
+        if (targetMsg == null)
+            return;
 
         // 1. If applied to suite, ask for confirmation to rollback files
         if (targetMsg.isAppliedToSuite() && targetMsg.getSuiteSnapshotJson() != null) {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
             alert.setTitle("Xác nhận hoàn tác Suite");
             alert.setHeaderText("Hoàn tác toàn bộ thay đổi trong Suite");
-            alert.setContentText("Tin nhắn này đã thêm/sửa test cases trên đĩa. Bạn có muốn hoàn tác và khôi phục các file của Suite về trạng thái ban đầu không?");
+            alert.setContentText(
+                    "Tin nhắn này đã thêm/sửa test cases trên đĩa. Bạn có muốn hoàn tác và khôi phục các file của Suite về trạng thái ban đầu không?");
             DialogTheme.apply(alert);
 
             Optional<ButtonType> result = alert.showAndWait();
@@ -1047,13 +1115,15 @@ public class AiAssistantPageController implements Initializable {
         int idx = msgs.indexOf(targetMsg);
         if (idx >= 0) {
             if ("user".equalsIgnoreCase(targetMsg.getRole())) {
-                // If user message is undone, also remove the subsequent assistant reply if present
+                // If user message is undone, also remove the subsequent assistant reply if
+                // present
                 if (idx + 1 < msgs.size() && "assistant".equalsIgnoreCase(msgs.get(idx + 1).getRole())) {
                     msgs.remove(idx + 1);
                 }
                 msgs.remove(idx);
             } else {
-                // If assistant message is undone, remove this assistant message and prior user prompt
+                // If assistant message is undone, remove this assistant message and prior user
+                // prompt
                 msgs.remove(idx);
                 if (idx - 1 >= 0 && "user".equalsIgnoreCase(msgs.get(idx - 1).getRole())) {
                     msgs.remove(idx - 1);
@@ -1065,7 +1135,8 @@ public class AiAssistantPageController implements Initializable {
         Path suiteDir = getSelectedSuiteDir();
         try {
             chatHistoryStore.saveSession(suiteDir, currentSession);
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
 
         renderChatHistory();
         updateTokenUsageDisplay();

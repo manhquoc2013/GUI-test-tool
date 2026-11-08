@@ -136,7 +136,7 @@ public class MainShellController implements Initializable {
         com.studio.util.UiIcons.setGraphic(settingsBtn, com.studio.util.UiIcons.SETTINGS, 13);
         com.studio.util.UiTooltips.install(settingsBtn, "Cài đặt ứng dụng & Cấu hình OpenAI API");
         com.studio.util.UiIcons.setGraphic(helpBtn, com.studio.util.UiIcons.HELP, 13);
-        com.studio.util.UiTooltips.install(helpBtn, "Trợ giúp & Phím tắt");
+        com.studio.util.UiTooltips.install(helpBtn, "Trợ giúp nhanh & Hướng dẫn sử dụng đầy đủ");
         com.studio.util.UiIcons.setGraphic(runAllBtn, com.studio.util.UiIcons.RUN_ALL, 14, "#ffffff");
         com.studio.util.UiTooltips.install(runAllBtn, "Chạy tất cả các test case trong toàn bộ dự án");
         if (stopRunBtn != null) {
@@ -227,6 +227,18 @@ public class MainShellController implements Initializable {
     private void buildHelpContent() {
         if (helpContent == null) return;
         VBox body = helpContent;
+
+        // Entry point first: the drawer is a quick reference, the full guide is one click away.
+        Button fullGuideBtn = new Button("📖 Mở hướng dẫn đầy đủ (USER_GUIDE.md)");
+        fullGuideBtn.getStyleClass().add("btn-primary");
+        fullGuideBtn.setMaxWidth(Double.MAX_VALUE);
+        fullGuideBtn.setOnAction(e -> openFullUserGuide());
+        body.getChildren().add(fullGuideBtn);
+        body.getChildren().add(bodyText(
+                "Tài liệu đầy đủ có hình ảnh từng màn hình (cả giao diện Tối và Sáng): "
+                        + "Explorer, Workspace, Assertion Builder, Báo cáo, Trợ lý AI, Cài đặt, "
+                        + "cấu trúc dữ liệu và xử lý sự cố.\n\n"
+                        + "Ngăn này chỉ là bản tóm tắt thao tác nhanh."));
 
         body.getChildren().add(section("🎭 Giới thiệu"));
         body.getChildren().add(bodyText(
@@ -330,6 +342,26 @@ public class MainShellController implements Initializable {
                         + "• Có thể sửa metadata Suite/Case ngay trên "
                         + "Explorer không cần mở Workspace\n"
                         + "• Terminal tự hiện khi Record/Run, ấn Ẩn để đóng"));
+    }
+
+    /**
+     * Opens the full user guide (docs/guide/USER_GUIDE.md) in the existing Markdown preview
+     * dialog. Images are inlined as data URLs by {@link com.studio.service.UserGuideService}
+     * so the guide renders the same from source, the portable package and the JAR.
+     */
+    private void openFullUserGuide() {
+        try {
+            var doc = com.studio.service.UserGuideService.load();
+            if (doc == null) {
+                ToastService.warn("⚠️ Không tìm thấy hướng dẫn sử dụng. "
+                        + "Chạy ứng dụng từ thư mục mã nguồn hoặc gói portable đầy đủ.");
+                return;
+            }
+            setHelpVisible(false);
+            MarkdownPreviewDialog.show(doc);
+        } catch (Exception ex) {
+            ToastService.error("❌ Không mở được hướng dẫn: " + ex.getMessage());
+        }
     }
 
     private static javafx.scene.Node section(String text) {

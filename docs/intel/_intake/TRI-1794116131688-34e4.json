@@ -1,0 +1,94 @@
+{
+  "request_id": "ses_e4673bb5dffeCOgkEmoZ3zsGZF/msg_1b9a79536001fRbulfcKzD3y3B/call_00_v9d6mE9GhAwYKup6uRdX8964",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 5,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794116131688-34e4",
+  "created_at": 1794116131688,
+  "request_summary": "Add an entry point in the in-app help drawer that opens docs/guide/USER_GUIDE.md in the existing MarkdownPreviewDialog, resolve the guide in dev/portable/JAR, and bundle the guide so packaged builds can open it.",
+  "change_class": "C1",
+  "handling": "inline_declared_scope",
+  "evidence": {
+    "edit_target_files": [
+      "docs/guide/USER_GUIDE.md",
+      "pom.xml",
+      "scripts/build-portable.sh",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/service/UserGuideService.java"
+    ],
+    "impact_files": [
+      "docs/guide/USER_GUIDE.md",
+      "pom.xml",
+      "scripts/build-portable.sh",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/service/UserGuideService.java"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 48,
+      "areas": 4,
+      "judged_pairs": 6,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0.562
+    },
+    "dev_footprint": "backend"
+  },
+  "rationale": "C1: 5 edit-target files in one package, no one-way door — pre-declared write scope required (5 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0.562 (0/6 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "Help button (❓) in the main shell header -> help drawer -> \\\"Mở hướng dẫn đầy đủ\\\"",
+  "blast_radius": 5,
+  "done_oracle": "Clicking the new button in the help drawer opens a dialog showing the full user guide text (headings + inlined screenshots) loaded from docs/guide/USER_GUIDE.md, in both source and packaged runs.",
+  "verification_commands": [
+    {
+      "command": "/opt/homebrew/opt/maven/bin/mvn -q -o -DskipTests compile",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 400000
+    },
+    {
+      "command": "/opt/homebrew/opt/openjdk@27/bin/java -cp target/classes:target/lib/* ProbeGuide",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 120000
+    }
+  ],
+  "declared_write_scope": [
+    "docs/guide/USER_GUIDE.md",
+    "pom.xml",
+    "scripts/build-portable.sh",
+    "src/main/java/com/studio/controller/MainShellController.java",
+    "src/main/java/com/studio/service/UserGuideService.java"
+  ],
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "fc5dd7030aef008cd7ef97dd38c1ce4a8df40590",
+    "dirty": true,
+    "captured_at": 1794116132325
+  },
+  "budget": {
+    "wall_clock_ms": 2280000,
+    "turns": 96,
+    "turns_used": 0
+  },
+  "risk_facts_source": "unassessed"
+}

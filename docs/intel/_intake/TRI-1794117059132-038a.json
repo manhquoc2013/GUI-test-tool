@@ -1,0 +1,138 @@
+{
+  "request_id": "ses_295fab23be368a98381145296fc977846b93926d9b8ad25f842e32fea3efffa7/msg_1b9b5afca001D1Q8SCJWFJkEWo/call_00_dx8PzCdToOHWx1O2Mr4V1039",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 7,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "identified",
+      "groups": [
+        "boundary"
+      ]
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": false,
+      "basis": "identified_risk",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794117059132-038a",
+  "created_at": 1794117059132,
+  "request_summary": "Help drawer gains a button that opens docs/guide/USER_GUIDE.md in the existing MarkdownPreviewDialog; guide path resolves in dev, portable and JAR; guide bundled via pom resources; red-first tests added for the service and button wiring.",
+  "change_class": "C3",
+  "handling": "reduced_pipeline",
+  "evidence": {
+    "edit_target_files": [
+      "docs/guide/USER_GUIDE.md",
+      "pom.xml",
+      "scripts/build-portable.sh",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/service/UserGuideService.java",
+      "src/test/java/com/studio/controller/HelpDrawerFullGuideButtonTest.java",
+      "src/test/java/com/studio/service/UserGuideServiceTest.java"
+    ],
+    "impact_files": [
+      "docs/guide/USER_GUIDE.md",
+      "pom.xml",
+      "scripts/build-portable.sh",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/service/UserGuideService.java",
+      "src/test/java/com/studio/controller/HelpDrawerFullGuideButtonTest.java",
+      "src/test/java/com/studio/service/UserGuideServiceTest.java"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [
+      {
+        "group": "boundary",
+        "path": "pom.xml"
+      }
+    ],
+    "risk_effects": [
+      {
+        "group": "boundary",
+        "path": "pom.xml"
+      }
+    ],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 48,
+      "areas": 4,
+      "judged_pairs": 6,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0.562
+    },
+    "dev_footprint": "backend"
+  },
+  "rationale": "C3: one-way door: boundary:pom.xml — multi-file irreversible change floors at C3 (7 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0.562 (0/6 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "Help button (?) in the shell header -> help drawer -> full user guide button -> MarkdownPreviewDialog",
+  "blast_radius": 7,
+  "done_oracle": "Build compiles; the help drawer's new button opens MarkdownPreviewDialog showing the full USER_GUIDE.md content with images inlined as data URLs, resolving from docs/guide in source runs and from the bundled classpath in packaged runs.",
+  "verification_commands": [
+    {
+      "command": "/opt/homebrew/opt/maven/bin/mvn -q -o -DskipTests compile",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 400000
+    }
+  ],
+  "change_type": "implementation",
+  "seam_claims": [
+    {
+      "file": "src/main/java/com/studio/controller/MainShellController.java",
+      "line": 232,
+      "quote": "        Button fullGuideBtn = new Button(\"📖 Mở hướng dẫn đầy đủ (USER_GUIDE.md)\");",
+      "source_hash": "6161875a67e85a79d7e7c3bb37c1f193f1c908ce642561dc5ab478c87eacba92",
+      "quote_hash": "0d4528b15bfbf05713ab9606555b0ab0b07ac5340e3e49f9ddada97dadefa0da"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/MainShellController.java",
+      "line": 235,
+      "quote": "        fullGuideBtn.setOnAction(e -> openFullUserGuide());",
+      "source_hash": "6161875a67e85a79d7e7c3bb37c1f193f1c908ce642561dc5ab478c87eacba92",
+      "quote_hash": "b5cc22ed97f06591c63eae261f56bb2366ca64266bf228a828834f96113215b3"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/MainShellController.java",
+      "line": 352,
+      "quote": "    private void openFullUserGuide() {",
+      "source_hash": "6161875a67e85a79d7e7c3bb37c1f193f1c908ce642561dc5ab478c87eacba92",
+      "quote_hash": "8ca3a3d7b92c25103e9c847585593e10ecdec8500ca4a9bd253b7a20fa8a1c28"
+    },
+    {
+      "file": "src/main/java/com/studio/service/UserGuideService.java",
+      "line": 66,
+      "quote": "        String rendered = inlineImages(markdown, imageBase);",
+      "source_hash": "700bd6c33172210263c6144acbfc1c694fff8908d74ef9cbd8f31ebf0f788f88",
+      "quote_hash": "f46e70eae5874546fd56b3f14c74c57b0856f7024a655c8ad3cdcf71da1d150c"
+    },
+    {
+      "file": "pom.xml",
+      "line": 82,
+      "quote": "                <directory>docs/guide</directory>",
+      "source_hash": "209f58b45b5e7075236415f0bd4625081b9b46a1d25cd20886c45643e7d1ce8e",
+      "quote_hash": "8bb51ebc26703d4d038c7419d8a22cba29e0b36ee85925425981d551dc682b44"
+    }
+  ],
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "fc5dd7030aef008cd7ef97dd38c1ce4a8df40590",
+    "dirty": true,
+    "captured_at": 1794117059233
+  },
+  "budget": {
+    "wall_clock_ms": 15240000,
+    "turns": 928,
+    "turns_used": 0
+  },
+  "risk_facts": [],
+  "risk_facts_source": "declared"
+}

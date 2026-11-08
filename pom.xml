@@ -71,6 +71,22 @@
         </dependency>
     </dependencies>
     <build>
+        <!-- Ship the user guide inside the JAR/portable package so Help → full guide works
+             from any install location. The same file is edited at docs/guide/; copy it with
+             `bash scripts/sync-guide.sh` after changing the documentation. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>docs/guide</directory>
+                <targetPath>docs/guide</targetPath>
+                <includes>
+                    <include>**/*.md</include>
+                    <include>**/*.png</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
