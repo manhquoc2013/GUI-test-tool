@@ -1128,9 +1128,9 @@ public class SuiteWorkspacePageController {
         }
 
         cmd.add("--target=java");
-        String scriptFile = targetCase.getScriptFile() != null
+        String scriptFile = (targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank())
                 ? targetCase.getScriptFile()
-                : targetCase.getName() + ".java";
+                : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
         Path outFile = suitePath.resolve(scriptFile);
         cmd.add("--output=" + outFile.toAbsolutePath());
 
@@ -1260,9 +1260,9 @@ public class SuiteWorkspacePageController {
         boolean shareCtx = shareContextCheck.isSelected();
         final Path targetSuitePath = suitePath;
         String caseName = targetCase.getName();
-        String scriptFile = targetCase.getScriptFile() != null
+        String scriptFile = (targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank())
                 ? targetCase.getScriptFile()
-                : targetCase.getName() + ".java";
+                : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
         final Path casePath = targetSuitePath.resolve(scriptFile);
 
         terminalAppend("Đang chạy case: " + caseName + " (" + browserId + ")");
@@ -1619,7 +1619,7 @@ public class SuiteWorkspacePageController {
         String q = query.trim().toLowerCase(Locale.ROOT);
         String type = a.getType() != null ? a.getType().toLowerCase(Locale.ROOT) : "";
         String typeLabel = AssertTypeDisplay.label(a.getType()).toLowerCase(Locale.ROOT);
-        String value = a.getValue() != null ? a.getValue().toLowerCase(Locale.ROOT) : "";
+        String value = a.getEffectiveValue().toLowerCase(Locale.ROOT);
         String locator = a.getLocator() != null ? a.getLocator().toLowerCase(Locale.ROOT) : "";
         String status = a.getStatus() != null ? a.getStatus().toLowerCase(Locale.ROOT) : "";
         return type.contains(q) || typeLabel.contains(q) || value.contains(q)
@@ -1708,8 +1708,9 @@ public class SuiteWorkspacePageController {
     private static String formatAssertLine(Assertion a) {
         StringBuilder line = new StringBuilder();
         line.append(StatusDisplay.label(a.getStatus())).append("  ").append(AssertTypeDisplay.label(a.getType()));
-        if (a.getValue() != null && !a.getValue().isBlank()) {
-            line.append(" = ").append(a.getValue());
+        String effVal = a.getEffectiveValue();
+        if (!effVal.isBlank()) {
+            line.append(" = ").append(effVal);
         }
         if (a.getLocator() != null && !a.getLocator().isBlank()) {
             line.append("  [").append(a.getLocator()).append("]");
@@ -1772,14 +1773,20 @@ public class SuiteWorkspacePageController {
     private boolean assertMatchesFilter(Assertion a, String filter) {
         String type = a.getType() != null ? a.getType().toUpperCase() : "";
         return switch (filter) {
-            case "TEXT" -> type.startsWith("TEXT");
-            case "ELEMENT" -> type.startsWith("ELEMENT");
+            case "TEXT" -> type.startsWith("TEXT") || type.startsWith("PAGE_") || type.equals("HEADING_VISIBLE")
+                    || type.equals("TOAST_VISIBLE") || type.equals("BREADCRUMB_CONTAINS")
+                    || type.equals("DIALOG_ALERT_TEXT_CONTAINS");
+            case "ELEMENT" -> type.startsWith("ELEMENT") || type.startsWith("ATTRIBUTE_") || type.startsWith("CSS_")
+                    || type.equals("LINK_HREF_CONTAINS") || type.startsWith("IMAGE_") || type.equals("VIDEO_VISIBLE")
+                    || type.equals("AUDIO_VISIBLE") || type.startsWith("MODAL_") || type.equals("BADGE_COUNT_EQUALS");
             case "URL" -> type.startsWith("URL");
             case "TITLE" -> type.startsWith("TITLE");
             case "TABLE" -> type.startsWith("TABLE");
-            case "FORM" -> type.startsWith("FORM") || type.startsWith("INPUT") || type.equals("PLACEHOLDER_EQUALS");
-            case "STORAGE" -> type.contains("STORAGE") || type.equals("COOKIE_EXISTS") || type.equals("COOKIE_VALUE_EQUALS");
-            case "CUSTOM" -> "CUSTOM".equals(a.getType()) || "CUSTOM_JS".equals(a.getType());
+            case "FORM" -> type.startsWith("FORM") || type.startsWith("INPUT") || type.startsWith("SELECT_")
+                    || type.equals("PLACEHOLDER_EQUALS");
+            case "STORAGE" -> type.contains("STORAGE") || type.startsWith("COOKIE_") || type.equals("NO_CONSOLE_ERROR")
+                    || type.equals("API_STATUS_EQUALS");
+            case "CUSTOM" -> "CUSTOM".equals(type) || "CUSTOM_JS".equals(type) || "AI_SEMANTIC_ASSERT".equals(type);
             default -> true;
         };
     }

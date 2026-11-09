@@ -416,15 +416,7 @@ public class ProjectStore {
         group.setName(newName);
         writeJsonAtomic(newDir.resolve(GROUP_JSON), group);
         indexService.deleteGroup(oldName);
-        indexService.indexGroup(group, newDir);
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(newDir)) {
-            for (Path entry : stream) {
-                if (Files.isDirectory(entry) && Files.exists(entry.resolve(SUITE_JSON))) {
-                    TestSuite childSuite = loadAndMigrateSuite(entry);
-                    indexService.indexSuite(childSuite, entry, newName);
-                }
-            }
-        }
+        indexService.syncGroupDirectory(newDir, newName);
     }
 
     public void renameSuite(Path suiteDir, String newName) throws IOException {

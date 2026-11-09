@@ -2028,7 +2028,7 @@ public class ExplorerPageController {
             Path suiteDir = resolveSuitePath(ref);
             String script = (ref.caseId != null)
                     ? findCaseScriptFile(suiteDir, ref)
-                    : ref.name + ".java";
+                    : com.studio.util.StringEscapeUtil.safeFileName(ref.name, "case") + ".java";
             scopePath = suiteDir.resolve(script);
         }
 
@@ -2284,6 +2284,7 @@ public class ExplorerPageController {
     }
 
     private String findCaseScriptFile(Path suiteDir, NodeRef ref) {
+        String fallback = com.studio.util.StringEscapeUtil.safeFileName(ref.name, "case") + ".java";
         try {
             TestSuite suite = projectStore.loadAndMigrateSuite(suiteDir);
             return suite.getCases().stream()
@@ -2291,11 +2292,11 @@ public class ExplorerPageController {
                             || Objects.equals(c.getName(), ref.name))
                     .map(c -> c.getScriptFile() != null && !c.getScriptFile().isBlank()
                             ? c.getScriptFile()
-                            : c.getName() + ".java")
+                            : com.studio.util.StringEscapeUtil.safeFileName(c.getName(), "case") + ".java")
                     .findFirst()
-                    .orElse(ref.name + ".java");
+                    .orElse(fallback);
         } catch (IOException e) {
-            return ref.name + ".java";
+            return fallback;
         }
     }
 

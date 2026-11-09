@@ -28,7 +28,7 @@ import java.util.Set;
  */
 public class LocalDataIndexService {
 
-    private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper DEFAULT_MAPPER = com.studio.store.ProjectStore.DEFAULT_MAPPER;
 
     private final DatabaseManager dbManager;
     private final ObjectMapper mapper;
@@ -87,6 +87,12 @@ public class LocalDataIndexService {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    public void syncGroupDirectory(Path groupDir, String groupPath) {
+        if (groupDir == null || !Files.exists(groupDir))
+            return;
+        syncGroupDirectoryInternal(groupDir, groupPath, new HashMap<>(), new HashMap<>());
     }
 
     private void syncGroupDirectoryInternal(Path groupDir, String groupPath, Map<String, Long> groupMtimes,
@@ -244,17 +250,21 @@ public class LocalDataIndexService {
     public void deleteGroup(String groupName) {
         if (groupName == null)
             return;
+        String nestedPrefix = groupName + "/%";
         try (Connection conn = dbManager.getConnection()) {
             try (PreparedStatement ps1 = conn.prepareStatement(
-                    "DELETE FROM test_assertions WHERE case_id IN (SELECT id FROM test_cases WHERE group_name = ?)");
-                 PreparedStatement ps2 = conn.prepareStatement("DELETE FROM test_cases WHERE group_name = ?");
-                 PreparedStatement ps3 = conn.prepareStatement("DELETE FROM test_suites WHERE group_name = ?");
+                    "DELETE FROM test_assertions WHERE case_id IN (SELECT id FROM test_cases WHERE group_name = ? OR group_name LIKE ?)");
+                 PreparedStatement ps2 = conn.prepareStatement("DELETE FROM test_cases WHERE group_name = ? OR group_name LIKE ?");
+                 PreparedStatement ps3 = conn.prepareStatement("DELETE FROM test_suites WHERE group_name = ? OR group_name LIKE ?");
                  PreparedStatement ps4 = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
                 ps1.setString(1, groupName);
+                ps1.setString(2, nestedPrefix);
                 ps1.executeUpdate();
                 ps2.setString(1, groupName);
+                ps2.setString(2, nestedPrefix);
                 ps2.executeUpdate();
                 ps3.setString(1, groupName);
+                ps3.setString(2, nestedPrefix);
                 ps3.executeUpdate();
                 ps4.setString(1, groupName);
                 ps4.executeUpdate();
@@ -422,7 +432,7 @@ public class LocalDataIndexService {
                     ins.setString(2, tc.getId());
                     ins.setString(3, a.getType());
                     ins.setString(4, a.getLocator());
-                    ins.setString(5, a.getValue());
+                    ins.setString(5, a.getEffectiveValue());
                     ins.setString(6, a.getStatus());
                     ins.setInt(7, idx++);
                     ins.addBatch();

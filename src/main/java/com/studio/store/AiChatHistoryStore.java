@@ -23,7 +23,7 @@ public class AiChatHistoryStore {
 
     public static final String CHAT_HISTORY_FILE = ".ai_chat.json";
     public static final String CHAT_SESSIONS_DIR = ".ai_chats";
-    private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper DEFAULT_MAPPER = ProjectStore.DEFAULT_MAPPER;
     private final ObjectMapper mapper;
     private final com.studio.db.LocalDataIndexService indexService;
 

@@ -362,7 +362,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         if (typeCombo != null)
             typeCombo.setValue(a.getType());
         if (valueField != null)
-            valueField.setText(a.getValue() != null ? a.getValue() : "");
+            valueField.setText(a.getEffectiveValue());
         if (locatorField != null)
             locatorField.setText(a.getLocator() != null ? a.getLocator() : "");
         if (statusCombo != null) {
@@ -416,6 +416,13 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                 : new Assertion();
         a.setType(type);
         a.setValue(value);
+        if (value.contains("=")) {
+            a.setAttribute(value.substring(0, value.indexOf('=')).trim());
+            a.setExpectedValue(value.substring(value.indexOf('=') + 1).trim());
+        } else {
+            a.setAttribute(null);
+            a.setExpectedValue(null);
+        }
         a.setLocator(locator);
         String status = statusCombo.getValue();
         a.setStatus(status != null && !status.isBlank() ? status : "ACTIVE");
@@ -437,18 +444,22 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
 
     private static boolean needsValue(String type) {
         return type.startsWith("TEXT_") || type.startsWith("TITLE_") || type.startsWith("URL_")
-                || type.equals("PAGE_HAS_TEXT") || type.equals("HEADING_VISIBLE")
+                || type.equals("PAGE_HAS_TEXT") || type.equals("PAGE_NOT_CONTAINS_TEXT")
+                || type.equals("HEADING_VISIBLE") || type.equals("ATTRIBUTE_EXISTS")
+                || type.equals("SELECT_SELECTED_TEXT") || type.equals("COOKIE_EXISTS")
+                || type.equals("LOCAL_STORAGE_EXISTS") || type.equals("SESSION_STORAGE_EXISTS")
+                || type.equals("PAGE_LOAD_TIME_MAX") || type.equals("AI_SEMANTIC_ASSERT")
                 || type.contains("HAS_TEXT") || type.contains("EQUALS") || type.contains("CONTAINS")
                 || type.equals("CUSTOM") || type.equals("CUSTOM_JS");
     }
 
     private static boolean needsLocator(String type) {
         return type.startsWith("ELEMENT_") || type.startsWith("INPUT_")
-                || type.equals("ATTRIBUTE_EQUALS") || type.equals("CSS_CONTAINS")
+                || type.startsWith("ATTRIBUTE_") || type.startsWith("CSS_")
                 || type.equals("LINK_HREF_CONTAINS") || type.equals("PLACEHOLDER_EQUALS")
-                || type.equals("SELECT_HAS_OPTION") || type.equals("FORM_VALID")
+                || type.startsWith("SELECT_") || type.equals("FORM_VALID")
                 || type.equals("FORM_INVALID") || type.equals("IMAGE_VISIBLE")
-                || type.startsWith("TABLE_");
+                || type.equals("IMAGE_BROKEN") || type.startsWith("TABLE_");
     }
 
     @FXML
@@ -532,7 +543,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                     ? timeoutSpinner.getValue()
                     : 30000;
             return !Objects.equals(type, a.getType())
-                    || !Objects.equals(value, a.getValue() != null ? a.getValue() : "")
+                    || !Objects.equals(value, a.getEffectiveValue())
                     || !Objects.equals(locator, a.getLocator() != null ? a.getLocator() : "")
                     || !StatusDisplay.normalize(status).equals(StatusDisplay.normalize(a.getStatus()))
                     || exact != a.isExact()
@@ -546,7 +557,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         for (Assertion a : list) {
             fp.add(String.join("|",
                     nullToEmpty(a.getType()),
-                    nullToEmpty(a.getValue()),
+                    nullToEmpty(a.getEffectiveValue()),
                     nullToEmpty(a.getLocator()),
                     StatusDisplay.normalize(a.getStatus()),
                     String.valueOf(a.isExact()),
@@ -572,9 +583,10 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
                 continue;
             }
             visibleAssertIndices.add(i);
+            String effVal = a.getEffectiveValue();
             String detail;
-            if (a.getValue() != null && !a.getValue().isBlank()) {
-                detail = a.getValue();
+            if (!effVal.isBlank()) {
+                detail = effVal;
             } else if (a.getLocator() != null && !a.getLocator().isBlank()) {
                 detail = "locator: " + a.getLocator();
             } else {
@@ -599,7 +611,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
         String q = query.trim().toLowerCase(java.util.Locale.ROOT);
         String type = a.getType() != null ? a.getType().toLowerCase(java.util.Locale.ROOT) : "";
         String typeLabel = AssertTypeDisplay.label(a.getType()).toLowerCase(java.util.Locale.ROOT);
-        String value = a.getValue() != null ? a.getValue().toLowerCase(java.util.Locale.ROOT) : "";
+        String value = a.getEffectiveValue().toLowerCase(java.util.Locale.ROOT);
         String locator = a.getLocator() != null ? a.getLocator().toLowerCase(java.util.Locale.ROOT) : "";
         String status = a.getStatus() != null ? a.getStatus().toLowerCase(java.util.Locale.ROOT) : "";
         return type.contains(q) || typeLabel.contains(q) || value.contains(q)

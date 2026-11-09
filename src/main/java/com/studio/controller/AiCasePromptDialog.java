@@ -290,7 +290,8 @@ public class AiCasePromptDialog {
                             assertsPreview.getItems().clear();
                             for (Assertion a : generated.getAssertions()) {
                                 String loc = a.getLocator() != null && !a.getLocator().isBlank() ? " | locator: " + a.getLocator() : "";
-                                String val = a.getValue() != null && !a.getValue().isBlank() ? " | value: " + a.getValue() : "";
+                                String effVal = a.getEffectiveValue();
+                                String val = !effVal.isBlank() ? " | value: " + effVal : "";
                                 assertsPreview.getItems().add(a.getType() + loc + val);
                             }
                             assertTab.setText("Danh sách Assertions (" + generated.getAssertions().size() + ")");
@@ -335,16 +336,7 @@ public class AiCasePromptDialog {
             if (lastGenerated[0] != null) {
                 try {
                     AiGeneratedCase gen = lastGenerated[0];
-                    if (gen.getScriptCode() != null && !gen.getScriptCode().isBlank()) {
-                        projectStore.saveCaseScript(suiteDir, activeCase.getId(), gen.getScriptCode());
-                    }
-                    if (gen.getAssertions() != null) {
-                        projectStore.replaceAssertions(suiteDir, activeCase.getId(), gen.getAssertions());
-                    }
-                    if (gen.getStartUrl() != null && !gen.getStartUrl().isBlank() && activeCase.getStartUrl().isBlank()) {
-                        projectStore.updateCaseMeta(suiteDir, activeCase.getId(), activeCase.getDescription(),
-                                "Ready", gen.getStartUrl(), activeCase.getBrowser(), activeCase.getHeadless());
-                    }
+                    applyGeneratedCaseToStore(projectStore, suiteDir, activeCase, gen);
                     if (onApplied != null) {
                         onApplied.accept(gen.getScriptCode(), gen.getAssertions());
                     }
@@ -364,6 +356,42 @@ public class AiCasePromptDialog {
         DialogTheme.apply(dialog);
 
         dialog.showAndWait();
+    }
+
+    public static void applyGeneratedCaseToStore(ProjectStore projectStore, Path suiteDir, TestCase activeCase,
+                                                 AiGeneratedCase gen) throws java.io.IOException {
+        if (projectStore == null || suiteDir == null || activeCase == null || gen == null) {
+            return;
+        }
+        if (gen.getScriptCode() != null && !gen.getScriptCode().isBlank()) {
+            projectStore.saveCaseScript(suiteDir, activeCase.getId(), gen.getScriptCode());
+        }
+        if (gen.getAssertions() != null) {
+            projectStore.replaceAssertions(suiteDir, activeCase.getId(), gen.getAssertions());
+            activeCase.setAssertions(new ArrayList<>(gen.getAssertions()));
+        }
+        if ((gen.getTestSteps() != null && !gen.getTestSteps().isEmpty())
+                || (gen.getTestDataSets() != null && !gen.getTestDataSets().isEmpty())) {
+            projectStore.updateCaseStepsAndData(suiteDir, activeCase.getId(),
+                    gen.getTestSteps(), gen.getTestDataSets());
+            if (gen.getTestSteps() != null && !gen.getTestSteps().isEmpty()) {
+                activeCase.setTestSteps(new ArrayList<>(gen.getTestSteps()));
+            }
+            if (gen.getTestDataSets() != null && !gen.getTestDataSets().isEmpty()) {
+                activeCase.setTestDataSets(new ArrayList<>(gen.getTestDataSets()));
+            }
+        }
+        if (gen.getPriority() != null && !gen.getPriority().isBlank()) {
+            projectStore.updateCasePriority(suiteDir, activeCase.getId(), gen.getPriority());
+            activeCase.setPriority(gen.getPriority());
+        }
+        if (gen.getStartUrl() != null && !gen.getStartUrl().isBlank()
+                && (activeCase.getStartUrl() == null || activeCase.getStartUrl().isBlank())) {
+            projectStore.updateCaseMeta(suiteDir, activeCase.getId(), activeCase.getDescription(),
+                    "Ready", gen.getStartUrl(), activeCase.getBrowser(), activeCase.getHeadless());
+            activeCase.setStartUrl(gen.getStartUrl());
+            activeCase.setStatus("Ready");
+        }
     }
 
     private static void addChip(FlowPane container, DocumentParserService.ParsedDocument doc,

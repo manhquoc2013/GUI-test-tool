@@ -463,4 +463,85 @@ public class AiAgentIndexingAndOptimizationTest {
         assertEquals(cascadeSuiteDir, com.studio.controller.AiAssistantPageController.resolveRollbackSuiteDir(resolvedFromUser, null),
                 "Rollback must prefer suiteSnapshotDir stored on the message over current UI selection");
     }
+
+    @Test
+    public void testRound4SystemReviewFixes_SingleCaseAiPersistence_FullAssertionCatalog_NestedGroupRename() throws Exception {
+        DatabaseManager dbManager = DatabaseManager.getInstance();
+        ProjectStore projectStore = new ProjectStore();
+        com.studio.db.ProjectDbService projectDb = new com.studio.db.ProjectDbService(dbManager);
+
+        // 1. Verify AiCasePromptDialog.applyGeneratedCaseToStore persists steps, data, priority, assertions, script, and startUrl
+        projectStore.createGroup(StudioPaths.getProjectDir(), "ParentGroup", "Parent");
+        Path parentGroupDir = StudioPaths.getProjectDir().resolve("ParentGroup");
+        projectStore.createSuite(parentGroupDir, "SuiteSingleAi");
+        Path suiteDir = parentGroupDir.resolve("SuiteSingleAi");
+        TestCase activeCase = projectStore.createCase(suiteDir, "TC01_SingleAi", "Initial description");
+
+        AiGeneratedCase gen = new AiGeneratedCase("TC01_SingleAi", "Updated", "https://app.local/checkout");
+        gen.setPriority("P0");
+        gen.setScriptCode("package com.test;\npublic class TC01 { public static void main(String[] a) {} }");
+        gen.setTestSteps(List.of(
+                new com.studio.model.TestStep(1, "FILL", "#coupon", "VIP2026", "Nhập mã giảm giá", "Áp dụng thành công")
+        ));
+        gen.setTestDataSets(List.of(
+                new com.studio.model.TestDataItem("Valid Coupon", java.util.Map.of("coupon", "VIP2026"), "SUCCESS")
+        ));
+        Assertion attrAssert = new Assertion();
+        attrAssert.setType("ATTRIBUTE_EQUALS");
+        attrAssert.setLocator("#coupon");
+        attrAssert.setAttribute("data-applied");
+        attrAssert.setExpectedValue("true");
+        gen.setAssertions(List.of(attrAssert));
+
+        com.studio.controller.AiCasePromptDialog.applyGeneratedCaseToStore(projectStore, suiteDir, activeCase, gen);
+
+        assertEquals("P0", activeCase.getPriority());
+        assertEquals("https://app.local/checkout", activeCase.getStartUrl());
+        assertEquals(1, activeCase.getTestSteps().size());
+        assertEquals(1, activeCase.getTestDataSets().size());
+
+        TestSuite reloaded = projectStore.loadAndMigrateSuite(suiteDir);
+        TestCase persisted = reloaded.getCases().get(0);
+        assertEquals("P0", persisted.getPriority());
+        assertEquals(1, persisted.getTestSteps().size());
+        assertEquals(1, persisted.getTestDataSets().size());
+
+        // Verify H2 test_assertions stores effectiveValue ("data-applied=true") when value is empty
+        List<Assertion> dbAsserts = projectDb.getAssertionsForCase(activeCase.getId());
+        assertEquals(1, dbAsserts.size());
+        assertEquals("data-applied=true", dbAsserts.get(0).getEffectiveValue());
+        assertEquals("data-applied", dbAsserts.get(0).resolveAttribute());
+        assertEquals("true", dbAsserts.get(0).resolveExpectedValue());
+
+        // 2. Verify every assertion type in AssertTypeDisplay.ALL_TYPES is supported and generates valid Java code
+        for (String type : com.studio.util.AssertTypeDisplay.ALL_TYPES) {
+            assertTrue(AssertCodeGenerator.isSupported(type), "Type in ALL_TYPES must be supported: " + type);
+            String label = com.studio.util.AssertTypeDisplay.label(type);
+            assertNotNull(label);
+            assertFalse(label.isBlank(), "Label must not be blank for: " + type);
+
+            Assertion sample = new Assertion();
+            sample.setType(type);
+            sample.setLocator("#el");
+            sample.setValue("key=val");
+            sample.setStatus("ACTIVE");
+            String block = AssertCodeGenerator.generateAssertBlock(List.of(sample));
+            assertFalse(block.contains("Unsupported assert type:"), "Must generate code for: " + type);
+            assertFalse(block.contains("Unsupported or unknown assertion type"), "Must not mark supported type as unknown: " + type);
+        }
+
+        // 3. Verify nested group rename & delete synchronize recursively in H2
+        projectStore.createGroup(parentGroupDir, "ChildGroup", "Nested group");
+        Path childGroupDir = parentGroupDir.resolve("ChildGroup");
+        projectStore.createSuite(childGroupDir, "NestedSuite");
+        Path nestedSuiteDir = childGroupDir.resolve("NestedSuite");
+        projectStore.createCase(nestedSuiteDir, "NestedCase", "Desc");
+
+        projectStore.renameGroup(parentGroupDir, "ParentGroupRenamed");
+        Path renamedParentDir = StudioPaths.getProjectDir().resolve("ParentGroupRenamed");
+        assertTrue(Files.exists(renamedParentDir.resolve("ChildGroup").resolve("NestedSuite")));
+        assertEquals(1, projectDb.getCasesForSuite("ParentGroupRenamed", "SuiteSingleAi").size());
+        assertFalse(projectDb.getCasesForSuite("ParentGroupRenamed/ChildGroup", "NestedSuite").isEmpty(),
+                "Nested sub-group suite cases must be recursively re-indexed under ParentGroupRenamed/ChildGroup");
+    }
 }

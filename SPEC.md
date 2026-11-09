@@ -1,4 +1,5 @@
 # Specification: AI Agent Test Case Generation & Export with Conditional Script Omission
+**Status**: COMPLETED
 
 ## 1. Objective & Scope
 Enhance the AI Assistant in **Test Studio** to support generating detailed, high-coverage test cases from user requirements and attached documents (PRD, SRS, specs, business rules) and allow users to download/export the generated test suite directly in multiple formats, with a strict rule: **omit automation test scripts when no test page URL is provided or when disabled**.
