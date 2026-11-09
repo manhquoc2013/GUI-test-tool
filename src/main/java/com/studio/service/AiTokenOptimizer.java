@@ -17,6 +17,7 @@ public class AiTokenOptimizer {
 
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 32768;
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```([a-zA-Z0-9_-]*)\\r?\\n([\\s\\S]*?)\\r?\\n```");
@@ -154,8 +155,7 @@ public class AiTokenOptimizer {
         }
         int limit = maxElements > 0 ? maxElements : 50;
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(domJson);
+            JsonNode root = MAPPER.readTree(domJson);
             if (!root.isArray() || root.isEmpty()) {
                 return "";
             }

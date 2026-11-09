@@ -1,8 +1,8 @@
-# Todo List: Multi-Agent Skill Pipeline, Loop Engineer & Functional Group/Suite Naming
+# Todo List: Agent Indexing, In-App Artifact/MD/Export Persistence, Concise Chat Output & Coverage Optimization
 
-- [x] 1. Research `docs/knowledge` (`ECC-main`, `agency-agents-main`, `Fabric-main`, `skyvern-main`, `testsigma-dev`) for multi-agent, Reality Checker, and Loop Engineer patterns <!-- id: 1 -->
-- [x] 2. Enhance `AiSkill.java` with new specialized agent skills (`MULTI_AGENT_LOOP`, `REALITY_CHECKER_REVIEW`, `API_CONTRACT_TESTER`) and smart routing <!-- id: 2 -->
-- [x] 3. Create `AiMultiAgentCoordinator.java` implementing Spec Miner, Reality Checker Reviewer (5-axis rubric), Loop Engineer self-healing, and Functional Group/Suite Naming resolver <!-- id: 3 -->
-- [x] 4. Integrate Multi-Agent Pipeline & `suggestedGroup`/`suggestedSuite` into `AiTestGeneratorService.java`, `AiChatMessage.java`, and `AiAssistantPageController.java` <!-- id: 4 -->
-- [x] 5. Write unit tests in `AiMultiAgentLoopAndNamingTest.java` and update `AiAssistantAutoCreateSuiteTest.java` <!-- id: 5 -->
-- [x] 6. Run `mvn clean test` to verify 100% test pass rate (309/309 tests passing) and update `tasks/learnings.md` <!-- id: 6 -->
+- [x] 1. Extend `StudioPaths.java` (`getConvertedDocsDir`, `getAiArtifactsDir`) and `DatabaseManager.java` (`ai_documents_index`, `ai_document_chunks`, `ai_exports_index`) <!-- id: 1 -->
+- [x] 2. Create `AiAgentIndexService.java` for document chunk indexing, RAG context retrieval, in-app export archival, and AI artifact persistence <!-- id: 2 -->
+- [x] 3. Integrate `AiAgentIndexService` into `DocumentParserService.java` and `TestCaseExcelExportService.java` so all `.md` conversions and exports are stored in-app and indexed <!-- id: 3 -->
+- [x] 4. Optimize `AiMultiAgentCoordinator.java` & `AiTestGeneratorService.java`: concise chat summary (no raw `.md`/code in chat), multi-scenario expansion (Happy/Negative/Boundary), multi-assertion synthesis, 46-assertion alias normalization, pre-compiled regexes, and batch `applyCasesToSuite` <!-- id: 4 -->
+- [x] 5. Write comprehensive tests in `AiAgentIndexingAndOptimizationTest.java` and run full test suite (`mvn test` — 313/313 passing) <!-- id: 5 -->
+- [x] 6. Update `tasks/learnings.md` <!-- id: 6 -->

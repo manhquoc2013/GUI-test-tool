@@ -220,6 +220,38 @@ public class DatabaseManager {
                 updated_at BIGINT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ai_documents_index (
+                id VARCHAR(255) PRIMARY KEY,
+                original_name VARCHAR(255) NOT NULL,
+                md_path TEXT NOT NULL,
+                mime_type VARCHAR(100),
+                size_bytes BIGINT DEFAULT 0,
+                chunk_count INT DEFAULT 0,
+                created_at BIGINT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_document_chunks (
+                id VARCHAR(255) PRIMARY KEY,
+                doc_id VARCHAR(255) NOT NULL,
+                chunk_index INT DEFAULT 0,
+                heading VARCHAR(500),
+                content CLOB,
+                keywords TEXT,
+                token_estimate INT DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_exports_index (
+                id VARCHAR(255) PRIMARY KEY,
+                export_type VARCHAR(50) NOT NULL,
+                group_name VARCHAR(255),
+                suite_name VARCHAR(255),
+                file_name VARCHAR(255) NOT NULL,
+                app_stored_path TEXT NOT NULL,
+                external_path TEXT,
+                case_count INT DEFAULT 0,
+                created_at BIGINT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tc_suite ON test_cases(group_name, suite_name);
             CREATE INDEX IF NOT EXISTS idx_tc_status ON test_cases(status);
             CREATE INDEX IF NOT EXISTS idx_tc_name ON test_cases(name);
@@ -227,6 +259,8 @@ public class DatabaseManager {
             CREATE INDEX IF NOT EXISTS idx_chat_suite ON ai_chat_messages(suite_key, created_at);
             CREATE INDEX IF NOT EXISTS idx_chat_sessions ON ai_chat_sessions(suite_key, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_assertions_case ON test_assertions(case_id);
+            CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON ai_document_chunks(doc_id, chunk_index);
+            CREATE INDEX IF NOT EXISTS idx_exports_created ON ai_exports_index(created_at DESC);
             """;
 
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {

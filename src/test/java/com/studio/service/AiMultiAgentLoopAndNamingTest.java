@@ -146,7 +146,7 @@ public class AiMultiAgentLoopAndNamingTest {
         );
 
         assertEquals(2, callCount.get(), "Loop Engineer should trigger exactly 1 retry when first response has 0 cases");
-        assertEquals(1, result.getCases().size());
+        assertEquals(3, result.getCases().size(), "Loop Engineer should auto-expand 1 case into 3 scenarios (Happy Path, Negative, Boundary)");
         assertEquals("MuaSam_GioHang", result.getSuggestedGroup());
         assertEquals("KiemThu_GioHangVaThanhToan", result.getSuggestedSuite());
         assertEquals("TC01_GioHang_ThemSanPhamThanhCong", result.getCases().get(0).getName());

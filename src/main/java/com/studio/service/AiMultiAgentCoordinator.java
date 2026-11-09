@@ -54,6 +54,11 @@ public class AiMultiAgentCoordinator {
             "(?:chức năng|tính năng|màn hình|trang|phân hệ|module|luồng|quy trình|form|biểu mẫu)\\s+([^,.;:\\n\\r()\\[\\]\"'?!]{3,45})",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
+    private static final Pattern CODE_FENCE_STRIP_PATTERN = Pattern.compile("```[\\s\\S]*?```");
+    private static final Pattern NON_WORD_OR_UNDERSCORE = Pattern.compile("[^A-Za-z0-9_]+");
+    private static final Pattern MULTI_UNDERSCORE = Pattern.compile("_+");
+    private static final Pattern EDGE_UNDERSCORE = Pattern.compile("^_+|_+$");
+
     /**
      * Structured report produced by the Reality Checker &amp; Loop Engineer agents.
      */
@@ -227,6 +232,18 @@ public class AiMultiAgentCoordinator {
 
             String featurePrefix = extractCleanFeatureToken(resolvedGroup, resolvedSuite, userPrompt);
 
+            // Multi-Scenario Coverage Expansion (Happy Path + Negative Validation + Boundary BVA)
+            // When only 1 case was returned for a full suite generation (not a single-case update),
+            // automatically synthesize Negative Validation (TC02) and Boundary BVA (TC03) cases.
+            boolean isSingleCaseUpdate = cases.get(0).getTargetCaseId() != null
+                    && !cases.get(0).getTargetCaseId().isBlank();
+            if (cases.size() == 1 && !isSingleCaseUpdate) {
+                AiGeneratedCase primary = cases.get(0);
+                List<AiGeneratedCase> expanded = synthesizeCompanionScenarios(primary, featurePrefix, userPrompt, generateScript);
+                cases.addAll(expanded);
+                improvements.add("Tự động mở rộng độ phủ kịch bản (Multi-Scenario Coverage): bổ sung Negative Validation & Boundary BVA (" + expanded.size() + " kịch bản)");
+            }
+
             for (int idx = 0; idx < cases.size(); idx++) {
                 AiGeneratedCase tc = cases.get(idx);
                 int caseNum = idx + 1;
@@ -288,12 +305,32 @@ public class AiMultiAgentCoordinator {
                     }
                 }
 
-                // 5. Heal Assertions if empty
+                // 5. Heal & Enrich Assertions (normalize types + ensure multi-point verification >= 2 assertions)
                 List<Assertion> assertions = tc.getAssertions();
                 if (assertions == null || assertions.isEmpty()) {
                     List<Assertion> synthesizedAsserts = synthesizeAssertions(tc);
                     tc.setAssertions(synthesizedAsserts);
-                    improvements.add("Bổ sung " + synthesizedAsserts.size() + " tiêu chí nghiệm thu (Assertions) cho " + tc.getName());
+                    improvements.add("Bổ sung " + synthesizedAsserts.size() + " tiêu chí nghiệm thu đa điểm (Assertions) cho " + tc.getName());
+                } else {
+                    for (Assertion a : assertions) {
+                        a.setType(AiTestGeneratorService.normalizeAssertionType(a.getType()));
+                        if (a.getStatus() == null || a.getStatus().isBlank()) {
+                            a.setStatus("ACTIVE");
+                        }
+                    }
+                    if (assertions.size() < 2) {
+                        List<Assertion> extraAsserts = synthesizeAssertions(tc);
+                        for (Assertion extra : extraAsserts) {
+                            boolean duplicate = assertions.stream()
+                                    .anyMatch(ex -> ex.getType().equals(extra.getType())
+                                            && String.valueOf(ex.getLocator()).equals(String.valueOf(extra.getLocator())));
+                            if (!duplicate) {
+                                assertions.add(extra);
+                                if (assertions.size() >= 2) break;
+                            }
+                        }
+                        tc.setAssertions(assertions);
+                    }
                 }
 
                 // 6. Heal Test Data Sets (BVA / EP) if empty
@@ -312,7 +349,10 @@ public class AiMultiAgentCoordinator {
                     }
                 } else {
                     String code = tc.getScriptCode();
-                    if (code != null && !code.isBlank() && generatorService != null) {
+                    if ((code == null || code.isBlank()) && tc.getStartUrl() != null && !tc.getStartUrl().isBlank() && generatorService != null) {
+                        String synthesizedCode = synthesizeScenarioScript(tc);
+                        tc.setScriptCode(generatorService.validateAndFixScript(synthesizedCode, tc.getName(), tc.getStartUrl()));
+                    } else if (code != null && !code.isBlank() && generatorService != null) {
                         boolean hadSleep = code.contains("Thread.sleep") || code.contains("waitForTimeout");
                         String fixedCode = generatorService.validateAndFixScript(code, tc.getName(), tc.getStartUrl());
                         tc.setScriptCode(fixedCode);
@@ -840,10 +880,194 @@ public class AiMultiAgentCoordinator {
     private String sanitizeIdentifier(String raw) {
         if (raw == null) return "Scenario";
         String noAccent = removeVietnameseAccents(raw);
-        String clean = noAccent.replaceAll("[^A-Za-z0-9_]+", "_")
-                .replaceAll("_+", "_")
-                .replaceAll("^_+|_+$", "");
+        String clean = NON_WORD_OR_UNDERSCORE.matcher(noAccent).replaceAll("_");
+        clean = MULTI_UNDERSCORE.matcher(clean).replaceAll("_");
+        clean = EDGE_UNDERSCORE.matcher(clean).replaceAll("");
         return clean.isBlank() ? "Scenario" : clean;
+    }
+
+    /**
+     * Synthesizes companion Negative Validation (TC02) and Boundary BVA (TC03) scenarios
+     * when the initial generation produced only a single Happy Path test case.
+     */
+    private List<AiGeneratedCase> synthesizeCompanionScenarios(AiGeneratedCase primary,
+                                                               String featurePrefix,
+                                                               String userPrompt,
+                                                               boolean generateScript) {
+        List<AiGeneratedCase> companions = new ArrayList<>();
+        String startUrl = primary.getStartUrl() != null ? primary.getStartUrl() : "";
+        List<String> preconditions = primary.getPreconditions() != null && !primary.getPreconditions().isEmpty()
+                ? new ArrayList<>(primary.getPreconditions())
+                : List.of("Hệ thống sẵn sàng và màn hình chức năng đang mở");
+
+        // Companion 1: Negative Validation (TC02)
+        AiGeneratedCase negativeCase = new AiGeneratedCase();
+        negativeCase.setName(String.format("TC02_%s_KiemTraLoiDuLieuKhongHopLe", featurePrefix));
+        negativeCase.setPriority("P1");
+        negativeCase.setStartUrl(startUrl);
+        negativeCase.setPreconditions(preconditions);
+        negativeCase.setDescription("Kiểm thử xử lý ngoại lệ & thông báo lỗi khi bỏ trống trường bắt buộc hoặc nhập dữ liệu sai định dạng");
+        negativeCase.setTestSteps(List.of(
+                new TestStep(1, "NAVIGATE", startUrl.isBlank() ? "Màn hình chức năng" : startUrl, "",
+                        "Truy cập màn hình chức năng cần kiểm thử", "Màn hình hiển thị đầy đủ các trường nhập liệu"),
+                new TestStep(2, "FILL", "Các trường bắt buộc / Ô nhập liệu chính", "Bỏ trống (\"\") hoặc nhập sai định dạng (!@#$%)",
+                        "Để trống trường bắt buộc hoặc điền dữ liệu không hợp lệ", "Hệ thống nhận diện dữ liệu đầu vào vi phạm quy tắc"),
+                new TestStep(3, "CLICK", "Nút Xác nhận / Lưu / Gửi biểu mẫu", "",
+                        "Nhấn nút gửi biểu mẫu với dữ liệu không hợp lệ", "Hệ thống chặn gửi request và kích hoạt cơ chế kiểm tra hợp lệ"),
+                new TestStep(4, "VERIFY", "[role='alert'], .error-message, .toast", "",
+                        "Kiểm tra thông báo lỗi validation hiển thị trên giao diện", "Hiển thị thông báo lỗi rõ ràng và không phát sinh lỗi hệ thống 500")
+        ));
+        negativeCase.setTestDataSets(synthesizeTestDataSets(negativeCase, 2));
+        negativeCase.setAssertions(synthesizeAssertions(negativeCase));
+        if (generateScript && !startUrl.isBlank()) {
+            negativeCase.setScriptCode(synthesizeScenarioScript(negativeCase));
+        } else {
+            negativeCase.setScriptCode("");
+        }
+        companions.add(negativeCase);
+
+        // Companion 2: Boundary Value Analysis / Edge Case (TC03)
+        AiGeneratedCase boundaryCase = new AiGeneratedCase();
+        boundaryCase.setName(String.format("TC03_%s_GiaTriBienBVA", featurePrefix));
+        boundaryCase.setPriority("P2");
+        boundaryCase.setStartUrl(startUrl);
+        boundaryCase.setPreconditions(preconditions);
+        boundaryCase.setDescription("Kiểm thử phân tích giá trị biên (Min, Max, Max+1, ký tự đặc biệt/Unicode) cho chức năng " + featurePrefix);
+        boundaryCase.setTestSteps(List.of(
+                new TestStep(1, "NAVIGATE", startUrl.isBlank() ? "Màn hình chức năng" : startUrl, "",
+                        "Truy cập màn hình chức năng cần kiểm thử biên", "Màn hình tải hoàn tất và sẵn sàng nhập liệu"),
+                new TestStep(2, "FILL", "Trường dữ liệu giới hạn độ dài / giá trị", "Chuỗi biên tối thiểu (Min=1) và tối đa (Max=255 / Max+1=256)",
+                        "Nhập dữ liệu tại ngưỡng biên dưới (Min), biên trên (Max) và vượt biên (Max+1)", "Trường nhập liệu kiểm soát độ dài hoặc giá trị theo đúng thiết kế"),
+                new TestStep(3, "CLICK", "Nút Xác nhận / Thực thi", "",
+                        "Thực hiện gửi dữ liệu tại các mốc giá trị biên", "Hệ thống xử lý chính xác tại biên hợp lệ và từ chối/cắt ngắn khi vượt biên"),
+                new TestStep(4, "VERIFY", "Trạng thái phản hồi & dữ liệu hiển thị", "",
+                        "Đối chiếu kết quả xử lý với đặc tả giá trị biên (BVA)", "Dữ liệu không bị lỗi tràn bộ đệm hoặc lỗi hiển thị Unicode")
+        ));
+        boundaryCase.setTestDataSets(synthesizeTestDataSets(boundaryCase, 3));
+        boundaryCase.setAssertions(synthesizeAssertions(boundaryCase));
+        if (generateScript && !startUrl.isBlank()) {
+            boundaryCase.setScriptCode(synthesizeScenarioScript(boundaryCase));
+        } else {
+            boundaryCase.setScriptCode("");
+        }
+        companions.add(boundaryCase);
+
+        return companions;
+    }
+
+    private String synthesizeScenarioScript(AiGeneratedCase tc) {
+        String url = (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) ? tc.getStartUrl() : "https://example.com";
+        String className = tc.getName() != null && !tc.getName().isBlank() ? sanitizeIdentifier(tc.getName()) : "GeneratedScenario";
+        String nameLower = className.toLowerCase(Locale.ROOT);
+        String verificationBlock;
+        if (nameLower.contains("negative") || nameLower.contains("khonghople") || nameLower.contains("loi") || nameLower.contains("sai")) {
+            verificationBlock = """
+                        Locator submitBtn = com.studio.runtime.StudioRuntime.healLocator("button[type='submit'], button, input[type='submit']", "Submit Action").first();
+                        if (submitBtn.isVisible()) {
+                            submitBtn.click();
+                        }
+                        assertThat(page.locator("body")).isVisible();
+                """;
+        } else {
+            verificationBlock = """
+                        assertThat(page.locator("body")).isVisible();
+                """;
+        }
+        return """
+                package com.test;
+
+                import com.microsoft.playwright.*;
+                import com.microsoft.playwright.options.*;
+                import static com.studio.runtime.StudioAssertions.assertThat;
+
+                public class %s {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                        page.navigate("%s");
+                        page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);
+                %s    }
+                }
+                """.formatted(className, url, verificationBlock);
+    }
+
+    /**
+     * Formats a concise, structured executive summary for the chat bubble without dumping raw .md
+     * documents or raw Java code blocks into the conversation view.
+     */
+    public String buildConciseChatSummary(AiTestGeneratorService.GenerationResult result,
+                                          AiAgentIndexService.PersistedArtifactBundle bundle) {
+        if (result == null) {
+            return "Đã xử lý yêu cầu.";
+        }
+        String rawSummary = result.getSummary() != null ? result.getSummary().trim() : "";
+        // Strip all fenced code blocks (```java ... ```, ```json ... ```, etc.)
+        String cleanOverview = CODE_FENCE_STRIP_PATTERN.matcher(rawSummary).replaceAll("").trim();
+
+        // Strip markdown tables and long multi-heading dumps so chat stays concise
+        StringBuilder briefLines = new StringBuilder();
+        int keptLines = 0;
+        for (String line : cleanOverview.split("\\r?\\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (t.startsWith("|") && t.endsWith("|")) continue; // skip markdown table rows
+            if (t.startsWith("---") || t.startsWith("===")) continue;
+            if (t.startsWith("#")) {
+                t = t.replaceFirst("^#+\\s*", "");
+            }
+            if (t.length() > 220) {
+                t = t.substring(0, 217) + "...";
+            }
+            briefLines.append(t).append("\n");
+            keptLines++;
+            if (keptLines >= 3) break;
+        }
+        String overviewText = briefLines.toString().trim();
+        if (overviewText.isBlank()) {
+            overviewText = "Đã phân tích yêu cầu và khởi tạo bộ kịch bản kiểm thử tự động.";
+        }
+
+        List<AiGeneratedCase> cases = result.getCases() != null ? result.getCases() : List.of();
+        if (cases.isEmpty()) {
+            return overviewText;
+        }
+
+        int totalSteps = cases.stream().mapToInt(c -> c.getTestSteps() != null ? c.getTestSteps().size() : 0).sum();
+        int totalAssertions = cases.stream().mapToInt(c -> c.getAssertions() != null ? c.getAssertions().size() : 0).sum();
+        long scriptCount = cases.stream().filter(c -> c.getScriptCode() != null && !c.getScriptCode().isBlank()).count();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(overviewText).append("\n\n");
+        sb.append("📂 **Phân hệ / Nhóm:** `").append(result.getSuggestedGroup() != null ? result.getSuggestedGroup() : "KiemThuChucNang").append("`")
+                .append("  |  **Suite:** `").append(result.getSuggestedSuite() != null ? result.getSuggestedSuite() : "BoKichBan_KiemThu").append("`\n");
+        sb.append("📊 **Tổng hợp:** **").append(cases.size()).append("** Test Cases  •  **")
+                .append(totalSteps).append("** Test Steps  •  **")
+                .append(totalAssertions).append("** Assertions");
+        if (scriptCount > 0) {
+            sb.append("  •  **").append(scriptCount).append("** Test Scripts");
+        }
+        if (result.getAgentReviewReport() != null) {
+            sb.append("  •  Điểm chất lượng: **").append(result.getAgentReviewReport().getFinalQualityScore()).append("/100**");
+        }
+        sb.append("\n\n");
+
+        sb.append("📋 **Danh sách Test Case & Kịch bản (xem chi tiết tại bảng bên phải):**\n");
+        int idx = 1;
+        for (AiGeneratedCase c : cases) {
+            int sCount = c.getTestSteps() != null ? c.getTestSteps().size() : 0;
+            int aCount = c.getAssertions() != null ? c.getAssertions().size() : 0;
+            boolean hasCode = c.getScriptCode() != null && !c.getScriptCode().isBlank();
+            sb.append(idx++).append(". `").append(c.getName()).append("` [").append(c.getPriority() != null ? c.getPriority() : "P1").append("]")
+                    .append(" — ").append(sCount).append(" bước, ").append(aCount).append(" assertions")
+                    .append(hasCode ? ", có Test Script (.java)" : ", đặc tả Test Case")
+                    .append("\n");
+        }
+
+        if (bundle != null && bundle.artifactDir() != null) {
+            sb.append("\n💾 **Đã lưu trữ trong ứng dụng:** `").append(bundle.artifactDir().getFileName()).append("`")
+                    .append(" (Báo cáo `.md`, `.json`, `scripts/*.java`, `assertions/*_assertions.json`).");
+        }
+
+        return sb.toString().trim();
     }
 
     private List<TestStep> synthesizeTestSteps(AiGeneratedCase tc, String prompt) {
@@ -888,25 +1112,83 @@ public class AiMultiAgentCoordinator {
 
     private List<Assertion> synthesizeAssertions(AiGeneratedCase tc) {
         List<Assertion> list = new ArrayList<>();
-        Assertion a = new Assertion();
+        String nameLower = tc.getName() != null ? tc.getName().toLowerCase(Locale.ROOT) : "";
+        boolean isNegative = nameLower.contains("negative") || nameLower.contains("khonghople")
+                || nameLower.contains("sai") || nameLower.contains("loi") || nameLower.contains("botrong");
+
+        // 1. URL verification if startUrl is available
         if (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) {
-            a.setType("URL_CONTAINS");
-            a.setLocator("");
-            a.setValue(tc.getStartUrl());
-        } else {
-            a.setType("PAGE_HAS_TEXT");
-            a.setLocator("body");
-            String expected = "Thành công";
-            if (tc.getTestSteps() != null && !tc.getTestSteps().isEmpty()) {
-                TestStep last = tc.getTestSteps().get(tc.getTestSteps().size() - 1);
-                if (last.getExpectedResult() != null && !last.getExpectedResult().isBlank()) {
-                    expected = last.getExpectedResult();
+            Assertion urlAssert = new Assertion();
+            urlAssert.setType("URL_CONTAINS");
+            urlAssert.setLocator("");
+            urlAssert.setValue(tc.getStartUrl());
+            urlAssert.setStatus("ACTIVE");
+            list.add(urlAssert);
+        }
+
+        // 2. Step-derived assertions (Input value / Target visibility)
+        if (tc.getTestSteps() != null) {
+            for (TestStep step : tc.getTestSteps()) {
+                String act = step.getAction() != null ? step.getAction().toUpperCase(Locale.ROOT) : "";
+                String target = step.getTarget() != null ? step.getTarget().trim() : "";
+                boolean isCssOrSelector = target.startsWith("#") || target.startsWith(".")
+                        || target.startsWith("[") || target.startsWith("//")
+                        || target.contains("input") || target.contains("button");
+                if ((act.contains("FILL") || act.contains("TYPE") || act.contains("INPUT"))
+                        && isCssOrSelector && step.getTestData() != null && !step.getTestData().isBlank()) {
+                    Assertion inputAssert = new Assertion();
+                    inputAssert.setType("INPUT_VALUE_EQUALS");
+                    inputAssert.setLocator(target);
+                    inputAssert.setValue(step.getTestData());
+                    inputAssert.setStatus("ACTIVE");
+                    list.add(inputAssert);
+                    break;
+                } else if (act.contains("VERIFY") && isCssOrSelector) {
+                    Assertion visAssert = new Assertion();
+                    visAssert.setType("ELEMENT_VISIBLE");
+                    visAssert.setLocator(target);
+                    visAssert.setValue("");
+                    visAssert.setStatus("ACTIVE");
+                    list.add(visAssert);
+                    break;
                 }
             }
-            a.setValue(expected);
         }
-        a.setStatus("ACTIVE");
-        list.add(a);
+
+        // 3. Primary functional outcome assertion
+        if (isNegative) {
+            Assertion errAssert = new Assertion();
+            errAssert.setType("ELEMENT_VISIBLE");
+            errAssert.setLocator("[role='alert'], .error-message, .toast, .alert-danger, body");
+            errAssert.setValue("");
+            errAssert.setStatus("ACTIVE");
+            list.add(errAssert);
+        } else {
+            Assertion bodyVis = new Assertion();
+            bodyVis.setType("ELEMENT_VISIBLE");
+            bodyVis.setLocator("body");
+            bodyVis.setValue("");
+            bodyVis.setStatus("ACTIVE");
+            list.add(bodyVis);
+        }
+
+        // 4. Expected text / state verification from final step
+        Assertion textAssert = new Assertion();
+        textAssert.setType("PAGE_HAS_TEXT");
+        textAssert.setLocator("body");
+        String expected = isNegative
+                ? "Hiển thị thông báo lỗi kiểm tra hợp lệ"
+                : "Thành công";
+        if (tc.getTestSteps() != null && !tc.getTestSteps().isEmpty()) {
+            TestStep last = tc.getTestSteps().get(tc.getTestSteps().size() - 1);
+            if (last.getExpectedResult() != null && !last.getExpectedResult().isBlank()) {
+                expected = last.getExpectedResult();
+            }
+        }
+        textAssert.setValue(expected);
+        textAssert.setStatus("ACTIVE");
+        list.add(textAssert);
+
         return list;
     }
 

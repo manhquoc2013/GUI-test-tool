@@ -31,43 +31,70 @@ import java.util.Map;
  */
 public class AiTestGeneratorService {
 
+    private static final java.util.regex.Pattern MARKDOWN_CODE_BLOCK_PATTERN = java.util.regex.Pattern.compile(
+            "```(?:java|csharp|python|rust|typescript|javascript)?\\s*\\n(.*?)```", java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern PW_CREATE_PATTERN = java.util.regex.Pattern.compile(
+            "(?m)^\\s*Playwright\\s+\\w+\\s*=\\s*Playwright\\.create\\(\\);?");
+    private static final java.util.regex.Pattern BROWSER_LAUNCH_PATTERN = java.util.regex.Pattern.compile(
+            "(?m)^\\s*Browser\\s+\\w+\\s*=\\s*\\w+\\.\\w+\\(\\)\\.launch\\([^)]*\\);?");
+    private static final java.util.regex.Pattern CLOSE_CALL_PATTERN = java.util.regex.Pattern.compile(
+            "(?m)^\\s*\\w+\\.close\\(\\);?");
+    private static final java.util.regex.Pattern THREAD_SLEEP_PATTERN = java.util.regex.Pattern.compile(
+            "Thread\\.sleep\\s*\\([^)]*\\)\\s*;?");
+    private static final java.util.regex.Pattern WAIT_FOR_TIMEOUT_PATTERN = java.util.regex.Pattern.compile(
+            "\\w+\\.waitForTimeout\\s*\\([^)]*\\)\\s*;?");
+    private static final java.util.regex.Pattern HAS_URL_CONTAINS_LAMBDA = java.util.regex.Pattern.compile(
+            "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.contains\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
+    private static final java.util.regex.Pattern HAS_URL_ENDS_WITH_LAMBDA = java.util.regex.Pattern.compile(
+            "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.endsWith\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
+    private static final java.util.regex.Pattern HAS_URL_EQUALS_LAMBDA = java.util.regex.Pattern.compile(
+            "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.equals\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
+
     private final OpenAiClient openAiClient;
     private final ObjectMapper mapper;
     private final AiTokenOptimizer tokenOptimizer;
     private final AiAmbiguityAnalyzer ambiguityAnalyzer;
     private final AiProjectAdvisorService advisorService;
     private final AiMultiAgentCoordinator multiAgentCoordinator;
+    private final AiAgentIndexService agentIndexService;
 
     public AiTestGeneratorService() {
-        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
+        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator(), new AiAgentIndexService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper) {
-        this(openAiClient, mapper, new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
+        this(openAiClient, mapper, new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator(), new AiAgentIndexService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer) {
-        this(openAiClient, mapper, tokenOptimizer, new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
+        this(openAiClient, mapper, tokenOptimizer, new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator(), new AiAgentIndexService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
                                   AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService) {
-        this(openAiClient, mapper, tokenOptimizer, ambiguityAnalyzer, advisorService, new AiMultiAgentCoordinator());
+        this(openAiClient, mapper, tokenOptimizer, ambiguityAnalyzer, advisorService, new AiMultiAgentCoordinator(), new AiAgentIndexService());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
                                   AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService,
                                   AiMultiAgentCoordinator multiAgentCoordinator) {
+        this(openAiClient, mapper, tokenOptimizer, ambiguityAnalyzer, advisorService, multiAgentCoordinator, new AiAgentIndexService());
+    }
+
+    public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
+                                  AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService,
+                                  AiMultiAgentCoordinator multiAgentCoordinator, AiAgentIndexService agentIndexService) {
         this.openAiClient = openAiClient;
         this.mapper = mapper;
         this.tokenOptimizer = tokenOptimizer != null ? tokenOptimizer : new AiTokenOptimizer();
         this.ambiguityAnalyzer = ambiguityAnalyzer != null ? ambiguityAnalyzer : new AiAmbiguityAnalyzer();
         this.advisorService = advisorService != null ? advisorService : new AiProjectAdvisorService();
         this.multiAgentCoordinator = multiAgentCoordinator != null ? multiAgentCoordinator : new AiMultiAgentCoordinator();
+        this.agentIndexService = agentIndexService != null ? agentIndexService : new AiAgentIndexService();
     }
 
     public static class GenerationResult {
-        private final String summary;
+        private String summary;
         private final List<AiGeneratedCase> cases;
         private final String rawResponse;
         private final boolean clarification;
@@ -76,6 +103,7 @@ public class AiTestGeneratorService {
         private String suggestedGroup;
         private String suggestedSuite;
         private AiMultiAgentCoordinator.AgentReviewReport agentReviewReport;
+        private Path artifactDir;
 
         public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse) {
             this(summary, cases, rawResponse, false, List.of(), "GENERATE_TESTS");
@@ -93,6 +121,10 @@ public class AiTestGeneratorService {
 
         public String getSummary() {
             return summary;
+        }
+
+        public void setSummary(String summary) {
+            this.summary = summary != null ? summary : "";
         }
 
         public List<AiGeneratedCase> getCases() {
@@ -137,6 +169,14 @@ public class AiTestGeneratorService {
 
         public void setAgentReviewReport(AiMultiAgentCoordinator.AgentReviewReport agentReviewReport) {
             this.agentReviewReport = agentReviewReport;
+        }
+
+        public Path getArtifactDir() {
+            return artifactDir;
+        }
+
+        public void setArtifactDir(Path artifactDir) {
+            this.artifactDir = artifactDir;
         }
     }
 
@@ -438,10 +478,9 @@ public class AiTestGeneratorService {
             return new GenerationResult(gapRes.markdownReport(), List.of(), gapRes.markdownReport(), false, List.of(), "GAP_ANALYSIS");
         }
 
-        boolean autonomousSkill = (selectedSkill == AiSkill.MULTI_AGENT_LOOP
-                || selectedSkill == AiSkill.REALITY_CHECKER_REVIEW
-                || selectedSkill == AiSkill.API_CONTRACT_TESTER);
-        if (analysis.needsClarification() && !autonomousSkill) {
+        boolean hasExplicitSkillOrUrl = (selectedSkill != null && selectedSkill != AiSkill.AUTO)
+                || containsTargetUrl(userPrompt, attachments, domJson, contextInfo);
+        if (analysis.needsClarification() && !hasExplicitSkillOrUrl) {
             return new GenerationResult(
                     analysis.initialClarificationMessage(),
                     List.of(),
@@ -509,12 +548,22 @@ public class AiTestGeneratorService {
 
         String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
 
+        // Enrich contextInfo with indexed RAG context from H2 (converted .md chunks + project test cases/locators)
+        String enrichedContext = contextInfo != null ? contextInfo : "";
+        try {
+            String indexedRag = agentIndexService.retrieveIndexedContextForAgent(effectivePrompt, null, null, 1000);
+            if (indexedRag != null && !indexedRag.isBlank()) {
+                enrichedContext = enrichedContext.isBlank() ? indexedRag : (enrichedContext + "\n\n" + indexedRag);
+            }
+        } catch (Exception ignored) {
+        }
+
         List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
                 systemPrompt,
                 history,
                 effectivePrompt,
                 attachments,
-                contextInfo,
+                enrichedContext,
                 formattedDom,
                 maxTokens,
                 AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
@@ -573,6 +622,14 @@ public class AiTestGeneratorService {
                 res, effectivePrompt, attachments, effectiveGenerateScript, this, progressListener);
         res.setAgentReviewReport(reviewReport);
 
+        // Persist full .md report, .json bundle, scripts/*.java, and assertions/*_assertions.json in data/ai_artifacts/
+        // and replace the chat bubble summary with a concise, code-free executive summary
+        AiAgentIndexService.PersistedArtifactBundle bundle = agentIndexService.persistGeneratedArtifacts(res, effectivePrompt);
+        if (bundle != null && bundle.artifactDir() != null) {
+            res.setArtifactDir(bundle.artifactDir());
+        }
+        res.setSummary(multiAgentCoordinator.buildConciseChatSummary(res, bundle));
+
         return res;
     }
 
@@ -611,6 +668,10 @@ public class AiTestGeneratorService {
 
     public AiMultiAgentCoordinator getMultiAgentCoordinator() {
         return multiAgentCoordinator;
+    }
+
+    public AiAgentIndexService getAgentIndexService() {
+        return agentIndexService;
     }
 
     /**
@@ -747,16 +808,28 @@ public class AiTestGeneratorService {
         List<AiGeneratedCase> list = new ArrayList<>();
         if (text == null || text.isBlank()) return list;
 
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("```(?:java|csharp|python|rust|typescript|javascript)?\\s*\\n(.*?)```", java.util.regex.Pattern.DOTALL);
-        java.util.regex.Matcher matcher = pattern.matcher(text);
+        java.util.regex.Matcher matcher = MARKDOWN_CODE_BLOCK_PATTERN.matcher(text);
         int idx = 1;
         while (matcher.find()) {
             String code = matcher.group(1).trim();
             if (code.length() > 30) {
                 AiGeneratedCase c = new AiGeneratedCase();
-                c.setName("Generated_Test_" + idx);
+                c.setName(String.format("TC%02d_Generated_Test", idx));
                 c.setDescription("Đoạn mã kiểm thử trích xuất từ phản hồi của AI");
+                c.setPriority(idx == 1 ? "P0" : "P1");
                 c.setScriptCode(code);
+                c.setTestSteps(List.of(
+                        new TestStep(1, "PREPARE", "Môi trường & Dữ liệu đầu vào", "", "Chuẩn bị ngữ cảnh kiểm thử", "Môi trường sẵn sàng"),
+                        new TestStep(2, "EXECUTE", "Thực thi kịch bản kiểm thử #" + idx, "", "Chạy mã kịch bản kiểm thử", "Không phát sinh ngoại lệ ngoài dự kiến"),
+                        new TestStep(3, "VERIFY", "Kết quả đầu ra", "", "Đối chiếu với các tiêu chí xác thực", "Tất cả assertions đều đạt")
+                ));
+                Assertion a = new Assertion();
+                a.setType("PAGE_HAS_TEXT");
+                a.setLocator("body");
+                a.setValue("Thành công");
+                a.setStatus("ACTIVE");
+                c.setAssertions(List.of(a));
+                c.setTestDataSets(List.of(new TestDataItem("Kịch bản chuẩn #" + idx, Map.of("caseIndex", String.valueOf(idx)), "PASS")));
                 list.add(c);
                 idx++;
             }
@@ -845,11 +918,20 @@ public class AiTestGeneratorService {
                     List<Assertion> asserts = new ArrayList<>();
                     for (JsonNode aNode : assertsNode) {
                         Assertion a = new Assertion();
-                        a.setType(normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT")));
-                        a.setValue(aNode.path("value").asText(""));
+                        String normType = normalizeAssertionType(aNode.path("type").asText("PAGE_HAS_TEXT"));
+                        String val = aNode.path("value").asText("");
+                        String attr = aNode.path("attribute").asText("");
+                        String expVal = aNode.path("expectedValue").asText("");
+                        if (expVal.isBlank() && !val.isBlank()
+                                && (!attr.isBlank() || normType.startsWith("ATTRIBUTE_")
+                                || normType.equals("LOCAL_STORAGE_EQUALS") || normType.equals("SESSION_STORAGE_EQUALS"))) {
+                            expVal = val;
+                        }
+                        a.setType(normType);
+                        a.setValue(val);
                         a.setLocator(aNode.path("locator").asText(""));
-                        a.setAttribute(aNode.path("attribute").asText(""));
-                        a.setExpectedValue(aNode.path("expectedValue").asText(""));
+                        a.setAttribute(attr);
+                        a.setExpectedValue(expVal);
                         a.setStatus(aNode.path("status").asText("ACTIVE"));
                         a.setExact(aNode.path("exact").asBoolean(false));
                         asserts.add(a);
@@ -899,24 +981,20 @@ public class AiTestGeneratorService {
 
         String cleaned = scriptCode.trim();
 
-        // Strip illegal Playwright lifecycle calls
-        cleaned = cleaned.replaceAll("(?m)^\\s*Playwright\\s+\\w+\\s*=\\s*Playwright\\.create\\(\\);?", "");
-        cleaned = cleaned.replaceAll("(?m)^\\s*Browser\\s+\\w+\\s*=\\s*\\w+\\.\\w+\\(\\)\\.launch\\([^)]*\\);?", "");
-        cleaned = cleaned.replaceAll("(?m)^\\s*\\w+\\.close\\(\\);?", "// Studio manages page/browser lifecycle");
-        // Agency-Agents standard: eliminate flaky hard sleeps automatically
-        cleaned = cleaned.replaceAll("(?m)^\\s*Thread\\.sleep\\([^)]*\\);?", "// Eliminated hard sleep (Agency-Agents standard)");
-        cleaned = cleaned.replaceAll("(?m)^\\s*page\\.waitForTimeout\\([^)]*\\);?", "page.waitForLoadState(LoadState.NETWORKIDLE); // Replaced hard sleep with condition wait");
+        // Strip illegal Playwright lifecycle calls using pre-compiled patterns
+        cleaned = PW_CREATE_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = BROWSER_LAUNCH_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = CLOSE_CALL_PATTERN.matcher(cleaned).replaceAll("// Studio manages page/browser lifecycle");
+        // Agency-Agents standard: eliminate flaky hard sleeps (both standalone and inline inside try/catch)
+        cleaned = THREAD_SLEEP_PATTERN.matcher(cleaned).replaceAll("/* Eliminated hard sleep */");
+        cleaned = WAIT_FOR_TIMEOUT_PATTERN.matcher(cleaned).replaceAll("page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE);");
 
         // Normalize invalid hasURL lambda to valid Java Pattern
-        cleaned = cleaned.replaceAll(
-                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.contains\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+        cleaned = HAS_URL_CONTAINS_LAMBDA.matcher(cleaned).replaceAll(
                 "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \".*\"))");
-        cleaned = cleaned.replaceAll(
-                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.endsWith\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
+        cleaned = HAS_URL_ENDS_WITH_LAMBDA.matcher(cleaned).replaceAll(
                 "hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote($1) + \"$\"))");
-        cleaned = cleaned.replaceAll(
-                "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.equals\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)",
-                "hasURL($1)");
+        cleaned = HAS_URL_EQUALS_LAMBDA.matcher(cleaned).replaceAll("hasURL($1)");
 
         // If it's missing standard package or class wrapper
         if (!cleaned.contains("public class") && !cleaned.contains("class ")) {
@@ -980,6 +1058,10 @@ public class AiTestGeneratorService {
         }
 
         TestSuite suite = projectStore.loadAndMigrateSuite(suiteDir);
+        if (suite.getCases() == null) {
+            suite.setCases(new ArrayList<>());
+        }
+        String now = com.studio.util.EntityTime.nowIso();
 
         for (AiGeneratedCase genCase : generatedCases) {
             TestCase targetCase = null;
@@ -1000,42 +1082,70 @@ public class AiTestGeneratorService {
                         .orElse(null);
             }
 
+            // Build description preserving preconditions if present
+            String desc = genCase.getDescription() != null ? genCase.getDescription() : "";
+            if (genCase.getPreconditions() != null && !genCase.getPreconditions().isEmpty()) {
+                String preText = "[Điều kiện tiên quyết: " + String.join("; ", genCase.getPreconditions()) + "]";
+                if (!desc.contains("Điều kiện tiên quyết")) {
+                    desc = desc.isBlank() ? preText : (preText + " " + desc);
+                }
+            }
+
             if (targetCase == null) {
-                // Create new case
+                String caseId = "tc-" + java.util.UUID.randomUUID().toString().substring(0, 8);
                 String caseName = genCase.getName();
-                targetCase = projectStore.createCase(suiteDir, caseName, genCase.getDescription(),
-                        "Ready", genCase.getStartUrl(), suite.getBrowser(), suite.getHeadless());
+                String safeFileBase = com.studio.util.StringEscapeUtil.safeFileName(caseName, "case");
+                String scriptFileName = safeFileBase + ".java";
+                targetCase = new TestCase(caseId, caseName, desc, scriptFileName, "Ready");
+                targetCase.setStartUrl(genCase.getStartUrl() != null ? genCase.getStartUrl() : "");
+                targetCase.setBrowser(suite.getBrowser() != null ? suite.getBrowser() : "");
+                targetCase.setHeadless(suite.getHeadless());
+                targetCase.setCreatedAt(now);
+                targetCase.setUpdatedAt(now);
+                suite.getCases().add(targetCase);
             } else {
-                // Update meta
-                projectStore.updateCaseMeta(suiteDir, targetCase.getId(), genCase.getDescription(),
-                        "Ready", genCase.getStartUrl(), targetCase.getBrowser(), targetCase.getHeadless());
+                targetCase.setDescription(desc);
+                targetCase.setStatus("Ready");
+                targetCase.setStartUrl(genCase.getStartUrl() != null ? genCase.getStartUrl() : "");
+                targetCase.setUpdatedAt(now);
             }
 
-            // Save script code if present
+            String scriptFileName = targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank()
+                    ? targetCase.getScriptFile()
+                    : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
+            targetCase.setScriptFile(scriptFileName);
+
             if (genCase.getScriptCode() != null && !genCase.getScriptCode().isBlank()) {
-                projectStore.saveCaseScript(suiteDir, targetCase.getId(), genCase.getScriptCode());
+                ProjectStore.writeTextAtomic(suiteDir.resolve(scriptFileName), genCase.getScriptCode());
+            } else if (!Files.exists(suiteDir.resolve(scriptFileName))) {
+                String safeClass = ScriptHarnessTransformer.sanitizeClassName(targetCase.getName());
+                String stub = String.format(
+                        "package com.test;\n\nimport com.microsoft.playwright.*;\n\npublic class %s {\n    public static void main(String[] args) {\n        // Test case: %s\n    }\n}\n",
+                        safeClass, targetCase.getName());
+                ProjectStore.writeTextAtomic(suiteDir.resolve(scriptFileName), stub);
             }
 
-            // Replace assertions if present
             if (genCase.getAssertions() != null && !genCase.getAssertions().isEmpty()) {
-                projectStore.replaceAssertions(suiteDir, targetCase.getId(), genCase.getAssertions());
+                targetCase.setAssertions(new ArrayList<>(genCase.getAssertions()));
             }
 
-            // Update Steps and Test Data
-            if ((genCase.getTestSteps() != null && !genCase.getTestSteps().isEmpty()) ||
-                (genCase.getTestDataSets() != null && !genCase.getTestDataSets().isEmpty())) {
-                projectStore.updateCaseStepsAndData(suiteDir, targetCase.getId(), genCase.getTestSteps(), genCase.getTestDataSets());
+            if (genCase.getTestSteps() != null && !genCase.getTestSteps().isEmpty()) {
                 targetCase.setTestSteps(new ArrayList<>(genCase.getTestSteps()));
+            }
+            if (genCase.getTestDataSets() != null && !genCase.getTestDataSets().isEmpty()) {
                 targetCase.setTestDataSets(new ArrayList<>(genCase.getTestDataSets()));
             }
 
             if (genCase.getPriority() != null) {
                 targetCase.setPriority(genCase.getPriority());
-                projectStore.updateCasePriority(suiteDir, targetCase.getId(), genCase.getPriority());
             }
 
             applied.add(targetCase);
         }
+
+        // Single atomic suite.json write + single H2 index sync for all cases in batch
+        suite.setUpdatedAt(now);
+        projectStore.saveSuite(suite, suiteDir);
 
         return applied;
     }
@@ -1044,17 +1154,31 @@ public class AiTestGeneratorService {
         if (rawType == null || rawType.isBlank()) return "PAGE_HAS_TEXT";
         String t = rawType.trim().toUpperCase();
         return switch (t) {
-            case "PAGE_TITLE_CONTAINS" -> "TITLE_CONTAINS";
-            case "PAGE_TITLE_EQUALS" -> "TITLE_EQUALS";
-            case "PAGE_URL_CONTAINS" -> "URL_CONTAINS";
-            case "PAGE_URL_EQUALS" -> "URL_EQUALS";
-            case "PAGE_CONTAINS_TEXT" -> "PAGE_HAS_TEXT";
-            case "ELEMENT_EXISTS" -> "ELEMENT_VISIBLE";
-            case "ELEMENT_NOT_VISIBLE" -> "ELEMENT_HIDDEN";
-            case "ELEMENT_TEXT_CONTAINS" -> "ELEMENT_HAS_TEXT";
-            case "CHECKBOX_CHECKED" -> "ELEMENT_CHECKED";
-            case "ELEMENT_HAS_ATTRIBUTE" -> "ATTRIBUTE_EQUALS";
-            case "CUSTOM_JS_TRUE" -> "CUSTOM_JS";
+            case "PAGE_TITLE_CONTAINS", "TITLE_INCLUDES" -> "TITLE_CONTAINS";
+            case "PAGE_TITLE_EQUALS", "TITLE_IS" -> "TITLE_EQUALS";
+            case "PAGE_TITLE_REGEX", "TITLE_MATCH" -> "TITLE_MATCHES_REGEX";
+            case "PAGE_URL_CONTAINS", "URL_INCLUDES" -> "URL_CONTAINS";
+            case "PAGE_URL_EQUALS", "URL_IS" -> "URL_EQUALS";
+            case "PAGE_URL_REGEX", "URL_MATCH", "URL_REGEX" -> "URL_MATCHES_REGEX";
+            case "PAGE_CONTAINS_TEXT", "BODY_CONTAINS_TEXT" -> "PAGE_HAS_TEXT";
+            case "ELEMENT_EXISTS", "VISIBLE", "IS_VISIBLE" -> "ELEMENT_VISIBLE";
+            case "ELEMENT_NOT_VISIBLE", "HIDDEN", "IS_HIDDEN", "NOT_VISIBLE" -> "ELEMENT_HIDDEN";
+            case "ENABLED", "IS_ENABLED" -> "ELEMENT_ENABLED";
+            case "DISABLED", "IS_DISABLED" -> "ELEMENT_DISABLED";
+            case "ELEMENT_TEXT_CONTAINS", "TEXT_CONTAINS", "CONTAINS_TEXT" -> "ELEMENT_HAS_TEXT";
+            case "ELEMENT_TEXT_EQUALS", "TEXT_EQUALS", "EXACT_TEXT" -> "ELEMENT_HAS_EXACT_TEXT";
+            case "CHECKBOX_CHECKED", "CHECKED", "IS_CHECKED" -> "ELEMENT_CHECKED";
+            case "CHECKBOX_UNCHECKED", "UNCHECKED", "NOT_CHECKED" -> "ELEMENT_UNCHECKED";
+            case "VALUE_EQUALS", "HAS_VALUE", "INPUT_EQUALS" -> "INPUT_VALUE_EQUALS";
+            case "VALUE_CONTAINS", "INPUT_CONTAINS" -> "INPUT_VALUE_CONTAINS";
+            case "COUNT_EQUALS", "HAS_COUNT" -> "ELEMENT_COUNT";
+            case "ELEMENT_HAS_ATTRIBUTE", "HAS_ATTRIBUTE" -> "ATTRIBUTE_EQUALS";
+            case "HAS_CLASS", "CLASS_CONTAINS" -> "ELEMENT_HAS_CLASS";
+            case "RESPONSE_STATUS", "STATUS_CODE_EQUALS", "API_STATUS_EQUALS" -> "RESPONSE_STATUS_EQUALS";
+            case "LOCAL_STORAGE" -> "LOCAL_STORAGE_EQUALS";
+            case "SESSION_STORAGE" -> "SESSION_STORAGE_EQUALS";
+            case "COOKIE_EXISTS", "HAS_COOKIE" -> "COOKIE_CONTAINS";
+            case "CUSTOM_JS_TRUE", "JS_TRUE", "EVALUATE_JS" -> "CUSTOM_JS";
             default -> t;
         };
     }
@@ -1069,7 +1193,7 @@ public class AiTestGeneratorService {
         int jsonStart = s.indexOf("```json");
         if (jsonStart >= 0) {
             int blockStart = jsonStart + 7;
-            int blockEnd = s.indexOf("```", blockStart);
+            int blockEnd = s.lastIndexOf("```");
             if (blockEnd > blockStart) {
                 return s.substring(blockStart, blockEnd).trim();
             }
@@ -1079,7 +1203,7 @@ public class AiTestGeneratorService {
         int codeStart = s.indexOf("```");
         if (codeStart >= 0) {
             int blockStart = codeStart + 3;
-            int blockEnd = s.indexOf("```", blockStart);
+            int blockEnd = s.lastIndexOf("```");
             if (blockEnd > blockStart) {
                 return s.substring(blockStart, blockEnd).trim();
             }
@@ -1131,7 +1255,7 @@ public class AiTestGeneratorService {
         int jsonIdx = trimmed.indexOf("```json");
         if (jsonIdx >= 0) {
             trimmed = trimmed.substring(jsonIdx + 7).trim();
-            int endFence = trimmed.indexOf("```");
+            int endFence = trimmed.lastIndexOf("```");
             if (endFence >= 0) {
                 trimmed = trimmed.substring(0, endFence).trim();
             }
@@ -1139,7 +1263,7 @@ public class AiTestGeneratorService {
             int codeIdx = trimmed.indexOf("```");
             if (codeIdx >= 0) {
                 trimmed = trimmed.substring(codeIdx + 3).trim();
-                int endFence = trimmed.indexOf("```");
+                int endFence = trimmed.lastIndexOf("```");
                 if (endFence >= 0) {
                     trimmed = trimmed.substring(0, endFence).trim();
                 }

@@ -218,6 +218,13 @@ public final class TestCaseExcelExportService {
                 wb.write(fos);
             }
         }
+        try {
+            String grp = (suites != null && !suites.isEmpty()) ? suites.get(0).getGroupPath() : "";
+            String ste = (suites != null && !suites.isEmpty() && suites.get(0).getSuite() != null)
+                    ? suites.get(0).getSuite().getName() : scopeTitle;
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "EXCEL_SUITE", grp, ste, allCases.size());
+        } catch (Exception ignored) {
+        }
         ResourceReleaseService.releaseAfterExport();
     }
 
@@ -274,6 +281,10 @@ public final class TestCaseExcelExportService {
             try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
                 wb.write(fos);
             }
+        }
+        try {
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "EXCEL_AI", "AI Assistant", scopeTitle, allCases.size());
+        } catch (Exception ignored) {
         }
         ResourceReleaseService.releaseAfterExport();
     }
@@ -469,6 +480,11 @@ public final class TestCaseExcelExportService {
             }
         }
         Files.writeString(outputPath, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "MARKDOWN", "AI Assistant", "AI Generated Suite",
+                    cases != null ? cases.size() : 0);
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -488,6 +504,11 @@ public final class TestCaseExcelExportService {
         root.put("totalCases", cases != null ? cases.size() : 0);
         root.put("cases", cases != null ? cases : List.of());
         mapper.writeValue(outputPath.toFile(), root);
+        try {
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "JSON", "AI Assistant", "AI Generated Suite",
+                    cases != null ? cases.size() : 0);
+        } catch (Exception ignored) {
+        }
     }
 
     private static String escapeMd(String text) {

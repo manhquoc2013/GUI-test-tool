@@ -38,13 +38,19 @@ public class DocumentParserService {
     );
 
     private final MarkdownConverterEngine markdownConverter;
+    private final AiAgentIndexService indexService;
 
     public DocumentParserService() {
-        this(new MarkdownConverterEngine());
+        this(new MarkdownConverterEngine(), new AiAgentIndexService());
     }
 
     public DocumentParserService(MarkdownConverterEngine markdownConverter) {
+        this(markdownConverter, new AiAgentIndexService());
+    }
+
+    public DocumentParserService(MarkdownConverterEngine markdownConverter, AiAgentIndexService indexService) {
         this.markdownConverter = markdownConverter != null ? markdownConverter : new MarkdownConverterEngine();
+        this.indexService = indexService != null ? indexService : new AiAgentIndexService();
     }
 
     public static class ParsedDocument {
@@ -131,12 +137,18 @@ public class DocumentParserService {
         // Automatically persist to data/converted_docs/<sanitized_name>_<timestamp>.md
         Path savedMdPath = saveConvertedMarkdown(fileName, markdownText);
 
+        // Index converted markdown and semantic chunks into H2 for AI Agent RAG retrieval
+        try {
+            indexService.indexConvertedDocument(fileName, savedMdPath, markdownText, "text/markdown", size);
+        } catch (Exception ignored) {
+        }
+
         return new ParsedDocument(fileName, file, false, markdownText, "text/markdown", size, savedMdPath, convResult);
     }
 
     private Path saveConvertedMarkdown(String originalFileName, String markdownContent) {
         try {
-            Path targetDir = StudioPaths.getDataDir().resolve("converted_docs");
+            Path targetDir = StudioPaths.getConvertedDocsDir();
             Files.createDirectories(targetDir);
 
             String base = originalFileName.contains(".")

@@ -191,6 +191,8 @@ public class StudioPaths {
     public static Path getReportsDir() { return resolve("data", "reports"); }
     public static Path getConfigDir() { return resolve("data", "config"); }
     public static Path getExportsDir() { return resolve("data", "exports"); }
+    public static Path getConvertedDocsDir() { return resolve("data", "converted_docs"); }
+    public static Path getAiArtifactsDir() { return resolve("data", "ai_artifacts"); }
     public static Path getLogsDir() { return resolve("data", "logs"); }
     public static Path getWorkDir() { return resolve("work"); }
     public static Path getCompileDir() { return resolve("work", "compile"); }

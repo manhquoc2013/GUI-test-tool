@@ -1,51 +1,57 @@
-# Implementation Plan: Multi-Agent Skill Pipeline, Loop Engineer & Functional Group/Suite Naming
+# Implementation Plan: Agent Indexing, In-App Artifact/MD/Export Persistence, Concise Chat Output & Coverage Optimization
 
 ## Overview
-Upgrade the AI Assistant in `GUI-test-tool` to leverage a coordinated **Multi-Agent & Skill Pipeline** inspired by `docs/knowledge` (`ECC-main/agents/spec-miner.md`, `gan-planner.md`, `gan-generator.md`, `gan-evaluator.md`, `loop-operator.md`, `verification-loop/SKILL.md`, and `agency-agents-main/testing/testing-reality-checker.md`, `testing-test-automation-engineer.md`, `testing-workflow-optimizer.md`) and ensure **Group and Suite names** are accurately derived from the functional module and test cases (`suggestedGroup` & `suggestedSuite`).
+1. **Concise Chat Output & Structured Artifact Storage**:
+   - Prevent raw `.md` documents and long code blocks from flooding the chat bubble.
+   - Return a clean executive summary in the chat bubble while automatically saving `.md` reports and structured test artifacts into the application directory (`data/ai_artifacts/`, `data/exports/`, `data/converted_docs/`) and populating the structured Test Case / Test Script / Assertions / Steps / Test Data panels.
+2. **In-App Storage for Converted `.md` Files & Exported Files**:
+   - Ensure every attached document parsed by `DocumentParserService` is converted to `.md`, saved in `StudioPaths.getConvertedDocsDir()` (`data/converted_docs/`), and indexed in H2.
+   - Ensure every exported file (Excel `.xlsx`, Markdown `.md`, JSON `.json`) from AI Assistant or Suite/Group export is automatically archived inside `StudioPaths.getExportsDir()` (`data/exports/`) and indexed in H2.
+3. **Agent Indexing Engine (`AiAgentIndexService.java`)**:
+   - Extend `DatabaseManager` and `LocalDataIndexService` with H2 tables `ai_documents_index`, `ai_document_chunks`, and `ai_exports_index`.
+   - Build `AiAgentIndexService` to index converted `.md` documents (chunked by Markdown headings for BM25/keyword RAG retrieval), exported files, and existing project test cases/locators, feeding relevant indexed context directly into `AiMultiAgentCoordinator` and `AiTestGeneratorService`.
+4. **Multi-Agent, Skill, Coverage & Speed Optimization**:
+   - Upgrade `AiMultiAgentCoordinator` (Spec Miner, Test Architect, Reality Checker, Loop Engineer) to guarantee multi-scenario coverage (Happy Path + Negative Validation + Boundary/Edge Case) and multi-point assertions (`URL_CONTAINS`, `ELEMENT_VISIBLE`, `ELEMENT_HAS_TEXT`, `INPUT_VALUE_EQUALS`, etc.).
+   - Expand `normalizeAssertionType` and `parseJsonCases` to support all 46 `AssertCodeGenerator` assertion types, aliases, and `attribute`/`expectedValue` fallbacks.
+   - Optimize `applyCasesToSuite` with single-pass batch persistence (eliminating `N × 5` disk & H2 writes) and pre-compile all regex patterns + reuse `ObjectMapper` across hot paths.
 
 ---
 
-## Architecture & Slices
+## Vertical Slices
 
-### Slice 1: Specialized Skills & Multi-Agent Roles (`AiSkill.java`)
-- Add and enrich specialized agent skills in `AiSkill`:
-  1. `MULTI_AGENT_LOOP` (`"🔄 Đa Tác Nhân & Tự Kiểm Chứng (Multi-Agent Loop)"`, commands: `/loop`, `/agent`, `/pipeline`): Coordinates all 4 specialist agents (Spec Miner -> Test Architect & Script Engineer -> Reality Checker -> Loop Engineer).
-  2. `REALITY_CHECKER_REVIEW` (`"🧐 Thẩm định & Đánh giá Test (Reality Checker)"`, commands: `/review`, `/audit`, `/check`): Evaluates test cases and scripts against a strict 5-axis rubric and outputs corrected cases.
-  3. `API_CONTRACT_TESTER` (`"🔌 Kiểm thử API & Hợp đồng dữ liệu (API Tester)"`, commands: `/api`, `/rest`, `/graphql`): Specializes in REST/GraphQL/Payload contract & schema validation test cases.
-- Enhance `AiSkill.detectSkill(...)` to route user requests accurately to the optimal specialist skill.
+### Slice 1: `StudioPaths` & H2 Schema Extension (`DatabaseManager.java`, `StudioPaths.java`)
+- Add `StudioPaths.getConvertedDocsDir()` (`data/converted_docs`) and `StudioPaths.getAiArtifactsDir()` (`data/ai_artifacts`).
+- Add tables in `DatabaseManager`:
+  - `ai_documents_index`: stores metadata and path of every converted `.md` document (`id`, `original_name`, `md_path`, `mime_type`, `size_bytes`, `chunk_count`, `created_at`).
+  - `ai_document_chunks`: stores heading-segmented chunks (`id`, `doc_id`, `chunk_index`, `heading`, `content`, `keywords`, `token_estimate`) for fast RAG retrieval.
+  - `ai_exports_index`: stores every exported file & AI-generated artifact (`id`, `export_type`, `group_name`, `suite_name`, `file_name`, `app_stored_path`, `external_path`, `case_count`, `created_at`).
 
-### Slice 2: Multi-Agent Pipeline & Autonomous Loop Engineer (`AiMultiAgentCoordinator.java` & `AiTestGeneratorService.java`)
-- Introduce a structured 4-Agent orchestration workflow inside `AiTestGeneratorService` (backed by `AiMultiAgentCoordinator`):
-  1. **Agent 1 — Spec Miner & Requirement Analyst (`SpecMiner`)**:
-     - Decomposes user prompt, attached documents, and DOM into functional domain, feature module, target Group name (`suggestedGroup`), target Suite name (`suggestedSuite`), BVA boundaries, and scenario matrix.
-  2. **Agent 2 — Test Case Architect & Playwright Script Engineer (`TestGenerator`)**:
-     - Synthesizes ISTQB-compliant test cases (`TC01_<Feature>_HappyPath`, `TC02_<Feature>_NegativeValidation`, `TC03_<Feature>_BoundaryEdgeCase`) with priorities (`P0-P3`), NLP `testSteps`, `testDataSets`, `assertions`, and deterministic Playwright Java `scriptCode` (when URL/DOM is provided and script generation is enabled).
-  3. **Agent 3 — Reality Checker & Reviewer (`RealityChecker`)**:
-     - Audits generated cases across 5 quality gates:
-       - Gate 1: Functional Group & Suite Naming Accuracy (`suggestedGroup` & `suggestedSuite` must reflect the exact functional domain and test suite, never generic `"AI-Tests"` or `"AI-Generated-Suite"`).
-       - Gate 2: Scenario Matrix & Priority Completeness (Happy Path, Negative, Boundary/Edge cases, valid `P0-P3`).
-       - Gate 3: NLP Test Steps & Precondition Completeness (at least 3 concrete steps with `stepNumber`, `action`, `target`, `testData`, `expectedResult`).
-       - Gate 4: Assertion & Test Data Coverage (every case has valid assertions and BVA/EP test data sets).
-       - Gate 5: Playwright Script Determinism & Syntax Safety (zero `Thread.sleep`/`waitForTimeout`, valid class wrapper, balanced braces, strict mode safety).
-  4. **Agent 4 — Loop Engineer (`LoopEngineer`)**:
-     - Executes an autonomous self-healing & refinement loop on any case or metadata failing Reality Checker gates:
-       - Infers and normalizes accurate functional `suggestedGroup` and `suggestedSuite` names from prompt, documents, and test case names/descriptions.
-       - Synthesizes missing `testSteps`, `assertions`, or `testDataSets` from test case context.
-       - Repairs/validates Playwright `scriptCode` or triggers an LLM refinement pass when needed.
-       - Attaches a concise Multi-Agent Quality Report (`AgentReviewReport`) to `GenerationResult`.
+### Slice 2: `AiAgentIndexService` & Automatic `.md` / Export Archival (`AiAgentIndexService.java`, `DocumentParserService.java`, `TestCaseExcelExportService.java`)
+- Implement `AiAgentIndexService`:
+  - `indexConvertedDocument(...)`: chunks `.md` content by headings and indexes into `ai_documents_index` + `ai_document_chunks`.
+  - `indexExportedArtifact(...)`: copies/archives exported files into `data/exports/` (or `data/ai_artifacts/`) and records them in `ai_exports_index`.
+  - `persistGeneratedArtifacts(...)`: automatically saves AI generation results (`.md` specification, `.json` cases, and `.java` scripts) into `data/ai_artifacts/<group>/<suite>/` and indexes them.
+  - `retrieveRelevantContext(String query, String groupName, String suiteName, int maxTokens)`: searches indexed `.md` chunks, existing suite test cases, and verified locators in H2 to enrich the Agent's prompt with project-aware RAG context.
+- Hook `DocumentParserService.parse(...)` and `TestCaseExcelExportService` (`exportAiGeneratedCases`, `exportToMarkdown`, `exportToJson`, `exportSuites`) into `AiAgentIndexService` so all converted `.md` files and exports are stored in-app and indexed automatically.
 
-### Slice 3: Functional Naming for Groups & Suites (`AiAssistantPageController.java` & `AiChatMessage.java`)
-- Extend `GenerationResult` and `AiChatMessage` with `suggestedGroup` and `suggestedSuite`.
-- Provide `AiMultiAgentCoordinator.resolveFunctionalGroupName(...)` and `resolveFunctionalSuiteName(...)`:
-  - Uses AI's `suggestedGroup` / `suggestedSuite` when valid and non-generic.
-  - Otherwise extracts the functional domain from test case names (e.g., `TC01_DangNhap_ThanhCong` -> Group: `QuanLyDangNhap`, Suite: `KiemThu_DangNhap`), descriptions, or Vietnamese/English functional keywords in the prompt (e.g., đăng nhập/xác thực, giỏ hàng/thanh toán, đăng ký tài khoản, tìm kiếm sản phẩm, quản lý đơn hàng, phân quyền, báo cáo...).
-- Update `AiAssistantPageController.applyCasesToSelectedSuite()` so that when auto-creating a Group or Suite (or when no specific Group/Suite was pre-selected), it names the Group and Suite accurately after the function and test cases instead of `"AI-Tests"` or `"AI-Generated-Suite"`.
+### Slice 3: Concise Chat Summary & Multi-Scenario / Multi-Assertion Optimization (`AiMultiAgentCoordinator.java`, `AiTestGeneratorService.java`, `AiAssistantPageController.java`)
+- Implement `AiMultiAgentCoordinator.buildConciseChatSummary(...)` so chat bubbles display a clean executive summary (without dumping raw `.md` or ` ```java ` code blocks), while code and assertions are placed into the structured `AiGeneratedCase` list and saved to disk.
+- Enhance `extractCasesFromMarkdown` to parse Markdown sections and code blocks into structured `AiGeneratedCase` objects with synthesized steps, assertions, and data sets.
+- Upgrade `LoopEngineer` in `AiMultiAgentCoordinator`:
+  - Auto-synthesize companion Negative Validation (`TC02`) and Boundary BVA (`TC03`) test cases when a functional generation returns only 1 scenario.
+  - Synthesize multi-point assertions (at least 2–3 assertions per case derived from steps, locators, and URLs).
+- Fix all 6 items from `/s-review`:
+  - Batch `applyCasesToSuite` via `ProjectStore.saveSuiteBatch(...)` (1 disk write + 1 H2 index pass).
+  - Full assertion alias mapping & `expectedValue` fallback.
+  - Pre-compiled `static final Pattern` and shared `ObjectMapper`.
+  - Inline `Thread.sleep` / `waitForTimeout` removal.
+  - Preserve `preconditions` in `TestCase` when saving to Suite.
 
-### Slice 4: Unit Tests & Full Regression Verification
-- Create `src/test/java/com/studio/service/AiMultiAgentLoopAndNamingTest.java` to verify:
-  - All 4 agents in the pipeline (Spec Miner, Test Architect, Reality Checker, Loop Engineer).
-  - Self-healing of missing steps, assertions, test data, and non-deterministic scripts.
-  - Accurate functional Group and Suite naming from AI JSON (`suggestedGroup`, `suggestedSuite`), from test case names (`TC01_<Function>_...`), and from Vietnamese/English prompts.
-  - Skill detection for new skills (`/loop`, `/review`, `/api`).
-- Update `AiAssistantAutoCreateSuiteTest.java` to verify functional Group & Suite naming on save.
-- Run `mvn clean test` and record learnings in `tasks/learnings.md`.
+### Slice 4: Unit Testing & Verification
+- Create `src/test/java/com/studio/service/AiAgentIndexingAndOptimizationTest.java` testing:
+  - In-app `.md` conversion storage & H2 document chunk indexing + RAG retrieval.
+  - In-app export archival (`data/exports/`) & H2 export indexing for `.xlsx`, `.md`, `.json`.
+  - Automatic `data/ai_artifacts/` persistence and concise chat summary (verifying zero raw code blocks or raw `.md` dumps in chat message content).
+  - Multi-scenario expansion (1 case -> 3 cases: Happy, Negative, Boundary) and multi-point assertion synthesis + alias normalization.
+  - Batch `applyCasesToSuite` performance and precondition preservation.
+- Run `mvn test` to verify 100% green across all tests.
