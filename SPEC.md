@@ -1,81 +1,73 @@
-# Specification: AI Assistant Chat Session Management & Large Context Optimization
+# Specification: AI Agent Test Case Generation & Export with Conditional Script Omission
 
 ## 1. Objective & Scope
-Enhance the AI Assistant in **Test Studio** with complete session lifecycle management and large context optimization:
-1. **Multi-Session Chat Management**:
-   - Create new chat conversations ("+ Cuộc trò chuyện mới" / New Chat).
-   - Switch between historical conversations smoothly.
-   - Search, rename, pin, and delete sessions.
-   - Auto-generate conversation title from the first user prompt.
-2. **Collapsible History Sidebar**:
-   - Integrated left sidebar inside the AI Assistant view with collapsible toggle (`☰ Lịch sử`).
-   - Clean list showing session title, relative timestamp, message count, and actions.
-   - Seamless switching between Target Suites and sessions.
-3. **Advanced Large-Context Token Optimization**:
-   - **Hybrid Rolling Summary**: Progressive conversation memory consolidating user goals, generated test cases, and technical decisions from pruned turns.
-   - **Adaptive Sliding Window**: Full context retention for the most recent $N$ conversational turns.
-   - **Bulky Code & DOM Truncation**: Automatic compression of bulky code blocks and DOM snapshots in historical turns to conserve up to 75% tokens.
-   - **Budget Limit Enforcement**: Dynamic pruning ensuring context never breaches token limits.
-4. **Storage & Backward Compatibility**:
-   - Per-suite storage inside `.ai_chats/<sessionId>.json`.
-   - Local H2 Database indexing in `ai_chat_sessions` and `ai_chat_messages` (with `session_id`).
-   - Seamless zero-data-loss auto-migration from legacy `.ai_chat.json`.
+Enhance the AI Assistant in **Test Studio** to support generating detailed, high-coverage test cases from user requirements and attached documents (PRD, SRS, specs, business rules) and allow users to download/export the generated test suite directly in multiple formats, with a strict rule: **omit automation test scripts when no test page URL is provided or when disabled**.
+
+Key Capabilities:
+1. **Knowledge-Driven Test Case Generation (Consulting `docs/knowledge`)**:
+   - Inspired by **Testsigma** (`testsigma-dev`), **Agency-Agents** (`agency-agents-main/testing`), **Fabric** (`Fabric-main`), and **ECC** (`ECC-main`):
+     - Exhaustive test cases with multi-scenario coverage: Happy Path (Positive), Negative Validation (Error Handling), Boundary Value Analysis (BVA & Edge Cases), and Precondition setups.
+     - Granular, structured test steps: Step Order, Action, Target/Field name according to document, Test Data, Description, Expected Result.
+     - Parameterized test data sets covering equivalence partitions.
+     - Verifiable acceptance criteria and assertion points.
+2. **Conditional Test Script Generation (No URL -> No Script)**:
+   - When no URL/link is detected in the prompt, documents, or live DOM, or when the user toggles off the "Tạo Test Script" option:
+     - Prompt instructs AI to completely omit Playwright Java script code (`scriptCode = ""`).
+     - AI focuses 100% of reasoning on deep, exhaustive test case specifications.
+     - UI displays an informative notice in the script editor and focuses by default on the Test Steps tab.
+3. **Download / Export Generated Test Cases Directly**:
+   - Provide a download/export action directly in the AI Assistant toolbar (`exportMenuBtn` / `exportExcelBtn`).
+   - Formats supported:
+     - **Excel (.xlsx)**: Professional 3-sheet workbook compliant with QA/ISTQB standards (Sheet 1: Tổng quan / Overview, Sheet 2: Danh sách Test Cases, Sheet 3: Chi tiết các bước kiểm thử).
+     - **Markdown (.md)**: Formatted test specifications document with matrix tables, steps, and test data.
+     - **JSON (.json)**: Portable structured test suite format for archival and external integration.
+4. **UI Toggle & Controls**:
+   - "Tạo Test Script" CheckBox toggle in the AI input area:
+     - Automatically adapts based on whether an active URL is present, while giving the user full manual control to turn it on or off.
 
 ---
 
 ## 2. Architecture & Data Flow
 
 ```
-[UI: Collapsible Sidebar]
-     │ (select / new / rename / delete)
-     ▼
-[AiAssistantPageController]
-     │
-     ├──► [AiChatHistoryStore]
-     │        ├── Reads/Writes `.ai_chats/<sessionId>.json`
-     │        └── Syncs with [AiChatDbService] / [DatabaseManager] (H2)
-     │
-     └──► When sending prompt:
-              │
-              ▼
-         [AiTokenOptimizer]
-              ├── Adaptive Sliding Window (last N turns)
-              ├── Historical Bulky Code & DOM Truncation
-              ├── Progressive Rolling Summary
-              └── Token Budget Enforcement
-              │
-              ▼
-         [OpenAiClient / Ollama API]
+[User Prompt / Attached Docs (.md, .pdf, .docx, .xlsx)]
+                   │
+                   ▼
+       [URL & Requirement Detection]
+  (Detects presence of http:// or https://)
+                   │
+                   ├── If No URL or "Tạo Test Script" disabled:
+                   │   └── Flag: generateScript = false
+                   │       Prompt: Focus on detailed QA test steps, preconditions, BVA data, assertions.
+                   │               Set scriptCode = ""
+                   │
+                   └── If URL present & "Tạo Test Script" enabled:
+                       └── Flag: generateScript = true
+                           Prompt: Dual representation (NLP Steps + Playwright Java code)
+                   │
+                   ▼
+        [AiTestGeneratorService]
+                   │
+                   ▼
+          [LLM Chat Completion]
+                   │
+                   ▼
+         [List<AiGeneratedCase>]
+                   │
+       ┌───────────┴───────────┐
+       ▼                       ▼
+[AI Assistant UI]      [Direct Download / Export]
+- Preview Steps Tab    - TestCaseExcelExportService.exportAiGeneratedCases (.xlsx)
+- Notice if No Script  - Markdown Export (.md)
+- Apply to Suite       - JSON Export (.json)
 ```
 
 ---
 
-## 3. Database Schema Updates
-```sql
-CREATE TABLE IF NOT EXISTS ai_chat_sessions (
-    id VARCHAR(255) PRIMARY KEY,
-    suite_key VARCHAR(255) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    pinned BOOLEAN DEFAULT FALSE,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
-);
-
-ALTER TABLE ai_chat_messages ADD COLUMN IF NOT EXISTS session_id VARCHAR(255);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions ON ai_chat_sessions(suite_key, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_chat_session_id ON ai_chat_messages(session_id, created_at);
-```
-
----
-
-## 4. Key Verification & Test Strategy
-- `AiTokenOptimizerTest`:
-  - Test sliding window with rolling summary generation.
-  - Test bulky code block truncation in older messages.
-  - Test strict budget enforcement under heavy chat loads.
-- `AiChatHistoryStoreTest`:
-  - Test multi-session creation, retrieval, switching, renaming, and deletion.
-  - Test legacy `.ai_chat.json` automatic migration.
-- `AiChatDbServiceTest` & `AiAssistantChatFlowTest`:
-  - Test session listing and message querying by `session_id`.
-- UI smoke testing & Maven build validation (`mvn clean test`).
+## 3. Verification & Testing Strategy
+- `TestCaseExcelExportServiceTest`:
+  - Unit test for `exportAiGeneratedCases`: Verify that generating an Excel file from `List<AiGeneratedCase>` yields valid 3 sheets (Overview, Test Cases, Steps), correct row counts, and proper cell values.
+- `AiTestGeneratorServiceTest`:
+  - Verify that when no URL is present or `generateScript` is false, prompt contains explicit directive to omit scriptCode, and returned cases handle empty `scriptCode` gracefully.
+- UI Controller verification:
+  - Verify download menu actions, file chooser handling, and script tab notification.

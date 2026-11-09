@@ -397,5 +397,43 @@ class AiTestGeneratorServiceTest {
         assertEquals("TITLE_CONTAINS", c.getAssertions().get(0).getType());
         assertEquals("Dashboard", c.getAssertions().get(0).getValue());
     }
+
+    @Test
+    void testContainsTargetUrl() {
+        // Prompt contains URL
+        assertTrue(AiTestGeneratorService.containsTargetUrl("Kiểm thử trang https://example.com/checkout", null, null, null));
+        assertTrue(AiTestGeneratorService.containsTargetUrl("Mở http://localhost:8080 và đăng nhập", null, null, null));
+
+        // Prompt without URL
+        assertFalse(AiTestGeneratorService.containsTargetUrl("Tạo kịch bản kiểm thử tính năng tính lãi suất tiết kiệm", null, null, null));
+
+        // Attachment contains URL
+        DocumentParserService.ParsedDocument docWithUrl = new DocumentParserService.ParsedDocument(
+                "spec.md", null, false, "Tài liệu yêu cầu kiểm thử hệ thống https://mysite.vn", "text/markdown", 100);
+        assertTrue(AiTestGeneratorService.containsTargetUrl("Yêu cầu theo tài liệu", List.of(docWithUrl), null, null));
+
+        DocumentParserService.ParsedDocument docNoUrl = new DocumentParserService.ParsedDocument(
+                "spec.md", null, false, "Quy tắc nghiệp vụ: Tiền gửi tối thiểu 1.000.000 VNĐ", "text/markdown", 100);
+        assertFalse(AiTestGeneratorService.containsTargetUrl("Yêu cầu theo tài liệu", List.of(docNoUrl), null, null));
+
+        // DOM context contains live elements
+        assertTrue(AiTestGeneratorService.containsTargetUrl("Kiểm thử theo DOM", null, "[{\"tag\":\"button\"}]", null));
+        assertFalse(AiTestGeneratorService.containsTargetUrl("Kiểm thử theo DOM", null, "[]", null));
+    }
+
+    @Test
+    void testValidateAndFixScript_NoUrlReturnsBlankScript() {
+        // When startUrl is blank or about:blank and scriptCode is blank, it should return "" (no script generated)
+        String emptyResult1 = service.validateAndFixScript("", "TestCase_01", "");
+        assertEquals("", emptyResult1);
+
+        String emptyResult2 = service.validateAndFixScript(null, "TestCase_02", "about:blank");
+        assertEquals("", emptyResult2);
+
+        // When a valid startUrl is present, it can generate valid boilerplate
+        String boilerplate = service.validateAndFixScript("", "TestCase_03", "https://example.com");
+        assertTrue(boilerplate.contains("public class TestCase_03"));
+        assertTrue(boilerplate.contains("https://example.com"));
+    }
 }
 

@@ -1,9 +1,11 @@
 package com.studio.controller;
 
 import com.studio.model.*;
+import com.studio.service.AiLoggingService;
 import com.studio.service.AiTestGeneratorService;
 import com.studio.service.AiTokenOptimizer;
 import com.studio.service.DocumentParserService;
+import com.studio.service.TestCaseExcelExportService;
 import com.studio.service.ToastService;
 import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ProjectStore;
@@ -105,11 +107,15 @@ public class AiAssistantPageController implements Initializable {
     @FXML
     private Button clearAttachmentsBtn;
     @FXML
+    private CheckBox autoGenerateScriptCheck;
+    @FXML
     private ProgressIndicator generationProgress;
     @FXML
     private Button sendBtn;
     @FXML
     private Label resultSummaryLabel;
+    @FXML
+    private MenuButton exportCasesMenuBtn;
     @FXML
     private Button applyToSuiteBtn;
     @FXML
@@ -186,6 +192,20 @@ public class AiAssistantPageController implements Initializable {
         if (applyToSuiteBtn != null) {
             UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
             UiTooltips.install(applyToSuiteBtn, "Nhập các test cases vừa sinh vào Test Suite đã chọn");
+        }
+        if (exportCasesMenuBtn != null) {
+            UiIcons.setGraphic(exportCasesMenuBtn, UiIcons.DOWNLOAD, 12);
+            UiTooltips.install(exportCasesMenuBtn, "Tải về bộ Test Case đã sinh (Excel .xlsx, Markdown, JSON)");
+        }
+        if (autoGenerateScriptCheck != null) {
+            UiTooltips.install(autoGenerateScriptCheck, "Tự động sinh mã Playwright Java test script khi có link trang web cần test");
+        }
+        if (promptInputArea != null && autoGenerateScriptCheck != null) {
+            promptInputArea.textProperty().addListener((obs, oldV, newV) -> {
+                if (newV != null && (newV.contains("http://") || newV.contains("https://"))) {
+                    autoGenerateScriptCheck.setSelected(true);
+                }
+            });
         }
         if (refreshTargetsBtn != null) {
             UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
@@ -614,6 +634,9 @@ public class AiAssistantPageController implements Initializable {
                 generatedCasesListView.getItems().setAll(currentGeneratedCases);
                 resultSummaryLabel.setText(m.getContent());
                 applyToSuiteBtn.setDisable(false);
+                if (exportCasesMenuBtn != null) {
+                    exportCasesMenuBtn.setDisable(false);
+                }
                 generatedCasesListView.getSelectionModel().select(0);
                 return;
             }
@@ -626,6 +649,9 @@ public class AiAssistantPageController implements Initializable {
         generatedCasesListView.getItems().clear();
         resultSummaryLabel.setText("Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái.");
         applyToSuiteBtn.setDisable(true);
+        if (exportCasesMenuBtn != null) {
+            exportCasesMenuBtn.setDisable(true);
+        }
         showCaseDetail(null);
     }
 
@@ -706,6 +732,12 @@ public class AiAssistantPageController implements Initializable {
                 }
             }
             updateAttachmentsVisibility();
+            if (AiTestGeneratorService.containsTargetUrl(
+                    promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
+                if (autoGenerateScriptCheck != null) {
+                    autoGenerateScriptCheck.setSelected(true);
+                }
+            }
         }
     }
 
@@ -748,6 +780,12 @@ public class AiAssistantPageController implements Initializable {
             attachedChipsPane.getChildren().remove(chip);
             attachedDocuments.remove(doc);
             updateAttachmentsVisibility();
+            if (AiTestGeneratorService.containsTargetUrl(
+                    promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
+                if (autoGenerateScriptCheck != null) {
+                    autoGenerateScriptCheck.setSelected(true);
+                }
+            }
         });
 
         chip.getChildren().add(removeBtn);
@@ -927,24 +965,25 @@ public class AiAssistantPageController implements Initializable {
         Path suiteDir = getSelectedSuiteDir();
         String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
 
-        // Tự động phát hiện URL từ prompt hoặc từ Suite hiện tại nếu chưa có Live DOM
+        // Tự động phát hiện URL từ prompt hoặc từ tài liệu đính kèm nếu chưa có Live DOM
         String promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(prompt);
-        if (promptUrl == null && suiteDir != null) {
-            try {
-                TestSuite s = projectStore.loadAndMigrateSuite(suiteDir);
-                if (s != null && s.getCases() != null) {
-                    for (TestCase tc : s.getCases()) {
-                        if (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) {
-                            promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(tc.getStartUrl());
-                            if (promptUrl != null)
-                                break;
-                        }
-                    }
+        if (promptUrl == null && !attachedDocuments.isEmpty()) {
+            for (DocumentParserService.ParsedDocument doc : attachedDocuments) {
+                if (doc.getContent() != null) {
+                    promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(doc.getContent());
+                    if (promptUrl != null)
+                        break;
                 }
-            } catch (Exception ignored) {
             }
         }
         final String detectedTargetUrl = promptUrl;
+        if (detectedTargetUrl != null && autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
+            autoGenerateScriptCheck.setSelected(true);
+        }
+        boolean generateScript = (autoGenerateScriptCheck != null)
+                ? autoGenerateScriptCheck.isSelected()
+                : (detectedTargetUrl != null || (liveDomJson != null && !liveDomJson.isBlank() && !"[]".equals(liveDomJson)));
+        final boolean effectiveGenerateScript = generateScript;
         String domContext = liveDomJson;
         final AiConfig effectiveAiConfig = aiConfig;
         final AiChatSession targetSession = currentSession;
@@ -965,7 +1004,7 @@ public class AiAssistantPageController implements Initializable {
                             activeDomContext = autoScannedDom;
                             liveDomJson = autoScannedDom; // Cache cho phiên làm việc
                             Platform.runLater(
-                                    () -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
+                                     () -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
                         }
                     } catch (Exception ex) {
                         System.err.println("[AiAssistant] Tự động quét DOM ngầm thất bại: " + ex.getMessage());
@@ -977,7 +1016,8 @@ public class AiAssistantPageController implements Initializable {
                         targetSession.getMessages(),
                         status -> Platform.runLater(() -> updateThinkingStatus(status)),
                         activeSkill,
-                        suiteDir);
+                        suiteDir,
+                        effectiveGenerateScript);
 
                 Platform.runLater(() -> {
                     removeThinkingBubble();
@@ -1015,10 +1055,16 @@ public class AiAssistantPageController implements Initializable {
 
                         if (!currentGeneratedCases.isEmpty()) {
                             applyToSuiteBtn.setDisable(false);
+                            if (exportCasesMenuBtn != null) {
+                                exportCasesMenuBtn.setDisable(false);
+                            }
                             generatedCasesListView.getSelectionModel().select(0);
                             ToastService.success("✨ Đã sinh " + currentGeneratedCases.size() + " test cases thành công!");
                         } else {
                             applyToSuiteBtn.setDisable(true);
+                            if (exportCasesMenuBtn != null) {
+                                exportCasesMenuBtn.setDisable(true);
+                            }
                             showCaseDetail(null);
                             if (!result.isClarification()) {
                                 ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent())
@@ -1183,7 +1229,20 @@ public class AiAssistantPageController implements Initializable {
 
         previewCaseNameLabel.setText(c.getName());
         previewCaseUrlLabel.setText(c.getStartUrl().isBlank() ? "" : "URL: " + c.getStartUrl());
-        previewScriptEditor.setText(c.getScriptCode());
+        if (c.getScriptCode() != null && !c.getScriptCode().isBlank()) {
+            previewScriptEditor.setText(c.getScriptCode());
+        } else {
+            previewScriptEditor.setText("""
+                // [THÔNG BÁO] Không tạo test script tự động vì yêu cầu không có URL/link trang web cần test.
+                // Bộ test case đã được thiết kế đầy đủ các bước kiểm thử, dữ liệu và tiêu chí nghiệm thu tại các tab bên cạnh:
+                // - Tab 'Các bước': Danh sách bước thao tác, đối tượng và kết quả kỳ vọng
+                // - Tab 'Assertions': Tiêu chí xác thực kết quả
+                // - Tab 'Dữ liệu': Bộ tham số kiểm thử biên & phân vùng tương đương
+                """);
+            if (detailTabPane != null && previewStepsTab != null) {
+                detailTabPane.getSelectionModel().select(previewStepsTab);
+            }
+        }
 
         previewAssertsListView.getItems().clear();
         for (Assertion a : c.getAssertions()) {
@@ -1266,6 +1325,9 @@ public class AiAssistantPageController implements Initializable {
                     }
                     if (dom != null && !dom.equals("[]") && !dom.isBlank()) {
                         liveDomJson = dom;
+                        if (autoGenerateScriptCheck != null) {
+                            autoGenerateScriptCheck.setSelected(true);
+                        }
                         ToastService.success("✨ Đã quét và nạp ngữ cảnh DOM cho " + finalUrl + "!");
                     } else {
                         ToastService.warn("Không trích xuất được phần tử tương tác nào từ URL đã cho.");
@@ -1351,6 +1413,88 @@ public class AiAssistantPageController implements Initializable {
             }
         } catch (Exception e) {
             ToastService.error("Lỗi khi nhập test cases vào Suite: " + e.getMessage());
+        }
+    }
+
+    @FXML
+    public void exportCasesToExcel() {
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Test Case nào để tải về.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu Bộ Test Cases ra Excel (.xlsx)");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Workbook (*.xlsx)", "*.xlsx"));
+        chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".xlsx");
+
+        File file = chooser.showSaveDialog(promptInputArea != null && promptInputArea.getScene() != null ? promptInputArea.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestCaseExcelExportService.exportAiGeneratedCases(
+                    currentGeneratedCases,
+                    resultSummaryLabel != null ? resultSummaryLabel.getText() : "Sinh bởi Trợ lý AI",
+                    file.toPath(),
+                    ExportLanguage.VIETNAMESE
+            );
+            ToastService.success("✅ Đã xuất " + currentGeneratedCases.size() + " test cases ra file Excel: " + file.getName());
+        } catch (Exception ex) {
+            AiLoggingService.error("EXPORT", "Xuất file Excel thất bại: " + ex.getMessage());
+            ToastService.error("❌ Xuất file Excel thất bại: " + ex.getMessage());
+        }
+    }
+
+    @FXML
+    public void exportCasesToMarkdown() {
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Test Case nào để tải về.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu Bộ Test Cases ra Markdown (.md)");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown Document (*.md)", "*.md"));
+        chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".md");
+
+        File file = chooser.showSaveDialog(promptInputArea != null && promptInputArea.getScene() != null ? promptInputArea.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestCaseExcelExportService.exportToMarkdown(
+                    currentGeneratedCases,
+                    resultSummaryLabel != null ? resultSummaryLabel.getText() : "Sinh bởi Trợ lý AI",
+                    file.toPath()
+            );
+            ToastService.success("✅ Đã xuất tài liệu Markdown: " + file.getName());
+        } catch (Exception ex) {
+            AiLoggingService.error("EXPORT", "Xuất Markdown thất bại: " + ex.getMessage());
+            ToastService.error("❌ Xuất Markdown thất bại: " + ex.getMessage());
+        }
+    }
+
+    @FXML
+    public void exportCasesToJson() {
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Test Case nào để tải về.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu Bộ Test Cases ra JSON (.json)");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Data (*.json)", "*.json"));
+        chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".json");
+
+        File file = chooser.showSaveDialog(promptInputArea != null && promptInputArea.getScene() != null ? promptInputArea.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestCaseExcelExportService.exportToJson(
+                    currentGeneratedCases,
+                    resultSummaryLabel != null ? resultSummaryLabel.getText() : "Sinh bởi Trợ lý AI",
+                    file.toPath()
+            );
+            ToastService.success("✅ Đã xuất dữ liệu JSON: " + file.getName());
+        } catch (Exception ex) {
+            AiLoggingService.error("EXPORT", "Xuất JSON thất bại: " + ex.getMessage());
+            ToastService.error("❌ Xuất JSON thất bại: " + ex.getMessage());
         }
     }
 

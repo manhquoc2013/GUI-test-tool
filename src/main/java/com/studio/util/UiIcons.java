@@ -36,6 +36,9 @@ public final class UiIcons {
     /** Excel / Spreadsheet */
     public static final String EXCEL = "M 14 2 H 6 c -1.1 0 -2 0.9 -2 2 v 16 c 0 1.1 0.9 2 2 2 h 12 c 1.1 0 2 -0.9 2 -2 V 8 l -6 -6 z M 13 9 V 3.5 L 18.5 9 H 13 z M 15.8 17.5 l -1.6 -2.5 l -1.6 2.5 h -1.8 l 2.5 -3.7 l -2.3 -3.5 h 1.8 l 1.4 2.3 l 1.4 -2.3 h 1.8 l -2.3 3.5 l 2.5 3.7 h -1.9 z";
 
+    /** Download arrow */
+    public static final String DOWNLOAD = "M 19 9 h -4 V 3 H 9 v 6 H 5 l 7 7 l 7 -7 z M 5 18 v 2 h 14 v -2 H 5 z";
+
     /** AI Sparkles */
     public static final String AI_SPARKLES = "M 12 2 L 14.2 7.8 L 20 10 L 14.2 12.2 L 12 18 L 9.8 12.2 L 4 10 L 9.8 7.8 Z M 19 2 L 20 5 L 23 6 L 20 7 L 19 10 L 18 7 L 15 6 L 18 5 Z M 5 18 L 6 20 L 8 21 L 6 22 L 5 24 L 4 22 L 2 21 L 4 20 Z";
 

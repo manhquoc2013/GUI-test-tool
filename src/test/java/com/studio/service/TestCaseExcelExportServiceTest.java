@@ -1,8 +1,10 @@
 package com.studio.service;
 
+import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
 import com.studio.model.ExportLanguage;
 import com.studio.model.TestCase;
+import com.studio.model.TestDataItem;
 import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
 import com.studio.store.ProjectStore;
@@ -259,5 +261,99 @@ class TestCaseExcelExportServiceTest {
             assertTrue(cellVal.contains("TRUNCATED"), "Oversized content should be safely truncated");
             assertTrue(cellVal.length() <= 32767, "Length must be within Excel limit");
         }
+    }
+
+    @Test
+    void testExportAiGeneratedCasesToExcel() throws Exception {
+        AiGeneratedCase ac1 = new AiGeneratedCase("TC01_Happy_Flow", "Kiểm thử luồng thanh toán", "https://shop.com/checkout");
+        ac1.setPriority("P0");
+        ac1.setPreconditions(List.of("Tài khoản đã có tiền", "Giỏ hàng có ít nhất 1 sản phẩm"));
+
+        TestStep s1 = new TestStep();
+        s1.setStepNumber(1);
+        s1.setAction("NAVIGATE");
+        s1.setTarget("https://shop.com/checkout");
+        s1.setDescription("Mở trang thanh toán");
+        s1.setExpectedResult("Trang thanh toán hiển thị đúng");
+
+        TestStep s2 = new TestStep();
+        s2.setStepNumber(2);
+        s2.setAction("CLICK");
+        s2.setTarget("#btn-pay");
+        s2.setDescription("Nhấn nút Thanh toán");
+        s2.setExpectedResult("Hệ thống hiển thị màn hình hoàn tất");
+
+        ac1.setTestSteps(List.of(s1, s2));
+
+        Assertion a1 = new Assertion();
+        a1.setType("PAGE_HAS_TEXT");
+        a1.setValue("Thanh toán thành công");
+        ac1.setAssertions(List.of(a1));
+
+        TestDataItem item = new TestDataItem();
+        item.setScenario("Thẻ Visa hợp lệ");
+        item.setParameters(java.util.Map.of("cardNumber", "411111111111", "cvv", "123"));
+        item.setExpectedOutcome("SUCCESS");
+        ac1.setTestDataSets(List.of(item));
+
+        Path excelOut = tempDir.resolve("ai_export.xlsx");
+        TestCaseExcelExportService.exportAiGeneratedCases(List.of(ac1), "Yêu cầu kiểm thử thanh toán", excelOut, ExportLanguage.VIETNAMESE);
+
+        assertTrue(Files.exists(excelOut));
+        try (Workbook wb = new XSSFWorkbook(new FileInputStream(excelOut.toFile()))) {
+            assertEquals(3, wb.getNumberOfSheets());
+            Sheet sOverview = wb.getSheet("Tổng quan");
+            Sheet sCases = wb.getSheet("Danh sách Test Cases");
+            Sheet sSteps = wb.getSheet("Chi tiết các bước");
+
+            assertNotNull(sOverview);
+            assertNotNull(sCases);
+            assertNotNull(sSteps);
+
+            // Verify Case in cases sheet
+            Row r1 = sCases.getRow(1);
+            assertNotNull(r1);
+            assertEquals("TC_001", r1.getCell(1).getStringCellValue());
+            assertEquals("TC01_Happy_Flow", r1.getCell(2).getStringCellValue());
+            assertTrue(r1.getCell(7).getStringCellValue().contains("Tài khoản đã có tiền"));
+            assertTrue(r1.getCell(9).getStringCellValue().contains("Thẻ Visa hợp lệ"));
+
+            // Verify Step in steps sheet
+            Row stepRow1 = sSteps.getRow(1);
+            assertNotNull(stepRow1);
+            assertEquals("TC_001", stepRow1.getCell(1).getStringCellValue());
+            assertEquals("NAVIGATE", stepRow1.getCell(4).getStringCellValue());
+        }
+    }
+
+    @Test
+    void testExportAiGeneratedCasesToMarkdownAndJson() throws Exception {
+        AiGeneratedCase ac = new AiGeneratedCase("TC02_Negative_Login", "Đăng nhập sai pass", "");
+        ac.setPriority("P1");
+        ac.setPreconditions(List.of("Có tài khoản test"));
+
+        TestStep s = new TestStep();
+        s.setStepNumber(1);
+        s.setAction("FILL");
+        s.setTarget("#password");
+        s.setTestData("wrongpass");
+        s.setDescription("Nhập sai pass");
+        s.setExpectedResult("Báo lỗi sai mật khẩu");
+        ac.setTestSteps(List.of(s));
+
+        Path mdOut = tempDir.resolve("ai_cases.md");
+        TestCaseExcelExportService.exportToMarkdown(List.of(ac), "Kiểm thử đăng nhập", mdOut);
+        assertTrue(Files.exists(mdOut));
+        String mdText = Files.readString(mdOut);
+        assertTrue(mdText.contains("TC02_Negative_Login"));
+        assertTrue(mdText.contains("Có tài khoản test"));
+        assertTrue(mdText.contains("wrongpass"));
+
+        Path jsonOut = tempDir.resolve("ai_cases.json");
+        TestCaseExcelExportService.exportToJson(List.of(ac), "Kiểm thử đăng nhập", jsonOut);
+        assertTrue(Files.exists(jsonOut));
+        String jsonText = Files.readString(jsonOut);
+        assertTrue(jsonText.contains("TC02_Negative_Login"));
+        assertTrue(jsonText.contains("wrongpass"));
     }
 }

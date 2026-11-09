@@ -121,10 +121,18 @@ public class AiTestGeneratorService {
         Your task is to analyze user requirements, specification documents (PRD, SRS, user stories, matrices), or live UI DOM elements, and generate complete, ready-to-run Playwright Java test cases with dual representations (declarative NLP test steps and runnable script code).
 
         ### Core Architectural Principles (Inspired by Testsigma, Midscene, Skyvern & Agency-Agents):
-        1. **Dual Representation**:
-           - Provide human-readable declarative test steps (`testSteps`): Step #, Action, Target, Test Data, Description, Expected Result.
+        1. **Dual Representation & URL-Driven Script Generation**:
+           - **Khi có URL/link trang web cần test**: Cung cấp đầy đủ cả các bước NLP (`testSteps`), bộ dữ liệu kiểm thử (`testDataSets`), tiêu chí xác thực (`assertions`) và mã Playwright Java thực thi trong `scriptCode`.
+           - **QUY TẮC BẮT BUỘC KHI KHÔNG CÓ URL/LINK TRANG CẦN TEST**:
+             + Nếu yêu cầu hoặc tài liệu đính kèm KHÔNG cung cấp đường dẫn URL/link trang web cần test (và không có live DOM):
+               * TUYỆT ĐỐI KHÔNG sinh mã Playwright Java (`scriptCode = ""`).
+               * Đặt `startUrl = ""`.
+               * Tập trung 100% năng lực vào việc thiết kế bộ Test Case chi tiết theo tiêu chuẩn QA/ISTQB:
+                 - `name`, `description`, `priority` (P0-P3), `preconditions`
+                 - `testSteps`: Các bước thao tác tuần tự chi tiết (Step #, Action, Target/Field theo tài liệu, Test Data, Description, Expected Result).
+                 - `testDataSets`: Bộ dữ liệu kiểm thử bao quát phân vùng tương đương & giá trị biên (Equivalence Partitioning & Boundary Value Analysis).
+                 - `assertions`: Tiêu chí xác thực, kết quả mong đợi sau khi thực hiện kịch bản.
            - Provide parameterized test data sets (`testDataSets`): Cover Equivalence Partitioning & Boundary Value Analysis (e.g., Valid credentials, Invalid input, Empty fields, Extreme length).
-           - Provide executable Java code in `scriptCode`.
 
         2. **Deterministic Playwright Engineering (Zero Hard Sleeps - Agency-Agents Standard)**:
            - **Tuyệt đối không dùng hard sleep**: `Thread.sleep(...)` hoặc `page.waitForTimeout(...)` bị cấm hoàn toàn vì gây flake và lãng phí thời gian.
@@ -345,6 +353,22 @@ public class AiTestGeneratorService {
                                              java.util.function.Consumer<String> progressListener,
                                              AiSkill selectedSkill,
                                              Path suiteDir) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, domJson, history, progressListener, selectedSkill, suiteDir, null);
+    }
+
+    /**
+     * Generate test cases with optional explicit control over test script generation.
+     * When generateScript is null, it is auto-detected based on the presence of a target URL in prompt, docs, or DOM.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history,
+                                             java.util.function.Consumer<String> progressListener,
+                                             AiSkill selectedSkill,
+                                             Path suiteDir,
+                                             Boolean generateScript) throws IOException, InterruptedException {
         // 1. Analyze ambiguity and user intent
         AiAmbiguityAnalyzer.AnalysisResult analysis = ambiguityAnalyzer.analyze(
                 userPrompt,
@@ -400,6 +424,27 @@ public class AiTestGeneratorService {
                     : SYSTEM_PROMPT;
         }
 
+        boolean effectiveGenerateScript = (generateScript != null)
+                ? generateScript
+                : containsTargetUrl(userPrompt, attachments, domJson, contextInfo);
+
+        if (!effectiveGenerateScript) {
+            systemPrompt = systemPrompt + "\n\n" + """
+                ### ⚠️ QUY TẮC BẮT BUỘC KHI KHÔNG CÓ URL/LINK TRANG CẦN TEST (HOẶC TẮT TẠO TEST SCRIPT):
+                1. Yêu cầu kiểm thử hiện tại KHÔNG có URL/link trang web cần test (hoặc người dùng đã tắt tùy chọn tạo script).
+                2. TUYỆT ĐỐI KHÔNG SINH MÃ PLAYWRIGHT JAVA trong trường `scriptCode`. Đặt `scriptCode = ""` (chuỗi rỗng).
+                3. Tuyệt đối không bịa đặt startUrl (nếu không có thì đặt `startUrl = ""`).
+                4. Tập trung 100% chi tiết vào việc đặc tả bộ Test Case chuẩn QA/ISTQB:
+                   - `name`: Tên ca kiểm thử rõ ràng, quy chuẩn (ví dụ: TC01_DangNhap_ThanhCong, TC02_DangNhap_SaiMatKhau...).
+                   - `description`: Mục tiêu và phạm vi kiểm thử chi tiết.
+                   - `priority`: P0, P1, P2, P3.
+                   - `preconditions`: Môi trường, dữ liệu và trạng thái tiền đề cần chuẩn bị.
+                   - `testSteps`: Danh sách đầy đủ các bước thực hiện tuần tự (`stepNumber`, `action`, `target` [tên trường/nút theo tài liệu], `testData`, `description`, `expectedResult`).
+                   - `testDataSets`: Các bộ dữ liệu thử nghiệm bao quát phân vùng tương đương và giá trị biên (Happy Path, Boundary, Invalid/Empty).
+                   - `assertions`: Các tiêu chí nghiệm thu và xác thực kết quả mong đợi.
+                """;
+        }
+
         String formattedDom = (domJson != null && !domJson.isBlank()) ? tokenOptimizer.formatDomForPrompt(domJson, 50) : null;
 
         List<OpenAiClient.ChatMessage> messages = tokenOptimizer.buildOptimizedMessages(
@@ -427,7 +472,41 @@ public class AiTestGeneratorService {
             return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
         }
 
-        return parseResponse(reply, effectiveSkill);
+        GenerationResult res = parseResponse(reply, effectiveSkill);
+        if (!effectiveGenerateScript && res.getCases() != null) {
+            for (AiGeneratedCase ac : res.getCases()) {
+                ac.setScriptCode("");
+                if (ac.getStartUrl() == null || "about:blank".equalsIgnoreCase(ac.getStartUrl())) {
+                    ac.setStartUrl("");
+                }
+            }
+        }
+        return res;
+    }
+
+    public static boolean containsTargetUrl(String userPrompt, List<ParsedDocument> attachments, String domJson, String contextInfo) {
+        if (domJson != null && !domJson.isBlank() && !"[]".equals(domJson)) {
+            return true;
+        }
+        if (hasUrlString(userPrompt)) {
+            return true;
+        }
+        if (hasUrlString(contextInfo)) {
+            return true;
+        }
+        if (attachments != null) {
+            for (ParsedDocument doc : attachments) {
+                if (doc.getContent() != null && hasUrlString(doc.getContent())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasUrlString(String text) {
+        if (text == null || text.isBlank()) return false;
+        return text.contains("http://") || text.contains("https://");
     }
 
     public AiAmbiguityAnalyzer getAmbiguityAnalyzer() {
@@ -684,8 +763,11 @@ public class AiTestGeneratorService {
      */
     public String validateAndFixScript(String scriptCode, String caseName, String startUrl) {
         if (scriptCode == null || scriptCode.isBlank()) {
+            if (startUrl == null || startUrl.isBlank() || "about:blank".equalsIgnoreCase(startUrl)) {
+                return "";
+            }
             String className = (caseName != null && !caseName.isBlank()) ? caseName : "TestCaseAuto";
-            String url = (startUrl != null && !startUrl.isBlank()) ? startUrl : "about:blank";
+            String url = startUrl;
             return """
                 package com.test;
 

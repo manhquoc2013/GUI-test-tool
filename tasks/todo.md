@@ -1,7 +1,8 @@
-# Todo List: System Review Issue Resolution & Performance Optimization
+# Todo List: AI Agent Test Case Generation & Direct Download with Conditional Script Omission
 
-- [x] 1. Fix duplicated AI error handling block in `AiAssistantPageController.java` to prevent NPE and double-rendering <!-- id: 1 -->
-- [x] 2. Implement atomic JSON file write in `AiChatHistoryStore.java` using temp file + atomic move to prevent corruption <!-- id: 2 -->
-- [x] 3. Eliminate N+1 JDBC connections via batch message indexing (`indexChatMessagesBatch`) in `LocalDataIndexService.java` <!-- id: 3 -->
-- [x] 4. Remove redundant `refreshSessionsList` call in `handleDeleteSession` and unify session deletion SQL in `LocalDataIndexService` <!-- id: 4 -->
-- [x] 5. Run full Maven test suite (`mvn clean test`), verify zero regressions, and update institutional learnings <!-- id: 5 -->
+- [x] 1. Implement `exportAiGeneratedCases` in `TestCaseExcelExportService.java` (Excel 3-sheet export for AI cases) and Markdown/JSON export utilities <!-- id: 1 -->
+- [x] 2. Add unit tests for `exportAiGeneratedCases` in `TestCaseExcelExportServiceTest.java` and verify with Maven <!-- id: 2 -->
+- [x] 3. Update `AiTestGeneratorService.java` with conditional test script generation based on URL detection & user toggle <!-- id: 3 -->
+- [x] 4. Add unit tests for conditional script omission in `AiTestGeneratorServiceTest.java` <!-- id: 4 -->
+- [x] 5. Enhance `ai_assistant_page.fxml` and `AiAssistantPageController.java` with export menu button, script generation toggle, and empty script placeholder <!-- id: 5 -->
+- [x] 6. Run full verification (`mvn clean test`), verify end-to-end flow, and update `tasks/learnings.md` <!-- id: 6 -->

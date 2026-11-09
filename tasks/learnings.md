@@ -654,6 +654,26 @@
 - **Race Condition Prevention during Session Deletion**:
   - Thêm chốt chặn bảo vệ không cho phép xóa phiên chat đang trong quá trình sinh kịch bản ngầm (`generationProgress.isVisible()`), ngăn chặn việc luồng nền vô tình hồi sinh session đã bị xóa hoặc ném ngoại lệ `NullPointerException`.
 
+### 17. Knowledge-Driven Test Case Generation & Multi-Format Export Architecture
+- **Knowledge-Driven QA Standards (Inspiration from `docs/knowledge`)**:
+  - Kế thừa kiến trúc từ **Testsigma** (`testsigma-dev`), **Agency-Agents** (`agency-agents-main/testing`), **Fabric** (`Fabric-main`), và **ECC** (`ECC-main`):
+    1. **Dual Representation & Anti-Superficial Generation**: Bộ test case sinh ra phải có cấu trúc phân rã hoàn chỉnh: mã ID, độ ưu tiên (P0-P3), điều kiện tiên quyết (preconditions), danh sách các bước thao tác (Step Number, Action, Target/Field theo tài liệu, Test Data, Description, Expected Result), bộ tham số kiểm thử biên & phân vùng tương đương (Equivalence Partitioning & Boundary Value Analysis), và tiêu chí nghiệm thu (Assertions).
+    2. **Strict Rule on Test Script Omission without URL**: Khi người dùng chỉ cung cấp đặc tả/tài liệu yêu cầu mà không có link trang web (hoặc tắt tùy chọn tạo script):
+       - AI không được sinh mã Playwright Java giả lập hay bịa đặt URL (`scriptCode = ""`, `startUrl = ""`).
+       - Toàn bộ năng lực LLM được dành cho việc mở rộng độ bao phủ kiểm thử (Happy Path, Negative Validation, Boundary/Edge Cases).
+       - Trình soạn thảo script hiển thị thông báo hướng dẫn trực quan và tự động chọn tab "Các bước" để QA xem chi tiết các bước kiểm thử.
+- **Direct Multi-Format Test Suite Export (`TestCaseExcelExportService`)**:
+  - Cho phép người dùng tải về bộ Test Case ngay tại màn hình AI Assistant mà không bắt buộc phải nhập vào Suite trước:
+    1. **Excel (.xlsx) chuẩn QA/ISTQB / IEEE 829**: Tạo workbook 3 sheet hoàn chỉnh gồm:
+       - *Tổng quan (Overview)*: Tên dự án, phạm vi, ngày xuất, số lượng case, phân loại độ ưu tiên, tỉ lệ hoàn thiện.
+       - *Danh sách Test Cases (Cases)*: STT, Mã Case, Tên Case, Nhóm, Độ ưu tiên (P0-P3 có badge màu), Điều kiện tiên quyết, Tóm tắt bước, Dữ liệu kiểm thử, Kết quả mong đợi, Ghi chú kịch bản.
+       - *Chi tiết các bước (Steps)*: Bảng ma trận chi tiết từng bước thao tác tuần tự với Action, Target, Dữ liệu nhập, Mô tả và Kết quả kỳ vọng của từng bước.
+    2. **Markdown (.md)**: Đặc tả tài liệu kỹ thuật có bảng Markdown, danh sách điều kiện và kịch bản để lưu trữ vào kho mã nguồn Git hoặc chia sẻ tài liệu dự án.
+    3. **JSON (.json)**: Định dạng dữ liệu có cấu trúc phục vụ việc tích hợp vào các hệ thống CI/CD hoặc công cụ quản lý test khác.
+- **Smart URL Detection & User Control UX**:
+  - Tích hợp checkbox "Tạo Test Script" ngay tại thanh điều khiển prompt.
+  - Tự động nhận diện URL (`http://`, `https://`) từ prompt, tài liệu đính kèm hoặc Live DOM để bật/tắt checkbox thông minh, đồng thời trao toàn quyền cho người dùng chủ động điều khiển theo nhu cầu kiểm thử.
+
 
 
 

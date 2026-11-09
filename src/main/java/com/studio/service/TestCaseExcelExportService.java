@@ -1,8 +1,10 @@
 package com.studio.service;
 
+import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
 import com.studio.model.ExportLanguage;
 import com.studio.model.TestCase;
+import com.studio.model.TestDataItem;
 import com.studio.model.TestStep;
 import com.studio.model.TestSuite;
 import com.studio.store.ProjectStore;
@@ -18,7 +20,9 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Service to export Test Cases from a Suite or Group to a professional Excel
@@ -215,6 +219,281 @@ public final class TestCaseExcelExportService {
             }
         }
         ResourceReleaseService.releaseAfterExport();
+    }
+
+    /**
+     * Export a list of AI-generated test cases directly to an Excel workbook.
+     */
+    public static void exportAiGeneratedCases(List<AiGeneratedCase> cases, String promptSummary, Path outputPath)
+            throws Exception {
+        exportAiGeneratedCases(cases, promptSummary, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void exportAiGeneratedCases(List<AiGeneratedCase> cases, String promptSummary, Path outputPath,
+            ExportLanguage lang) throws Exception {
+        ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+
+        List<TestCaseRowData> allCases = new ArrayList<>();
+        int caseIndex = 1;
+        if (cases != null) {
+            for (AiGeneratedCase ac : cases) {
+                allCases.add(buildRowDataFromAiCase(caseIndex++, ac, "AI Generated Suite", effective));
+            }
+        }
+
+        String scopeTitle = "AI Assistant Generated Cases";
+        String scopeDesc = promptSummary != null && !promptSummary.isBlank() ? promptSummary
+                : "Bộ Test Case sinh tự động từ Trợ lý AI";
+
+        try (Workbook wb = new XSSFWorkbook()) {
+            Styles styles = Styles.create(wb);
+
+            // Sheet 1: Tổng quan / Overview
+            String summarySheetName = I18nService.get(effective, "export.tc.sheet.overview");
+            Sheet summary = wb.createSheet(summarySheetName);
+            List<SuiteContainer> dummySuites = List.of(
+                    new SuiteContainer(new TestSuite("AI Generated Suite", "AI Assistant"), "AI Assistant", null));
+            createSummarySheet(summary, scopeTitle, scopeDesc, dummySuites, allCases, styles, effective);
+            tintSheet(summary, IndexedColors.DARK_BLUE);
+
+            // Sheet 2: Danh sách Test Cases / Test Cases
+            String casesSheetName = I18nService.get(effective, "export.tc.sheet.cases");
+            Sheet casesSheet = wb.createSheet(casesSheetName);
+            createCasesSheet(casesSheet, allCases, styles, effective);
+            tintSheet(casesSheet, IndexedColors.DARK_TEAL);
+
+            // Sheet 3: Chi tiết các bước / Step Details
+            String stepsSheetName = I18nService.get(effective, "export.tc.sheet.steps");
+            Sheet stepsSheet = wb.createSheet(stepsSheetName);
+            createStepsSheet(stepsSheet, allCases, styles, effective);
+            tintSheet(stepsSheet, IndexedColors.GREY_50_PERCENT);
+
+            try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
+                wb.write(fos);
+            }
+        }
+        ResourceReleaseService.releaseAfterExport();
+    }
+
+    public static TestCaseRowData buildRowDataFromAiCase(int index, AiGeneratedCase ac, String suiteName,
+            ExportLanguage lang) {
+        TestCaseRowData row = new TestCaseRowData();
+        row.index = index;
+        row.id = ac.getTargetCaseId() != null && !ac.getTargetCaseId().isBlank()
+                ? ac.getTargetCaseId()
+                : String.format("TC_%03d", index);
+        row.name = ac.getName() != null && !ac.getName().isBlank() ? ac.getName() : "Case " + index;
+        row.groupPath = "AI Generator";
+        row.suiteName = suiteName != null && !suiteName.isBlank() ? suiteName : "Generated Cases";
+        row.status = "Ready";
+        row.priority = com.studio.model.TestPriority.getLabel(ac.getPriority());
+
+        // Preconditions
+        if (ac.getPreconditions() != null && !ac.getPreconditions().isEmpty()) {
+            row.preconditions = String.join("\n", ac.getPreconditions());
+        } else if (ac.getStartUrl() != null && !ac.getStartUrl().isBlank()) {
+            row.preconditions = I18nService.get(lang, "export.tc.preconditions.url", ac.getStartUrl());
+        } else {
+            row.preconditions = I18nService.get(lang, "export.tc.preconditions.default");
+        }
+
+        row.scriptFile = ac.getScriptCode() != null && !ac.getScriptCode().isBlank() ? "Playwright Script" : "";
+        row.description = ac.getDescription() != null ? ac.getDescription() : "";
+
+        // Steps
+        List<TestStep> steps = ac.getTestSteps();
+        if (steps != null && !steps.isEmpty()) {
+            row.steps.addAll(steps);
+            StringBuilder sb = new StringBuilder();
+            StringBuilder dataSb = new StringBuilder();
+            StringBuilder expSb = new StringBuilder();
+            int stepIdx = 1;
+            for (TestStep st : steps) {
+                String act = st.getAction() != null ? st.getAction() : "";
+                String desc = st.getDescription() != null && !st.getDescription().isBlank()
+                        ? st.getDescription()
+                        : (act + " " + (st.getTarget() != null ? st.getTarget() : "")).trim();
+                sb.append(stepIdx).append(". ").append(desc).append("\n");
+                if (st.getTestData() != null && !st.getTestData().isBlank()) {
+                    dataSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getTestData()))
+                            .append("\n");
+                }
+                if (st.getExpectedResult() != null && !st.getExpectedResult().isBlank()) {
+                    expSb.append(I18nService.get(lang, "export.tc.steps.step_prefix", stepIdx, st.getExpectedResult()))
+                            .append("\n");
+                }
+                stepIdx++;
+            }
+            row.stepsSummary = sb.toString().trim();
+            row.testDataSummary = dataSb.toString().trim();
+            row.expectedResults = expSb.toString().trim();
+        }
+
+        // Format Assertions into Expected Results if any
+        if (ac.getAssertions() != null && !ac.getAssertions().isEmpty()) {
+            StringBuilder assertSb = new StringBuilder();
+            if (row.expectedResults != null && !row.expectedResults.isBlank()) {
+                assertSb.append(row.expectedResults).append("\n\nTiêu chí xác thực (Assertions):\n");
+            }
+            int aIdx = 1;
+            for (Assertion a : ac.getAssertions()) {
+                String label = AssertTypeDisplay.label(a.getType());
+                String loc = a.getLocator() != null && !a.getLocator().isBlank() ? (" [" + a.getLocator() + "]") : "";
+                String val = a.getValue() != null && !a.getValue().isBlank() ? (" = \"" + a.getValue() + "\"") : "";
+                assertSb.append(aIdx++).append(". ").append(label).append(loc).append(val).append("\n");
+            }
+            row.expectedResults = assertSb.toString().trim();
+        }
+
+        // Test Data Sets
+        if (ac.getTestDataSets() != null && !ac.getTestDataSets().isEmpty()) {
+            StringBuilder dsSb = new StringBuilder();
+            if (row.testDataSummary != null && !row.testDataSummary.isBlank()) {
+                dsSb.append(row.testDataSummary).append("\n\n");
+            }
+            dsSb.append("Dữ liệu kiểm thử tham số hóa:\n");
+            for (TestDataItem item : ac.getTestDataSets()) {
+                dsSb.append("• ").append(item.getScenario()).append(": ");
+                if (item.getParameters() != null) {
+                    item.getParameters().forEach((k, v) -> dsSb.append(k).append("=").append(v).append("; "));
+                }
+                dsSb.append("-> ").append(item.getExpectedOutcome()).append("\n");
+            }
+            row.testDataSummary = dsSb.toString().trim();
+        }
+
+        if (row.expectedResults == null || row.expectedResults.isBlank()) {
+            row.expectedResults = I18nService.get(lang, "export.common.default_expected");
+        }
+        if (row.testDataSummary == null || row.testDataSummary.isBlank()) {
+            row.testDataSummary = I18nService.get(lang, "export.common.default_data");
+        }
+
+        return row;
+    }
+
+    /**
+     * Export a list of AI-generated test cases to a formatted Markdown document.
+     */
+    public static void exportToMarkdown(List<AiGeneratedCase> cases, String promptSummary, Path outputPath)
+            throws Exception {
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("# BỘ TEST CASE KIỂM THỬ TỰ ĐỘNG HÓA\n\n");
+        sb.append("**Mô tả / Tóm tắt:** ").append(promptSummary != null ? promptSummary : "Sinh tự động từ Trợ lý AI")
+                .append("\n\n");
+        sb.append("**Thời gian tạo:** ").append(DISPLAY_DT.format(LocalDateTime.now())).append("\n\n");
+        sb.append("**Tổng số test cases:** ").append(cases != null ? cases.size() : 0).append("\n\n");
+        sb.append("---\n\n");
+
+        if (cases != null) {
+            int idx = 1;
+            for (AiGeneratedCase c : cases) {
+                sb.append("## ").append(idx++).append(". ").append(c.getName()).append("\n\n");
+                sb.append("- **Mức độ ưu tiên:** ").append(com.studio.model.TestPriority.getLabel(c.getPriority()))
+                        .append("\n");
+                if (c.getDescription() != null && !c.getDescription().isBlank()) {
+                    sb.append("- **Mục tiêu:** ").append(c.getDescription()).append("\n");
+                }
+                if (c.getStartUrl() != null && !c.getStartUrl().isBlank()) {
+                    sb.append("- **URL kiểm thử:** ").append(c.getStartUrl()).append("\n");
+                }
+                if (c.getPreconditions() != null && !c.getPreconditions().isEmpty()) {
+                    sb.append("- **Tiền điều kiện:**\n");
+                    for (String pre : c.getPreconditions()) {
+                        sb.append("  * ").append(pre).append("\n");
+                    }
+                }
+                sb.append("\n");
+
+                // Steps table
+                if (c.getTestSteps() != null && !c.getTestSteps().isEmpty()) {
+                    sb.append("### Các bước kiểm thử (Test Steps):\n\n");
+                    sb.append("| STT | Hành động | Đối tượng (Target) | Dữ liệu (Test Data) | Mô tả bước | Kết quả kỳ vọng |\n");
+                    sb.append("| :--- | :--- | :--- | :--- | :--- | :--- |\n");
+                    int sNum = 1;
+                    for (TestStep st : c.getTestSteps()) {
+                        int num = st.getStepNumber() > 0 ? st.getStepNumber() : sNum++;
+                        sb.append("| ").append(num)
+                                .append(" | ").append(escapeMd(st.getAction()))
+                                .append(" | ").append(escapeMd(st.getTarget()))
+                                .append(" | ").append(escapeMd(st.getTestData()))
+                                .append(" | ").append(escapeMd(st.getDescription()))
+                                .append(" | ").append(escapeMd(st.getExpectedResult()))
+                                .append(" |\n");
+                    }
+                    sb.append("\n");
+                }
+
+                // Assertions
+                if (c.getAssertions() != null && !c.getAssertions().isEmpty()) {
+                    sb.append("### Tiêu chí xác thực (Assertions):\n\n");
+                    int aIdx = 1;
+                    for (Assertion a : c.getAssertions()) {
+                        sb.append(aIdx++).append(". `").append(a.getType()).append("`");
+                        if (a.getLocator() != null && !a.getLocator().isBlank()) {
+                            sb.append(" trên phần tử `").append(a.getLocator()).append("`");
+                        }
+                        if (a.getValue() != null && !a.getValue().isBlank()) {
+                            sb.append(" với giá trị: \"").append(a.getValue()).append("\"");
+                        }
+                        sb.append("\n");
+                    }
+                    sb.append("\n");
+                }
+
+                // Test Data Sets
+                if (c.getTestDataSets() != null && !c.getTestDataSets().isEmpty()) {
+                    sb.append("### Bộ dữ liệu kiểm thử biên & phân vùng (Test Data Sets):\n\n");
+                    for (TestDataItem ds : c.getTestDataSets()) {
+                        sb.append("- **Kịch bản:** ").append(ds.getScenario()).append("\n");
+                        if (ds.getParameters() != null && !ds.getParameters().isEmpty()) {
+                            sb.append("  - Tham số: `").append(ds.getParameters().toString()).append("`\n");
+                        }
+                        sb.append("  - Kết quả kỳ vọng: ").append(ds.getExpectedOutcome()).append("\n");
+                    }
+                    sb.append("\n");
+                }
+
+                if (c.getScriptCode() != null && !c.getScriptCode().isBlank()) {
+                    sb.append("### Kịch bản tự động hóa Playwright Java:\n\n```java\n");
+                    sb.append(c.getScriptCode().trim());
+                    sb.append("\n```\n\n");
+                }
+                sb.append("---\n\n");
+            }
+        }
+        Files.writeString(outputPath, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Export a list of AI-generated test cases to a structured JSON file.
+     */
+    public static void exportToJson(List<AiGeneratedCase> cases, String promptSummary, Path outputPath)
+            throws Exception {
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        mapper.enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT);
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("title", "AI Generated Test Suite");
+        root.put("summary", promptSummary != null ? promptSummary : "");
+        root.put("exportedAt", DISPLAY_DT.format(LocalDateTime.now()));
+        root.put("totalCases", cases != null ? cases.size() : 0);
+        root.put("cases", cases != null ? cases : List.of());
+        mapper.writeValue(outputPath.toFile(), root);
+    }
+
+    private static String escapeMd(String text) {
+        if (text == null)
+            return "";
+        return text.replace("|", "\\|").replace("\r", "").replace("\n", " ");
     }
 
     private static TestCaseRowData buildRowData(int index, TestCase tc, String groupPath, String suiteName,
