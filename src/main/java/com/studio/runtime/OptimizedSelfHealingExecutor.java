@@ -30,7 +30,7 @@ import java.util.function.Consumer;
  */
 public class OptimizedSelfHealingExecutor {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = ProjectStore.DEFAULT_MAPPER;
     private static final Map<String, String> LOCATE_CACHE = new ConcurrentHashMap<>();
     public static final int MAX_MUTATIONS_PER_CASE = 3;
     private static final Map<String, Integer> MUTATION_COUNTS = new ConcurrentHashMap<>();

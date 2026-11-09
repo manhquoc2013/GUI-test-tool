@@ -433,5 +433,34 @@ public class AiAgentIndexingAndOptimizationTest {
                 "ExcelReportService.export must archive into data/exports and index in ai_exports_index");
         assertTrue(exports.stream().anyMatch(e -> "HTML_REPORT".equals(e.exportType()) && Files.exists(Path.of(e.appStoredPath()))),
                 "HtmlReportService.export must archive into data/exports and index in ai_exports_index");
+
+        // 6. Verify deleteSuite cascade-deletes assertions in H2
+        projectStore.createGroup(StudioPaths.getProjectDir(), "GroupAssertCascade", "Desc");
+        Path cascadeGroupDir = StudioPaths.getProjectDir().resolve("GroupAssertCascade");
+        projectStore.createSuite(cascadeGroupDir, "SuiteCascade");
+        Path cascadeSuiteDir = cascadeGroupDir.resolve("SuiteCascade");
+        TestCase cascadeCase = projectStore.createCase(cascadeSuiteDir, "CaseCascade", "Desc");
+        Assertion cascadeAssert = new Assertion();
+        cascadeAssert.setType("URL_CONTAINS");
+        cascadeAssert.setValue("/cascade");
+        cascadeAssert.setStatus("Active");
+        projectStore.addAssertion(cascadeSuiteDir, cascadeCase.getId(), cascadeAssert);
+        assertEquals(1, projectDb.getAssertionsForCase(cascadeCase.getId()).size());
+        projectStore.deleteSuite(cascadeSuiteDir);
+        assertTrue(projectDb.getAssertionsForCase(cascadeCase.getId()).isEmpty(),
+                "deleteSuite must cascade-delete assertions in test_assertions");
+
+        // 7. Verify Undo message resolution for both User and Assistant bubbles & snapshot dir preservation
+        com.studio.model.AiChatMessage userBubble = new com.studio.model.AiChatMessage("user", "Sinh kịch bản");
+        com.studio.model.AiChatMessage assistantBubble = new com.studio.model.AiChatMessage("assistant", "Tóm tắt");
+        assistantBubble.setAppliedToSuite(true);
+        assistantBubble.setSuiteSnapshotJson("{\"suiteJson\":\"{}\"}");
+        assistantBubble.setSuiteSnapshotDir(cascadeSuiteDir.toString());
+        List<com.studio.model.AiChatMessage> pair = List.of(userBubble, assistantBubble);
+
+        com.studio.model.AiChatMessage resolvedFromUser = com.studio.controller.AiAssistantPageController.resolveAppliedSnapshotMessage(pair, userBubble);
+        assertSame(assistantBubble, resolvedFromUser, "Undoing user message must resolve paired applied assistant message");
+        assertEquals(cascadeSuiteDir, com.studio.controller.AiAssistantPageController.resolveRollbackSuiteDir(resolvedFromUser, null),
+                "Rollback must prefer suiteSnapshotDir stored on the message over current UI selection");
     }
 }

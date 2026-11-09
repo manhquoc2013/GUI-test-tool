@@ -1579,6 +1579,14 @@ public class AiAssistantPageController implements Initializable {
         return "";
     }
 
+    private static void configureExportChooserDirectory(FileChooser chooser) {
+        if (chooser == null) return;
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
+    }
+
     @FXML
     public void exportCasesToExcel() {
         if (currentGeneratedCases.isEmpty()) {
@@ -1587,6 +1595,7 @@ public class AiAssistantPageController implements Initializable {
         }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Lưu Bộ Test Cases ra Excel (.xlsx)");
+        configureExportChooserDirectory(chooser);
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Workbook (*.xlsx)", "*.xlsx"));
         chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".xlsx");
 
@@ -1615,6 +1624,7 @@ public class AiAssistantPageController implements Initializable {
         }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Lưu Bộ Test Cases ra Markdown (.md)");
+        configureExportChooserDirectory(chooser);
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown Document (*.md)", "*.md"));
         chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".md");
 
@@ -1642,6 +1652,7 @@ public class AiAssistantPageController implements Initializable {
         }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Lưu Bộ Test Cases ra JSON (.json)");
+        configureExportChooserDirectory(chooser);
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Data (*.json)", "*.json"));
         chooser.setInitialFileName("TestCases_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".json");
 
@@ -1881,12 +1892,41 @@ public class AiAssistantPageController implements Initializable {
         return card;
     }
 
+    public static AiChatMessage resolveAppliedSnapshotMessage(List<AiChatMessage> msgs, AiChatMessage targetMsg) {
+        if (targetMsg == null) return null;
+        if (targetMsg.isAppliedToSuite() && targetMsg.getSuiteSnapshotJson() != null) {
+            return targetMsg;
+        }
+        if (msgs != null && "user".equalsIgnoreCase(targetMsg.getRole())) {
+            int idx = msgs.indexOf(targetMsg);
+            if (idx >= 0 && idx + 1 < msgs.size()) {
+                AiChatMessage next = msgs.get(idx + 1);
+                if ("assistant".equalsIgnoreCase(next.getRole())
+                        && next.isAppliedToSuite()
+                        && next.getSuiteSnapshotJson() != null) {
+                    return next;
+                }
+            }
+        }
+        return null;
+    }
+
+    public static Path resolveRollbackSuiteDir(AiChatMessage appliedMsg, Path fallbackSelectedSuiteDir) {
+        if (appliedMsg != null && appliedMsg.getSuiteSnapshotDir() != null && !appliedMsg.getSuiteSnapshotDir().isBlank()) {
+            return Path.of(appliedMsg.getSuiteSnapshotDir());
+        }
+        return fallbackSelectedSuiteDir;
+    }
+
     private void handleUndoMessage(AiChatMessage targetMsg) {
         if (targetMsg == null)
             return;
 
+        List<AiChatMessage> msgs = currentSession.getMessages();
+        AiChatMessage appliedMsg = resolveAppliedSnapshotMessage(msgs, targetMsg);
+
         // 1. If applied to suite, ask for confirmation to rollback files
-        if (targetMsg.isAppliedToSuite() && targetMsg.getSuiteSnapshotJson() != null) {
+        if (appliedMsg != null) {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
             alert.setTitle("Xác nhận hoàn tác Suite");
             alert.setHeaderText("Hoàn tác toàn bộ thay đổi trong Suite");
@@ -1899,9 +1939,13 @@ public class AiAssistantPageController implements Initializable {
                 return;
             }
 
-            Path suiteDir = getSelectedSuiteDir();
+            Path rollbackDir = resolveRollbackSuiteDir(appliedMsg, getSelectedSuiteDir());
             try {
-                chatHistoryStore.rollbackSuiteSnapshot(suiteDir, targetMsg.getSuiteSnapshotJson());
+                chatHistoryStore.rollbackSuiteSnapshot(rollbackDir, appliedMsg.getSuiteSnapshotJson());
+                ExplorerPageController explorer = ViewNavigator.getController(ViewNavigator.Page.EXPLORER, ExplorerPageController.class);
+                if (explorer != null) {
+                    explorer.reloadFromDisk();
+                }
                 ToastService.success("⚡ Đã khôi phục Suite về trạng thái trước khi áp dụng!");
             } catch (Exception ex) {
                 ToastService.error("Lỗi khi khôi phục Suite: " + ex.getMessage());
@@ -1909,7 +1953,6 @@ public class AiAssistantPageController implements Initializable {
         }
 
         // 2. Remove the message and its pair from the session
-        List<AiChatMessage> msgs = currentSession.getMessages();
         int idx = msgs.indexOf(targetMsg);
         if (idx >= 0) {
             if ("user".equalsIgnoreCase(targetMsg.getRole())) {

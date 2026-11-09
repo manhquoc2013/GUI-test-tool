@@ -350,6 +350,12 @@ public class LocalDataIndexService {
     public void deleteSuite(String groupName, String suiteName) {
         String suiteId = groupName + "/" + suiteName;
         try (Connection conn = dbManager.getConnection()) {
+            try (PreparedStatement ps0 = conn.prepareStatement(
+                    "DELETE FROM test_assertions WHERE case_id IN (SELECT id FROM test_cases WHERE group_name = ? AND suite_name = ?)")) {
+                ps0.setString(1, groupName);
+                ps0.setString(2, suiteName);
+                ps0.executeUpdate();
+            }
             try (PreparedStatement ps = conn.prepareStatement("DELETE FROM test_suites WHERE id = ?")) {
                 ps.setString(1, suiteId);
                 ps.executeUpdate();
@@ -561,9 +567,12 @@ public class LocalDataIndexService {
         if (suiteKey == null)
             return;
         try (Connection conn = dbManager.getConnection();
-                PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE suite_key = ?")) {
-            ps.setString(1, suiteKey);
-            ps.executeUpdate();
+                PreparedStatement ps1 = conn.prepareStatement("DELETE FROM ai_chat_messages WHERE suite_key = ?");
+                PreparedStatement ps2 = conn.prepareStatement("DELETE FROM ai_chat_sessions WHERE suite_key = ?")) {
+            ps1.setString(1, suiteKey);
+            ps1.executeUpdate();
+            ps2.setString(1, suiteKey);
+            ps2.executeUpdate();
         } catch (SQLException ignored) {
         }
     }

@@ -749,3 +749,6 @@
    - `AssertCodeGenerator.generateTableRowCount` truyền đúng biến đếm hàng `__rowCount` vào `buildCountCondition(varName, value)` và sử dụng `parseSafeInt(raw, fallback)` an toàn trước mọi đầu vào số học.
 4. **Zero-Overhead Settings Reads (`SettingsStore`)**:
    - `SettingsStore.load()` kiểm tra `hasDatabaseSettings()` trước khi seed H2 mirror, loại bỏ hoàn toàn việc mã hóa lại AES-GCM và ghi H2 `MERGE` dư thừa ở mỗi lần đọc cấu hình trên luồng UI.
+5. **Pair-Aware Undo Rollback & Suite Assertion Cascade (`AiAssistantPageController`, `LocalDataIndexService`)**:
+   - `AiAssistantPageController.resolveAppliedSnapshotMessage` và `resolveRollbackSuiteDir` đảm bảo khi người dùng bấm "Hoàn tác" trên cả bong bóng tin nhắn của User lẫn của Assistant, hệ thống đều tìm đúng bản snapshot đã áp dụng và khôi phục về đúng `suiteSnapshotDir` ban đầu (kể cả khi người dùng đã đổi lựa chọn Suite trên thanh công cụ), đồng thời làm mới `ExplorerPageController.reloadFromDisk()`.
+   - `LocalDataIndexService.deleteSuite` xóa dây chuyền các dòng trong `test_assertions` trước khi xóa `test_cases`, và `clearChatForSuite` xóa sạch cả `ai_chat_messages` lẫn `ai_chat_sessions`.
