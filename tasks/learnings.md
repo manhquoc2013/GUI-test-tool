@@ -674,14 +674,18 @@
   - Tích hợp checkbox "Tạo Test Script" ngay tại thanh điều khiển prompt.
   - Tự động nhận diện URL (`http://`, `https://`) từ prompt, tài liệu đính kèm hoặc Live DOM để bật/tắt checkbox thông minh, đồng thời trao toàn quyền cho người dùng chủ động điều khiển theo nhu cầu kiểm thử.
 
-
-
-
-
-
-
-
-
-
-
-
+### 18. JavaFX ComboBox Listener Re-entrancy & AI Chat History Tab-Switch Preservation Architecture
+- **Root Cause of Chat History Loss on Tab Switch**:
+  - Khi người dùng chuyển tab (giữa Trợ lý AI và Khám phá/Báo cáo/Suite Workspace) và quay lại màn hình AI, cơ chế điều hướng `ViewNavigator.onPageShown(Page.AI_ASSISTANT)` gọi `ai.reloadTargets()` để làm mới danh sách nhóm và suite.
+  - Hàm `reloadTargets()` gọi trực tiếp `targetGroupCombo.getItems().clear()` và `targetSuiteCombo.getItems().clear()`.
+  - Trong JavaFX, việc gọi `.clear()` trên `ComboBox` làm giá trị `.getValue()` chuyển thành `null` và kích hoạt ngay lập tức các listener `onAction`:
+    - `targetGroupCombo` kích hoạt `onGroupSelected()`.
+    - `targetSuiteCombo` kích hoạt `loadChatHistoryForSuite()`.
+  - Tại thời điểm này, `targetGroupCombo` và `targetSuiteCombo` đều tạm thời là `null`, dẫn đến `getSelectedSuiteDir()` trả về `null` (workspace toàn cục).
+  - Kết quả là `currentSession` đang chứa lịch sử trò chuyện của người dùng bị ghi đè bởi một session toàn cục trống, và `chatMessagesBox.getChildren().clear()` xóa sạch bong bóng chat đang hiển thị.
+- **Robust Fix & Listener Re-entrancy Guard**:
+  1. **Re-entrancy Guard Flag (`isReloadingTargets`)**: Đặt cờ bảo vệ `isReloadingTargets = true` trong suốt quá trình `reloadTargets()`. Bất kỳ sự kiện `onAction` nào từ ComboBox phát sinh trong lúc cập nhật danh sách sẽ lập tức `return` mà không kích hoạt chuỗi sự kiện phá hủy dữ liệu.
+  2. **Non-Destructive Target Sync (`setAll` thay vì `clear`)**: Đọc danh sách nhóm và suite từ đĩa vào danh sách trung gian (`List<String>`) và chỉ cập nhật ComboBox thông qua `.getItems().setAll(items)` khi có thay đổi thực tế trên đĩa.
+  3. **Preserve Live In-Memory Session**: Nếu suite đích không thay đổi (`suiteSame == true`) và `currentSession` hiện tại đã có tin nhắn, không nạp lại hoặc ghi đè session từ đĩa mà giữ nguyên session đang hoạt động trong bộ nhớ, chỉ làm mới danh sách phiên (`refreshSessionsList(activeSessionId)`) để giữ con trỏ chọn phiên nhất quán.
+  4. **Active Session ID Preservation in `refreshSessionsList`**: Cho phép `refreshSessionsList` ghi nhớ và tái chọn đúng `currentSession.getId()` thay vì mặc định rơi về index 0.
+  5. **Bidirectional Tab Switch Synchronization**: Đồng bộ `ViewNavigator.onPageShown()` khi người dùng chuyển tab thông qua cả thanh menu bên (Sidebar) lẫn thanh tab tài liệu (Multi-Tab Document Bar `TabManager`), đảm bảo trải nghiệm nhất quán 100%.

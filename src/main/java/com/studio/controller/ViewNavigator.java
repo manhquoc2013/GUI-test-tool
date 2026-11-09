@@ -99,7 +99,7 @@ public class ViewNavigator {
         UiMotion.playPageEnter(node);
     }
 
-    private static void onPageShown(Page page) {
+    public static void onPageShown(Page page) {
         if (page == Page.EXPLORER) {
             ExplorerPageController explorer = getController(Page.EXPLORER, ExplorerPageController.class);
             if (explorer != null) {

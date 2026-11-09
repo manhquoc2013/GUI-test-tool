@@ -277,12 +277,12 @@ public class StudioPaths {
         Files.createDirectories(getHarnessDir());
     }
 
-    static void setPathsForTesting(Path appHome, Path dataHome) {
+    public static void setPathsForTesting(Path appHome, Path dataHome) {
         APP_HOME = appHome;
         DATA_HOME = dataHome != null ? dataHome : determineDataHome(appHome);
     }
 
-    static void resetForTesting() {
+    public static void resetForTesting() {
         initPaths();
     }
 }

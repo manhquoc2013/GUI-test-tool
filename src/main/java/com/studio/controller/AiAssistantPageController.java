@@ -157,6 +157,7 @@ public class AiAssistantPageController implements Initializable {
     private final ObservableList<AiChatSessionMeta> allSessions = FXCollections.observableArrayList();
     private final FilteredList<AiChatSessionMeta> filteredSessions = new FilteredList<>(allSessions, p -> true);
     private boolean isSwitchingSession = false;
+    private boolean isReloadingTargets = false;
     private String liveDomJson = null;
 
     private HBox thinkingBubbleWrapper = null;
@@ -292,51 +293,100 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void reloadTargets() {
-        String prevGroup = targetGroupCombo.getValue();
-        String prevSuite = targetSuiteCombo.getValue();
+        if (isReloadingTargets) return;
+        isReloadingTargets = true;
+        try {
+            String prevGroup = targetGroupCombo.getValue();
+            String prevSuite = targetSuiteCombo.getValue();
+            String activeSessionId = (currentSession != null) ? currentSession.getId() : null;
+            Path prevSuiteDir = getSelectedSuiteDir();
 
-        targetGroupCombo.getItems().clear();
-        targetSuiteCombo.getItems().clear();
-
-        Path projDir = StudioPaths.getProjectDir();
-        if (Files.exists(projDir)) {
-            try (var stream = Files.list(projDir)) {
-                stream.filter(Files::isDirectory).forEach(dir -> {
-                    targetGroupCombo.getItems().add(dir.getFileName().toString());
-                });
-            } catch (IOException ignored) {
+            Path projDir = StudioPaths.getProjectDir();
+            List<String> groups = new ArrayList<>();
+            if (Files.exists(projDir)) {
+                try (var stream = Files.list(projDir)) {
+                    stream.filter(Files::isDirectory)
+                          .map(d -> d.getFileName().toString())
+                          .sorted(String.CASE_INSENSITIVE_ORDER)
+                          .forEach(groups::add);
+                } catch (IOException ignored) {}
             }
-        }
 
-        if (prevGroup != null && targetGroupCombo.getItems().contains(prevGroup)) {
-            targetGroupCombo.setValue(prevGroup);
-            onGroupSelected();
-            if (prevSuite != null && targetSuiteCombo.getItems().contains(prevSuite)) {
-                targetSuiteCombo.setValue(prevSuite);
+            if (!groups.equals(new ArrayList<>(targetGroupCombo.getItems()))) {
+                targetGroupCombo.getItems().setAll(groups);
             }
-        } else if (!targetGroupCombo.getItems().isEmpty()) {
-            targetGroupCombo.getSelectionModel().select(0);
-            onGroupSelected();
+
+            String targetGroup = null;
+            if (prevGroup != null && groups.contains(prevGroup)) {
+                targetGroup = prevGroup;
+            } else if (!groups.isEmpty()) {
+                targetGroup = groups.get(0);
+            }
+            targetGroupCombo.setValue(targetGroup);
+
+            List<String> suites = new ArrayList<>();
+            if (targetGroup != null && !targetGroup.isBlank()) {
+                Path groupDir = projDir.resolve(targetGroup);
+                if (Files.exists(groupDir)) {
+                    try (var stream = Files.list(groupDir)) {
+                        stream.filter(Files::isDirectory)
+                              .map(d -> d.getFileName().toString())
+                              .sorted(String.CASE_INSENSITIVE_ORDER)
+                              .forEach(suites::add);
+                    } catch (IOException ignored) {}
+                }
+            }
+
+            if (!suites.equals(new ArrayList<>(targetSuiteCombo.getItems()))) {
+                targetSuiteCombo.getItems().setAll(suites);
+            }
+
+            String targetSuite = null;
+            if (prevSuite != null && suites.contains(prevSuite)) {
+                targetSuite = prevSuite;
+            } else if (!suites.isEmpty()) {
+                targetSuite = suites.get(0);
+            }
+            targetSuiteCombo.setValue(targetSuite);
+
+            Path newSuiteDir = getSelectedSuiteDir();
+            boolean suiteSame = (prevSuiteDir == null && newSuiteDir == null) ||
+                                (prevSuiteDir != null && prevSuiteDir.equals(newSuiteDir));
+
+            if (suiteSame && currentSession != null && (!currentSession.getMessages().isEmpty() || activeSessionId != null)) {
+                refreshSessionsList(activeSessionId);
+            } else {
+                loadChatHistoryForSuiteInternal(activeSessionId);
+            }
+        } finally {
+            isReloadingTargets = false;
         }
     }
 
     private void onGroupSelected() {
+        if (isReloadingTargets) return;
         String groupName = targetGroupCombo.getValue();
-        targetSuiteCombo.getItems().clear();
-        if (groupName == null || groupName.isBlank())
+        if (groupName == null || groupName.isBlank()) {
+            targetSuiteCombo.getItems().clear();
+            loadChatHistoryForSuite();
             return;
+        }
 
+        List<String> suites = new ArrayList<>();
         Path groupDir = StudioPaths.getProjectDir().resolve(groupName);
         if (Files.exists(groupDir)) {
             try (var stream = Files.list(groupDir)) {
-                stream.filter(Files::isDirectory).forEach(suiteDir -> {
-                    targetSuiteCombo.getItems().add(suiteDir.getFileName().toString());
-                });
-            } catch (IOException ignored) {
-            }
+                stream.filter(Files::isDirectory)
+                      .map(d -> d.getFileName().toString())
+                      .sorted(String.CASE_INSENSITIVE_ORDER)
+                      .forEach(suites::add);
+            } catch (IOException ignored) {}
         }
-        if (!targetSuiteCombo.getItems().isEmpty()) {
+        targetSuiteCombo.getItems().setAll(suites);
+        if (!suites.isEmpty()) {
             targetSuiteCombo.getSelectionModel().select(0);
+        } else {
+            loadChatHistoryForSuite();
         }
     }
 
@@ -353,12 +403,18 @@ public class AiAssistantPageController implements Initializable {
     }
 
     public void loadChatHistoryForSuite() {
+        if (isReloadingTargets) return;
+        String preserveSessionId = (currentSession != null) ? currentSession.getId() : null;
+        loadChatHistoryForSuiteInternal(preserveSessionId);
+    }
+
+    private void loadChatHistoryForSuiteInternal(String preferredSessionId) {
         Path suiteDir = getSelectedSuiteDir();
-        refreshSessionsList(null);
+        refreshSessionsList(preferredSessionId);
         if (sessionsListView != null && sessionsListView.getSelectionModel().getSelectedItem() != null) {
             currentSession = chatHistoryStore.loadSession(suiteDir, sessionsListView.getSelectionModel().getSelectedItem().getId());
         } else {
-            currentSession = chatHistoryStore.loadSession(suiteDir);
+            currentSession = chatHistoryStore.loadSession(suiteDir, preferredSessionId);
         }
         renderChatHistory();
         updateTokenUsageDisplay();
@@ -473,15 +529,16 @@ public class AiAssistantPageController implements Initializable {
         if (sessionsListView != null) {
             isSwitchingSession = true;
             try {
-                if (selectSessionId != null) {
+                String targetId = selectSessionId != null ? selectSessionId : (currentSession != null ? currentSession.getId() : null);
+                if (targetId != null) {
                     for (AiChatSessionMeta meta : allSessions) {
-                        if (selectSessionId.equals(meta.getId())) {
+                        if (targetId.equals(meta.getId())) {
                             sessionsListView.getSelectionModel().select(meta);
                             return;
                         }
                     }
                 }
-                if (!allSessions.isEmpty() && sessionsListView.getSelectionModel().getSelectedItem() == null) {
+                if (!allSessions.isEmpty()) {
                     sessionsListView.getSelectionModel().select(0);
                 }
             } finally {
@@ -1037,6 +1094,7 @@ public class AiAssistantPageController implements Initializable {
                     // Persist updated history
                     try {
                         chatHistoryStore.saveSession(suiteDir, targetSession);
+                        refreshSessionsList(targetSession.getId());
                     } catch (IOException ignored) {
                     }
 
@@ -1777,5 +1835,29 @@ public class AiAssistantPageController implements Initializable {
         renderChatHistory();
         updateTokenUsageDisplay();
         ToastService.info("Đã hoàn tác tin nhắn thành công.");
+    }
+
+    public AiChatSession getCurrentSession() {
+        return currentSession;
+    }
+
+    public void setCurrentSession(AiChatSession session) {
+        this.currentSession = session;
+    }
+
+    public ComboBox<String> getTargetGroupCombo() {
+        return targetGroupCombo;
+    }
+
+    public ComboBox<String> getTargetSuiteCombo() {
+        return targetSuiteCombo;
+    }
+
+    public ListView<AiChatSessionMeta> getSessionsListView() {
+        return sessionsListView;
+    }
+
+    public VBox getChatMessagesBox() {
+        return chatMessagesBox;
     }
 }

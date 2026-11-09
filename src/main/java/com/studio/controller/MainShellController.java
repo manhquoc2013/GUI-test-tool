@@ -780,12 +780,15 @@ public class MainShellController implements Initializable {
         if ("PAGE_EXPLORER".equals(id)) {
             setBreadcrumb("Dự án / Khám phá");
             setActiveNavButton(navExplorerBtn);
+            ViewNavigator.onPageShown(ViewNavigator.Page.EXPLORER);
         } else if ("PAGE_REPORTS".equals(id)) {
             setBreadcrumb("Dự án / Báo cáo");
             setActiveNavButton(navReportsBtn);
+            ViewNavigator.onPageShown(ViewNavigator.Page.REPORTS);
         } else if ("PAGE_AI_ASSISTANT".equals(id)) {
             setBreadcrumb("Dự án / Trợ lý AI");
             setActiveNavButton(navAiBtn);
+            ViewNavigator.onPageShown(ViewNavigator.Page.AI_ASSISTANT);
         } else if (id.startsWith("SUITE:")) {
             setBreadcrumb("Dự án > Suite: " + tab.getTitle());
             setActiveNavButton(null);
