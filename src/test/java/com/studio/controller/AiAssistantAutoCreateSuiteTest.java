@@ -101,17 +101,17 @@ public class AiAssistantAutoCreateSuiteTest {
                 // Execute apply without having any prior group or suite
                 controller.applyCasesToSelectedSuite();
 
-                // Verification 1: Group and Suite were automatically named and assigned
-                assertEquals("AI-Tests", controller.getTargetGroupCombo().getValue());
-                assertEquals("Đăng nhập Hệ thống Quản trị", controller.getTargetSuiteCombo().getValue());
+                // Verification 1: Group and Suite were automatically named accurately after the login function
+                assertEquals("XacThuc_TaiKhoan", controller.getTargetGroupCombo().getValue());
+                assertEquals("KiemThu_DangNhapHeThong", controller.getTargetSuiteCombo().getValue());
 
                 // Verification 2: Check filesystem creation
                 Path projectDir = StudioPaths.getProjectDir();
-                Path groupDir = projectDir.resolve("AI-Tests");
-                assertTrue(Files.exists(groupDir), "Group directory AI-Tests must be created");
+                Path groupDir = projectDir.resolve("XacThuc_TaiKhoan");
+                assertTrue(Files.exists(groupDir), "Group directory XacThuc_TaiKhoan must be created");
                 assertTrue(Files.exists(groupDir.resolve("group.json")), "group.json must exist");
 
-                Path suiteDir = groupDir.resolve("Đăng nhập Hệ thống Quản trị");
+                Path suiteDir = groupDir.resolve("KiemThu_DangNhapHeThong");
                 assertTrue(Files.exists(suiteDir), "Suite directory must be created");
                 assertTrue(Files.exists(suiteDir.resolve("suite.json")), "suite.json must exist");
 
@@ -159,8 +159,8 @@ public class AiAssistantAutoCreateSuiteTest {
                 controller.getTargetSuiteCombo().setValue(null);
 
                 AiGeneratedCase c = new AiGeneratedCase();
-                c.setName("AutoCase1");
-                c.setDescription("Mô tả test case");
+                c.setName("TC01_GioHang_ThemSanPham");
+                c.setDescription("Kiểm thử thêm sản phẩm vào giỏ hàng");
                 c.setScriptCode("page.navigate(\"https://example.com\");");
                 controller.getCurrentGeneratedCases().add(c);
 
@@ -168,14 +168,14 @@ public class AiAssistantAutoCreateSuiteTest {
 
                 controller.applyCasesToSelectedSuite();
 
-                // Group should remain ExistingGroup, Suite should default to AI-Generated-Suite
+                // Group should remain ExistingGroup, Suite should be named after the test case feature
                 assertEquals("ExistingGroup", controller.getTargetGroupCombo().getValue());
-                assertEquals("AI-Generated-Suite", controller.getTargetSuiteCombo().getValue());
+                assertEquals("KiemThu_GioHang", controller.getTargetSuiteCombo().getValue());
 
-                Path suiteDir = groupDir.resolve("AI-Generated-Suite");
+                Path suiteDir = groupDir.resolve("KiemThu_GioHang");
                 assertTrue(Files.exists(suiteDir));
                 assertTrue(Files.exists(suiteDir.resolve("suite.json")));
-                assertTrue(Files.exists(suiteDir.resolve("AutoCase1.java")));
+                assertTrue(Files.exists(suiteDir.resolve("TC01_GioHang_ThemSanPham.java")));
 
             } catch (Exception e) {
                 fail(e.getMessage(), e);

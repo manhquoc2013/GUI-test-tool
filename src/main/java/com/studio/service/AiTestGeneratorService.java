@@ -36,26 +36,34 @@ public class AiTestGeneratorService {
     private final AiTokenOptimizer tokenOptimizer;
     private final AiAmbiguityAnalyzer ambiguityAnalyzer;
     private final AiProjectAdvisorService advisorService;
+    private final AiMultiAgentCoordinator multiAgentCoordinator;
 
     public AiTestGeneratorService() {
-        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
+        this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper) {
-        this(openAiClient, mapper, new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
+        this(openAiClient, mapper, new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer) {
-        this(openAiClient, mapper, tokenOptimizer, new AiAmbiguityAnalyzer(), new AiProjectAdvisorService());
+        this(openAiClient, mapper, tokenOptimizer, new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator());
     }
 
     public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
                                   AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService) {
+        this(openAiClient, mapper, tokenOptimizer, ambiguityAnalyzer, advisorService, new AiMultiAgentCoordinator());
+    }
+
+    public AiTestGeneratorService(OpenAiClient openAiClient, ObjectMapper mapper, AiTokenOptimizer tokenOptimizer,
+                                  AiAmbiguityAnalyzer ambiguityAnalyzer, AiProjectAdvisorService advisorService,
+                                  AiMultiAgentCoordinator multiAgentCoordinator) {
         this.openAiClient = openAiClient;
         this.mapper = mapper;
         this.tokenOptimizer = tokenOptimizer != null ? tokenOptimizer : new AiTokenOptimizer();
         this.ambiguityAnalyzer = ambiguityAnalyzer != null ? ambiguityAnalyzer : new AiAmbiguityAnalyzer();
         this.advisorService = advisorService != null ? advisorService : new AiProjectAdvisorService();
+        this.multiAgentCoordinator = multiAgentCoordinator != null ? multiAgentCoordinator : new AiMultiAgentCoordinator();
     }
 
     public static class GenerationResult {
@@ -65,6 +73,9 @@ public class AiTestGeneratorService {
         private final boolean clarification;
         private final List<com.studio.model.AiClarificationQuestion> questions;
         private final String intent;
+        private String suggestedGroup;
+        private String suggestedSuite;
+        private AiMultiAgentCoordinator.AgentReviewReport agentReviewReport;
 
         public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse) {
             this(summary, cases, rawResponse, false, List.of(), "GENERATE_TESTS");
@@ -102,6 +113,30 @@ public class AiTestGeneratorService {
 
         public String getIntent() {
             return intent;
+        }
+
+        public String getSuggestedGroup() {
+            return suggestedGroup;
+        }
+
+        public void setSuggestedGroup(String suggestedGroup) {
+            this.suggestedGroup = suggestedGroup;
+        }
+
+        public String getSuggestedSuite() {
+            return suggestedSuite;
+        }
+
+        public void setSuggestedSuite(String suggestedSuite) {
+            this.suggestedSuite = suggestedSuite;
+        }
+
+        public AiMultiAgentCoordinator.AgentReviewReport getAgentReviewReport() {
+            return agentReviewReport;
+        }
+
+        public void setAgentReviewReport(AiMultiAgentCoordinator.AgentReviewReport agentReviewReport) {
+            this.agentReviewReport = agentReviewReport;
         }
     }
 
@@ -232,13 +267,22 @@ public class AiTestGeneratorService {
              - "P2" (Medium / Regression): Secondary workflows, search/filtering, pagination, error handling.
              - "P3" (Low / Edge Case): UI polish, formatting, tooltips, rare edge scenarios.
 
-        10. **Response Format**:
+        10. **Functional Naming for Group & Suite (`suggestedGroup` & `suggestedSuite` - CRITICAL)**:
+           - You MUST determine and output accurate, domain-specific names for `"suggestedGroup"` and `"suggestedSuite"` based on the functional module and generated test cases:
+             - `"suggestedGroup"`: The functional module / domain name (e.g., `"XacThuc_TaiKhoan"`, `"MuaSam_GioHang"`, `"QuanLyDonHang"`, `"TimKiem_SanPham"`, `"QuanLyNguoiDung"`).
+             - `"suggestedSuite"`: The specific feature test suite name matching the test cases (e.g., `"KiemThu_DangNhapHeThong"`, `"KiemThu_ThanhToanDonHang"`, `"KiemThu_DangKyTaiKhoan"`).
+           - NEVER output generic names like `"AI-Tests"`, `"AI-Generated-Suite"`, `"Default"`, or `"TestSuite"`.
+
+        11. **Response Format**:
         You MUST respond ONLY with a JSON object (inside ```json ... ``` or raw JSON) matching this exact schema:
         {
           "summary": "Tóm tắt kịch bản kiểm thử bằng tiếng Việt",
+          "suggestedGroup": "XacThuc_TaiKhoan",
+          "suggestedSuite": "KiemThu_DangNhapHeThong",
+          "agentReview": "Tóm tắt thẩm định của Reality Checker & Loop Engineer",
           "cases": [
             {
-              "name": "Case_Identifier_Name",
+              "name": "TC01_DangNhap_ThanhCong",
               "description": "Mô tả mục tiêu kịch bản",
               "priority": "P0 | P1 | P2 | P3",
               "startUrl": "https://example.com/target",
@@ -394,7 +438,10 @@ public class AiTestGeneratorService {
             return new GenerationResult(gapRes.markdownReport(), List.of(), gapRes.markdownReport(), false, List.of(), "GAP_ANALYSIS");
         }
 
-        if (analysis.needsClarification()) {
+        boolean autonomousSkill = (selectedSkill == AiSkill.MULTI_AGENT_LOOP
+                || selectedSkill == AiSkill.REALITY_CHECKER_REVIEW
+                || selectedSkill == AiSkill.API_CONTRACT_TESTER);
+        if (analysis.needsClarification() && !autonomousSkill) {
             return new GenerationResult(
                     analysis.initialClarificationMessage(),
                     List.of(),
@@ -407,7 +454,7 @@ public class AiTestGeneratorService {
 
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
         if (progressListener != null) {
-            progressListener.accept("Đang tối ưu ngữ cảnh & lịch sử hội thoại...");
+            progressListener.accept("🔍 [Agent 1/4 - Spec Miner] Đang phân tích yêu cầu, tài liệu & xác định phân hệ chức năng...");
         }
 
         AiSkill effectiveSkill = (selectedSkill == null || selectedSkill == AiSkill.AUTO)
@@ -415,20 +462,35 @@ public class AiTestGeneratorService {
                 : selectedSkill;
 
         String effectivePrompt = AiSkill.stripSlashCommand(userPrompt);
-        String systemPrompt;
-        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE && (selectedSkill == null || selectedSkill == AiSkill.AUTO)) {
-            systemPrompt = CHAT_ADVICE_SYSTEM_PROMPT;
-        } else {
-            systemPrompt = (effectiveSkill.getSystemPrompt() != null)
-                    ? effectiveSkill.getSystemPrompt()
-                    : SYSTEM_PROMPT;
-        }
+        boolean isChatAdvice = analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE
+                && (selectedSkill == null || selectedSkill == AiSkill.AUTO);
 
         boolean effectiveGenerateScript = (generateScript != null)
                 ? generateScript
                 : containsTargetUrl(userPrompt, attachments, domJson, contextInfo);
 
-        if (!effectiveGenerateScript) {
+        String systemPrompt;
+        if (isChatAdvice) {
+            systemPrompt = CHAT_ADVICE_SYSTEM_PROMPT;
+        } else {
+            if (effectiveSkill.getSystemPrompt() != null) {
+                // Combine specialized skill persona with SYSTEM_PROMPT JSON schema and rules
+                boolean isMarkdownOnlySkill = (effectiveSkill == AiSkill.EXHAUSTIVE_UNIT_TEST
+                        || effectiveSkill == AiSkill.FAILURE_RCA
+                        || effectiveSkill == AiSkill.SECURITY_FUZZING);
+                if (isMarkdownOnlySkill) {
+                    systemPrompt = effectiveSkill.getSystemPrompt();
+                } else {
+                    systemPrompt = effectiveSkill.getSystemPrompt() + "\n\n" + SYSTEM_PROMPT;
+                }
+            } else {
+                systemPrompt = SYSTEM_PROMPT;
+            }
+            systemPrompt = systemPrompt + "\n\n" + multiAgentCoordinator.buildMultiAgentPipelineDirective(
+                    effectivePrompt, effectiveSkill, attachments, effectiveGenerateScript);
+        }
+
+        if (!isChatAdvice && !effectiveGenerateScript) {
             systemPrompt = systemPrompt + "\n\n" + """
                 ### ⚠️ QUY TẮC BẮT BUỘC KHI KHÔNG CÓ URL/LINK TRANG CẦN TEST (HOẶC TẮT TẠO TEST SCRIPT):
                 1. Yêu cầu kiểm thử hiện tại KHÔNG có URL/link trang web cần test (hoặc người dùng đã tắt tùy chọn tạo script).
@@ -459,20 +521,44 @@ public class AiTestGeneratorService {
         );
 
         if (progressListener != null) {
-            progressListener.accept("Đang gửi yêu cầu [" + effectiveSkill.getDisplayName() + "] tới " + config.getEffectiveModel() + "...");
+            progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
         }
 
         String reply = openAiClient.chatCompletion(config, messages);
 
-        if (progressListener != null) {
-            progressListener.accept("Đang xử lý cấu trúc phản hồi...");
-        }
-
-        if (analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE && (selectedSkill == null || selectedSkill == AiSkill.AUTO)) {
+        if (isChatAdvice) {
             return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
         }
 
         GenerationResult res = parseResponse(reply, effectiveSkill);
+
+        // Agent 4 (Loop Engineer): If LLM failed to produce any test cases on first pass for a JSON test skill,
+        // execute 1 autonomous self-correction loop retry with explicit Reality Checker feedback.
+        boolean expectsTestCases = (effectiveSkill != AiSkill.EXHAUSTIVE_UNIT_TEST
+                && effectiveSkill != AiSkill.FAILURE_RCA
+                && effectiveSkill != AiSkill.SECURITY_FUZZING);
+        if (expectsTestCases && (res.getCases() == null || res.getCases().isEmpty()) && reply != null && !reply.isBlank()) {
+            if (progressListener != null) {
+                progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phát hiện phản hồi thiếu cấu trúc cases, đang chạy vòng lặp tự hiệu chỉnh...");
+            }
+            List<OpenAiClient.ChatMessage> retryMessages = new ArrayList<>(messages);
+            retryMessages.add(new OpenAiClient.ChatMessage("assistant", reply));
+            retryMessages.add(new OpenAiClient.ChatMessage("user",
+                    "[LOOP ENGINEER SELF-CORRECTION]: Phản hồi trước chưa xuất đúng mảng JSON `cases`. "
+                            + "Hãy xuất NGAY đối tượng JSON hợp lệ chứa `summary`, `suggestedGroup`, `suggestedSuite` và mảng `cases` (tối thiểu 2-3 test cases đầy đủ `testSteps`, `testDataSets`, `assertions`)."));
+            try {
+                String retryReply = openAiClient.chatCompletion(config, retryMessages);
+                if (retryReply != null && !retryReply.isBlank()) {
+                    GenerationResult retryRes = parseResponse(retryReply, effectiveSkill);
+                    if (retryRes.getCases() != null && !retryRes.getCases().isEmpty()) {
+                        res = retryRes;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Keep initial result if retry fails
+            }
+        }
+
         if (!effectiveGenerateScript && res.getCases() != null) {
             for (AiGeneratedCase ac : res.getCases()) {
                 ac.setScriptCode("");
@@ -481,6 +567,12 @@ public class AiTestGeneratorService {
                 }
             }
         }
+
+        // Run Reality Checker (Agent 3) + Loop Engineer (Agent 4) quality audit & self-healing
+        AiMultiAgentCoordinator.AgentReviewReport reviewReport = multiAgentCoordinator.reviewAndHealResult(
+                res, effectivePrompt, attachments, effectiveGenerateScript, this, progressListener);
+        res.setAgentReviewReport(reviewReport);
+
         return res;
     }
 
@@ -515,6 +607,10 @@ public class AiTestGeneratorService {
 
     public AiProjectAdvisorService getAdvisorService() {
         return advisorService;
+    }
+
+    public AiMultiAgentCoordinator getMultiAgentCoordinator() {
+        return multiAgentCoordinator;
     }
 
     /**
@@ -579,13 +675,20 @@ public class AiTestGeneratorService {
         AiLoggingService.info("AI-PARSE", "Bắt đầu phân tích phản hồi AI (độ dài: " + rawResponse.length()
                 + " ký tự, skill=" + (skill != null ? skill.getDisplayName() : "PLAYWRIGHT_E2E") + ")");
 
-        // For non-E2E skills (Exhaustive Unit Test, RCA, Security Fuzzing), AI outputs Markdown matrices & code
-        if (skill != null && skill != AiSkill.PLAYWRIGHT_E2E && skill != AiSkill.AUTO) {
+        // For Markdown-oriented skills (Exhaustive Unit Test, RCA, Security Fuzzing), check if JSON "cases" is present first
+        boolean isMarkdownSkill = (skill == AiSkill.EXHAUSTIVE_UNIT_TEST
+                || skill == AiSkill.FAILURE_RCA
+                || skill == AiSkill.SECURITY_FUZZING);
+        if (isMarkdownSkill) {
             String jsonCandidate = extractJsonBlock(rawResponse);
             if (jsonCandidate.startsWith("{") && jsonCandidate.contains("\"cases\"")) {
                 try {
                     return parseJsonCases(jsonCandidate, rawResponse);
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    try {
+                        return parseJsonCases(autoRepairTruncatedJson(jsonCandidate), rawResponse);
+                    } catch (Exception ignored2) {}
+                }
             }
             List<AiGeneratedCase> cases = extractCasesFromMarkdown(rawResponse);
             return new GenerationResult(rawResponse.trim(), cases, rawResponse);
@@ -664,6 +767,8 @@ public class AiTestGeneratorService {
     private GenerationResult parseJsonCases(String jsonText, String rawResponse) throws Exception {
         JsonNode root = mapper.readTree(jsonText);
         String summary = root.path("summary").asText("Đã tạo test case thành công");
+        String suggestedGroup = root.path("suggestedGroup").asText(root.path("groupName").asText(""));
+        String suggestedSuite = root.path("suggestedSuite").asText(root.path("suiteName").asText(""));
         List<AiGeneratedCase> cases = new ArrayList<>();
 
         JsonNode casesArray = root.path("cases");
@@ -755,7 +860,14 @@ public class AiTestGeneratorService {
             }
         }
 
-        return new GenerationResult(summary, cases, rawResponse);
+        GenerationResult genResult = new GenerationResult(summary, cases, rawResponse);
+        if (suggestedGroup != null && !suggestedGroup.isBlank()) {
+            genResult.setSuggestedGroup(suggestedGroup.trim());
+        }
+        if (suggestedSuite != null && !suggestedSuite.isBlank()) {
+            genResult.setSuggestedSuite(suggestedSuite.trim());
+        }
+        return genResult;
     }
 
     /**
@@ -1153,6 +1265,17 @@ public class AiTestGeneratorService {
             summary = sumMatcher.group(1);
         }
 
+        String suggestedGroup = null;
+        java.util.regex.Matcher grpMatcher = java.util.regex.Pattern.compile("\"suggestedGroup\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (grpMatcher.find()) {
+            suggestedGroup = grpMatcher.group(1).trim();
+        }
+        String suggestedSuite = null;
+        java.util.regex.Matcher suiteMatcher = java.util.regex.Pattern.compile("\"suggestedSuite\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        if (suiteMatcher.find()) {
+            suggestedSuite = suiteMatcher.group(1).trim();
+        }
+
         // 1. Try to extract scriptCode from JSON string
         String scriptCode = null;
         java.util.regex.Matcher scriptMatcher = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(rawResponse);
@@ -1224,7 +1347,14 @@ public class AiTestGeneratorService {
         }
         genCase.setAssertions(assertions);
 
-        return new GenerationResult(summary, List.of(genCase), rawResponse);
+        GenerationResult recovered = new GenerationResult(summary, List.of(genCase), rawResponse);
+        if (suggestedGroup != null && !suggestedGroup.isBlank()) {
+            recovered.setSuggestedGroup(suggestedGroup);
+        }
+        if (suggestedSuite != null && !suggestedSuite.isBlank()) {
+            recovered.setSuggestedSuite(suggestedSuite);
+        }
+        return recovered;
     }
 
     private static String unescapeJsonString(String input) {

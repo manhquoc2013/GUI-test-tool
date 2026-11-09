@@ -28,6 +28,8 @@ public class AiChatMessage {
     private java.util.Map<String, String> clarificationAnswers = new java.util.LinkedHashMap<>();
     private boolean clarificationAnswered;
     private String intent;
+    private String suggestedGroup;
+    private String suggestedSuite;
 
     public AiChatMessage() {
         this.id = UUID.randomUUID().toString();
@@ -162,6 +164,22 @@ public class AiChatMessage {
 
     public void setIntent(String intent) {
         this.intent = intent;
+    }
+
+    public String getSuggestedGroup() {
+        return suggestedGroup;
+    }
+
+    public void setSuggestedGroup(String suggestedGroup) {
+        this.suggestedGroup = suggestedGroup;
+    }
+
+    public String getSuggestedSuite() {
+        return suggestedSuite;
+    }
+
+    public void setSuggestedSuite(String suggestedSuite) {
+        this.suggestedSuite = suggestedSuite;
     }
 }
 

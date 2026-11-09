@@ -174,6 +174,58 @@ public enum AiSkill {
                     ## 1. PHÂN TÍCH NHÁNH ĐIỀU KIỆN & TẬP GIÁ TRỊ BIÊN
                     ## 2. MA TRẬN TEST CASE (TEST COVERAGE MATRIX)
                     ## 3. MÃ NGUỒN UNIT TEST THỰC THI (PARAMETRIZED TESTS)
+                    """),
+
+    MULTI_AGENT_LOOP(
+            "multi_agent_loop",
+            "🔄 Đa Tác Nhân & Tự Kiểm Chứng (Multi-Agent Loop)",
+            "Phối hợp 4 tác nhân chuyên gia: Spec Miner (Phân tích) -> Test Architect (Thiết kế) -> Reality Checker (Thẩm định) -> Loop Engineer (Tự tối ưu).",
+            List.of("/loop", "/agent", "/pipeline", "/multi-agent"),
+            """
+                    [ACTIVE SKILL: MULTI_AGENT_VERIFICATION_LOOP — 4-AGENT AUTONOMOUS PIPELINE]
+                    Bạn đang vận hành quy trình Đa Tác Nhân (Multi-Agent Verification Loop) chuẩn hóa theo kiến trúc ECC & Agency Agents:
+                    1. [TÁC NHÂN 1 — SPEC MINER & ANALYST]:
+                       - Phân rã yêu cầu người dùng / tài liệu / URL thành các phân hệ chức năng (Functional Domain), luồng nghiệp vụ, điều kiện tiên quyết (Preconditions), và ma trận biên BVA / Phân vùng tương đương (EP).
+                       - Xác định tên Nhóm (`suggestedGroup`) và tên Suite (`suggestedSuite`) chuẩn xác theo đúng tên chức năng & nghiệp vụ của bộ test case (ví dụ: Group: "QuanLyDangNhap", Suite: "KiemThu_DangNhapHeThong").
+                    2. [TÁC NHÂN 2 — TEST ARCHITECT & PLAYWRIGHT ENGINEER]:
+                       - Thiết kế đầy đủ bộ Test Case chuẩn ISTQB: Happy Path (P0), Negative Validation (P1), Boundary/Edge Cases (P1/P2), Security/Resilience (P2).
+                       - Mỗi Test Case có tên định danh chuẩn `TC<Số>_<ChứcNăng>_<KịchBản>`, đầy đủ `testSteps` (tối thiểu 3 bước), `testDataSets`, và `assertions`.
+                       - Khi có URL/DOM và bật sinh script: viết mã Playwright Java hoàn chỉnh, tuyệt đối KHÔNG dùng `Thread.sleep` hay `waitForTimeout`, ưu tiên semantic locator và `.first()`.
+                    3. [TÁC NHÂN 3 — REALITY CHECKER & REVIEWER]:
+                       - Thẩm định chéo từng Test Case theo 5 tiêu chí: Độ phủ kịch bản, Độ chi tiết các bước, Tính chặt chẽ của Assertions, Tính tất định của mã Playwright, và Độ chính xác của tên Nhóm/Suite theo chức năng.
+                    4. [TÁC NHÂN 4 — LOOP ENGINEER]:
+                       - Tự động phát hiện và vá mọi lỗ hổng (thiếu bước, thiếu dữ liệu biên, tên Nhóm/Suite chung chung, lỗi cú pháp script) trước khi xuất kết quả cuối cùng.
+                    """),
+
+    REALITY_CHECKER_REVIEW(
+            "reality_checker_review",
+            "🧐 Thẩm định & Đánh giá Test (Reality Checker)",
+            "Chuyên gia kiểm toán chất lượng Test Case & Script: phát hiện lỗ hổng độ phủ, sửa bước thiếu, chuẩn hóa tên Nhóm/Suite và tối ưu Assertions.",
+            List.of("/review", "/audit", "/check", "/reality-check"),
+            """
+                    [ACTIVE SKILL: REALITY_CHECKER_AUDITOR — EVIDENCE-BASED QA REVIEWER]
+                    Bạn đóng vai trò là Chuyên gia Thẩm định Chất lượng Kiểm thử (Reality Checker & QA Reviewer):
+                    - Đánh giá khắt khe yêu cầu hoặc kịch bản hiện có dựa trên bằng chứng (Evidence-Based QA).
+                    - Phát hiện các kịch bản còn thiếu (Edge cases, Negative flows, Race conditions, Empty/Null states, Permission boundaries).
+                    - Chuẩn hóa lại tên Nhóm (`suggestedGroup`), tên Suite (`suggestedSuite`) và tên các Test Case (`TC01_<ChucNang>_...`) sao cho phản ánh đúng bản chất chức năng kiểm thử.
+                    - Nâng cấp toàn bộ `testSteps`, `testDataSets`, `assertions` và `scriptCode` đạt chuẩn Production-Ready (100% không có hard sleep, assertion rõ ràng, dữ liệu biên cụ thể).
+                    """),
+
+    API_CONTRACT_TESTER(
+            "api_contract_tester",
+            "🔌 Kiểm thử API & Hợp đồng dữ liệu (API Tester)",
+            "Thiết kế kịch bản kiểm thử REST/GraphQL API, Schema Validation, Status Codes, Auth Token, Rate Limit và Payload Fuzzing.",
+            List.of("/api", "/rest", "/graphql", "/contract"),
+            """
+                    [ACTIVE SKILL: API_CONTRACT_AND_INTEGRATION_TESTER]
+                    Bạn đóng vai trò là Chuyên gia Kiểm thử API & Tích hợp Hệ thống (API Contract & Integration QA Engineer):
+                    - Phân tích endpoint, phương thức HTTP (GET/POST/PUT/DELETE/PATCH), headers, auth token, request body và response schema.
+                    - Sinh bộ Test Case bao phủ:
+                      1. Happy Path (200 OK / 201 Created) với dữ liệu chuẩn.
+                      2. Validation & Schema Errors (400 Bad Request - thiếu trường bắt buộc, sai kiểu dữ liệu, biên độ dài).
+                      3. Authentication & Authorization (401 Unauthorized, 403 Forbidden - token hết hạn, sai quyền).
+                      4. Resource & State Conflicts (404 Not Found, 409 Conflict, 422 Unprocessable Entity, 429 Rate Limit).
+                    - Điền đầy đủ `testSteps`, `testDataSets` (payload mẫu, query params, headers), `assertions` và đặt `suggestedGroup` / `suggestedSuite` theo đúng phân hệ API.
                     """);
 
     private final String id;
@@ -267,7 +319,29 @@ public enum AiSkill {
             return slashMatch;
         }
 
-        // 2. Document compilation / specs decomposition intent
+        // 2. Multi-Agent Loop / Pipeline keywords
+        if (lower.contains("multi-agent") || lower.contains("đa tác nhân")
+                || lower.contains("loop engineer") || lower.contains("vòng lặp kiểm chứng")
+                || lower.contains("tác nhân agent") || lower.contains("pipeline kiểm thử")) {
+            return MULTI_AGENT_LOOP;
+        }
+
+        // 3. Reality Checker / Review / Audit keywords
+        if (lower.contains("thẩm định test") || lower.contains("review test")
+                || lower.contains("audit test") || lower.contains("reality check")
+                || lower.contains("kiểm toán test case") || lower.contains("rà soát chất lượng test")) {
+            return REALITY_CHECKER_REVIEW;
+        }
+
+        // 4. API Contract / REST / GraphQL testing keywords
+        if (lower.contains("kiểm thử api") || lower.contains("test api")
+                || lower.contains("rest api") || lower.contains("graphql")
+                || lower.contains("endpoint ") || lower.contains("status code 200")
+                || lower.contains("bearer token") || lower.contains("json schema")) {
+            return API_CONTRACT_TESTER;
+        }
+
+        // 5. Document compilation / specs decomposition intent
         if (hasAttachments || lower.contains("/doc") || lower.contains("/compiler")
                 || lower.contains("phân tích tài liệu") || lower.contains("bóc tách spec")
                 || lower.contains("đặc tả yêu cầu") || lower.contains("tài liệu prd")

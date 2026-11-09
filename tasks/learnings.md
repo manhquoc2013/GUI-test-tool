@@ -698,3 +698,24 @@
     2. **Auto Suite Synthesis (`resolveAutoSuiteName`)**: Tự động sinh tên Suite an toàn từ tiêu đề cuộc trò chuyện AI (ví dụ: *"Đăng nhập Hệ thống Quản trị"*, đã làm sạch các ký tự đặc biệt của hệ điều hành `\/:*?"<>|`), hoặc fallback về `"AI-Generated-Suite"` kèm `suite.json` chuẩn trạng thái `READY`.
     3. **Instant UI Target Sync**: Tự động đưa Nhóm và Suite mới sinh vào danh sách `targetGroupCombo` và `targetSuiteCombo`, đồng thời chọn chúng ngay lập tức trên giao diện.
     4. **Seamless Workspace Opening**: Sau khi nhập test case, tự động nạp lại cây thư mục `ExplorerPageController.reloadFromDisk()` và mở trực tiếp tab `SuiteWorkspacePageController` cho Suite mới tạo, giúp QA có thể chạy ngay lập tức mà không tốn bất kỳ thao tác cấu hình thủ công nào.
+
+### 20. Multi-Agent Verification Loop (Spec Miner, Test Architect, Reality Checker, Loop Engineer) & Functional Group/Suite Naming Architecture
+- **4-Agent Verification & Self-Healing Pipeline (`AiMultiAgentCoordinator.java`)**:
+  - Lấy cảm hứng từ **ECC** (`spec-miner.md`, `gan-planner.md`, `gan-generator.md`, `gan-evaluator.md`, `loop-operator.md`, `verification-loop/SKILL.md`) và **Agency-Agents** (`testing-reality-checker.md`, `testing-test-automation-engineer.md`, `testing-workflow-optimizer.md`), quy trình xử lý của AI Assistant được nâng cấp thành chuỗi phối hợp 4 tác nhân chuyên gia:
+    1. **Agent 1 — Spec Miner & Analyst**: Bóc tách yêu cầu người dùng, tài liệu đính kèm và ngữ cảnh DOM thành các phân hệ chức năng (Functional Domain), luồng nghiệp vụ, điều kiện tiên quyết (`preconditions`), ma trận phân vùng tương đương (EP) & giá trị biên (BVA), đồng thời xác định trước tên Nhóm (`suggestedGroup`) và tên Suite (`suggestedSuite`).
+    2. **Agent 2 — Test Architect & Playwright Script Engineer**: Thiết kế bộ Test Case chuẩn ISTQB (`TC01_<Feature>_HappyPath`, `TC02_<Feature>_NegativeValidation`, `TC03_<Feature>_BoundaryEdgeCase`) gắn với kỹ năng chuyên sâu (`AiSkill`), bao gồm `MULTI_AGENT_LOOP` (`/loop`), `REALITY_CHECKER_REVIEW` (`/review`), `API_CONTRACT_TESTER` (`/api`), `UNIVERSAL_DOCUMENT_COMPILER` (`/doc`), `PLAYWRIGHT_E2E` (`/e2e`), v.v.
+    3. **Agent 3 — Reality Checker & QA Reviewer**: Chấm điểm chất lượng đầu ra trên thang 0–100 qua 5 cổng kiểm định (5-Gate QA Audit):
+       - *Gate 1 (20đ)*: Độ chính xác của tên Nhóm & Suite theo chức năng (không dùng tên chung chung như `AI-Tests`, `AI-Generated-Suite`).
+       - *Gate 2 (20đ)*: Chuẩn hóa định danh `TC<Số>_<ChứcNăng>_<KịchBản>` và phân tầng độ ưu tiên `P0–P3`.
+       - *Gate 3 (20đ)*: Độ đầy đủ của `testSteps` (tối thiểu 3 bước thực thi rõ ràng có `action`, `target`, `expectedResult`).
+       - *Gate 4 (20đ)*: Độ bao phủ của `assertions` và bộ dữ liệu kiểm thử `testDataSets` (EP/BVA).
+       - *Gate 5 (20đ)*: Tính tất định của mã Playwright Java (cấm tuyệt đối `Thread.sleep` và `waitForTimeout`, tuân thủ nghiêm ngặt cờ `generateScript`).
+    4. **Agent 4 — Loop Engineer**:
+       - *Vòng lặp tự hiệu chỉnh LLM (Autonomous Retry Loop)*: Khi phản hồi đầu tiên từ LLM bị thiếu mảng `cases`, Loop Engineer tự động gửi phản hồi sửa lỗi kèm ngữ cảnh để thu hồi bộ JSON test cases hợp lệ.
+       - *Vòng lặp tự chữa lành cấu trúc (Deterministic Self-Healing)*: Tự động chuẩn hóa tên Test Case, tổng hợp bổ sung `testSteps`, `assertions`, `testDataSets` nếu bị khuyết, và loại bỏ hard sleep trong `scriptCode`.
+- **Semantic Functional Group & Suite Naming (`resolveFunctionalGroupName` & `resolveFunctionalSuiteName`)**:
+  - Thay vì đặt tên mặc định chung chung (`"AI-Tests"`, `"AI-Generated-Suite"`), hệ thống định danh Nhóm và Suite chính xác theo chức năng và bộ Test Case thông qua 4 tầng ưu tiên:
+    1. Tên `suggestedGroup` và `suggestedSuite` do AI phân tích trả về trong JSON (nếu không phải tên chung chung).
+    2. Tiền tố chức năng trích xuất trực tiếp từ danh sách tên Test Case (`TC01_<Feature>_<Scenario>` -> ví dụ `TC01_GioHang_ThemSanPham` -> Suite `KiemThu_GioHang`).
+    3. Cụm danh từ chức năng tiếng Việt trong câu lệnh của người dùng (sau các từ khóa `"chức năng"`, `"tính năng"`, `"màn hình"`, `"phân hệ"`, `"quy trình"`, ví dụ: `"chức năng chấm công nhân viên"` -> Group `ChucNang_ChamCongNhanVien`, Suite `KiemThu_ChamCongNhanVien`).
+    4. Bộ từ điển ánh xạ phân hệ nghiệp vụ chuẩn (Xác thực & Tài khoản `XacThuc_TaiKhoan` / `KiemThu_DangNhapHeThong`, Mua sắm & Giỏ hàng `MuaSam_GioHang` / `KiemThu_GioHang`, Thanh toán `MuaSam_ThanhToan` / `KiemThu_ThanhToanDonHang`, Quản lý Đơn hàng `QuanLyDonHang` / `KiemThu_XuLyDonHang`, Tìm kiếm `TimKiem_TraCuu`, Quản lý Sản phẩm `QuanLySanPham`, Phân quyền `PhanQuyen_BaoMat`, Tích hợp API `TichHop_API`, v.v.).

@@ -159,6 +159,8 @@ public class AiAssistantPageController implements Initializable {
     private boolean isSwitchingSession = false;
     private boolean isReloadingTargets = false;
     private String liveDomJson = null;
+    private String currentSuggestedGroup = null;
+    private String currentSuggestedSuite = null;
 
     private HBox thinkingBubbleWrapper = null;
     private Timeline thinkingTimeline = null;
@@ -688,6 +690,8 @@ public class AiAssistantPageController implements Initializable {
             if ("assistant".equalsIgnoreCase(m.getRole()) && !m.getGeneratedCasesSnapshot().isEmpty()) {
                 currentGeneratedCases.clear();
                 currentGeneratedCases.addAll(m.getGeneratedCasesSnapshot());
+                currentSuggestedGroup = m.getSuggestedGroup();
+                currentSuggestedSuite = m.getSuggestedSuite();
                 generatedCasesListView.getItems().setAll(currentGeneratedCases);
                 resultSummaryLabel.setText(m.getContent());
                 applyToSuiteBtn.setDisable(false);
@@ -703,6 +707,8 @@ public class AiAssistantPageController implements Initializable {
 
     private void clearPreviewArea() {
         currentGeneratedCases.clear();
+        currentSuggestedGroup = null;
+        currentSuggestedSuite = null;
         generatedCasesListView.getItems().clear();
         resultSummaryLabel.setText("Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái.");
         applyToSuiteBtn.setDisable(true);
@@ -1094,6 +1100,8 @@ public class AiAssistantPageController implements Initializable {
                         assistantMsg.setClarificationQuestions(result.getQuestions());
                     }
                     assistantMsg.setGeneratedCasesSnapshot(result.getCases());
+                    assistantMsg.setSuggestedGroup(result.getSuggestedGroup());
+                    assistantMsg.setSuggestedSuite(result.getSuggestedSuite());
                     assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
                     targetSession.addMessage(assistantMsg);
 
@@ -1113,6 +1121,8 @@ public class AiAssistantPageController implements Initializable {
 
                         currentGeneratedCases.clear();
                         currentGeneratedCases.addAll(result.getCases());
+                        currentSuggestedGroup = result.getSuggestedGroup();
+                        currentSuggestedSuite = result.getSuggestedSuite();
 
                         generatedCasesListView.getItems().setAll(currentGeneratedCases);
                         rawResponseViewer.setText(result.getRawResponse());
@@ -1224,13 +1234,13 @@ public class AiAssistantPageController implements Initializable {
         chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
 
-        // Animated progression stages
+        // Animated progression stages (4-Agent Pipeline)
         String[] stages = new String[] {
                 "Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...",
-                "Đang phân tích yêu cầu kiểm thử & ngữ cảnh tài liệu...",
-                "Đang thiết kế kịch bản Playwright & Assertions kiểm thử...",
-                "Đang tổng hợp các bước thực thi (Test Steps) & Dữ liệu...",
-                "Đang hoàn thiện và định dạng mã nguồn runnable..."
+                "🔍 [Agent 1/4 - Spec Miner] Đang phân tích yêu cầu, tài liệu & phân hệ chức năng...",
+                "✍️ [Agent 2/4 - Test Architect] Đang thiết kế ma trận Test Case & Kịch bản...",
+                "🧐 [Agent 3/4 - Reality Checker] Đang thẩm định chất lượng & độ bao phủ...",
+                "🔄 [Agent 4/4 - Loop Engineer] Đang tự động tối ưu hóa & hoàn thiện kết quả..."
         };
 
         final int[] stageIdx = { 0 };
@@ -1431,22 +1441,14 @@ public class AiAssistantPageController implements Initializable {
         String group = targetGroupCombo.getValue();
         String suite = targetSuiteCombo.getValue();
 
-        // Tự động xác định hoặc tạo Nhóm nếu chưa có
-        if (group == null || group.isBlank()) {
-            if (!targetGroupCombo.getItems().isEmpty()) {
-                group = targetGroupCombo.getItems().get(0);
-            } else {
-                group = "AI-Tests";
-            }
+        // Tự động đặt tên Nhóm theo đúng chức năng & test case nếu chưa chọn hoặc đang để tên mặc định chung chung
+        if (group == null || group.isBlank() || com.studio.service.AiMultiAgentCoordinator.isGenericOrBlank(group)) {
+            group = resolveAutoGroupName();
         }
 
-        // Tự động xác định hoặc tạo Suite nếu chưa có
-        if (suite == null || suite.isBlank()) {
-            if (!targetSuiteCombo.getItems().isEmpty()) {
-                suite = targetSuiteCombo.getItems().get(0);
-            } else {
-                suite = resolveAutoSuiteName();
-            }
+        // Tự động đặt tên Suite theo đúng chức năng & test case nếu chưa chọn hoặc đang để tên mặc định chung chung
+        if (suite == null || suite.isBlank() || com.studio.service.AiMultiAgentCoordinator.isGenericOrBlank(suite)) {
+            suite = resolveAutoSuiteName();
         }
 
         group = group.trim();
@@ -1459,7 +1461,7 @@ public class AiAssistantPageController implements Initializable {
             Files.createDirectories(groupDir);
             Path groupJson = groupDir.resolve("group.json");
             if (!Files.exists(groupJson)) {
-                projectStore.createGroup(projectDir, group, "Nhóm kiểm thử tự động tạo bởi Trợ lý AI");
+                projectStore.createGroup(projectDir, group, "Nhóm chức năng: " + group + " (Tự động tạo theo đặc tả kiểm thử)");
                 isGroupNew = true;
             }
         } catch (IOException e) {
@@ -1473,7 +1475,7 @@ public class AiAssistantPageController implements Initializable {
             Files.createDirectories(suiteDir);
             Path suiteJson = suiteDir.resolve("suite.json");
             if (!Files.exists(suiteJson)) {
-                projectStore.createSuite(groupDir, suite, "Suite kiểm thử tự động tạo bởi Trợ lý AI", "READY", "", null);
+                projectStore.createSuite(groupDir, suite, "Bộ kịch bản kiểm thử chức năng: " + suite, "READY", "", null);
                 isSuiteNew = true;
             }
         } catch (IOException e) {
@@ -1545,23 +1547,42 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    private String resolveAutoSuiteName() {
-        if (currentSession != null && currentSession.getTitle() != null) {
-            String title = currentSession.getTitle().trim();
-            if (!title.isBlank() && !"Cuộc trò chuyện mới".equalsIgnoreCase(title)) {
-                // Remove invalid filesystem characters
-                String safe = title.replaceAll("[\\\\/:*?\"<>|]", " ")
-                                   .replaceAll("\\s+", " ")
-                                   .trim();
-                if (safe.length() > 36) {
-                    safe = safe.substring(0, 36).trim();
-                }
-                if (!safe.isBlank()) {
-                    return safe;
+    public String resolveAutoGroupName() {
+        String latestPrompt = findLatestUserPrompt();
+        return com.studio.service.AiMultiAgentCoordinator.resolveFunctionalGroupName(
+                latestPrompt,
+                attachedDocuments,
+                currentGeneratedCases,
+                currentSuggestedGroup
+        );
+    }
+
+    public String resolveAutoSuiteName() {
+        String latestPrompt = findLatestUserPrompt();
+        String sessionTitle = (currentSession != null) ? currentSession.getTitle() : null;
+        return com.studio.service.AiMultiAgentCoordinator.resolveFunctionalSuiteName(
+                latestPrompt,
+                sessionTitle,
+                attachedDocuments,
+                currentGeneratedCases,
+                currentSuggestedSuite
+        );
+    }
+
+    private String findLatestUserPrompt() {
+        if (currentSession != null && currentSession.getMessages() != null) {
+            List<AiChatMessage> msgs = currentSession.getMessages();
+            for (int i = msgs.size() - 1; i >= 0; i--) {
+                AiChatMessage m = msgs.get(i);
+                if ("user".equalsIgnoreCase(m.getRole()) && m.getContent() != null && !m.getContent().isBlank()) {
+                    return m.getContent();
                 }
             }
         }
-        return "AI-Generated-Suite";
+        if (promptInputArea != null && promptInputArea.getText() != null && !promptInputArea.getText().isBlank()) {
+            return promptInputArea.getText();
+        }
+        return "";
     }
 
     @FXML
@@ -1953,5 +1974,21 @@ public class AiAssistantPageController implements Initializable {
 
     public List<AiGeneratedCase> getCurrentGeneratedCases() {
         return currentGeneratedCases;
+    }
+
+    public String getCurrentSuggestedGroup() {
+        return currentSuggestedGroup;
+    }
+
+    public void setCurrentSuggestedGroup(String currentSuggestedGroup) {
+        this.currentSuggestedGroup = currentSuggestedGroup;
+    }
+
+    public String getCurrentSuggestedSuite() {
+        return currentSuggestedSuite;
+    }
+
+    public void setCurrentSuggestedSuite(String currentSuggestedSuite) {
+        this.currentSuggestedSuite = currentSuggestedSuite;
     }
 }
