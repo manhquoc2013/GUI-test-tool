@@ -689,3 +689,12 @@
   3. **Preserve Live In-Memory Session**: Nếu suite đích không thay đổi (`suiteSame == true`) và `currentSession` hiện tại đã có tin nhắn, không nạp lại hoặc ghi đè session từ đĩa mà giữ nguyên session đang hoạt động trong bộ nhớ, chỉ làm mới danh sách phiên (`refreshSessionsList(activeSessionId)`) để giữ con trỏ chọn phiên nhất quán.
   4. **Active Session ID Preservation in `refreshSessionsList`**: Cho phép `refreshSessionsList` ghi nhớ và tái chọn đúng `currentSession.getId()` thay vì mặc định rơi về index 0.
   5. **Bidirectional Tab Switch Synchronization**: Đồng bộ `ViewNavigator.onPageShown()` khi người dùng chuyển tab thông qua cả thanh menu bên (Sidebar) lẫn thanh tab tài liệu (Multi-Tab Document Bar `TabManager`), đảm bảo trải nghiệm nhất quán 100%.
+
+### 19. Zero-Configuration Frictionless AI Test Case Saving & Auto-Hierarchy Provisioning
+- **Frictionless Onboarding UX**:
+  - Trước đây, khi mở dự án mới chưa có Nhóm (Group) hoặc Suite nào, người dùng sinh test case từ AI Assistant không thể bấm "Nhập vào Suite" do hệ thống yêu cầu bắt buộc (`required`) phải chọn Nhóm và Suite trước, buộc người dùng phải thoát ra trang Khám phá tạo thủ công.
+  - Loại bỏ hoàn toàn rào cản này bằng cơ chế tự cấp phát phân cấp (Auto-Hierarchy Provisioning):
+    1. **Auto Group Assignment**: Nếu chưa chọn Nhóm, tự động sử dụng nhóm đầu tiên đã có trong dự án hoặc tự động tạo nhóm chuẩn `"AI-Tests"` kèm `group.json`.
+    2. **Auto Suite Synthesis (`resolveAutoSuiteName`)**: Tự động sinh tên Suite an toàn từ tiêu đề cuộc trò chuyện AI (ví dụ: *"Đăng nhập Hệ thống Quản trị"*, đã làm sạch các ký tự đặc biệt của hệ điều hành `\/:*?"<>|`), hoặc fallback về `"AI-Generated-Suite"` kèm `suite.json` chuẩn trạng thái `READY`.
+    3. **Instant UI Target Sync**: Tự động đưa Nhóm và Suite mới sinh vào danh sách `targetGroupCombo` và `targetSuiteCombo`, đồng thời chọn chúng ngay lập tức trên giao diện.
+    4. **Seamless Workspace Opening**: Sau khi nhập test case, tự động nạp lại cây thư mục `ExplorerPageController.reloadFromDisk()` và mở trực tiếp tab `SuiteWorkspacePageController` cho Suite mới tạo, giúp QA có thể chạy ngay lập tức mà không tốn bất kỳ thao tác cấu hình thủ công nào.

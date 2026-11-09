@@ -1020,7 +1020,13 @@ public class AiAssistantPageController implements Initializable {
         showThinkingBubble(aiConfig.getEffectiveModel() + " — " + activeSkill.getDisplayName());
 
         Path suiteDir = getSelectedSuiteDir();
-        String context = "Nhóm đích: " + targetGroupCombo.getValue() + ", Suite đích: " + targetSuiteCombo.getValue();
+        String groupVal = (targetGroupCombo != null && targetGroupCombo.getValue() != null && !targetGroupCombo.getValue().isBlank())
+                ? targetGroupCombo.getValue()
+                : "(Tự động tạo khi lưu)";
+        String suiteVal = (targetSuiteCombo != null && targetSuiteCombo.getValue() != null && !targetSuiteCombo.getValue().isBlank())
+                ? targetSuiteCombo.getValue()
+                : "(Tự động tạo khi lưu)";
+        String context = "Nhóm đích: " + groupVal + ", Suite đích: " + suiteVal;
 
         // Tự động phát hiện URL từ prompt hoặc từ tài liệu đính kèm nếu chưa có Live DOM
         String promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(prompt);
@@ -1417,21 +1423,74 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void applyCasesToSelectedSuite() {
-        String group = targetGroupCombo.getValue();
-        String suite = targetSuiteCombo.getValue();
-
-        if (group == null || suite == null || group.isBlank() || suite.isBlank()) {
-            ToastService.warn("⚠️ Vui lòng chọn Nhóm và Suite đích trước khi nhập.");
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Test Case nào để nhập vào Suite.");
             return;
         }
 
-        Path suiteDir = StudioPaths.getProjectDir().resolve(group).resolve(suite);
+        String group = targetGroupCombo.getValue();
+        String suite = targetSuiteCombo.getValue();
+
+        // Tự động xác định hoặc tạo Nhóm nếu chưa có
+        if (group == null || group.isBlank()) {
+            if (!targetGroupCombo.getItems().isEmpty()) {
+                group = targetGroupCombo.getItems().get(0);
+            } else {
+                group = "AI-Tests";
+            }
+        }
+
+        // Tự động xác định hoặc tạo Suite nếu chưa có
+        if (suite == null || suite.isBlank()) {
+            if (!targetSuiteCombo.getItems().isEmpty()) {
+                suite = targetSuiteCombo.getItems().get(0);
+            } else {
+                suite = resolveAutoSuiteName();
+            }
+        }
+
+        group = group.trim();
+        suite = suite.trim();
+
+        Path projectDir = StudioPaths.getProjectDir();
+        Path groupDir = projectDir.resolve(group);
+        boolean isGroupNew = false;
+        try {
+            Files.createDirectories(groupDir);
+            Path groupJson = groupDir.resolve("group.json");
+            if (!Files.exists(groupJson)) {
+                projectStore.createGroup(projectDir, group, "Nhóm kiểm thử tự động tạo bởi Trợ lý AI");
+                isGroupNew = true;
+            }
+        } catch (IOException e) {
+            ToastService.error("Không thể tạo thư mục Nhóm: " + e.getMessage());
+            return;
+        }
+
+        Path suiteDir = groupDir.resolve(suite);
+        boolean isSuiteNew = false;
         try {
             Files.createDirectories(suiteDir);
+            Path suiteJson = suiteDir.resolve("suite.json");
+            if (!Files.exists(suiteJson)) {
+                projectStore.createSuite(groupDir, suite, "Suite kiểm thử tự động tạo bởi Trợ lý AI", "READY", "", null);
+                isSuiteNew = true;
+            }
         } catch (IOException e) {
             ToastService.error("Không thể tạo thư mục Suite: " + e.getMessage());
             return;
         }
+
+        // Cập nhật lại UI ComboBoxes nếu vừa tự động tạo
+        if (!targetGroupCombo.getItems().contains(group)) {
+            targetGroupCombo.getItems().add(group);
+        }
+        targetGroupCombo.setValue(group);
+
+        if (!targetSuiteCombo.getItems().contains(suite)) {
+            targetSuiteCombo.getItems().add(suite);
+        }
+        targetSuiteCombo.setValue(suite);
 
         // Sync edited script back to current item if user changed it in editor
         AiGeneratedCase selected = generatedCasesListView.getSelectionModel().getSelectedItem();
@@ -1460,8 +1519,20 @@ public class AiAssistantPageController implements Initializable {
             chatHistoryStore.saveSession(suiteDir, currentSession);
             renderChatHistory();
 
-            ToastService.success("⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite
-                    + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.");
+            String successMsg;
+            if (isGroupNew || isSuiteNew) {
+                successMsg = "⚡ Đã tự động tạo và nhập " + applied.size() + " test cases vào '" + group + " / " + suite + "'!";
+            } else {
+                successMsg = "⚡ Đã nhập " + applied.size() + " test cases vào suite '" + suite
+                        + "'! Bạn có thể bấm 'Hoàn tác' trên tin nhắn bất kỳ lúc nào.";
+            }
+            ToastService.success(successMsg);
+
+            // Refresh Explorer if cached so new group/suite appears in the explorer tree
+            ExplorerPageController explorer = ViewNavigator.getController(ViewNavigator.Page.EXPLORER, ExplorerPageController.class);
+            if (explorer != null) {
+                explorer.reloadFromDisk();
+            }
 
             // Re-open workspace for this suite
             SuiteWorkspacePageController ctrl = ViewNavigator.navigateToWorkspace(group, suite, suiteDir);
@@ -1472,6 +1543,25 @@ public class AiAssistantPageController implements Initializable {
         } catch (Exception e) {
             ToastService.error("Lỗi khi nhập test cases vào Suite: " + e.getMessage());
         }
+    }
+
+    private String resolveAutoSuiteName() {
+        if (currentSession != null && currentSession.getTitle() != null) {
+            String title = currentSession.getTitle().trim();
+            if (!title.isBlank() && !"Cuộc trò chuyện mới".equalsIgnoreCase(title)) {
+                // Remove invalid filesystem characters
+                String safe = title.replaceAll("[\\\\/:*?\"<>|]", " ")
+                                   .replaceAll("\\s+", " ")
+                                   .trim();
+                if (safe.length() > 36) {
+                    safe = safe.substring(0, 36).trim();
+                }
+                if (!safe.isBlank()) {
+                    return safe;
+                }
+            }
+        }
+        return "AI-Generated-Suite";
     }
 
     @FXML
@@ -1859,5 +1949,9 @@ public class AiAssistantPageController implements Initializable {
 
     public VBox getChatMessagesBox() {
         return chatMessagesBox;
+    }
+
+    public List<AiGeneratedCase> getCurrentGeneratedCases() {
+        return currentGeneratedCases;
     }
 }

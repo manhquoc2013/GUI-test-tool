@@ -1,33 +1,36 @@
-# Implementation Plan: AI Agent Test Case Generation & Direct Download with Conditional Script Omission
+# Implementation Plan: Auto-Create Group and Suite on AI Case Save
 
 ## Overview
-Implement deep knowledge-driven test case generation from requirements/documents and direct export (Excel, Markdown, JSON) from the AI Assistant, with smart detection to omit test scripts when no test page URL is provided.
+Allow users to immediately save ("Nhập vào Suite") AI-generated test cases even when no group or suite has been created or selected yet, by automatically creating a standard group (e.g. `AI-Tests`) and a descriptive suite (derived from the chat session topic or `AI-Generated-Suite`).
 
 ---
 
 ## Slices
 
-### Slice 1: Backend - Direct Test Case Export in `TestCaseExcelExportService` & Markdown/JSON Exporters
-- Add `exportAiGeneratedCases(List<AiGeneratedCase> cases, String summary, Path outputPath, ExportLanguage lang)` in `TestCaseExcelExportService.java`.
-- Generates professional 3-sheet Excel workbook (`Tổng quan`, `Danh sách Test Cases`, `Chi tiết từng bước`) with existing standard styles, badges, and metrics.
-- Add helper methods to format `List<AiGeneratedCase>` as clean Markdown and JSON.
-- Add unit tests in `src/test/java/com/studio/service/TestCaseExcelExportServiceTest.java`.
+### Slice 1: Auto-Creation Logic in `AiAssistantPageController.java`
+- In `applyCasesToSelectedSuite()`:
+  - Remove blocking check that requires `group` and `suite` to be pre-selected.
+  - If `group` is not selected or empty:
+    - If `targetGroupCombo` has existing items, use the selected one or first one.
+    - Otherwise, auto-assign default group name `"AI-Tests"`.
+  - If `suite` is not selected or empty:
+    - If `targetSuiteCombo` has existing items under the group, use the selected one or first one.
+    - Otherwise, auto-assign a clean descriptive name via `resolveAutoSuiteName()` (derived from `currentSession.getTitle()` or `"AI-Generated-Suite"`).
+  - Ensure parent directory, group directory with `group.json`, and suite directory with `suite.json` are created on disk.
+  - Update `targetGroupCombo` and `targetSuiteCombo` items and selection to reflect the newly created group and suite.
+  - Proceed with `applyCasesToSuite`, snapshot creation, and workspace opening.
+  - Notify user with informative Toast message.
 
-### Slice 2: Prompt Engineering & Service - Conditional Script Omission in `AiTestGeneratorService`
-- Update `AiTestGeneratorService.java` to support a `generateScript` boolean flag (defaulting to auto-detection: true if prompt/docs/dom have URL, false otherwise).
-- In system prompt and user context, inject explicit guidance: when `generateScript == false`, strictly do not generate `scriptCode` (`scriptCode = ""`), and focus 100% on detailed test steps, preconditions, BVA test data sets, and assertions.
-- Add unit tests in `src/test/java/com/studio/service/AiTestGeneratorServiceTest.java`.
+### Slice 2: Integration & Prompt Context Improvement
+- In `executePromptInternal()`:
+  - If target group or suite is not yet selected, provide clean friendly placeholder text in AI system prompt context instead of `"Nhóm đích: null, Suite đích: null"`.
+- If `ExplorerPageController` is loaded, invoke `reloadFromDisk()` so the new group and suite appear immediately in the explorer tree.
 
-### Slice 3: UI Enhancement - Direct Download Action & Script Toggle in `ai_assistant_page.fxml` and `AiAssistantPageController`
-- In `ai_assistant_page.fxml`:
-  - Add a "Tạo Test Script" CheckBox in the input controls area.
-  - Add "Tải về Test Case" / "Xuất bộ Test Case" MenuButton / SplitMenuButton next to "Nhập vào Suite" in the preview header (with options: Excel .xlsx, Markdown .md, JSON .json).
-- In `AiAssistantPageController.java`:
-  - Wire up `generateScriptCheck` with auto-toggle when prompt changes or attachment is loaded.
-  - Wire up export menu handlers (`exportToExcel`, `exportToMarkdown`, `exportToJson`) using `FileChooser`.
-  - When selecting a case with empty/no `scriptCode`, display a clear guidance notice in `previewScriptEditor` and focus by default on `previewStepsTab`.
-
-### Slice 4: Full Verification & Learning Capture
-- Run `mvn clean test` across the entire project.
-- Verify zero regressions and check generated file outputs.
-- Record institutional learnings in `tasks/learnings.md`.
+### Slice 3: Regression Unit Testing & Verification
+- Add unit test in `src/test/java/com/studio/controller/AiAssistantAutoCreateSuiteTest.java`:
+  - Test saving cases when project has 0 groups and 0 suites:
+    - Verify group and suite folders and json files (`group.json`, `suite.json`) are automatically created.
+    - Verify test cases (`.java` and in `suite.json`) are successfully written.
+    - Verify ComboBoxes in AI Assistant are updated with the new group and suite.
+- Run `mvn clean test` across the entire project (must pass 300+ tests).
+- Update `tasks/learnings.md`.

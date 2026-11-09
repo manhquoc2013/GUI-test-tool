@@ -1,8 +1,7 @@
-# Todo List: AI Agent Test Case Generation & Direct Download with Conditional Script Omission
+# Todo List: Auto-Create Group and Suite on AI Case Save
 
-- [x] 1. Implement `exportAiGeneratedCases` in `TestCaseExcelExportService.java` (Excel 3-sheet export for AI cases) and Markdown/JSON export utilities <!-- id: 1 -->
-- [x] 2. Add unit tests for `exportAiGeneratedCases` in `TestCaseExcelExportServiceTest.java` and verify with Maven <!-- id: 2 -->
-- [x] 3. Update `AiTestGeneratorService.java` with conditional test script generation based on URL detection & user toggle <!-- id: 3 -->
-- [x] 4. Add unit tests for conditional script omission in `AiTestGeneratorServiceTest.java` <!-- id: 4 -->
-- [x] 5. Enhance `ai_assistant_page.fxml` and `AiAssistantPageController.java` with export menu button, script generation toggle, and empty script placeholder <!-- id: 5 -->
-- [x] 6. Run full verification (`mvn clean test`), verify end-to-end flow, and update `tasks/learnings.md` <!-- id: 6 -->
+- [x] 1. Implement `resolveAutoSuiteName()` and auto-group/suite creation in `applyCasesToSelectedSuite()` in `AiAssistantPageController.java` <!-- id: 1 -->
+- [x] 2. Update AI prompt context in `executePromptInternal()` to avoid `"null"` when target group/suite is not yet assigned <!-- id: 2 -->
+- [x] 3. Write unit test `AiAssistantAutoCreateSuiteTest.java` to verify auto-creation of group/suite and test case saving when none exists <!-- id: 3 -->
+- [x] 4. Run `mvn clean test` across the entire project (305 tests pass) <!-- id: 4 -->
+- [x] 5. Record learnings in `tasks/learnings.md` <!-- id: 5 -->
