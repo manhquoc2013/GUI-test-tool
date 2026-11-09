@@ -733,3 +733,19 @@
    - **Tự động mở rộng độ phủ kịch bản**: Khi kết quả sinh ban đầu chỉ có 1 kịch bản đơn lẻ (Happy Path), `LoopEngineer` tự động tổng hợp bổ sung kịch bản kiểm tra lỗi (`TC02_<Feature>_KiemTraLoiDuLieuKhongHopLe`) và kịch bản giá trị biên (`TC03_<Feature>_GiaTriBienBVA`).
    - **Tổng hợp Assertions đa điểm & chuẩn hóa 46 loại Assertion**: Tự động sinh nhiều assertions (`URL_CONTAINS`, `INPUT_VALUE_EQUALS`, `ELEMENT_VISIBLE`, `PAGE_HAS_TEXT`) bám sát các bước kiểm thử và chuẩn hóa toàn bộ bí danh assertion từ LLM kèm cơ chế fallback `expectedValue <- value` cho `ATTRIBUTE_EQUALS` / `LOCAL_STORAGE_EQUALS` / `SESSION_STORAGE_EQUALS`.
    - **Batch `applyCasesToSuite` & Pre-compiled Regex**: Gom toàn bộ thao tác thêm/cập nhật test case vào bộ nhớ và chỉ ghi nguyên tử `suite.json` + đồng bộ H2 1 lần duy nhất (giảm `5 × N` lần ghi đĩa xuống 1 lần), đồng thời bảo toàn `preconditions` trong mô tả TestCase và biên dịch sẵn toàn bộ biểu thức chính quy `Pattern`.
+
+## 16. Deep System Review Round 1 & Round 2 Remediation
+1. **Complete Write-Through H2 Index Consistency (`ProjectStore`, `LocalDataIndexService`)**:
+   - Mọi thao tác cập nhật chi tiết trên `ProjectStore` (`updateSuiteMeta`, `updateCaseMeta`, `updateGroupMeta`, `updateSuiteStatus`, `updateCaseStatus`, `updateCaseStartUrl`, `addAssertion`, `updateAssertion`, `deleteAssertion`, `replaceAssertions`, `updateCaseStepsAndData`, `updateCasePriority`, `reorderCases`, `reorderAssertions`, `renameCase`, `copyCase`) đều gọi helper `syncSuiteIndex(suiteDir, suite)` để đồng bộ tức thì sang H2 (`test_suites`, `test_cases`, `test_assertions`).
+   - `LocalDataIndexService.deleteGroup(groupName)` xóa dây chuyền (cascade delete) các bảng con `test_assertions` -> `test_cases` -> `test_suites` -> `test_groups` để không bao giờ để sót dữ liệu mồ côi.
+   - `ProjectStore.renameGroup` tự động duyệt và re-index các suite con bên trong thư mục nhóm mới (`newDir`) với tên nhóm mới.
+   - `LocalDataIndexService.indexSuite` tự động dọn sạch các `test_cases` và `test_assertions` đã bị xóa hoặc rollback khỏi `suite.json`.
+2. **Unified Export Archival & Indexing Across All Export Channels (`ExcelReportService`, `HtmlReportService`, `TestCaseExcelExportService`)**:
+   - Không chỉ xuất kịch bản Test Cases mà cả xuất báo cáo thực thi (`ExcelReportService.export` và `HtmlReportService.export`) đều tự động lưu trữ bản sao vào `StudioPaths.getExportsDir()` (`data/exports/`) và ghi nhận vào bảng `ai_exports_index` (`EXCEL_REPORT`, `HTML_REPORT`).
+   - Toàn bộ hộp thoại `FileChooser` xuất file trên `ExplorerPageController`, `SuiteWorkspacePageController`, `ReportsPageController`, và `ReportDetailPageController` đều đặt thư mục khởi tạo mặc định tại `StudioPaths.getExportsDir()`.
+3. **Playwright Thread-Confinement & StepGroup Runtime Compilation (`LiveDomScanner`, `TestRunnerService`, `AssertCodeGenerator`)**:
+   - `LiveDomScanner` đóng gói toàn bộ vòng đời `Playwright` và `Browser` vào một `SingleThreadExecutor` (`SCANNER_EXECUTOR`), cho phép tái sử dụng trình duyệt Chromium headless an toàn tuyệt đối giữa các CompletableFuture mà không vi phạm ràng buộc thread-confined của Playwright Java.
+   - `TestRunnerService.expandStepGroups` biên dịch các bước `TestStep` của `@include("<StepGroupId>")` thành các lệnh thực thi `StudioRuntime` (`page().navigate`, `healLocator(...).click/fill/selectOption/...`, `StudioAssertions.record`).
+   - `AssertCodeGenerator.generateTableRowCount` truyền đúng biến đếm hàng `__rowCount` vào `buildCountCondition(varName, value)` và sử dụng `parseSafeInt(raw, fallback)` an toàn trước mọi đầu vào số học.
+4. **Zero-Overhead Settings Reads (`SettingsStore`)**:
+   - `SettingsStore.load()` kiểm tra `hasDatabaseSettings()` trước khi seed H2 mirror, loại bỏ hoàn toàn việc mã hóa lại AES-GCM và ghi H2 `MERGE` dư thừa ở mỗi lần đọc cấu hình trên luồng UI.

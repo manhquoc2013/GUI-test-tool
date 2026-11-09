@@ -162,8 +162,6 @@ public class DocumentParserService {
                     ? originalFileName.substring(0, originalFileName.lastIndexOf('.'))
                     : originalFileName;
             String safeBase = StringEscapeUtil.safeFileName(base, "doc");
-            String timestamp = String.valueOf(System.currentTimeMillis());
-            Path targetFile = targetDir.resolve(safeBase + "_" + timestamp + ".md");
             String contentHash = java.util.UUID.nameUUIDFromBytes(
                     (originalFileName + "|" + (markdownContent != null ? markdownContent : ""))
                             .getBytes(StandardCharsets.UTF_8))

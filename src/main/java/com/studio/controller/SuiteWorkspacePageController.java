@@ -1091,6 +1091,10 @@ public class SuiteWorkspacePageController {
 
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_excel"));
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
         String sName = suite.getName() != null && !suite.getName().isBlank() ? suite.getName() : "Suite";
         String safeName = sName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
         String filePrefix = I18nService.get(lang, "export.filename.prefix.tc");

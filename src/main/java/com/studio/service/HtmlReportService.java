@@ -28,6 +28,14 @@ public class HtmlReportService {
             Files.createDirectories(targetHtmlFile.getParent());
         }
         Files.writeString(targetHtmlFile, html);
+        try {
+            String scope = report != null && report.getScope() != null ? report.getScope() : "REPORT";
+            String scopeName = report != null && report.getScopeName() != null ? report.getScopeName()
+                    : (report != null && report.getRunId() != null ? report.getRunId() : "RunReport");
+            int total = report != null ? report.getTotal() : 0;
+            new AiAgentIndexService().archiveAndIndexExport(targetHtmlFile, "HTML_REPORT", scope, scopeName, total);
+        } catch (Exception ignored) {
+        }
     }
 
     public static String generateHtml(RunReport report) {

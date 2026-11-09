@@ -752,6 +752,10 @@ public class ReportDetailPageController {
 
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18nService.get(lang, "export.chooser.title.report_html"));
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File HTML (*.html)", "*.html"));
         String prefix = I18nService.get(lang, "export.filename.prefix.report");
@@ -788,6 +792,10 @@ public class ReportDetailPageController {
 
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18nService.get(lang, "export.chooser.title.report_excel"));
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
         String prefix = I18nService.get(lang, "export.filename.prefix.report");

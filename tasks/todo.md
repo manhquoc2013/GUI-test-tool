@@ -1,8 +1,13 @@
-# Todo List: Agent Indexing, In-App Artifact/MD/Export Persistence, Concise Chat Output & Coverage Optimization
+# Todo List: System-Wide Review Round 2 Fixes & Optimizations
 
 - [x] 1. Extend `StudioPaths.java` (`getConvertedDocsDir`, `getAiArtifactsDir`) and `DatabaseManager.java` (`ai_documents_index`, `ai_document_chunks`, `ai_exports_index`) <!-- id: 1 -->
 - [x] 2. Create `AiAgentIndexService.java` for document chunk indexing, RAG context retrieval, in-app export archival, and AI artifact persistence <!-- id: 2 -->
 - [x] 3. Integrate `AiAgentIndexService` into `DocumentParserService.java` and `TestCaseExcelExportService.java` so all `.md` conversions and exports are stored in-app and indexed <!-- id: 3 -->
 - [x] 4. Optimize `AiMultiAgentCoordinator.java` & `AiTestGeneratorService.java`: concise chat summary (no raw `.md`/code in chat), multi-scenario expansion (Happy/Negative/Boundary), multi-assertion synthesis, 46-assertion alias normalization, pre-compiled regexes, and batch `applyCasesToSuite` <!-- id: 4 -->
-- [x] 5. Write comprehensive tests in `AiAgentIndexingAndOptimizationTest.java` and run full test suite (`mvn test` — 313/313 passing) <!-- id: 5 -->
-- [x] 6. Update `tasks/learnings.md` <!-- id: 6 -->
+- [x] 5. Resolve Round 1 system review findings across `AssertCodeGenerator`, `ProjectStore`, `DataCleanupService`, `LocalDataIndexService`, `AiChatHistoryStore`, `LiveDomScanner`, `TestRunnerService`, and `DocumentParserService` <!-- id: 5 -->
+- [x] 6. Fix `ProjectStore` granular update methods (`updateSuiteMeta`, `updateCaseMeta`, `updateGroupMeta`, `updateSuiteStatus`, `updateCaseStatus`, `updateCaseStartUrl`, `addAssertion`, `updateAssertion`, `deleteAssertion`, `replaceAssertions`, `updateCaseStepsAndData`, `updateCasePriority`, `reorderCases`, `reorderAssertions`) to synchronize with H2 `LocalDataIndexService` via a shared `syncSuiteIndex` helper, and improve `collectSingleCase` matching <!-- id: 6 -->
+- [x] 7. Fix `LocalDataIndexService.deleteGroup` cascade cleanup (`test_assertions`, `test_cases`, `test_suites`, `test_groups`) and `ProjectStore.renameGroup` recursive suite/case re-indexing <!-- id: 7 -->
+- [x] 8. Integrate `AiAgentIndexService.archiveAndIndexExport` into `ExcelReportService.export` and `HtmlReportService.export`, and set default `StudioPaths.getExportsDir()` in `ReportDetailPageController`, `ExplorerPageController`, and `SuiteWorkspacePageController` export dialogs <!-- id: 8 -->
+- [x] 9. Optimize `SettingsStore.load()` to avoid redundant AES-GCM re-encryption and H2 DB write when DB mirror already exists, and unify `ProjectStore.DEFAULT_MAPPER` across `ReportStore` and `SettingsStore` <!-- id: 9 -->
+- [x] 10. Add regression unit tests in `AiAgentIndexingAndOptimizationTest.java` covering all Round 2 fixes and verify full `mvn test` suite passes (315/315 passing) <!-- id: 10 -->
+- [x] 11. Update `tasks/learnings.md` <!-- id: 11 -->

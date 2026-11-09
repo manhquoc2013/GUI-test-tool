@@ -15,8 +15,9 @@ import java.util.stream.Collectors;
 
 public class ProjectStore {
 
-    private static final ObjectMapper mapper = new ObjectMapper()
+    public static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper mapper = DEFAULT_MAPPER;
     private static final String GROUP_JSON = "group.json";
     private static final String SUITE_JSON = "suite.json";
     private final com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
@@ -302,6 +303,13 @@ public class ProjectStore {
         return tc;
     }
 
+    private void syncSuiteIndex(Path suiteDir, TestSuite suite) {
+        if (suite == null || suiteDir == null) return;
+        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexSuite(suite, suiteDir, groupName);
+    }
+
     /** Persist suite-level metadata fields (not cases). */
     public void updateSuiteMeta(Path suiteDir, String description, String status,
                                 String browser, Boolean headless) throws IOException {
@@ -316,6 +324,7 @@ public class ProjectStore {
         suite.setUpdatedAt(EntityTime.nowIso());
         backfillSuiteTimestamps(suite);
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     /** Persist case-level metadata fields. */
@@ -336,6 +345,7 @@ public class ProjectStore {
         suite.setUpdatedAt(now);
         backfillSuiteTimestamps(suite);
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateGroupMeta(Path groupDir, String description) throws IOException {
@@ -343,6 +353,7 @@ public class ProjectStore {
         TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
         group.setDescription(description != null ? description : "");
         writeJsonAtomic(groupJson, group);
+        indexService.indexGroup(group, groupDir);
     }
 
     // ---- delete ----
@@ -406,6 +417,14 @@ public class ProjectStore {
         writeJsonAtomic(newDir.resolve(GROUP_JSON), group);
         indexService.deleteGroup(oldName);
         indexService.indexGroup(group, newDir);
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(newDir)) {
+            for (Path entry : stream) {
+                if (Files.isDirectory(entry) && Files.exists(entry.resolve(SUITE_JSON))) {
+                    TestSuite childSuite = loadAndMigrateSuite(entry);
+                    indexService.indexSuite(childSuite, entry, newName);
+                }
+            }
+        }
     }
 
     public void renameSuite(Path suiteDir, String newName) throws IOException {
@@ -451,9 +470,7 @@ public class ProjectStore {
             }
         }
         writeJsonAtomic(suiteJson, suite);
-        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
-                ? suiteDir.getParent().getFileName().toString() : "";
-        indexService.indexSuite(suite, suiteDir, groupName);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     // ---- move / copy ----
@@ -470,8 +487,7 @@ public class ProjectStore {
         indexService.deleteSuite(oldGroup, suiteName);
         if (Files.exists(dest.resolve(SUITE_JSON))) {
             TestSuite suite = mapper.readValue(dest.resolve(SUITE_JSON).toFile(), TestSuite.class);
-            String newGroup = toGroupDir.getFileName() != null ? toGroupDir.getFileName().toString() : "";
-            indexService.indexSuite(suite, dest, newGroup);
+            syncSuiteIndex(dest, suite);
         }
     }
 
@@ -484,8 +500,7 @@ public class ProjectStore {
         TestSuite suite = mapper.readValue(toDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
         suite.setName(newName);
         writeJsonAtomic(toDir.resolve(SUITE_JSON), suite);
-        String newGroup = toGroupDir.getFileName() != null ? toGroupDir.getFileName().toString() : "";
-        indexService.indexSuite(suite, toDir, newGroup);
+        syncSuiteIndex(toDir, suite);
     }
 
     private void copyDirectory(Path from, Path to) throws IOException {
@@ -562,9 +577,7 @@ public class ProjectStore {
             Files.copy(srcFile, dstFile, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
-                ? suiteDir.getParent().getFileName().toString() : "";
-        indexService.indexSuite(suite, suiteDir, groupName);
+        syncSuiteIndex(suiteDir, suite);
 
         return copy;
     }
@@ -584,6 +597,7 @@ public class ProjectStore {
         }
         suite.setCases(ordered);
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void reorderAssertions(Path suiteDir, String caseId, List<Integer> indices) throws IOException {
@@ -600,6 +614,7 @@ public class ProjectStore {
         tc.setAssertions(ordered);
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     // ---- status updates ----
@@ -609,6 +624,7 @@ public class ProjectStore {
         TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
         suite.setStatus(status);
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateCaseStatus(Path suiteDir, String caseId, String status) throws IOException {
@@ -622,6 +638,7 @@ public class ProjectStore {
             }
         }
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateCaseStartUrl(Path suiteDir, String caseId, String startUrl) throws IOException {
@@ -634,6 +651,7 @@ public class ProjectStore {
             }
         }
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     // ---- assertions CRUD (per TestCase) ----
@@ -644,6 +662,7 @@ public class ProjectStore {
         requireCase(suite, caseId).getAssertions().add(a);
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateAssertion(Path suiteDir, String caseId, int index, Assertion a) throws IOException {
@@ -652,6 +671,7 @@ public class ProjectStore {
         requireCase(suite, caseId).getAssertions().set(index, a);
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void deleteAssertion(Path suiteDir, String caseId, int index) throws IOException {
@@ -660,6 +680,7 @@ public class ProjectStore {
         requireCase(suite, caseId).getAssertions().remove(index);
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void replaceAssertions(Path suiteDir, String caseId, List<Assertion> assertions) throws IOException {
@@ -668,6 +689,7 @@ public class ProjectStore {
         requireCase(suite, caseId).setAssertions(new ArrayList<>(assertions));
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateCaseStepsAndData(Path suiteDir, String caseId, List<com.studio.model.TestStep> steps, List<com.studio.model.TestDataItem> dataSets) throws IOException {
@@ -682,6 +704,7 @@ public class ProjectStore {
         }
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     public void updateCasePriority(Path suiteDir, String caseId, String priority) throws IOException {
@@ -690,6 +713,7 @@ public class ProjectStore {
         TestCase tc = requireCase(suite, caseId);
         tc.setPriority(priority);
         writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
     }
 
     private TestCase requireCase(TestSuite suite, String caseId) {
@@ -876,12 +900,15 @@ public class ProjectStore {
             return results;
         }
         Path suiteDir = scopePath.getParent();
-        String caseName = scopePath.getFileName().toString().replace(".java", "");
+        String fileName = scopePath.getFileName().toString();
+        String caseName = fileName.replace(".java", "");
 
         TestSuite suite = loadAndMigrateSuite(suiteDir);
 
         Optional<TestCase> tcOpt = suite.getCases().stream()
-                .filter(c -> c.getName().equals(caseName) || c.getScriptFile() != null && c.getScriptFile().equals(caseName + ".java"))
+                .filter(c -> fileName.equalsIgnoreCase(c.getScriptFile())
+                        || caseName.equalsIgnoreCase(c.getName())
+                        || caseName.equalsIgnoreCase(com.studio.util.StringEscapeUtil.safeFileName(c.getName(), "case")))
                 .findFirst();
 
         if (tcOpt.isPresent()) {

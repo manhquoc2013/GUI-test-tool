@@ -244,10 +244,21 @@ public class LocalDataIndexService {
     public void deleteGroup(String groupName) {
         if (groupName == null)
             return;
-        try (Connection conn = dbManager.getConnection();
-                PreparedStatement ps = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
-            ps.setString(1, groupName);
-            ps.executeUpdate();
+        try (Connection conn = dbManager.getConnection()) {
+            try (PreparedStatement ps1 = conn.prepareStatement(
+                    "DELETE FROM test_assertions WHERE case_id IN (SELECT id FROM test_cases WHERE group_name = ?)");
+                 PreparedStatement ps2 = conn.prepareStatement("DELETE FROM test_cases WHERE group_name = ?");
+                 PreparedStatement ps3 = conn.prepareStatement("DELETE FROM test_suites WHERE group_name = ?");
+                 PreparedStatement ps4 = conn.prepareStatement("DELETE FROM test_groups WHERE name = ?")) {
+                ps1.setString(1, groupName);
+                ps1.executeUpdate();
+                ps2.setString(1, groupName);
+                ps2.executeUpdate();
+                ps3.setString(1, groupName);
+                ps3.executeUpdate();
+                ps4.setString(1, groupName);
+                ps4.executeUpdate();
+            }
         } catch (SQLException ignored) {
         }
     }

@@ -100,6 +100,14 @@ public class ExcelReportService {
                 wb.write(fos);
             }
         }
+        try {
+            String scope = report != null && report.getScope() != null ? report.getScope() : "REPORT";
+            String scopeName = report != null && report.getScopeName() != null ? report.getScopeName()
+                    : (report != null && report.getRunId() != null ? report.getRunId() : "RunReport");
+            int total = report != null ? report.getTotal() : 0;
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "EXCEL_REPORT", scope, scopeName, total);
+        } catch (Exception ignored) {
+        }
         ResourceReleaseService.releaseAfterExport();
     }
 

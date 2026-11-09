@@ -2198,6 +2198,10 @@ public class ExplorerPageController {
 
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_suite"));
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
         String filePrefix = I18nService.get(lang, "export.filename.prefix.tc");
         chooser.setInitialFileName(filePrefix + ref.name + ".xlsx");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("File Excel (*.xlsx)", "*.xlsx"));
@@ -2228,6 +2232,10 @@ public class ExplorerPageController {
 
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18nService.get(lang, "export.chooser.title.tc_group"));
+        File exportsDir = StudioPaths.getExportsDir().toFile();
+        if (exportsDir.exists() || exportsDir.mkdirs()) {
+            chooser.setInitialDirectory(exportsDir);
+        }
         String gName = (ref.name != null && !ref.name.isBlank() ? ref.name : "Group");
         String filePrefix = I18nService.get(lang, "export.filename.prefix.group");
         chooser.setInitialFileName(filePrefix + gName + ".xlsx");

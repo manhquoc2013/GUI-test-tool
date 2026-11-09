@@ -368,4 +368,70 @@ public class AiAgentIndexingAndOptimizationTest {
         assertTrue(cleanRes.getDeletedChatCount() >= 1, "Multi-session .ai_chats files must be cleaned");
         assertTrue(indexService.listIndexedDocuments().isEmpty(), "Cleaned converted_docs must also purge ai_documents_index");
     }
+
+    @Test
+    public void testRound2SystemReviewFixes_GranularIndexSync_GroupCascade_ReportExports() throws Exception {
+        DatabaseManager dbManager = DatabaseManager.getInstance();
+        AiAgentIndexService indexService = new AiAgentIndexService(dbManager, new AiTokenOptimizer());
+        ProjectStore projectStore = new ProjectStore();
+        com.studio.db.ProjectDbService projectDb = new com.studio.db.ProjectDbService(dbManager);
+
+        // 1. Create Group -> Suite -> Case and test granular ProjectStore updates syncing to H2
+        projectStore.createGroup(StudioPaths.getProjectDir(), "GroupOld", "Mô tả ban đầu");
+        Path groupDir = StudioPaths.getProjectDir().resolve("GroupOld");
+        projectStore.createSuite(groupDir, "SuiteOrder");
+        Path suiteDir = groupDir.resolve("SuiteOrder");
+        TestCase tc = projectStore.createCase(suiteDir, "Kiểm thử Đặt hàng #1", "Mô tả cũ");
+
+        projectStore.updateCaseMeta(suiteDir, tc.getId(), "Mô tả mới cập nhật", "Ready", "https://shop.local/order", "CHROMIUM", true);
+        projectStore.updateCasePriority(suiteDir, tc.getId(), "P0");
+        Assertion urlAssert = new Assertion();
+        urlAssert.setType("URL_CONTAINS");
+        urlAssert.setValue("/order");
+        urlAssert.setStatus("Active");
+        projectStore.addAssertion(suiteDir, tc.getId(), urlAssert);
+
+        List<TestCase> suiteCases = projectDb.getCasesForSuite("GroupOld", "SuiteOrder");
+        assertEquals(1, suiteCases.size());
+        assertEquals("Mô tả mới cập nhật", suiteCases.get(0).getDescription());
+        assertEquals("Ready", suiteCases.get(0).getStatus());
+        assertEquals("P0", suiteCases.get(0).getPriority());
+        assertEquals(1, suiteCases.get(0).getAssertions().size());
+
+        // 2. Test collectCasesForScope("CASE", ...) with Vietnamese / special characters
+        List<com.studio.model.CaseResult> singleCaseResults = projectStore.collectCasesForScope(
+                "CASE", suiteDir.resolve(tc.getScriptFile()));
+        assertEquals(1, singleCaseResults.size());
+        assertEquals(tc.getId(), singleCaseResults.get(0).getTestCaseId());
+
+        // 3. Rename Group -> must re-index child suites & cases under GroupNew and purge GroupOld
+        projectStore.renameGroup(groupDir, "GroupNew");
+        assertTrue(projectDb.getCasesForSuite("GroupOld", "SuiteOrder").isEmpty(),
+                "Old group cases must be removed from H2 after renameGroup");
+        List<TestCase> renamedGroupCases = projectDb.getCasesForSuite("GroupNew", "SuiteOrder");
+        assertEquals(1, renamedGroupCases.size(), "Child suite cases must be re-indexed under GroupNew");
+
+        // 4. Delete Group -> must cascade-delete suites, cases, and assertions in H2
+        Path newGroupDir = StudioPaths.getProjectDir().resolve("GroupNew");
+        projectStore.deleteGroup(newGroupDir);
+        assertTrue(projectDb.getCasesForSuite("GroupNew", "SuiteOrder").isEmpty(),
+                "Deleting group must cascade-delete child suites and cases in H2");
+
+        // 5. Export RunReport via ExcelReportService and HtmlReportService -> must archive to data/exports and index in ai_exports_index
+        com.studio.model.RunReport report = new com.studio.model.RunReport(
+                "run-export-test", "SUITE", suiteDir.toString(), "SuiteOrder", "CHROMIUM", true, false, false);
+        report.setTotal(3);
+        report.setPassed(3);
+        Path externalExcel = tempHome.resolve("external_report.xlsx");
+        Path externalHtml = tempHome.resolve("external_report.html");
+
+        ExcelReportService.export(report, externalExcel);
+        HtmlReportService.export(report, externalHtml);
+
+        List<AiAgentIndexService.IndexedExportMeta> exports = indexService.listIndexedExports();
+        assertTrue(exports.stream().anyMatch(e -> "EXCEL_REPORT".equals(e.exportType()) && Files.exists(Path.of(e.appStoredPath()))),
+                "ExcelReportService.export must archive into data/exports and index in ai_exports_index");
+        assertTrue(exports.stream().anyMatch(e -> "HTML_REPORT".equals(e.exportType()) && Files.exists(Path.of(e.appStoredPath()))),
+                "HtmlReportService.export must archive into data/exports and index in ai_exports_index");
+    }
 }

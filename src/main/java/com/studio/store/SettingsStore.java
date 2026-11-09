@@ -17,8 +17,7 @@ import java.sql.ResultSet;
 
 public class SettingsStore {
 
-    private static final ObjectMapper mapper = new ObjectMapper()
-            .enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper mapper = ProjectStore.DEFAULT_MAPPER;
     private static final String SETTINGS_JSON = "settings.json";
     private static final String DB_SETTINGS_KEY = "app_settings";
 
@@ -115,7 +114,9 @@ public class SettingsStore {
             try {
                 Settings s = mapper.readValue(settingsFile.toFile(), Settings.class);
                 decryptInMemory(s);
-                saveToDatabase(prepareForStorage(s)); // Ensure DB mirror is up to date
+                if (!hasDatabaseSettings()) {
+                    saveToDatabase(prepareForStorage(s)); // Seed DB mirror only if missing
+                }
                 return s;
             } catch (Exception ignored) {
                 // Disk file corrupted, proceed to DB fallback
@@ -271,6 +272,19 @@ public class SettingsStore {
             ps.executeUpdate();
         } catch (Exception e) {
             System.err.println("[SettingsStore] Không thể lưu cài đặt vào database: " + e.getMessage());
+        }
+    }
+
+    private boolean hasDatabaseSettings() {
+        String sql = "SELECT 1 FROM system_settings WHERE setting_key = ?";
+        try (Connection conn = DatabaseManager.getInstance().getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DB_SETTINGS_KEY);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 

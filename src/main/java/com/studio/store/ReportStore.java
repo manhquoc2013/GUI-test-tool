@@ -18,8 +18,7 @@ import java.util.List;
 
 public class ReportStore {
 
-    private static final ObjectMapper mapper = new ObjectMapper()
-            .enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper mapper = ProjectStore.DEFAULT_MAPPER;
     private static final String REPORT_JSON = "report.json";
 
     private final LocalDataIndexService indexService = new LocalDataIndexService();
