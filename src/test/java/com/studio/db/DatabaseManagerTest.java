@@ -103,4 +103,25 @@ public class DatabaseManagerTest {
         }
         db.shutdown();
     }
+
+    @Test
+    public void testRecreateInstanceAfterShutdown() throws SQLException {
+        DatabaseManager instance1 = DatabaseManager.getInstance();
+        assertFalse(instance1.isShutdown());
+
+        instance1.shutdown();
+        assertTrue(instance1.isShutdown());
+
+        DatabaseManager instance2 = DatabaseManager.getInstance();
+        assertNotNull(instance2);
+        assertNotSame(instance1, instance2);
+        assertFalse(instance2.isShutdown());
+
+        try (Connection conn = instance2.getConnection()) {
+            assertNotNull(conn);
+            assertFalse(conn.isClosed());
+        } finally {
+            instance2.shutdown();
+        }
+    }
 }

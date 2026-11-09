@@ -20,6 +20,14 @@ public final class ResourceReleaseService {
     private ResourceReleaseService() {}
 
     /**
+     * Resets shutdown flag and registered hooks for unit tests.
+     */
+    static void resetForTesting() {
+        IS_SHUTTING_DOWN.set(false);
+        CLEANUP_TASKS.clear();
+    }
+
+    /**
      * Register a named custom resource release hook (e.g. running child process termination).
      */
     public static void registerCleanupTask(String name, Runnable task) {

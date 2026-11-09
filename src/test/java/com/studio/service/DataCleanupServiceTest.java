@@ -6,6 +6,7 @@ import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ReportStore;
 import com.studio.store.SettingsStore;
 import com.studio.util.StudioPaths;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +31,14 @@ public class DataCleanupServiceTest {
         DatabaseManager.setInstance(dbManager);
         reportStore = new ReportStore();
         cleanupService = new DataCleanupService(dbManager, reportStore);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (dbManager != null) {
+            dbManager.shutdown();
+        }
+        DatabaseManager.setInstance(null);
     }
 
     @Test

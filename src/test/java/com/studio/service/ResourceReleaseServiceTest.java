@@ -1,6 +1,7 @@
 package com.studio.service;
 
 import com.studio.db.DatabaseManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,8 +12,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class ResourceReleaseServiceTest {
 
     @BeforeEach
-    void setUp() {
-        ResourceReleaseService.unregisterCleanupTask("test-task");
+    @AfterEach
+    void cleanup() {
+        ResourceReleaseService.resetForTesting();
+        DatabaseManager.setInstance(null);
     }
 
     @Test

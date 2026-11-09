@@ -41,7 +41,7 @@ public class DatabaseManager {
     }
 
     public static synchronized DatabaseManager getInstance() {
-        if (instance == null) {
+        if (instance == null || instance.isShutdown.get()) {
             instance = new DatabaseManager();
         }
         return instance;
@@ -253,6 +253,10 @@ public class DatabaseManager {
         } catch (Exception ignored) {}
     }
 
+    public boolean isShutdown() {
+        return isShutdown.get();
+    }
+
     /**
      * Performs a graceful database shutdown, defragmenting and releasing all file locks and OS buffers.
      */
@@ -268,5 +272,10 @@ public class DatabaseManager {
              Statement stmt = conn.createStatement()) {
             stmt.execute("SHUTDOWN COMPACT");
         } catch (Exception ignored) {}
+        synchronized (DatabaseManager.class) {
+            if (instance == this) {
+                instance = null;
+            }
+        }
     }
 }

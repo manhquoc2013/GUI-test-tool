@@ -1,6 +1,7 @@
 package com.studio.store;
 
 import com.studio.db.DatabaseManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,6 +20,14 @@ public class SettingsDualPersistenceTest {
     public void setup() {
         dbManager = DatabaseManager.createInMemory("settings_test_" + System.currentTimeMillis());
         DatabaseManager.setInstance(dbManager);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (dbManager != null) {
+            dbManager.shutdown();
+        }
+        DatabaseManager.setInstance(null);
     }
 
     @Test

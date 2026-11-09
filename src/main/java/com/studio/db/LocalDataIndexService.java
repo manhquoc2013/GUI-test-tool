@@ -457,7 +457,8 @@ public class LocalDataIndexService {
                 ps.addBatch();
             }
             ps.executeBatch();
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            System.err.println("[LocalDataIndexService] Warning: Failed to batch index chat messages: " + e.getMessage());
         }
     }
 
