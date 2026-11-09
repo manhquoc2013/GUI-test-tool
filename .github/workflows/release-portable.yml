@@ -85,7 +85,7 @@ jobs:
 
       - name: Build Setup Installer (Windows)
         if: runner.os == 'Windows'
-        run: call scripts\build-installer.bat
+        run: scripts\build-installer.bat
 
       - name: Build DMG Installer (macOS)
         if: runner.os == 'macOS'
