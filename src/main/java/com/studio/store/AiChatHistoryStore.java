@@ -23,14 +23,17 @@ public class AiChatHistoryStore {
 
     public static final String CHAT_HISTORY_FILE = ".ai_chat.json";
     public static final String CHAT_SESSIONS_DIR = ".ai_chats";
+    private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private final ObjectMapper mapper;
+    private final com.studio.db.LocalDataIndexService indexService;
 
     public AiChatHistoryStore() {
-        this(new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT));
+        this(DEFAULT_MAPPER);
     }
 
     public AiChatHistoryStore(ObjectMapper mapper) {
-        this.mapper = mapper;
+        this.mapper = mapper != null ? mapper : DEFAULT_MAPPER;
+        this.indexService = new com.studio.db.LocalDataIndexService();
     }
 
     /**
@@ -96,7 +99,6 @@ public class AiChatHistoryStore {
                 writeJsonAtomic(sessionFile, legacy);
 
                 // Index in H2
-                com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
                 indexService.indexChatSession(legacy.toMeta());
                 String suiteKey = suiteDir != null ? suiteDir.getFileName().toString() : "global";
                 for (com.studio.model.AiChatMessage msg : legacy.getMessages()) {
@@ -215,7 +217,6 @@ public class AiChatHistoryStore {
         writeJsonAtomic(path, session);
 
         // Write-through to local database index
-        com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
         indexService.indexChatSession(session.toMeta());
 
         if (session.getMessages() != null && !session.getMessages().isEmpty()) {
@@ -261,7 +262,7 @@ public class AiChatHistoryStore {
         Path dir = resolveSessionsDir(suiteDir);
         Path path = dir.resolve(sessionId + ".json");
         Files.deleteIfExists(path);
-        new com.studio.db.LocalDataIndexService().clearChatForSession(sessionId);
+        indexService.clearChatForSession(sessionId);
 
         // Clean up empty directory if no more sessions remain
         if (Files.exists(dir) && Files.isDirectory(dir)) {
@@ -283,7 +284,7 @@ public class AiChatHistoryStore {
             saveSession(suiteDir, active);
         }
         String suiteKey = suiteDir != null ? suiteDir.getFileName().toString() : "global";
-        new com.studio.db.LocalDataIndexService().clearChatForSuite(suiteKey);
+        indexService.clearChatForSuite(suiteKey);
     }
 
     // ── Suite Snapshot & Rollback Engine ──
@@ -373,6 +374,17 @@ public class AiChatHistoryStore {
         for (Map.Entry<String, String> entry : snapshot.getJavaFiles().entrySet()) {
             Path targetFile = suiteDir.resolve(entry.getKey());
             Files.writeString(targetFile, entry.getValue(), StandardCharsets.UTF_8);
+        }
+
+        // 4. Re-index the restored suite in H2 so removed/restored cases are synchronized
+        if (Files.exists(suiteJsonPath)) {
+            try {
+                com.studio.model.TestSuite restoredSuite = mapper.readValue(suiteJsonPath.toFile(), com.studio.model.TestSuite.class);
+                String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                        ? suiteDir.getParent().getFileName().toString() : "";
+                indexService.indexSuite(restoredSuite, suiteDir, groupName);
+            } catch (Exception ignored) {
+            }
         }
 
         return true;

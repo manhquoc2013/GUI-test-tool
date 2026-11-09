@@ -68,11 +68,28 @@ class AssertCodeGeneratorTest {
         a3.setType("SOME_UNKNOWN_TYPE");
         a3.setStatus("ACTIVE");
 
+        Assertion a4 = new Assertion();
+        a4.setType("TABLE_ROW_COUNT");
+        a4.setLocator("table#orders");
+        a4.setValue(">= 3 rows");
+        a4.setStatus("ACTIVE");
+
+        Assertion a5 = new Assertion();
+        a5.setType("IMAGE_COUNT");
+        a5.setValue("");
+        a5.setStatus("ACTIVE");
+
+        Assertion a6 = new Assertion();
+        a6.setType("ELEMENT_COUNT");
+        a6.setLocator(".item");
+        a6.setValue("!= 0");
+        a6.setStatus("ACTIVE");
+
         String harnessClass = "SampleCase_Run";
         String transformed = ScriptHarnessTransformer.transform(
                 scriptCode, false, tempDir.resolve("sample").toString(), harnessClass);
 
-        String assertBlock = AssertCodeGenerator.generateAssertBlock(List.of(a1, a2, a3));
+        String assertBlock = AssertCodeGenerator.generateAssertBlock(List.of(a1, a2, a3, a4, a5, a6));
         String marker = "\n        } finally {";
         int idx = transformed.lastIndexOf(marker);
         assertTrue(idx >= 0, "Transformer should produce finally marker");

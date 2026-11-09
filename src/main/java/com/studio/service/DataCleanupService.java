@@ -159,11 +159,25 @@ public class DataCleanupService {
             }
         }
 
-        // 2. Chat history files
+        // 2. Chat history files (.ai_chat.json, .ai_chats/*.json, and data/ai_chats)
         Path projDir = StudioPaths.getProjectDir();
         if (Files.exists(projDir)) {
             try (var walk = Files.walk(projDir)) {
-                walk.filter(p -> p.getFileName().toString().equals(AiChatHistoryStore.CHAT_HISTORY_FILE))
+                walk.filter(p -> !Files.isDirectory(p) && isChatHistoryFile(p))
+                        .forEach(p -> {
+                            stats.chatFilesCount++;
+                            try {
+                                stats.chatBytes += Files.size(p);
+                            } catch (Exception ignored) {
+                            }
+                        });
+            } catch (Exception ignored) {
+            }
+        }
+        Path globalChatsDir = StudioPaths.getDataDir().resolve("ai_chats");
+        if (Files.exists(globalChatsDir)) {
+            try (var walk = Files.walk(globalChatsDir)) {
+                walk.filter(p -> !Files.isDirectory(p) && p.getFileName().toString().endsWith(".json"))
                         .forEach(p -> {
                             stats.chatFilesCount++;
                             try {
@@ -288,18 +302,56 @@ public class DataCleanupService {
         }
     }
 
+    private static boolean isChatHistoryFile(Path p) {
+        if (p == null || p.getFileName() == null) return false;
+        String fileName = p.getFileName().toString();
+        if (fileName.equals(AiChatHistoryStore.CHAT_HISTORY_FILE)) {
+            return true;
+        }
+        Path parent = p.getParent();
+        return parent != null && parent.getFileName() != null
+                && AiChatHistoryStore.CHAT_SESSIONS_DIR.equals(parent.getFileName().toString())
+                && fileName.endsWith(".json");
+    }
+
     private void cleanAiChat(CleanupResult result) {
-        // 1. Scan and delete all .ai_chat.json files
+        // 1. Scan and delete all .ai_chat.json files and .ai_chats/*.json session files
         Path projDir = StudioPaths.getProjectDir();
         if (Files.exists(projDir)) {
             try (var walk = Files.walk(projDir)) {
-                walk.filter(p -> p.getFileName().toString().equals(AiChatHistoryStore.CHAT_HISTORY_FILE))
+                walk.sorted(Comparator.reverseOrder())
                         .forEach(p -> {
                             try {
-                                long sz = Files.size(p);
-                                Files.deleteIfExists(p);
-                                result.deletedChatCount++;
-                                result.freedBytes += sz;
+                                if (!Files.isDirectory(p) && isChatHistoryFile(p)) {
+                                    long sz = Files.size(p);
+                                    Files.deleteIfExists(p);
+                                    result.deletedChatCount++;
+                                    result.freedBytes += sz;
+                                } else if (Files.isDirectory(p) && p.getFileName() != null
+                                        && AiChatHistoryStore.CHAT_SESSIONS_DIR.equals(p.getFileName().toString())) {
+                                    Files.deleteIfExists(p);
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        });
+            } catch (Exception ignored) {
+            }
+        }
+
+        Path globalChatsDir = StudioPaths.getDataDir().resolve("ai_chats");
+        if (Files.exists(globalChatsDir)) {
+            try (var walk = Files.walk(globalChatsDir)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try {
+                                if (!Files.isDirectory(p) && p.getFileName().toString().endsWith(".json")) {
+                                    long sz = Files.size(p);
+                                    Files.deleteIfExists(p);
+                                    result.deletedChatCount++;
+                                    result.freedBytes += sz;
+                                } else if (Files.isDirectory(p) && !p.equals(globalChatsDir)) {
+                                    Files.deleteIfExists(p);
+                                }
                             } catch (Exception ignored) {
                             }
                         });
@@ -318,10 +370,14 @@ public class DataCleanupService {
             }
         }
 
-        // 2. Clear H2 ai_chat_messages table
-        try (Connection conn = dbManager.getConnection();
-                PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages")) {
-            ps.executeUpdate();
+        // 2. Clear H2 ai_chat_messages and ai_chat_sessions tables
+        try (Connection conn = dbManager.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_messages")) {
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_chat_sessions")) {
+                ps.executeUpdate();
+            }
         } catch (Exception ignored) {
         }
     }
@@ -332,6 +388,17 @@ public class DataCleanupService {
 
         Path convertedDocs = StudioPaths.getDataDir().resolve("converted_docs");
         cleanDirectoryFiles(convertedDocs, result, false);
+
+        // Clear H2 document RAG index tables so no orphaned chunks point to deleted .md files
+        try (Connection conn = dbManager.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_document_chunks")) {
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ai_documents_index")) {
+                ps.executeUpdate();
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void cleanDirectoryFiles(Path dir, CleanupResult result, boolean preserveGitKeep) {

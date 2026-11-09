@@ -237,6 +237,7 @@ public class ProjectStore {
         TestGroup group = new TestGroup(name, description != null ? description : "");
         group.setType("group");
         writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
+        indexService.indexGroup(group, groupDir);
         return group;
     }
 
@@ -256,6 +257,8 @@ public class ProjectStore {
         suite.setCreatedAt(now);
         suite.setUpdatedAt(now);
         writeJsonAtomic(suiteDir.resolve(SUITE_JSON), suite);
+        String groupName = groupDir != null && groupDir.getFileName() != null ? groupDir.getFileName().toString() : "";
+        indexService.indexSuite(suite, suiteDir, groupName);
         return suite;
     }
 
@@ -293,6 +296,9 @@ public class ProjectStore {
                 safeClass, name);
         writeTextAtomic(suiteDir.resolve(scriptFileName), stub);
 
+        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexCase(tc, groupName, suite.getName(), stub);
         return tc;
     }
 
@@ -392,19 +398,27 @@ public class ProjectStore {
     // ---- rename ----
 
     public void renameGroup(Path groupDir, String newName) throws IOException {
+        String oldName = groupDir.getFileName().toString();
         Path newDir = groupDir.resolveSibling(newName);
         Files.move(groupDir, newDir, StandardCopyOption.REPLACE_EXISTING);
         TestGroup group = mapper.readValue(newDir.resolve(GROUP_JSON).toFile(), TestGroup.class);
         group.setName(newName);
         writeJsonAtomic(newDir.resolve(GROUP_JSON), group);
+        indexService.deleteGroup(oldName);
+        indexService.indexGroup(group, newDir);
     }
 
     public void renameSuite(Path suiteDir, String newName) throws IOException {
+        String oldSuiteName = suiteDir.getFileName().toString();
+        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                ? suiteDir.getParent().getFileName().toString() : "";
         Path newDir = suiteDir.resolveSibling(newName);
         Files.move(suiteDir, newDir, StandardCopyOption.REPLACE_EXISTING);
         TestSuite suite = mapper.readValue(newDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
         suite.setName(newName);
         writeJsonAtomic(newDir.resolve(SUITE_JSON), suite);
+        indexService.deleteSuite(groupName, oldSuiteName);
+        indexService.indexSuite(suite, newDir, groupName);
     }
 
     public void renameCase(Path suiteDir, String caseId, String newName) throws IOException {
@@ -414,29 +428,51 @@ public class ProjectStore {
         for (TestCase tc : suite.getCases()) {
             if (tc.getId().equals(caseId)) {
                 String oldName = tc.getName();
+                String oldScript = (tc.getScriptFile() != null && !tc.getScriptFile().isBlank())
+                        ? tc.getScriptFile()
+                        : com.studio.util.StringEscapeUtil.safeFileName(oldName, "case") + ".java";
+                String newScript = com.studio.util.StringEscapeUtil.safeFileName(newName, "case") + ".java";
                 tc.setName(newName);
+                tc.setUpdatedAt(EntityTime.nowIso());
 
-                // Rename .java file if different
-                if (!oldName.equals(newName)) {
-                    Path oldFile = suiteDir.resolve(oldName + ".java");
-                    Path newFile = suiteDir.resolve(newName + ".java");
-                    Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
-                    tc.setScriptFile(newName + ".java");
+                Path oldFile = suiteDir.resolve(oldScript);
+                if (!Files.exists(oldFile) && oldName != null) {
+                    Path legacyOldFile = suiteDir.resolve(oldName + ".java");
+                    if (Files.exists(legacyOldFile)) {
+                        oldFile = legacyOldFile;
+                    }
                 }
+                Path newFile = suiteDir.resolve(newScript);
+                if (Files.exists(oldFile) && !oldFile.equals(newFile)) {
+                    Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+                tc.setScriptFile(newScript);
                 break;
             }
         }
         writeJsonAtomic(suiteJson, suite);
+        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexSuite(suite, suiteDir, groupName);
     }
 
     // ---- move / copy ----
 
     public void moveSuite(Path fromDir, Path toGroupDir) throws IOException {
+        String suiteName = fromDir.getFileName().toString();
+        String oldGroup = fromDir.getParent() != null && fromDir.getParent().getFileName() != null
+                ? fromDir.getParent().getFileName().toString() : "";
         Path dest = toGroupDir.resolve(fromDir.getFileName());
         if (Files.exists(dest)) {
             throw new IOException("Suite '" + fromDir.getFileName() + "' đã tồn tại trong nhóm đích");
         }
         Files.move(fromDir, dest);
+        indexService.deleteSuite(oldGroup, suiteName);
+        if (Files.exists(dest.resolve(SUITE_JSON))) {
+            TestSuite suite = mapper.readValue(dest.resolve(SUITE_JSON).toFile(), TestSuite.class);
+            String newGroup = toGroupDir.getFileName() != null ? toGroupDir.getFileName().toString() : "";
+            indexService.indexSuite(suite, dest, newGroup);
+        }
     }
 
     public void copySuite(Path fromDir, Path toGroupDir, String newName) throws IOException {
@@ -448,6 +484,8 @@ public class ProjectStore {
         TestSuite suite = mapper.readValue(toDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
         suite.setName(newName);
         writeJsonAtomic(toDir.resolve(SUITE_JSON), suite);
+        String newGroup = toGroupDir.getFileName() != null ? toGroupDir.getFileName().toString() : "";
+        indexService.indexSuite(suite, toDir, newGroup);
     }
 
     private void copyDirectory(Path from, Path to) throws IOException {
@@ -479,28 +517,54 @@ public class ProjectStore {
                 .orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
 
         String newId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
-        TestCase copy = new TestCase(newId, newName, original.getDescription(), newName + ".java", original.getStatus());
+        String newScriptFile = com.studio.util.StringEscapeUtil.safeFileName(newName, "case") + ".java";
+        TestCase copy = new TestCase(newId, newName, original.getDescription(), newScriptFile, original.getStatus());
+        copy.setPriority(original.getPriority());
+        copy.setStartUrl(original.getStartUrl());
+        copy.setBrowser(original.getBrowser());
+        copy.setHeadless(original.getHeadless());
+        String now = EntityTime.nowIso();
+        copy.setCreatedAt(now);
+        copy.setUpdatedAt(now);
+
         List<Assertion> copiedAsserts = new ArrayList<>();
-        for (Assertion a : original.getAssertions()) {
-            Assertion clone = new Assertion();
-            clone.setType(a.getType());
-            clone.setValue(a.getValue());
-            clone.setLocator(a.getLocator());
-            clone.setStatus(a.getStatus());
-            clone.setExact(a.isExact());
-            clone.setTimeoutMs(a.getTimeoutMs());
-            copiedAsserts.add(clone);
+        if (original.getAssertions() != null) {
+            for (Assertion a : original.getAssertions()) {
+                Assertion clone = new Assertion();
+                clone.setType(a.getType());
+                clone.setValue(a.getValue());
+                clone.setLocator(a.getLocator());
+                clone.setAttribute(a.getAttribute());
+                clone.setExpectedValue(a.getExpectedValue());
+                clone.setStatus(a.getStatus());
+                clone.setExact(a.isExact());
+                clone.setTimeoutMs(a.getTimeoutMs());
+                copiedAsserts.add(clone);
+            }
         }
         copy.setAssertions(copiedAsserts);
+        if (original.getTestSteps() != null) {
+            copy.setTestSteps(new ArrayList<>(original.getTestSteps()));
+        }
+        if (original.getTestDataSets() != null) {
+            copy.setTestDataSets(new ArrayList<>(original.getTestDataSets()));
+        }
         suite.getCases().add(copy);
         writeJsonAtomic(suiteJson, suite);
 
         // Copy .java file
-        if (original.getScriptFile() != null) {
-            Path srcFile = suiteDir.resolve(original.getScriptFile());
-            Path dstFile = suiteDir.resolve(newName + ".java");
-            Files.copy(srcFile, dstFile);
+        String origScript = (original.getScriptFile() != null && !original.getScriptFile().isBlank())
+                ? original.getScriptFile()
+                : com.studio.util.StringEscapeUtil.safeFileName(original.getName(), "case") + ".java";
+        Path srcFile = suiteDir.resolve(origScript);
+        Path dstFile = suiteDir.resolve(newScriptFile);
+        if (Files.exists(srcFile) && !srcFile.equals(dstFile)) {
+            Files.copy(srcFile, dstFile, StandardCopyOption.REPLACE_EXISTING);
         }
+
+        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
+                ? suiteDir.getParent().getFileName().toString() : "";
+        indexService.indexSuite(suite, suiteDir, groupName);
 
         return copy;
     }

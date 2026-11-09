@@ -288,4 +288,84 @@ public class AiAgentIndexingAndOptimizationTest {
         assertEquals("TC01_DangKy_HopLe", mdCases.get(0).getName());
         assertEquals("TC02_DangKy_TrungEmail", mdCases.get(1).getName());
     }
+
+    @Test
+    public void testSystemReviewFixes_RenameCopyCase_ReportSync_StepGroups_Cleanup() throws Exception {
+        DatabaseManager dbManager = DatabaseManager.getInstance();
+        AiAgentIndexService indexService = new AiAgentIndexService(dbManager, new AiTokenOptimizer());
+        ProjectStore projectStore = new ProjectStore();
+        com.studio.db.ProjectDbService projectDb = new com.studio.db.ProjectDbService(dbManager);
+
+        // 1. Create Group, Suite, and Case with special/Vietnamese characters, then rename and copy
+        Path groupDir = projectStore.createGroup(StudioPaths.getProjectDir(), "NhomThanhToan", "Mô tả nhóm").getName() != null
+                ? StudioPaths.getProjectDir().resolve("NhomThanhToan") : null;
+        assertNotNull(groupDir);
+        projectStore.createSuite(groupDir, "SuiteGioHang");
+        Path suiteDir = groupDir.resolve("SuiteGioHang");
+
+        TestCase created = projectStore.createCase(suiteDir, "Đăng nhập / Giỏ hàng", "Mô tả case");
+        assertNotNull(created.getScriptFile());
+        assertTrue(Files.exists(suiteDir.resolve(created.getScriptFile())));
+
+        // Rename case with special characters -> must not throw NoSuchFileException and must update H2
+        projectStore.renameCase(suiteDir, created.getId(), "Thanh toán: Thẻ tín dụng");
+        List<TestCase> foundRenamed = projectDb.searchCases("Thẻ tín dụng", null);
+        assertEquals(1, foundRenamed.size());
+
+        // Copy case with special characters -> must safely copy .java and index in H2
+        TestCase copied = projectStore.copyCase(suiteDir, created.getId(), "Thanh toán / Ví điện tử");
+        assertNotNull(copied);
+        assertTrue(Files.exists(suiteDir.resolve(copied.getScriptFile())));
+        assertEquals(2, projectDb.getCasesForSuite("NhomThanhToan", "SuiteGioHang").size());
+
+        // 2. Verify LocalDataIndexService.syncReportsDirectory reads report.json written by ReportStore
+        com.studio.store.ReportStore reportStore = new com.studio.store.ReportStore();
+        com.studio.model.RunReport r = new com.studio.model.RunReport(
+                "run-sync-check", "SUITE", suiteDir.toString(), "SuiteGioHang", "CHROMIUM", true, false, false);
+        r.setStartedAt("2026-11-10T00:00:00");
+        r.setTotal(2);
+        r.setPassed(2);
+        ProjectStore.writeJsonAtomic(StudioPaths.getReportsDir().resolve("run-sync-check").resolve("report.json"), r);
+
+        com.studio.db.LocalDataIndexService localIdx = new com.studio.db.LocalDataIndexService(dbManager, new com.fasterxml.jackson.databind.ObjectMapper());
+        localIdx.syncReportsDirectory(StudioPaths.getReportsDir());
+        com.studio.db.ReportDbService reportDb = new com.studio.db.ReportDbService(dbManager);
+        assertNotNull(reportDb.getReport("run-sync-check"), "syncReportsDirectory must index report.json files");
+
+        // 3. Verify TestRunnerService.expandStepGroups compiles steps into executable StudioRuntime calls
+        com.studio.store.StepGroupStore sgStore = new com.studio.store.StepGroupStore(tempHome.resolve("step-groups"));
+        com.studio.model.StepGroup sg = new com.studio.model.StepGroup("sg-login", "Reusable Login", "Common login");
+        sg.setSteps(List.of(
+                new com.studio.model.TestStep(1, "NAVIGATE", "https://example.com/login", "", "Mở trang login", ""),
+                new com.studio.model.TestStep(2, "FILL", "#user", "admin", "Nhập user", ""),
+                new com.studio.model.TestStep(3, "CLICK", "#btn-login", "", "Bấm đăng nhập", "")
+        ));
+        sgStore.save(sg);
+
+        String scriptWithInclude = "public class Test {\n    public static void main(String[] args) {\n        // @include(\"sg-login\")\n    }\n}";
+        String expanded = TestRunnerService.expandStepGroups(scriptWithInclude, sgStore);
+        assertTrue(expanded.contains("StudioRuntime.page().navigate(\"https://example.com/login\")"));
+        assertTrue(expanded.contains("StudioRuntime.healLocator(\"#user\").first().fill(\"admin\")"));
+        assertTrue(expanded.contains("StudioRuntime.healLocator(\"#btn-login\").first().click()"));
+
+        // 4. Verify DataCleanupService cleans .ai_chats sessions and H2 document index tables
+        com.studio.store.AiChatHistoryStore chatStore = new com.studio.store.AiChatHistoryStore();
+        com.studio.model.AiChatSession chatSession = chatStore.createNewSession(suiteDir, "Phiên test dọn dẹp");
+        chatSession.addMessage(new com.studio.model.AiChatMessage("user", "Xin chào"));
+        chatStore.saveSession(suiteDir, chatSession);
+
+        DocumentParserService parser = new DocumentParserService(new MarkdownConverterEngine(), indexService);
+        Path specFile = tempHome.resolve("cleanup_spec.txt");
+        Files.writeString(specFile, "# Tài liệu kiểm thử\nNội dung kiểm thử dọn dẹp", StandardCharsets.UTF_8);
+        DocumentParserService.ParsedDocument d1 = parser.parse(specFile);
+        DocumentParserService.ParsedDocument d2 = parser.parse(specFile);
+        assertEquals(d1.getMarkdownPath(), d2.getMarkdownPath(), "Repeated parse of identical file must reuse deterministic .md path");
+        assertFalse(indexService.listIndexedDocuments().isEmpty());
+
+        DataCleanupService cleanup = new DataCleanupService(dbManager, reportStore);
+        DataCleanupService.CleanupResult cleanRes = cleanup.executeCleanup(
+                new DataCleanupService.CleanupOptions(false, 0, true, true));
+        assertTrue(cleanRes.getDeletedChatCount() >= 1, "Multi-session .ai_chats files must be cleaned");
+        assertTrue(indexService.listIndexedDocuments().isEmpty(), "Cleaned converted_docs must also purge ai_documents_index");
+    }
 }

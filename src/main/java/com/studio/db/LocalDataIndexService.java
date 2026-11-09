@@ -14,8 +14,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,16 +28,18 @@ import java.util.Set;
  */
 public class LocalDataIndexService {
 
+    private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+
     private final DatabaseManager dbManager;
     private final ObjectMapper mapper;
 
     public LocalDataIndexService() {
-        this(DatabaseManager.getInstance(), new ObjectMapper());
+        this(DatabaseManager.getInstance(), DEFAULT_MAPPER);
     }
 
     public LocalDataIndexService(DatabaseManager dbManager, ObjectMapper mapper) {
         this.dbManager = dbManager;
-        this.mapper = mapper;
+        this.mapper = mapper != null ? mapper : DEFAULT_MAPPER;
     }
 
     /**
@@ -166,10 +170,13 @@ public class LocalDataIndexService {
                 if (indexedReports.contains(runId)) {
                     continue; // Skip already indexed reports
                 }
-                Path summaryJson = runDir.resolve("summary.json");
-                if (Files.exists(summaryJson)) {
+                Path reportJson = runDir.resolve("report.json");
+                if (!Files.exists(reportJson)) {
+                    reportJson = runDir.resolve("summary.json");
+                }
+                if (Files.exists(reportJson)) {
                     try {
-                        RunReport report = mapper.readValue(summaryJson.toFile(), RunReport.class);
+                        RunReport report = mapper.readValue(reportJson.toFile(), RunReport.class);
                         indexReport(report);
                     } catch (Exception ignored) {
                     }
@@ -266,9 +273,15 @@ public class LocalDataIndexService {
                 ps.executeUpdate();
             }
 
-            // Index all cases in this suite
+            // Index all cases in this suite and purge any removed/rolled-back cases
+            Set<String> activeCaseIds = new HashSet<>();
             if (suite.getCases() != null) {
                 for (TestCase tc : suite.getCases()) {
+                    if (tc.getId() == null || tc.getId().isBlank()) {
+                        String fallbackName = tc.getName() != null ? tc.getName() : "case";
+                        tc.setId("tc-" + fallbackName.toLowerCase().replaceAll("[^a-z0-9]", "-"));
+                    }
+                    activeCaseIds.add(tc.getId());
                     String scriptContent = "";
                     if (suitePath != null && tc.getScriptFile() != null) {
                         Path scriptPath = suitePath.resolve(tc.getScriptFile());
@@ -277,6 +290,30 @@ public class LocalDataIndexService {
                         }
                     }
                     indexCaseInternal(conn, tc, groupName, suite.getName(), suiteId, scriptContent);
+                }
+            }
+
+            // Purge stale cases in H2 that were removed from this suite
+            List<String> staleCaseIds = new java.util.ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM test_cases WHERE suite_id = ?")) {
+                ps.setString(1, suiteId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String existingId = rs.getString(1);
+                        if (existingId != null && !activeCaseIds.contains(existingId)) {
+                            staleCaseIds.add(existingId);
+                        }
+                    }
+                }
+            }
+            for (String staleId : staleCaseIds) {
+                try (PreparedStatement delCase = conn.prepareStatement("DELETE FROM test_cases WHERE id = ?")) {
+                    delCase.setString(1, staleId);
+                    delCase.executeUpdate();
+                }
+                try (PreparedStatement delAssert = conn.prepareStatement("DELETE FROM test_assertions WHERE case_id = ?")) {
+                    delAssert.setString(1, staleId);
+                    delAssert.executeUpdate();
                 }
             }
 

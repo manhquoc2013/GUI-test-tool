@@ -30,6 +30,12 @@ public class LiveDomScanner {
 
     private static volatile Playwright sharedPlaywright = null;
     private static volatile Browser sharedBrowser = null;
+    private static final java.util.concurrent.ExecutorService SCANNER_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "studio-dom-scanner-worker");
+                t.setDaemon(true);
+                return t;
+            });
 
     static {
         ResourceReleaseService.registerCleanupTask("dom-scanner-browser", LiveDomScanner::closeSharedBrowser);
@@ -46,12 +52,19 @@ public class LiveDomScanner {
     }
 
     public static synchronized void closeSharedBrowser() {
-        if (sharedBrowser != null) {
-            try { sharedBrowser.close(); } catch (Exception ignored) {}
+        try {
+            SCANNER_EXECUTOR.submit(() -> {
+                if (sharedBrowser != null) {
+                    try { sharedBrowser.close(); } catch (Exception ignored) {}
+                    sharedBrowser = null;
+                }
+                if (sharedPlaywright != null) {
+                    try { sharedPlaywright.close(); } catch (Exception ignored) {}
+                    sharedPlaywright = null;
+                }
+            }).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception ignored) {
             sharedBrowser = null;
-        }
-        if (sharedPlaywright != null) {
-            try { sharedPlaywright.close(); } catch (Exception ignored) {}
             sharedPlaywright = null;
         }
     }
@@ -129,11 +142,20 @@ public class LiveDomScanner {
         }
 
         int timeout = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
+        try {
+            return SCANNER_EXECUTOR.submit(() -> scanUrlOnWorker(normalizedUrl, timeout))
+                    .get(timeout + 8000L, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            System.err.println("[LiveDomScanner] Failed to scan URL '" + normalizedUrl + "': " + e.getMessage());
+            return "[]";
+        }
+    }
+
+    private String scanUrlOnWorker(String normalizedUrl, int timeout) {
         BrowserContext context = null;
         Page page = null;
-
-        try (Playwright playwright = PlaywrightUtil.create();
-             Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
+        try {
+            Browser browser = getOrCreateBrowser();
             context = browser.newContext();
             page = context.newPage();
             page.setDefaultNavigationTimeout(timeout);

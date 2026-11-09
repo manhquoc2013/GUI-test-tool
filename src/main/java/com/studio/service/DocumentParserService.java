@@ -12,30 +12,32 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Service to parse requirements and specifications from multiple document formats:
- * - Plaintext, Markdown, JSON, CSV, TSV, XML, HTML (.txt, .md, .json, .csv, etc.)
+ * Service to parse requirements and specifications from multiple document
+ * formats:
+ * - Plaintext, Markdown, JSON, CSV, TSV, XML, HTML (.txt, .md, .json, .csv,
+ * etc.)
  * - Word documents (.docx) via Apache POI
  * - Excel spreadsheets (.xlsx, .xls) via Apache POI
  * - PowerPoint presentations (.pptx) via Apache POI
  * - PDF documents (.pdf) via Apache PDFBox
- * - Screenshots and UI mockups (.png, .jpg, .jpeg, .webp, .gif) to Base64 data URLs for Vision
+ * - Screenshots and UI mockups (.png, .jpg, .jpeg, .webp, .gif) to Base64 data
+ * URLs for Vision
  *
- * Automatically converts documents to normalized Markdown files in data/converted_docs/
+ * Automatically converts documents to normalized Markdown files in
+ * data/converted_docs/
  * for token-efficient and AST-structured LLM ingestion.
  */
 public class DocumentParserService {
 
     private static final Set<String> TEXT_EXTENSIONS = Set.of(
-            "txt", "md", "markdown", "json", "csv", "tsv", "xml", "html", "htm", "yaml", "yml", "java", "js", "ts", "sql", "log"
-    );
+            "txt", "md", "markdown", "json", "csv", "tsv", "xml", "html", "htm", "yaml", "yml", "java", "js", "ts",
+            "sql", "log");
 
     private static final Set<String> OFFICE_EXTENSIONS = Set.of(
-            "docx", "xlsx", "xls", "pptx", "pdf"
-    );
+            "docx", "xlsx", "xls", "pptx", "pdf");
 
     private static final Set<String> IMAGE_EXTENSIONS = Set.of(
-            "png", "jpg", "jpeg", "webp", "gif", "bmp"
-    );
+            "png", "jpg", "jpeg", "webp", "gif", "bmp");
 
     private final MarkdownConverterEngine markdownConverter;
     private final AiAgentIndexService indexService;
@@ -63,12 +65,14 @@ public class DocumentParserService {
         private final Path markdownPath;
         private final MarkdownConverterEngine.ConversionResult conversionResult;
 
-        public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType, long sizeBytes) {
+        public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType,
+                long sizeBytes) {
             this(fileName, path, image, content, mimeType, sizeBytes, null, null);
         }
 
-        public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType, long sizeBytes,
-                              Path markdownPath, MarkdownConverterEngine.ConversionResult conversionResult) {
+        public ParsedDocument(String fileName, Path path, boolean image, String content, String mimeType,
+                long sizeBytes,
+                Path markdownPath, MarkdownConverterEngine.ConversionResult conversionResult) {
             this.fileName = fileName;
             this.path = path;
             this.image = image;
@@ -91,7 +95,9 @@ public class DocumentParserService {
             return image;
         }
 
-        /** Text content if document/text (in Markdown format); Base64 data URL if image. */
+        /**
+         * Text content if document/text (in Markdown format); Base64 data URL if image.
+         */
         public String getContent() {
             return content;
         }
@@ -137,7 +143,8 @@ public class DocumentParserService {
         // Automatically persist to data/converted_docs/<sanitized_name>_<timestamp>.md
         Path savedMdPath = saveConvertedMarkdown(fileName, markdownText);
 
-        // Index converted markdown and semantic chunks into H2 for AI Agent RAG retrieval
+        // Index converted markdown and semantic chunks into H2 for AI Agent RAG
+        // retrieval
         try {
             indexService.indexConvertedDocument(fileName, savedMdPath, markdownText, "text/markdown", size);
         } catch (Exception ignored) {
@@ -157,6 +164,11 @@ public class DocumentParserService {
             String safeBase = StringEscapeUtil.safeFileName(base, "doc");
             String timestamp = String.valueOf(System.currentTimeMillis());
             Path targetFile = targetDir.resolve(safeBase + "_" + timestamp + ".md");
+            String contentHash = java.util.UUID.nameUUIDFromBytes(
+                    (originalFileName + "|" + (markdownContent != null ? markdownContent : ""))
+                            .getBytes(StandardCharsets.UTF_8))
+                    .toString().substring(0, 8);
+            Path targetFile = targetDir.resolve(safeBase + "_" + contentHash + ".md");
 
             Files.writeString(targetFile, markdownContent, StandardCharsets.UTF_8);
             return targetFile;
@@ -183,7 +195,8 @@ public class DocumentParserService {
     }
 
     public static String getExtension(String fileName) {
-        if (fileName == null) return "";
+        if (fileName == null)
+            return "";
         int dot = fileName.lastIndexOf('.');
         return dot >= 0 ? fileName.substring(dot + 1) : "";
     }
@@ -200,7 +213,8 @@ public class DocumentParserService {
     }
 
     public static boolean isSupportedExtension(String ext) {
-        if (ext == null) return false;
+        if (ext == null)
+            return false;
         String e = ext.toLowerCase(Locale.ROOT);
         return TEXT_EXTENSIONS.contains(e) || OFFICE_EXTENSIONS.contains(e) || IMAGE_EXTENSIONS.contains(e);
     }

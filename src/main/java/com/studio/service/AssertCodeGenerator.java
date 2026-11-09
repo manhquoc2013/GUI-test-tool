@@ -217,7 +217,7 @@ public class AssertCodeGenerator {
             case "ELEMENT_COUNT":
                 return String.format(
                     "            int __count = com.studio.runtime.StudioRuntime.healLocator(\"%s\", \"ASSERT_COUNT\").count(); if (!(%s)) throw new AssertionError(\"Element count for '%s': expected %s, actual: \" + __count);\n",
-                    StringEscapeUtil.escapeJava(locator), buildCountCondition(value), StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
+                    StringEscapeUtil.escapeJava(locator), buildCountCondition("__count", value), StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
 
             case "ELEMENT_HAS_TEXT", "ELEMENT_TEXT_CONTAINS":
                 return String.format(
@@ -255,10 +255,12 @@ public class AssertCodeGenerator {
                     imgLoc, timeout);
             }
 
-            case "IMAGE_COUNT":
+            case "IMAGE_COUNT": {
+                int minImages = parseSafeInt(value, 1);
                 return String.format(
-                    "            int __imgCount = com.studio.runtime.StudioRuntime.page().locator(\"img\").count(); if (__imgCount < %s) throw new AssertionError(\"Expected at least %s images, found: \" + __imgCount);\n",
-                    StringEscapeUtil.escapeJava(value), StringEscapeUtil.escapeJava(value));
+                    "            int __imgCount = com.studio.runtime.StudioRuntime.page().locator(\"img\").count(); if (__imgCount < %d) throw new AssertionError(\"Expected at least %s images, found: \" + __imgCount);\n",
+                    minImages, StringEscapeUtil.escapeJava(value.isBlank() ? String.valueOf(minImages) : value));
+            }
 
             case "VIDEO_VISIBLE":
                 return String.format(
@@ -292,10 +294,12 @@ public class AssertCodeGenerator {
                     "            com.studio.runtime.StudioRuntime.page().locator(\"table\").getByText(\"%s\").first().waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(%d));\n",
                     StringEscapeUtil.escapeJava(value), timeout);
 
-            case "TABLE_ROW_COUNT":
+            case "TABLE_ROW_COUNT": {
+                String rowSelector = locator.isBlank() ? "table tr" : (locator.trim().endsWith("tr") ? locator.trim() : locator.trim() + " tr");
                 return String.format(
-                    "            int __rowCount = com.studio.runtime.StudioRuntime.page().locator(\"%s tr\").count(); if (!(%s)) throw new AssertionError(\"Row count for '%s': expected %s, actual: \" + __rowCount);\n",
-                    StringEscapeUtil.escapeJava(locator), buildCountCondition(value), StringEscapeUtil.escapeJava(locator), StringEscapeUtil.escapeJava(value));
+                    "            int __rowCount = com.studio.runtime.StudioRuntime.page().locator(\"%s\").count(); if (!(%s)) throw new AssertionError(\"Row count for '%s': expected %s, actual: \" + __rowCount);\n",
+                    StringEscapeUtil.escapeJava(rowSelector), buildCountCondition("__rowCount", value), StringEscapeUtil.escapeJava(rowSelector), StringEscapeUtil.escapeJava(value));
+            }
 
             case "TABLE_CELL_EQUALS":
                 return String.format(
@@ -395,14 +399,29 @@ public class AssertCodeGenerator {
     /**
      * Build a count comparison expression from a value like "=5", ">=3", "<=10", etc.
      */
-    private static String buildCountCondition(String value) {
-        if (value == null) return "__count == 0";
-        if (value.startsWith(">=")) return String.format("__count >= %s", value.substring(2));
-        if (value.startsWith("<=")) return String.format("__count <= %s", value.substring(2));
-        if (value.startsWith(">"))  return String.format("__count >  %s", value.substring(1));
-        if (value.startsWith("<"))  return String.format("__count <  %s", value.substring(1));
-        if (value.startsWith("="))  return String.format("__count == %s", value.substring(1));
-        return String.format("__count == %s", value); // default: equals
+    private static String buildCountCondition(String varName, String value) {
+        String v = (varName != null && !varName.isBlank()) ? varName : "__count";
+        if (value == null || value.isBlank()) return v + " >= 0";
+        String trimmed = value.trim();
+        if (trimmed.startsWith(">=")) return String.format("%s >= %d", v, parseSafeInt(trimmed.substring(2), 0));
+        if (trimmed.startsWith("<=")) return String.format("%s <= %d", v, parseSafeInt(trimmed.substring(2), 0));
+        if (trimmed.startsWith("!=")) return String.format("%s != %d", v, parseSafeInt(trimmed.substring(2), 0));
+        if (trimmed.startsWith("==")) return String.format("%s == %d", v, parseSafeInt(trimmed.substring(2), 0));
+        if (trimmed.startsWith(">"))  return String.format("%s > %d", v, parseSafeInt(trimmed.substring(1), 0));
+        if (trimmed.startsWith("<"))  return String.format("%s < %d", v, parseSafeInt(trimmed.substring(1), 0));
+        if (trimmed.startsWith("="))  return String.format("%s == %d", v, parseSafeInt(trimmed.substring(1), 0));
+        return String.format("%s == %d", v, parseSafeInt(trimmed, 0));
+    }
+
+    private static int parseSafeInt(String raw, int fallback) {
+        if (raw == null || raw.isBlank()) return fallback;
+        String digits = raw.replaceAll("[^0-9-]", "").trim();
+        if (digits.isEmpty() || "-".equals(digits)) return fallback;
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
 }

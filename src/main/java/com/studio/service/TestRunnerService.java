@@ -1219,12 +1219,14 @@ public class TestRunnerService {
         }
     }
 
+    private static final Pattern STEP_GROUP_INCLUDE_PATTERN =
+            Pattern.compile("(?:/{2}|/\\*)\\s*@include\\([\"']([^\"']+)[\"']\\)\\s*(?:\\*/)?");
+
     public static String expandStepGroups(String scriptCode, StepGroupStore store) {
         if (scriptCode == null || !scriptCode.contains("@include(") || store == null) {
             return scriptCode;
         }
-        Pattern p = Pattern.compile("(?:/{2}|/\\*)\\s*@include\\([\"']([^\"']+)[\"']\\)\\s*(?:\\*/)?");
-        Matcher m = p.matcher(scriptCode);
+        Matcher m = STEP_GROUP_INCLUDE_PATTERN.matcher(scriptCode);
         StringBuilder sb = new StringBuilder();
         while (m.find()) {
             String groupId = m.group(1);
@@ -1232,8 +1234,17 @@ public class TestRunnerService {
             String expansion = "// [StepGroup: " + groupId + " not found]";
             if (group.isPresent()) {
                 StringBuilder grpCode = new StringBuilder("// [StepGroup: " + group.get().getName() + "]\n");
-                for (TestStep step : group.get().getSteps()) {
-                    grpCode.append("        // Step: ").append(step.getDescription()).append("\n");
+                if (group.get().getSteps() != null) {
+                    for (TestStep step : group.get().getSteps()) {
+                        if (step == null) continue;
+                        if (step.getDescription() != null && !step.getDescription().isBlank()) {
+                            grpCode.append("        // Step: ").append(step.getDescription()).append("\n");
+                        }
+                        String stmt = compileStepToJava(step);
+                        if (!stmt.isEmpty()) {
+                            grpCode.append("        ").append(stmt).append("\n");
+                        }
+                    }
                 }
                 expansion = grpCode.toString();
             }
@@ -1241,6 +1252,43 @@ public class TestRunnerService {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    private static String compileStepToJava(TestStep step) {
+        String action = step.getAction() != null ? step.getAction().trim().toUpperCase(Locale.ROOT) : "";
+        String target = step.getTarget() != null ? step.getTarget().trim() : "";
+        String data = step.getTestData() != null ? step.getTestData() : "";
+        String escTarget = com.studio.util.StringEscapeUtil.escapeJava(target);
+        String escData = com.studio.util.StringEscapeUtil.escapeJava(data);
+
+        if ((action.contains("NAVIGATE") || action.contains("GOTO") || action.contains("OPEN")) && !target.isEmpty()) {
+            return "com.studio.runtime.StudioRuntime.page().navigate(\"" + escTarget + "\");";
+        }
+        if (target.isEmpty()) {
+            return "";
+        }
+        if (action.contains("FILL") || action.contains("TYPE") || action.contains("INPUT")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().fill(\"" + escData + "\");";
+        }
+        if (action.contains("SELECT")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().selectOption(\"" + escData + "\");";
+        }
+        if (action.contains("UNCHECK")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().uncheck();";
+        }
+        if (action.contains("CHECK")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().check();";
+        }
+        if (action.contains("PRESS") && !data.isBlank()) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().press(\"" + escData + "\");";
+        }
+        if (action.contains("HOVER")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().hover();";
+        }
+        if (action.contains("CLICK") || action.contains("SUBMIT")) {
+            return "com.studio.runtime.StudioRuntime.healLocator(\"" + escTarget + "\").first().click();";
+        }
+        return "";
     }
 
     private void terminal(String msg, Consumer<String> output) {
