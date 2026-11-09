@@ -1,5 +1,26 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.4.1
+
+**Release date:** 2026-11-09
+
+Phiên bản vá **Test Studio v2.4.1** khắc phục triệt để lỗi xung đột vòng đời DatabaseManager trên môi trường Windows CI, đảm bảo tính toàn vẹn và cô lập dữ liệu giữa các tiến trình kiểm thử tự động, đồng thời nâng cao độ tin cậy của dịch vụ giải phóng tài nguyên hệ thống (ResourceReleaseService).
+
+---
+
+### Các cải tiến & sửa lỗi trong bản vá v2.4.1 (Bug Fixes & Improvements)
+
+#### 1. Khắc phục xung đột vòng đời cơ sở dữ liệu H2 (Database Lifecycle Management)
+- **Tự động tái tạo Singleton Instance sau Shutdown**: `DatabaseManager.getInstance()` tự động nhận diện và tái tạo một instance cơ sở dữ liệu đang hoạt động nếu instance trước đó đã bị đóng (`isShutdown`), ngăn chặn hoàn toàn lỗi `SQLException: DatabaseManager has been shut down` trong cùng tiến trình JVM.
+- **Dọn dẹp tài nguyên chuẩn xác**: Phương thức `DatabaseManager.shutdown()` tự động giải phóng tham chiếu singleton `instance = null`.
+
+#### 2. Cô lập trạng thái kiểm thử (Test State Isolation & Resets)
+- **Bổ sung cơ chế Reset cho ResourceReleaseService**: Cho phép đặt lại cờ `IS_SHUTTING_DOWN` và xóa các hook cleanup trong môi trường kiểm thử đơn vị.
+- **Hoàn thiện chu trình dọn dẹp `@AfterEach`**: Bổ sung `@AfterEach` cho `ResourceReleaseServiceTest`, `DataCleanupServiceTest`, và `SettingsDualPersistenceTest` để cô lập hoàn toàn cơ sở dữ liệu nhúng và mock data giữa các test case trên mọi hệ điều hành.
+- **Minh bạch hóa lỗi JDBC Indexing**: Bổ sung log cảnh báo chi tiết khi batch indexing chat messages gặp sự cố thay vì nuốt ngoại lệ âm thầm.
+
+---
+
 ## Test Studio v2.4.0
 
 **Release date:** 2026-11-08

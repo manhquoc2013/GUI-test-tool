@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.4.1] — 2026-11-09
+
+### Fixed
+
+- **H2 Database Lifecycle & Singleton Management**:
+  - `DatabaseManager.getInstance()` now transparently detects if the current singleton instance was shut down and re-instantiates an active instance.
+  - `DatabaseManager.shutdown()` safely resets the singleton reference to avoid state leaks in multi-test execution environments.
+- **Test State Isolation**:
+  - Added `ResourceReleaseService.resetForTesting()` to reset the shutdown flag and clear cleanup task hooks between tests.
+  - Added `@AfterEach` lifecycle teardown to `ResourceReleaseServiceTest`, `DataCleanupServiceTest`, and `SettingsDualPersistenceTest` to prevent state poisoning across Windows CI test orders.
+  - Added regression test `testRecreateInstanceAfterShutdown` in `DatabaseManagerTest`.
+  - Added warning logging in `LocalDataIndexService.indexChatMessages` upon SQLException.
+
+---
+
 ## [2.4.0] — 2026-11-08
 
 ### Added

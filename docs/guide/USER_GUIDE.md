@@ -10,7 +10,7 @@ Bộ tài liệu này phản ánh **chính xác trạng thái thực tế của 
 
 | Thông số | Giá trị |
 |---|---|
-| **Phiên bản (Version)** | **2.4.0** (`pom.xml`) |
+| **Phiên bản (Version)** | **2.4.1** (`pom.xml`) |
 | **Nền tảng (Platform)** | JavaFX 26.0.1 · Playwright Java 1.61.0 · OpenJDK 26+ · Node.js 20+ LTS |
 | **Chủ đề giao diện (Themes)** | Tối (**Catppuccin Mocha**) / Sáng (**Modern Light**) — chuyển tức thời |
 | **Bộ cài đặt (Installers)** | Windows Setup (`.exe`), macOS Disk Image (`.dmg`), Linux Debian (`.deb`), Portable (`.zip`) |
@@ -505,7 +505,7 @@ flowchart TD
     C -->|macOS Installer| F["scripts/build-installer.sh<br/>Apple Disk Image (.dmg)"]
     C -->|Linux Installer| G["scripts/build-installer-linux.sh<br/>Debian Package (.deb)"]
     D & E & F & G --> H[".github/workflows/release-portable.yml<br/>Unified Dual Release CI/CD"]
-    H --> I["GitHub Release v2.4.0<br/>6 Artifacts trọn gói kèm Release Notes chuẩn"]
+    H --> I["GitHub Release v2.4.1<br/>6 Artifacts trọn gói kèm Release Notes chuẩn"]
 ```
 
 ### 13.1. Ma trận bộ cài đặt hệ thống
@@ -519,7 +519,7 @@ flowchart TD
 
 ### 13.2. Đường ống phát hành kép tự động (Unified Dual Release CI/CD)
 
-Khi gắn thẻ phiên bản mới (`git tag v2.4.0 && git push origin v2.4.0`):
+Khi gắn thẻ phiên bản mới (`git tag v2.4.1 && git push origin v2.4.1`):
 1. Quy trình `.github/workflows/release-portable.yml` tự động khởi chạy trên GitHub Actions.
 2. Ma trận build song song 3 nền tảng (Windows, macOS, Ubuntu) sản xuất đồng thời **cả 3 bản Portable ZIP** và **cả 3 bản Cài đặt chuyên nghiệp (EXE, DMG, DEB)**.
 3. Tập lệnh `scripts/extract-release-notes.py` tự động bóc tách đúng phần ghi chú phát hành của phiên bản mục tiêu trong `docs/RELEASE_NOTES.md` để đính kèm vào GitHub Release.
@@ -620,7 +620,7 @@ data/
 | Bấm **Ghi hình** nhưng không thấy mở trình duyệt | Thiếu Node.js hoặc Playwright CLI ở bản chạy từ mã nguồn | Cài đặt Node.js 20+ LTS và chạy `npx playwright install`. Nếu dùng bản Portable hoặc Installer, hãy kiểm tra quyền thực thi tập tin. |
 | Ca kiểm thử bị bỏ qua (Skip 100%) khi chạy | Case chưa chuyển sang `Ready` hoặc chưa có assertion `ACTIVE` | Mở case, chuyển trạng thái sang `Ready`, thêm hoặc kích hoạt ít nhất một assertion `ACTIVE`. |
 | Lỗi `Timeout 30000ms exceeded` khi chạy | Trang web phản hồi chậm hoặc phần tử thay đổi vượt quá khả năng tự phục hồi | Mở Assertion Builder tăng `Timeout ms` lên 45000ms hoặc cập nhật lại locator qua nút **Quét Live DOM**. |
-| Bộ cài Windows báo lỗi tập tin đang bị khóa | Ứng dụng Test Studio phiên bản trước đang chạy nền | Bộ cài v2.4.0 tự động phát hiện và hỏi đóng tiến trình qua `taskkill`. Bạn cũng có thể mở Task Manager và kết thúc tiến trình `TestStudio.exe`. |
+| Bộ cài Windows báo lỗi tập tin đang bị khóa | Ứng dụng Test Studio phiên bản trước đang chạy nền | Bộ cài v2.4.1 tự động phát hiện và hỏi đóng tiến trình qua `taskkill`. Bạn cũng có thể mở Task Manager và kết thúc tiến trình `TestStudio.exe`. |
 | Trợ lý AI báo lỗi `Connection refused` hoặc timeout | Sai Base URL hoặc mạng bị chặn proxy | Vào **Cài đặt → tab AI**, kiểm tra Base URL và bấm nút **Kiểm tra kết nối** để đo độ trễ và nhận diện thông báo lỗi chi tiết. |
 
 ### 16.2. Các câu hỏi thường gặp (FAQ)
