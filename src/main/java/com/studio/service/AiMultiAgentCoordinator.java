@@ -955,24 +955,84 @@ public class AiMultiAgentCoordinator {
         return companions;
     }
 
-    private String synthesizeScenarioScript(AiGeneratedCase tc) {
+    public String synthesizeScenarioScript(AiGeneratedCase tc) {
         String url = (tc.getStartUrl() != null && !tc.getStartUrl().isBlank()) ? tc.getStartUrl() : "https://example.com";
         String className = tc.getName() != null && !tc.getName().isBlank() ? sanitizeIdentifier(tc.getName()) : "GeneratedScenario";
         String nameLower = className.toLowerCase(Locale.ROOT);
-        String verificationBlock;
-        if (nameLower.contains("negative") || nameLower.contains("khonghople") || nameLower.contains("loi") || nameLower.contains("sai")) {
-            verificationBlock = """
+        StringBuilder bodySb = new StringBuilder();
+
+        // Translate structured testSteps into deterministic Playwright actions
+        if (tc.getTestSteps() != null) {
+            for (TestStep step : tc.getTestSteps()) {
+                String act = step.getAction() != null ? step.getAction().toUpperCase(Locale.ROOT) : "";
+                String target = step.getTarget() != null ? step.getTarget().trim() : "";
+                String data = step.getTestData() != null ? step.getTestData() : "";
+                String desc = step.getDescription() != null && !step.getDescription().isBlank()
+                        ? step.getDescription() : ("Step " + step.getStepNumber());
+                boolean isSelector = target.startsWith("#") || target.startsWith(".")
+                        || target.startsWith("[") || target.startsWith("//")
+                        || target.contains("input") || target.contains("button")
+                        || target.contains("select") || target.contains("textarea");
+                String escTarget = com.studio.util.StringEscapeUtil.escapeJava(target);
+                String escDesc = com.studio.util.StringEscapeUtil.escapeJava(desc);
+                String escData = com.studio.util.StringEscapeUtil.escapeJava(data);
+
+                if (isSelector) {
+                    if (act.contains("FILL") || act.contains("TYPE") || act.contains("INPUT")) {
+                        bodySb.append("        com.studio.runtime.StudioRuntime.healLocator(\"")
+                                .append(escTarget).append("\", \"").append(escDesc).append("\").first().fill(\"")
+                                .append(escData).append("\");\n");
+                    } else if (act.contains("CLICK") || act.contains("SUBMIT")) {
+                        bodySb.append("        com.studio.runtime.StudioRuntime.healLocator(\"")
+                                .append(escTarget).append("\", \"").append(escDesc).append("\").first().click();\n");
+                    } else if (act.contains("SELECT")) {
+                        bodySb.append("        com.studio.runtime.StudioRuntime.healLocator(\"")
+                                .append(escTarget).append("\", \"").append(escDesc).append("\").first().selectOption(\"")
+                                .append(escData).append("\");\n");
+                    } else if (act.contains("CHECK")) {
+                        bodySb.append("        com.studio.runtime.StudioRuntime.healLocator(\"")
+                                .append(escTarget).append("\", \"").append(escDesc).append("\").first().check();\n");
+                    }
+                }
+            }
+        }
+
+        if (bodySb.isEmpty() && (nameLower.contains("negative") || nameLower.contains("khonghople") || nameLower.contains("loi") || nameLower.contains("sai"))) {
+            bodySb.append("""
                         Locator submitBtn = com.studio.runtime.StudioRuntime.healLocator("button[type='submit'], button, input[type='submit']", "Submit Action").first();
                         if (submitBtn.isVisible()) {
                             submitBtn.click();
                         }
-                        assertThat(page.locator("body")).isVisible();
-                """;
-        } else {
-            verificationBlock = """
-                        assertThat(page.locator("body")).isVisible();
-                """;
+                """);
         }
+
+        // Translate assertions into Playwright verification statements
+        boolean addedAssertion = false;
+        if (tc.getAssertions() != null) {
+            for (Assertion a : tc.getAssertions()) {
+                String type = a.getType() != null ? a.getType().toUpperCase(Locale.ROOT) : "";
+                String loc = a.getLocator() != null ? com.studio.util.StringEscapeUtil.escapeJava(a.getLocator()) : "";
+                String val = a.getValue() != null ? com.studio.util.StringEscapeUtil.escapeJava(a.getValue()) : "";
+                if ("ELEMENT_VISIBLE".equals(type) && !loc.isBlank()) {
+                    bodySb.append("        assertThat(com.studio.runtime.StudioRuntime.healLocator(\"")
+                            .append(loc).append("\", \"Verify Visible\").first()).isVisible();\n");
+                    addedAssertion = true;
+                } else if ("ELEMENT_HAS_TEXT".equals(type) && !loc.isBlank() && !val.isBlank()) {
+                    bodySb.append("        assertThat(com.studio.runtime.StudioRuntime.healLocator(\"")
+                            .append(loc).append("\", \"Verify Text\").first()).containsText(\"")
+                            .append(val).append("\");\n");
+                    addedAssertion = true;
+                } else if ("URL_CONTAINS".equals(type) && !val.isBlank()) {
+                    bodySb.append("        assertThat(page).hasURL(java.util.regex.Pattern.compile(\".*\" + java.util.regex.Pattern.quote(\"")
+                            .append(val).append("\") + \".*\"));\n");
+                    addedAssertion = true;
+                }
+            }
+        }
+        if (!addedAssertion) {
+            bodySb.append("        assertThat(page.locator(\"body\")).isVisible();\n");
+        }
+
         return """
                 package com.test;
 
@@ -987,7 +1047,7 @@ public class AiMultiAgentCoordinator {
                         page.waitForLoadState(com.microsoft.playwright.options.LoadState.DOMCONTENTLOADED);
                 %s    }
                 }
-                """.formatted(className, url, verificationBlock);
+                """.formatted(className, com.studio.util.StringEscapeUtil.escapeJava(url), bodySb.toString());
     }
 
     /**

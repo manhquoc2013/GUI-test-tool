@@ -214,14 +214,21 @@ public class AiAgentIndexingAndOptimizationTest {
     @Test
     public void testAssertionAliasNormalizationAndExpectedValueFallback() {
         assertEquals("ELEMENT_HAS_TEXT", AiTestGeneratorService.normalizeAssertionType("TEXT_CONTAINS"));
-        assertEquals("ELEMENT_HAS_EXACT_TEXT", AiTestGeneratorService.normalizeAssertionType("TEXT_EQUALS"));
+        assertEquals("TEXT_EXACT", AiTestGeneratorService.normalizeAssertionType("TEXT_EQUALS"));
         assertEquals("ELEMENT_VISIBLE", AiTestGeneratorService.normalizeAssertionType("VISIBLE"));
         assertEquals("ELEMENT_HIDDEN", AiTestGeneratorService.normalizeAssertionType("HIDDEN"));
         assertEquals("ELEMENT_ENABLED", AiTestGeneratorService.normalizeAssertionType("ENABLED"));
         assertEquals("ELEMENT_DISABLED", AiTestGeneratorService.normalizeAssertionType("DISABLED"));
         assertEquals("INPUT_VALUE_EQUALS", AiTestGeneratorService.normalizeAssertionType("VALUE_EQUALS"));
         assertEquals("ATTRIBUTE_EQUALS", AiTestGeneratorService.normalizeAssertionType("HAS_ATTRIBUTE"));
-        assertEquals("RESPONSE_STATUS_EQUALS", AiTestGeneratorService.normalizeAssertionType("STATUS_CODE_EQUALS"));
+        assertEquals("CSS_CONTAINS", AiTestGeneratorService.normalizeAssertionType("HAS_CLASS"));
+        assertEquals("COOKIE_EXISTS", AiTestGeneratorService.normalizeAssertionType("HAS_COOKIE"));
+
+        // Unknown hallucinated LLM assertion types must fallback to supported AssertCodeGenerator types
+        String unknownUrlAssert = AiTestGeneratorService.normalizeAssertionType("ASSERT_URL_REDIRECTED");
+        assertTrue(AssertCodeGenerator.isSupported(unknownUrlAssert));
+        String unknownVisAssert = AiTestGeneratorService.normalizeAssertionType("VERIFY_TOAST_DISPLAYED");
+        assertTrue(AssertCodeGenerator.isSupported(unknownVisAssert));
 
         // Verify expectedValue fallback from value when attribute is present
         String json = """
@@ -249,5 +256,36 @@ public class AiAgentIndexingAndOptimizationTest {
         assertEquals("aria-disabled", a.getAttribute());
         assertEquals("true", a.getExpectedValue(), "expectedValue should fallback to value when attribute is specified");
         assertTrue(AssertCodeGenerator.isSupported(a.getType()));
+
+        // Verify step-to-script synthesis in AiMultiAgentCoordinator
+        AiGeneratedCase stepCase = new AiGeneratedCase("TC01_StepToScript", "Test step translation", "https://example.com/form");
+        stepCase.setTestSteps(List.of(
+                new com.studio.model.TestStep(1, "FILL", "#email-input", "qa@example.com", "Nhập email", "Email đã nhập"),
+                new com.studio.model.TestStep(2, "CLICK", "#submit-btn", "", "Bấm nút gửi", "Gửi biểu mẫu")
+        ));
+        Assertion vis = new Assertion();
+        vis.setType("ELEMENT_VISIBLE");
+        vis.setLocator("#success-banner");
+        stepCase.setAssertions(List.of(vis));
+
+        String synthesizedScript = service.getMultiAgentCoordinator().synthesizeScenarioScript(stepCase);
+        assertTrue(synthesizedScript.contains("healLocator(\"#email-input\""));
+        assertTrue(synthesizedScript.contains(".fill(\"qa@example.com\")"));
+        assertTrue(synthesizedScript.contains("healLocator(\"#submit-btn\""));
+        assertTrue(synthesizedScript.contains(".click()"));
+        assertTrue(synthesizedScript.contains("#success-banner"));
+
+        // Verify Markdown heading case extraction when no code fence is present
+        String mdOnly = """
+                # Tài liệu Test Case
+                ## 1. TC01_DangKy_HopLe
+                Mô tả kịch bản 1
+                ## 2. TC02_DangKy_TrungEmail
+                Mô tả kịch bản 2
+                """;
+        List<AiGeneratedCase> mdCases = AiTestGeneratorService.extractCasesFromMarkdown(mdOnly);
+        assertEquals(2, mdCases.size());
+        assertEquals("TC01_DangKy_HopLe", mdCases.get(0).getName());
+        assertEquals("TC02_DangKy_TrungEmail", mdCases.get(1).getName());
     }
 }

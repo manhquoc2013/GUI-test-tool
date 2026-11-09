@@ -1036,8 +1036,8 @@ public class AiAssistantPageController implements Initializable {
 
         // Tự động phát hiện URL từ prompt hoặc từ tài liệu đính kèm nếu chưa có Live DOM
         String promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(prompt);
-        if (promptUrl == null && !attachedDocuments.isEmpty()) {
-            for (DocumentParserService.ParsedDocument doc : attachedDocuments) {
+        if (promptUrl == null && docsSnapshot != null && !docsSnapshot.isEmpty()) {
+            for (DocumentParserService.ParsedDocument doc : docsSnapshot) {
                 if (doc.getContent() != null) {
                     promptUrl = com.studio.service.LiveDomScanner.extractFirstUrl(doc.getContent());
                     if (promptUrl != null)
@@ -1422,13 +1422,7 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private String extractUrl(String text) {
-        if (text == null)
-            return null;
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://[^\\s\"'<>]+").matcher(text);
-        if (m.find()) {
-            return m.group();
-        }
-        return null;
+        return com.studio.service.LiveDomScanner.extractFirstUrl(text);
     }
 
     @FXML

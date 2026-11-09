@@ -49,6 +49,22 @@ public class AiTestGeneratorService {
             "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.endsWith\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
     private static final java.util.regex.Pattern HAS_URL_EQUALS_LAMBDA = java.util.regex.Pattern.compile(
             "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.equals\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
+    private static final java.util.regex.Pattern MARKDOWN_HEADING_CASE_PATTERN = java.util.regex.Pattern.compile(
+            "(?m)^#{2,3}\\s+(?:\\d+\\.\\s*)?((?:TC\\d*[_\\-]|Test\\s*Case|Kịch\\s*bản)[^\\r\\n]+)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE);
+    private static final java.util.regex.Pattern DANGLING_KEY_PATTERN = java.util.regex.Pattern.compile(",\\s*\"[^\"]*\"\\s*$");
+    private static final java.util.regex.Pattern TRAILING_COMMA_CLOSE_PATTERN = java.util.regex.Pattern.compile(",\\s*([}\\]])");
+    private static final java.util.regex.Pattern SUMMARY_FIELD_PATTERN = java.util.regex.Pattern.compile("\"summary\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern GROUP_FIELD_PATTERN = java.util.regex.Pattern.compile("\"suggestedGroup\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern SUITE_FIELD_PATTERN = java.util.regex.Pattern.compile("\"suggestedSuite\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern SCRIPT_FIELD_PATTERN = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+    private static final java.util.regex.Pattern SCRIPT_TRUNC_PATTERN = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"(.*)", java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern NAME_FIELD_PATTERN = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern DESC_FIELD_PATTERN = java.util.regex.Pattern.compile("\"description\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern URL_FIELD_PATTERN = java.util.regex.Pattern.compile("\"startUrl\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern ASSERT_ITEM_PATTERN = java.util.regex.Pattern.compile(
+            "\\{\\s*\"type\"\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*\"locator\"\\s*:\\s*\"([^\"]*)\")?(?:\\s*,\\s*\"value\"\\s*:\\s*\"([^\"]*)\")?",
+            java.util.regex.Pattern.DOTALL);
 
     private final OpenAiClient openAiClient;
     private final ObjectMapper mapper;
@@ -834,6 +850,32 @@ public class AiTestGeneratorService {
                 idx++;
             }
         }
+        // Fallback: if no code blocks exist, extract structured test case headings (## TC01_... / ### 1. TC01_...)
+        if (list.isEmpty()) {
+            java.util.regex.Matcher hMatcher = MARKDOWN_HEADING_CASE_PATTERN.matcher(text);
+            while (hMatcher.find()) {
+                String title = hMatcher.group(1).trim();
+                AiGeneratedCase c = new AiGeneratedCase();
+                c.setName(com.studio.util.StringEscapeUtil.safeFileName(title, String.format("TC%02d_Scenario", idx)));
+                c.setDescription("Trích xuất từ tài liệu đặc tả kiểm thử: " + title);
+                c.setPriority(idx == 1 ? "P0" : "P1");
+                c.setScriptCode("");
+                c.setTestSteps(List.of(
+                        new TestStep(1, "PREPARE", "Môi trường & Dữ liệu đầu vào", "", "Chuẩn bị ngữ cảnh kiểm thử", "Môi trường sẵn sàng"),
+                        new TestStep(2, "EXECUTE", title, "", "Thực hiện các bước kiểm thử theo đặc tả", "Hệ thống xử lý hợp lệ"),
+                        new TestStep(3, "VERIFY", "Kết quả đầu ra", "", "Đối chiếu với tiêu chí nghiệm thu", "Đạt kết quả kỳ vọng")
+                ));
+                Assertion a = new Assertion();
+                a.setType("PAGE_HAS_TEXT");
+                a.setLocator("body");
+                a.setValue("Thành công");
+                a.setStatus("ACTIVE");
+                c.setAssertions(List.of(a));
+                c.setTestDataSets(List.of(new TestDataItem("Bộ dữ liệu kịch bản #" + idx, Map.of("scenario", title), "PASS")));
+                list.add(c);
+                idx++;
+            }
+        }
         return list;
     }
 
@@ -1153,34 +1195,47 @@ public class AiTestGeneratorService {
     public static String normalizeAssertionType(String rawType) {
         if (rawType == null || rawType.isBlank()) return "PAGE_HAS_TEXT";
         String t = rawType.trim().toUpperCase();
-        return switch (t) {
+        String mapped = switch (t) {
             case "PAGE_TITLE_CONTAINS", "TITLE_INCLUDES" -> "TITLE_CONTAINS";
             case "PAGE_TITLE_EQUALS", "TITLE_IS" -> "TITLE_EQUALS";
-            case "PAGE_TITLE_REGEX", "TITLE_MATCH" -> "TITLE_MATCHES_REGEX";
+            case "PAGE_TITLE_REGEX", "TITLE_MATCH", "TITLE_MATCHES_REGEX" -> "TITLE_CONTAINS";
             case "PAGE_URL_CONTAINS", "URL_INCLUDES" -> "URL_CONTAINS";
             case "PAGE_URL_EQUALS", "URL_IS" -> "URL_EQUALS";
-            case "PAGE_URL_REGEX", "URL_MATCH", "URL_REGEX" -> "URL_MATCHES_REGEX";
+            case "PAGE_URL_REGEX", "URL_MATCH", "URL_REGEX", "URL_MATCHES_REGEX" -> "URL_MATCHES";
             case "PAGE_CONTAINS_TEXT", "BODY_CONTAINS_TEXT" -> "PAGE_HAS_TEXT";
             case "ELEMENT_EXISTS", "VISIBLE", "IS_VISIBLE" -> "ELEMENT_VISIBLE";
             case "ELEMENT_NOT_VISIBLE", "HIDDEN", "IS_HIDDEN", "NOT_VISIBLE" -> "ELEMENT_HIDDEN";
             case "ENABLED", "IS_ENABLED" -> "ELEMENT_ENABLED";
             case "DISABLED", "IS_DISABLED" -> "ELEMENT_DISABLED";
+            case "EDITABLE", "IS_EDITABLE" -> "ELEMENT_EDITABLE";
             case "ELEMENT_TEXT_CONTAINS", "TEXT_CONTAINS", "CONTAINS_TEXT" -> "ELEMENT_HAS_TEXT";
-            case "ELEMENT_TEXT_EQUALS", "TEXT_EQUALS", "EXACT_TEXT" -> "ELEMENT_HAS_EXACT_TEXT";
+            case "ELEMENT_TEXT_EQUALS", "TEXT_EQUALS", "EXACT_TEXT", "ELEMENT_HAS_EXACT_TEXT" -> "TEXT_EXACT";
             case "CHECKBOX_CHECKED", "CHECKED", "IS_CHECKED" -> "ELEMENT_CHECKED";
             case "CHECKBOX_UNCHECKED", "UNCHECKED", "NOT_CHECKED" -> "ELEMENT_UNCHECKED";
             case "VALUE_EQUALS", "HAS_VALUE", "INPUT_EQUALS" -> "INPUT_VALUE_EQUALS";
             case "VALUE_CONTAINS", "INPUT_CONTAINS" -> "INPUT_VALUE_CONTAINS";
             case "COUNT_EQUALS", "HAS_COUNT" -> "ELEMENT_COUNT";
             case "ELEMENT_HAS_ATTRIBUTE", "HAS_ATTRIBUTE" -> "ATTRIBUTE_EQUALS";
-            case "HAS_CLASS", "CLASS_CONTAINS" -> "ELEMENT_HAS_CLASS";
-            case "RESPONSE_STATUS", "STATUS_CODE_EQUALS", "API_STATUS_EQUALS" -> "RESPONSE_STATUS_EQUALS";
+            case "HAS_CLASS", "CLASS_CONTAINS", "ELEMENT_HAS_CLASS" -> "CSS_CONTAINS";
+            case "RESPONSE_STATUS", "STATUS_CODE_EQUALS", "API_STATUS_EQUALS", "RESPONSE_STATUS_EQUALS" -> "PAGE_HAS_TEXT";
             case "LOCAL_STORAGE" -> "LOCAL_STORAGE_EQUALS";
             case "SESSION_STORAGE" -> "SESSION_STORAGE_EQUALS";
-            case "COOKIE_EXISTS", "HAS_COOKIE" -> "COOKIE_CONTAINS";
+            case "COOKIE_CONTAINS", "HAS_COOKIE" -> "COOKIE_EXISTS";
             case "CUSTOM_JS_TRUE", "JS_TRUE", "EVALUATE_JS" -> "CUSTOM_JS";
             default -> t;
         };
+        if (AssertCodeGenerator.isSupported(mapped)) {
+            return mapped;
+        }
+        // Fallback safety net so unknown LLM assertion names never fail compilation/execution
+        if (mapped.contains("URL")) return "URL_CONTAINS";
+        if (mapped.contains("TITLE")) return "TITLE_CONTAINS";
+        if (mapped.contains("HIDDEN") || mapped.contains("NOT_VISIBLE") || mapped.contains("DISAPPEAR")) return "ELEMENT_HIDDEN";
+        if (mapped.contains("VISIBLE") || mapped.contains("DISPLAY") || mapped.contains("EXIST") || mapped.contains("PRESENT")) return "ELEMENT_VISIBLE";
+        if (mapped.contains("VALUE") || mapped.contains("INPUT")) return "INPUT_VALUE_EQUALS";
+        if (mapped.contains("COUNT")) return "ELEMENT_COUNT";
+        if (mapped.contains("ATTR")) return "ATTRIBUTE_EQUALS";
+        return "PAGE_HAS_TEXT";
     }
 
     private String sanitizeCaseName(String name) {
@@ -1331,7 +1386,7 @@ public class AiTestGeneratorService {
         }
 
         // If it ends with a dangling key like: , "fieldName" without colon, strip it
-        s = s.replaceAll(",\\s*\"[^\"]*\"\\s*$", "");
+        s = DANGLING_KEY_PATTERN.matcher(s).replaceAll("");
 
         // Count open brackets/braces outside strings
         java.util.Deque<Character> stack = new java.util.ArrayDeque<>();
@@ -1368,7 +1423,7 @@ public class AiTestGeneratorService {
         String prev;
         do {
             prev = fixed;
-            fixed = fixed.replaceAll(",\\s*([}\\]])", "$1");
+            fixed = TRAILING_COMMA_CLOSE_PATTERN.matcher(fixed).replaceAll("$1");
         } while (!fixed.equals(prev));
 
         return fixed;
@@ -1384,30 +1439,30 @@ public class AiTestGeneratorService {
         }
 
         String summary = "Kịch bản phục hồi từ phản hồi AI";
-        java.util.regex.Matcher sumMatcher = java.util.regex.Pattern.compile("\"summary\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher sumMatcher = SUMMARY_FIELD_PATTERN.matcher(rawResponse);
         if (sumMatcher.find()) {
             summary = sumMatcher.group(1);
         }
 
         String suggestedGroup = null;
-        java.util.regex.Matcher grpMatcher = java.util.regex.Pattern.compile("\"suggestedGroup\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher grpMatcher = GROUP_FIELD_PATTERN.matcher(rawResponse);
         if (grpMatcher.find()) {
             suggestedGroup = grpMatcher.group(1).trim();
         }
         String suggestedSuite = null;
-        java.util.regex.Matcher suiteMatcher = java.util.regex.Pattern.compile("\"suggestedSuite\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher suiteMatcher = SUITE_FIELD_PATTERN.matcher(rawResponse);
         if (suiteMatcher.find()) {
             suggestedSuite = suiteMatcher.group(1).trim();
         }
 
         // 1. Try to extract scriptCode from JSON string
         String scriptCode = null;
-        java.util.regex.Matcher scriptMatcher = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(rawResponse);
+        java.util.regex.Matcher scriptMatcher = SCRIPT_FIELD_PATTERN.matcher(rawResponse);
         if (scriptMatcher.find()) {
             scriptCode = unescapeJsonString(scriptMatcher.group(1));
         } else {
             // Check if truncated before closing quote: "scriptCode"\s*:\s*"(.*)
-            java.util.regex.Matcher truncMatcher = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"(.*)", java.util.regex.Pattern.DOTALL).matcher(rawResponse);
+            java.util.regex.Matcher truncMatcher = SCRIPT_TRUNC_PATTERN.matcher(rawResponse);
             if (truncMatcher.find()) {
                 String potential = truncMatcher.group(1);
                 int nextKey = potential.indexOf("\",\n");
@@ -1433,17 +1488,17 @@ public class AiTestGeneratorService {
         AiGeneratedCase genCase = new AiGeneratedCase();
         genCase.setName("Case_Recovered_" + (System.currentTimeMillis() % 10000));
 
-        java.util.regex.Matcher nameMatcher = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher nameMatcher = NAME_FIELD_PATTERN.matcher(rawResponse);
         if (nameMatcher.find()) {
             genCase.setName(sanitizeCaseName(nameMatcher.group(1)));
         }
 
-        java.util.regex.Matcher descMatcher = java.util.regex.Pattern.compile("\"description\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher descMatcher = DESC_FIELD_PATTERN.matcher(rawResponse);
         if (descMatcher.find()) {
             genCase.setDescription(descMatcher.group(1));
         }
 
-        java.util.regex.Matcher urlMatcher = java.util.regex.Pattern.compile("\"startUrl\"\\s*:\\s*\"([^\"]+)\"").matcher(rawResponse);
+        java.util.regex.Matcher urlMatcher = URL_FIELD_PATTERN.matcher(rawResponse);
         if (urlMatcher.find()) {
             genCase.setStartUrl(urlMatcher.group(1));
         }
@@ -1453,11 +1508,7 @@ public class AiTestGeneratorService {
 
         // Extract assertions
         List<Assertion> assertions = new ArrayList<>();
-        java.util.regex.Pattern assertPat = java.util.regex.Pattern.compile(
-                "\\{\\s*\"type\"\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*\"locator\"\\s*:\\s*\"([^\"]*)\")?(?:\\s*,\\s*\"value\"\\s*:\\s*\"([^\"]*)\")?",
-                java.util.regex.Pattern.DOTALL
-        );
-        java.util.regex.Matcher aMatcher = assertPat.matcher(rawResponse);
+        java.util.regex.Matcher aMatcher = ASSERT_ITEM_PATTERN.matcher(rawResponse);
         while (aMatcher.find()) {
             String type = aMatcher.group(1);
             String loc = aMatcher.group(2) != null ? aMatcher.group(2) : "";
