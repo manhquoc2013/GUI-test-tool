@@ -1,0 +1,218 @@
+"""Tests for the learn plugin registry."""
+
+from __future__ import annotations
+
+import contextlib
+import importlib
+import logging
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from headroom.learn.base import LearnPlugin
+from headroom.learn.registry import (
+    auto_detect_plugins,
+    available_agent_names,
+    get_plugin,
+    get_registry,
+    reset_registry,
+)
+from headroom.learn.scanner import ConversationScanner
+
+
+@pytest.fixture(autouse=True)
+def _clean_registry():
+    """Reset registry before/after each test."""
+    reset_registry()
+    yield
+    reset_registry()
+
+
+class TestBuiltinDiscovery:
+    def test_discovers_three_builtin_plugins(self):
+        reg = get_registry()
+        assert "claude" in reg
+        assert "codex" in reg
+        assert "gemini" in reg
+        assert len(reg) >= 3
+
+    def test_all_plugins_are_learn_plugins(self):
+        for name, plugin in get_registry().items():
+            assert isinstance(plugin, LearnPlugin), f"{name} is not a LearnPlugin"
+
+    def test_all_plugins_are_conversation_scanners(self):
+        """Backwards compat: plugins must also be ConversationScanners."""
+        for name, plugin in get_registry().items():
+            assert isinstance(plugin, ConversationScanner), f"{name} is not a ConversationScanner"
+
+    def test_plugins_have_identity(self):
+        for name, plugin in get_registry().items():
+            assert plugin.name == name
+            assert plugin.display_name  # non-empty
+            assert plugin.description  # non-empty
+
+
+class TestGetPlugin:
+    def test_get_existing_plugin(self):
+        plugin = get_plugin("claude")
+        assert plugin.name == "claude"
+        assert plugin.display_name == "Claude Code"
+
+    def test_get_unknown_raises_keyerror(self):
+        with pytest.raises(KeyError, match="Unknown agent.*cursor"):
+            get_plugin("cursor")
+
+    def test_error_message_lists_available(self):
+        with pytest.raises(KeyError, match="claude"):
+            get_plugin("nonexistent")
+
+
+class TestAutoDetect:
+    def test_filters_to_detected_only(self):
+        """Only plugins where detect() returns True are included."""
+        detected = auto_detect_plugins()
+        for plugin in detected:
+            assert plugin.detect()
+
+    def test_returns_empty_when_nothing_detected(self):
+        """All plugins returning False → empty list."""
+        registry = get_registry()
+        patches = [patch.object(registry[name], "detect", return_value=False) for name in registry]
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            assert auto_detect_plugins() == []
+
+
+class TestAvailableNames:
+    def test_returns_sorted_list(self):
+        names = available_agent_names()
+        assert names == sorted(names)
+        assert "claude" in names
+        assert "codex" in names
+        assert "gemini" in names
+
+
+class TestExternalPlugin:
+    def test_external_plugin_via_entry_point(self):
+        """Mock an external plugin registered via entry_points."""
+        mock_plugin = MagicMock(spec=LearnPlugin)
+        mock_plugin.name = "cursor"
+        mock_plugin.display_name = "Cursor"
+        mock_plugin.description = "Cursor IDE (~/.cursor/)"
+
+        mock_ep = MagicMock()
+        mock_ep.load.return_value = mock_plugin
+        mock_ep.name = "cursor"
+
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            reset_registry()
+            reg = get_registry()
+            assert "cursor" in reg
+            assert reg["cursor"].name == "cursor"
+
+
+class TestBuiltinLoadFailure:
+    def test_broken_builtin_plugin_is_logged_as_a_warning(self):
+        records: list[logging.LogRecord] = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _Collect(level=logging.DEBUG)
+        logger = logging.getLogger("headroom.learn.registry")
+        logger.addHandler(handler)
+        real_import = importlib.import_module
+
+        def _import(name: str, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            if name == "headroom.learn.plugins.grok":
+                raise ImportError("simulated breakage")
+            return real_import(name, *args, **kwargs)
+
+        try:
+            get_registry()
+            assert [r for r in records if r.levelno >= logging.WARNING] == []
+
+            reset_registry()
+            with patch("headroom.learn.registry.importlib.import_module", _import):
+                reg = get_registry()
+            assert "grok" not in reg
+            assert "claude" in reg
+            warnings = [r for r in records if r.levelno == logging.WARNING]
+            assert len(warnings) == 1
+            assert "grok" in warnings[0].getMessage()
+        finally:
+            logger.removeHandler(handler)
+
+
+_MALFORMED_ERROR = type("PRIVATE_CREDENTIAL_CANARY\nFORGED_LOG_ENTRY", (RuntimeError,), {})
+
+
+@pytest.mark.parametrize("level", [logging.INFO, logging.DEBUG])
+@pytest.mark.parametrize("source", ["builtin", "external"])
+def test_plugin_load_failure_logs_no_exception_text(monkeypatch, level, source) -> None:
+    """A failing plugin's exception message and class name stay out of every record."""
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    error = _MALFORMED_ERROR("cannot open postgres://user:CRED_CANARY@db/learn")
+    monkeypatch.delenv("HEADROOM_DEBUG_DUMP", raising=False)
+    if source == "builtin":
+        real_import = importlib.import_module
+
+        def _import(name: str, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            if name == "headroom.learn.plugins.grok":
+                raise error
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("headroom.learn.registry.importlib.import_module", _import)
+    else:
+        broken_ep = MagicMock()
+        broken_ep.name = "broken"
+        broken_ep.load.side_effect = error
+        monkeypatch.setattr("importlib.metadata.entry_points", lambda group: [broken_ep])
+
+    logger = logging.getLogger("headroom.learn.registry")
+    handler = _Collect(level=logging.DEBUG)
+    previous = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(level)
+    try:
+        reset_registry()
+        assert "claude" in get_registry()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+        reset_registry()
+
+    warnings = [r for r in records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert ("grok" if source == "builtin" else "broken") in warnings[0].getMessage()
+    for record in records:
+        rendered = logging.Formatter().format(record)
+        assert "CRED_CANARY" not in rendered
+        assert "PRIVATE_CREDENTIAL_CANARY" not in rendered
+        assert "FORGED_LOG_ENTRY" not in rendered
+        assert "\n" not in rendered
+
+
+class TestResetRegistry:
+    def test_reset_clears_cache(self):
+        reg1 = get_registry()
+        assert reg1 is get_registry()  # Same object (cached)
+        reset_registry()
+        reg2 = get_registry()
+        assert reg2 is not reg1  # New object (cache cleared)
+
+
+class TestPluginCreateWriter:
+    def test_all_plugins_create_valid_writers(self):
+        from headroom.learn.writer import ContextWriter
+
+        for name, plugin in get_registry().items():
+            writer = plugin.create_writer()
+            assert isinstance(writer, ContextWriter), f"{name} writer is not a ContextWriter"

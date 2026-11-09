@@ -1,0 +1,139 @@
+{
+  "name": "headroom-ai",
+  "version": "0.43.1",
+  "description": "Compress tool outputs, logs, JSON and chat history before each LLM call. Fewer input tokens, same answers. Adapters for OpenAI, Anthropic, Gemini and the Vercel AI SDK. Runs against the local Headroom proxy (pip install \"headroom-ai[proxy]\").",
+  "keywords": [
+    "llm",
+    "openai",
+    "anthropic",
+    "gemini",
+    "vercel-ai-sdk",
+    "token-cost",
+    "reduce-tokens",
+    "input-tokens",
+    "context-window",
+    "token-budget",
+    "tool-output",
+    "chat-history",
+    "context-compression",
+    "prompt-compression",
+    "agents",
+    "mcp"
+  ],
+  "homepage": "https://docs.headroomlabs.ai/docs/quickstart",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/headroomlabs-ai/headroom.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/headroomlabs-ai/headroom/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./vercel-ai": {
+      "import": {
+        "types": "./dist/adapters/vercel-ai.d.ts",
+        "default": "./dist/adapters/vercel-ai.js"
+      },
+      "require": {
+        "types": "./dist/adapters/vercel-ai.d.cts",
+        "default": "./dist/adapters/vercel-ai.cjs"
+      }
+    },
+    "./openai": {
+      "import": {
+        "types": "./dist/adapters/openai.d.ts",
+        "default": "./dist/adapters/openai.js"
+      },
+      "require": {
+        "types": "./dist/adapters/openai.d.cts",
+        "default": "./dist/adapters/openai.cjs"
+      }
+    },
+    "./anthropic": {
+      "import": {
+        "types": "./dist/adapters/anthropic.d.ts",
+        "default": "./dist/adapters/anthropic.js"
+      },
+      "require": {
+        "types": "./dist/adapters/anthropic.d.cts",
+        "default": "./dist/adapters/anthropic.cjs"
+      }
+    },
+    "./gemini": {
+      "import": {
+        "types": "./dist/adapters/gemini.d.ts",
+        "default": "./dist/adapters/gemini.js"
+      },
+      "require": {
+        "types": "./dist/adapters/gemini.d.cts",
+        "default": "./dist/adapters/gemini.cjs"
+      }
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@ai-sdk/provider": ">=1.0.0",
+    "@anthropic-ai/sdk": ">=0.30.0",
+    "ai": ">=6.0.0",
+    "openai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
+    "@ai-sdk/provider": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "^4.0.94",
+    "@ai-sdk/openai": "^4.0.106",
+    "@ai-sdk/provider": "^4.0.35",
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@types/node": "^26.6.6",
+    "ai": "^7.0.159",
+    "dotenv": "^18.0.1",
+    "openai": "^7.47.0",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
+  },
+  "license": "Apache-2.0"
+}

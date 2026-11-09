@@ -1,0 +1,647 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { LanguageModelV3, LanguageModelV3Prompt, LanguageModelV4FilePart, LanguageModelV4Prompt } from "@ai-sdk/provider";
+import {
+  headroomMiddleware,
+  compressVercelMessages,
+  withHeadroom,
+} from "../../src/adapters/vercel-ai.js";
+
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
+
+function mockCompressResponse(
+  messages: any[],
+  tokensBefore = 100,
+  tokensAfter = 30,
+) {
+  return new Response(
+    JSON.stringify({
+      messages,
+      tokens_before: tokensBefore,
+      tokens_after: tokensAfter,
+      tokens_saved: tokensBefore - tokensAfter,
+      compression_ratio: tokensAfter / tokensBefore,
+      transforms_applied: ["smart_crusher"],
+      ccr_hashes: [],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+describe("headroomMiddleware", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns object with transformParams function", () => {
+    const mw = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    expect(mw.transformParams).toBeDefined();
+    expect(typeof mw.transformParams).toBe("function");
+  });
+
+  it("compresses prompt via transformParams", async () => {
+    // Proxy returns compressed OpenAI messages
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "compressed" }]),
+    );
+
+    const mw = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+
+    const params = {
+      prompt: [
+        { role: "system", content: "Be helpful" },
+        {
+          role: "user",
+          content: [{ type: "text", text: "long message here" }],
+        },
+      ],
+      modelId: "gpt-4o",
+    };
+
+    const result = await mw.transformParams!({
+      params: params as any,
+      model: {} as any,
+      type: "generate",
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(result.prompt).toBeDefined();
+    expect(result.prompt).not.toEqual(params.prompt); // should be modified
+  });
+
+  it("passes through empty prompt unchanged", async () => {
+    const mw = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+
+    const params = { prompt: [], modelId: "gpt-4o" };
+    const result = await mw.transformParams!({
+      params: params as any,
+      model: {} as any,
+      type: "generate",
+    });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(result).toEqual(params);
+  });
+
+  it("passes through when compression returns compressed=false", async () => {
+    // Simulate fallback (proxy unreachable)
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    const mw = headroomMiddleware({
+      baseUrl: "http://localhost:8787",
+      fallback: true,
+    });
+
+    const originalPrompt = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      },
+    ];
+
+    const params = { prompt: originalPrompt, modelId: "gpt-4o" };
+    const result = await mw.transformParams!({
+      params: params as any,
+      model: {} as any,
+      type: "generate",
+    });
+
+    // Should return original params since compression failed
+    expect(result).toEqual(params);
+  });
+
+  it("uses model from options over params.modelId", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "x" }]),
+    );
+
+    const mw = headroomMiddleware({
+      baseUrl: "http://localhost:8787",
+      model: "claude-sonnet-4-5-20250929",
+    });
+
+    await mw.transformParams!({
+      params: {
+        prompt: [
+          { role: "user", content: [{ type: "text", text: "hi" }] },
+        ],
+        modelId: "gpt-4o",
+      } as any,
+      model: {} as any,
+      type: "generate",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe("claude-sonnet-4-5-20250929");
+  });
+
+  it("keeps a provider-prompt file part through compression", async () => {
+    // The proxy only compresses text and passes the media part back untouched.
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "compressed" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==", part: "file" } },
+          ],
+        },
+      ]),
+    );
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({
+      params: {
+        prompt: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "what is this?" },
+              { type: "file", mediaType: "image/png", data: new Uint8Array([137, 80, 78, 71]) },
+            ],
+          },
+        ],
+      },
+      model: {},
+      type: "generate",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.messages[0].content[1]).toEqual({
+      type: "image_url",
+      image_url: { url: "data:image/png;base64,iVBORw==", part: "file" },
+    });
+    expect(out.prompt[0].content[1]).toEqual({ type: "file", mediaType: "image/png", data: "iVBORw==" });
+  });
+
+  it("keeps an assistant file part (generated media) through compression", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        { role: "user", content: "draw a cat" },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "generated image" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==", part: "file" } },
+          ],
+        },
+      ]),
+    );
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({
+      params: {
+        prompt: [
+          { role: "user", content: [{ type: "text", text: "draw a cat" }] },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "generated image" },
+              { type: "file", mediaType: "image/png", data: new Uint8Array([137, 80, 78, 71]) },
+            ],
+          },
+        ],
+      },
+      model: {},
+      type: "generate",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "generated image" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==", part: "file" } },
+      ],
+    });
+    expect(out.prompt[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "generated image" },
+        { type: "file", mediaType: "image/png", data: "iVBORw==" },
+      ],
+    });
+  });
+
+  it("round-trips a LanguageModelV4 file part (tagged data) through transformParams", async () => {
+    const filePart: LanguageModelV4FilePart = {
+      type: "file",
+      mediaType: "image/png",
+      data: { type: "data", data: new Uint8Array([137, 80, 78, 71]) },
+    };
+    const prompt: LanguageModelV4Prompt = [{ role: "user", content: [{ type: "text", text: "what is this?" }, filePart] }];
+    // The proxy keeps the media part and compresses only the text.
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "compressed" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==", part: "file", data_tag: "data" } },
+          ],
+        },
+      ]),
+    );
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({ params: { prompt }, model: { specificationVersion: "v4" }, type: "generate" });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.messages[0].content[1]).toEqual({
+      type: "image_url",
+      image_url: { url: "data:image/png;base64,iVBORw==", part: "file", data_tag: "data" },
+    });
+    const restored: LanguageModelV4FilePart = out.prompt[0].content[1];
+    expect(restored).toEqual({ type: "file", mediaType: "image/png", data: { type: "data", data: "iVBORw==" } });
+  });
+
+  it("passes a provider file reference through transformParams untouched", async () => {
+    const filePart: LanguageModelV4FilePart = {
+      type: "file",
+      mediaType: "application/pdf",
+      data: { type: "reference", reference: { openai: "file-abc" } },
+    };
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "compressed" },
+            { type: "image_url", image_url: { url: "data:application/pdf;base64,", part: "file", data_tag: "reference", reference: { openai: "file-abc" } } },
+          ],
+        },
+      ]),
+    );
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({
+      params: { prompt: [{ role: "user", content: [{ type: "text", text: "summarise" }, filePart] }] },
+      model: { specificationVersion: "v4" },
+      type: "generate",
+    });
+    expect(out.prompt[0].content[1]).toEqual(filePart);
+  });
+});
+
+describe("compressVercelMessages", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("converts, compresses, and converts back to Vercel format", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        { role: "system", content: "Be helpful" },
+        { role: "user", content: "hello" },
+      ]),
+    );
+
+    const vercelMessages = [
+      { role: "system", content: "Be helpful" },
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      },
+    ];
+
+    const result = await compressVercelMessages(vercelMessages, {
+      model: "gpt-4o",
+      baseUrl: "http://localhost:8787",
+    });
+
+    expect(result.compressed).toBe(true);
+    expect(result.tokensBefore).toBe(100);
+    // Messages should be in Vercel format (user has content parts array)
+    expect(result.messages[0]).toEqual({
+      role: "system",
+      content: "Be helpful",
+    });
+    expect(result.messages[1].role).toBe("user");
+    expect(result.messages[1].content[0].type).toBe("text");
+  });
+
+  it("keeps tool names on tool-result parts after compression", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "call_1", type: "function", function: { name: "getWeather", arguments: '{"city":"Paris"}' } },
+          ],
+        },
+        { role: "tool", content: '{"tempC":21}', tool_call_id: "call_1" },
+      ]),
+    );
+
+    const result = await compressVercelMessages(
+      [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", toolCallId: "call_1", toolName: "getWeather", input: { city: "Paris" } }],
+        },
+        {
+          role: "tool",
+          content: [
+            { type: "tool-result", toolCallId: "call_1", toolName: "getWeather", output: { type: "json", value: { tempC: 21 } } },
+          ],
+        },
+      ],
+      { model: "gpt-4o", baseUrl: "http://localhost:8787" },
+    );
+
+    expect(result.messages[1].content[0].toolName).toBe("getWeather");
+  });
+
+  it("does not throw on byte image data", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([
+        { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==" } }] },
+      ]),
+    );
+    await expect(
+      compressVercelMessages(
+        [{ role: "user", content: [{ type: "image", image: new Uint8Array([137, 80, 78, 71]), mediaType: "image/png" }] }],
+        { baseUrl: "http://localhost:8787" },
+      ),
+    ).resolves.toMatchObject({
+      messages: [{ role: "user", content: [{ type: "image", image: "iVBORw==", mediaType: "image/png" }] }],
+    });
+  });
+});
+
+describe("withHeadroom", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns a LanguageModelV4 with correct provider and modelId", () => {
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "openai",
+      modelId: "gpt-4o",
+      supportedUrls: {},
+      doGenerate: vi.fn(),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+    });
+
+    expect(wrapped.specificationVersion).toBe("v4");
+    expect(wrapped.modelId).toBe("gpt-4o");
+    expect(wrapped.provider).toBe("openai");
+  });
+
+  it("triggers compression on doGenerate", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "compressed" }]),
+    );
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test-provider",
+      modelId: "test-model",
+      supportedUrls: {},
+      // A real LanguageModelV3 result (type-checked below): `ai` >= 7.0.119 wraps v3 models
+      // in a v4 adapter that maps over `content` and forwards the rest unchanged.
+      doGenerate: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "response" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 5, text: 5, reasoning: undefined },
+        },
+        warnings: [],
+      } satisfies Awaited<ReturnType<LanguageModelV3["doGenerate"]>>),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+    });
+
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hello world" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    // Proxy should have been called for compression
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/v1/compress");
+  });
+
+  it("passes options through to headroomMiddleware", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "x" }]),
+    );
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test",
+      modelId: "test-model",
+      supportedUrls: {},
+      // A real LanguageModelV3 result (type-checked below): `ai` >= 7.0.119 wraps v3 models
+      // in a v4 adapter that maps over `content` and forwards the rest unchanged.
+      doGenerate: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "ok" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 3, text: 3, reasoning: undefined },
+        },
+        warnings: [],
+      } satisfies Awaited<ReturnType<LanguageModelV3["doGenerate"]>>),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+      model: "claude-sonnet-4-5-20250929",
+    });
+
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe("claude-sonnet-4-5-20250929");
+  });
+
+  it("falls back when proxy is down", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test",
+      modelId: "test-model",
+      supportedUrls: {},
+      // A real LanguageModelV3 result (type-checked below): `ai` >= 7.0.119 wraps v3 models
+      // in a v4 adapter that maps over `content` and forwards the rest unchanged.
+      doGenerate: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "ok" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 3, text: 3, reasoning: undefined },
+        },
+        warnings: [],
+      } satisfies Awaited<ReturnType<LanguageModelV3["doGenerate"]>>),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+      fallback: true,
+    });
+
+    // Should not throw — fallback returns original messages
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hello" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    expect(fakeModel.doGenerate).toHaveBeenCalled();
+  });
+});
+
+describe("headroomMiddleware carries provider reasoning state", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("restores reasoning parts and providerOptions after a compressed round trip", async () => {
+    // Step two of a thinking-enabled tool loop, as the AI SDK hands it to transformParams.
+    const prompt: LanguageModelV3Prompt = [
+      { role: "system", content: "Be brief.", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
+      { role: "user", content: [{ type: "text", text: "Read the gateway log." }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "I should read the log first.", providerOptions: { anthropic: { signature: "SIG-abc123" } } },
+          { type: "text", text: "Reading the log now.", providerOptions: { google: { thoughtSignature: "TS-text" } } },
+          {
+            type: "tool-call",
+            toolCallId: "call_01",
+            toolName: "fetch_gateway_metrics",
+            input: { path: "/var/log/gateway.json" },
+            providerOptions: { google: { thoughtSignature: "TS-999" } },
+          },
+        ],
+        providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_01",
+            toolName: "fetch_gateway_metrics",
+            output: { type: "text", value: "row 1\nrow 2\nrow 3\nrow 4" },
+            providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+          },
+        ],
+      },
+    ];
+    // The proxy rewrites only the tool message's content and passes everything else through.
+    mockFetch.mockImplementationOnce(async (_url: string, init: any) => {
+      const messages = JSON.parse(init.body).messages;
+      messages[3] = { ...messages[3], content: "[4 rows]" };
+      return mockCompressResponse(messages);
+    });
+
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({ params: { prompt }, model: { specificationVersion: "v3" }, type: "generate" });
+
+    const expected = structuredClone(prompt) as any[];
+    expected[3].content[0].output = { type: "text", value: "[4 rows]" };
+    expect(out.prompt).toEqual(expected);
+  });
+});
+
+describe("headroomMiddleware keeps provider-executed tool calls in place", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns an interleaved web-search turn in its original order after the round trip", async () => {
+    const prompt: LanguageModelV3Prompt = [
+      { role: "user", content: [{ type: "text", text: "What is Headroom?" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "Search first.", providerOptions: { openai: { itemId: "rs_1" } } },
+          { type: "tool-call", toolCallId: "ws_1", toolName: "web_search", input: { query: "Headroom" }, providerExecuted: true },
+          { type: "tool-result", toolCallId: "ws_1", toolName: "web_search", output: { type: "json", value: { hits: 3 } } },
+          { type: "reasoning", text: "Three hits.", providerOptions: { openai: { itemId: "rs_2" } } },
+          { type: "text", text: "Headroom is a context-compression proxy." },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "Now read the gateway log." }] },
+    ];
+    // The proxy passes this prompt through unchanged.
+    mockFetch.mockImplementationOnce(async (_url: string, init: any) => mockCompressResponse(JSON.parse(init.body).messages));
+
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({ params: { prompt }, model: { specificationVersion: "v3" }, type: "generate" });
+
+    expect(out.prompt).toEqual(prompt);
+  });
+});
+
+describe("headroomMiddleware keeps tool-result output kinds", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns denied, multi-part and error results exactly as the AI SDK sent them", async () => {
+    const prompt: LanguageModelV4Prompt = [
+      { role: "user", content: [{ type: "text", text: "Deploy, then screenshot the dashboard." }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "call_1", toolName: "deploy", input: { env: "prod" } },
+          { type: "tool-call", toolCallId: "call_2", toolName: "screenshot", input: {} },
+          { type: "tool-call", toolCallId: "call_3", toolName: "fetch_gateway_metrics", input: {} },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "call_1", toolName: "deploy", output: { type: "execution-denied", reason: "Not from CI." } },
+          {
+            type: "tool-result",
+            toolCallId: "call_2",
+            toolName: "screenshot",
+            output: {
+              type: "content",
+              value: [
+                { type: "text", text: "Dashboard at 12:00." },
+                { type: "file", data: { type: "data", data: "iVBORw0KGgo=" }, mediaType: "image/png", filename: "dashboard.png" },
+              ],
+            },
+          },
+          { type: "tool-result", toolCallId: "call_3", toolName: "fetch_gateway_metrics", output: { type: "error-text", value: "ECONNREFUSED 10.0.0.7:443" } },
+        ],
+      },
+    ];
+    // The proxy passes this prompt through unchanged.
+    mockFetch.mockImplementationOnce(async (_url: string, init: any) => mockCompressResponse(JSON.parse(init.body).messages));
+
+    const middleware = headroomMiddleware({ baseUrl: "http://localhost:8787" });
+    const out = await middleware.transformParams({ params: { prompt }, model: { specificationVersion: "v4" }, type: "generate" });
+
+    expect(out.prompt.slice(0, 2)).toEqual(prompt.slice(0, 2));
+    // One OpenAI tool message per result, so a multi-result tool message comes back as one
+    // message per result; the results themselves are the AI SDK's own.
+    expect(out.prompt.slice(2).flatMap((m: any) => m.content)).toEqual(prompt[2].content);
+  });
+});

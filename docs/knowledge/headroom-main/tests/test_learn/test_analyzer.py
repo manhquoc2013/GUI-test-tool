@@ -1,0 +1,1504 @@
+"""Tests for session analyzer — digest builder and LLM-based analysis."""
+
+import io
+import json
+import subprocess
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from headroom.learn.analyzer import (
+    SessionAnalyzer,
+    _build_digest,
+    _call_cli_llm,
+    _call_llm,
+    _detect_default_model,
+    _output_snippet,
+    _parse_llm_response,
+    _resolve_timeout_secs,
+    _strip_fenced_json,
+)
+from headroom.learn.models import (
+    ErrorCategory,
+    ProjectInfo,
+    RecommendationTarget,
+    SessionData,
+    SessionEvent,
+    ToolCall,
+)
+
+
+def _project() -> ProjectInfo:
+    return ProjectInfo(
+        name="test-project",
+        project_path=Path("/tmp/test-project"),
+        data_path=Path("/tmp/test-data"),
+    )
+
+
+def _tc(
+    name: str = "Bash",
+    input_data: dict | None = None,
+    output: str = "ok",
+    is_error: bool = False,
+    error_category: ErrorCategory = ErrorCategory.UNKNOWN,
+    msg_index: int = 0,
+    output_bytes: int = 0,
+) -> ToolCall:
+    return ToolCall(
+        name=name,
+        tool_call_id=f"tc_{msg_index}",
+        input_data=input_data or {},
+        output=output,
+        is_error=is_error,
+        error_category=error_category,
+        msg_index=msg_index,
+        output_bytes=output_bytes or len(output),
+    )
+
+
+# =============================================================================
+# Digest Builder Tests
+# =============================================================================
+
+
+class TestDigestBuilder:
+    def test_includes_project_info(self):
+        project = _project()
+        sessions = [SessionData(session_id="s1", tool_calls=[_tc()])]
+        digest = _build_digest(project, sessions)
+        assert "test-project" in digest
+        assert str(project.project_path) in digest
+
+    def test_includes_session_stats(self):
+        sessions = [
+            SessionData(
+                session_id="abc123",
+                tool_calls=[_tc(msg_index=0), _tc(msg_index=1, is_error=True, output="Error!")],
+            )
+        ]
+        digest = _build_digest(_project(), sessions)
+        assert "abc123" in digest
+        assert "2 calls" in digest
+        assert "1 failure" in digest
+
+    def test_includes_tool_call_details(self):
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[
+                    _tc(
+                        name="Read",
+                        input_data={"file_path": "/src/foo.py"},
+                        output="contents",
+                        msg_index=0,
+                    ),
+                    _tc(
+                        name="Bash",
+                        input_data={"command": "python3 run.py"},
+                        output="ModuleNotFoundError",
+                        is_error=True,
+                        error_category=ErrorCategory.MODULE_NOT_FOUND,
+                        msg_index=1,
+                    ),
+                ],
+            )
+        ]
+        digest = _build_digest(_project(), sessions)
+        assert "/src/foo.py" in digest
+        assert "python3 run.py" in digest
+        assert "ERROR" in digest
+        assert "ModuleNotFoundError" in digest
+
+    def test_includes_user_messages(self):
+        tc = _tc(msg_index=0)
+        events = [
+            SessionEvent(type="tool_call", msg_index=0, tool_call=tc),
+            SessionEvent(type="user_message", msg_index=1, text="Use uv run instead"),
+        ]
+        sessions = [SessionData(session_id="s1", tool_calls=[tc], events=events)]
+        digest = _build_digest(_project(), sessions)
+        assert "USER:" in digest
+        assert "Use uv run instead" in digest
+
+    def test_includes_subagent_summaries(self):
+        events = [
+            SessionEvent(
+                type="agent_summary",
+                msg_index=0,
+                agent_tool_count=150,
+                agent_tokens=60000,
+                agent_prompt="Explore all test files",
+            ),
+        ]
+        sessions = [SessionData(session_id="s1", events=events)]
+        digest = _build_digest(_project(), sessions)
+        assert "SUBAGENT" in digest
+        assert "150 tool calls" in digest
+        assert "Explore all test files" in digest
+
+    def test_includes_interruptions(self):
+        events = [
+            SessionEvent(
+                type="interruption",
+                msg_index=0,
+                text="[Request interrupted by user]",
+            ),
+        ]
+        sessions = [SessionData(session_id="s1", events=events)]
+        digest = _build_digest(_project(), sessions)
+        assert "INTERRUPTED" in digest
+
+    def test_empty_sessions(self):
+        digest = _build_digest(_project(), [])
+        assert "0 sessions" in digest or "test-project" in digest
+
+    def test_long_error_output_preserves_tail_root_cause(self):
+        # A traceback's diagnosis lives at the tail; a head-only slice would drop it (#2590).
+        traceback = (
+            "Traceback (most recent call last):\n"
+            + "\n".join(
+                f'  File "mod{i}.py", line {i}, in fn{i}\n    call_{i}()' for i in range(40)
+            )
+            + "\nKeyError: 'the-actual-root-cause'"
+        )
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[
+                    _tc(
+                        name="Bash",
+                        output=traceback,
+                        is_error=True,
+                        error_category=ErrorCategory.UNKNOWN,
+                        msg_index=0,
+                    )
+                ],
+            )
+        ]
+        digest = _build_digest(_project(), sessions)
+        assert "Traceback" in digest
+        assert "KeyError: 'the-actual-root-cause'" in digest
+        assert "…" in digest
+
+    def test_short_error_output_not_truncated(self):
+        short = "ModuleNotFoundError: No module named 'foo'"
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[
+                    _tc(
+                        name="Bash",
+                        output=short,
+                        is_error=True,
+                        error_category=ErrorCategory.MODULE_NOT_FOUND,
+                        msg_index=0,
+                    )
+                ],
+            )
+        ]
+        digest = _build_digest(_project(), sessions)
+        assert short in digest
+        assert "…" not in digest
+
+
+# =============================================================================
+# Prior Patterns Injection Tests
+# =============================================================================
+
+
+_MARKER_BLOCK = (
+    "<!-- headroom:learn:start -->\n"
+    "## Headroom Learned Patterns\n"
+    "*Auto-generated by `headroom learn` on 2026-04-01 — do not edit manually*\n"
+    "\n"
+    "### Large Files\n"
+    "- `src/App.tsx` is very large (~40k tokens) — use offset/limit reads\n"
+    "- `src/lib.rs` frequently exceeds 10k tokens\n"
+    "\n"
+    "<!-- headroom:learn:end -->"
+)
+
+
+def _project_with_files(
+    tmp_path: Path, claude_md_text: str | None, memory_md_text: str | None
+) -> ProjectInfo:
+    """Build a ProjectInfo pointing at temp CLAUDE.md / MEMORY.md files."""
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+    data_dir = tmp_path / "data"
+    (data_dir / "memory").mkdir(parents=True)
+
+    context_file: Path | None = None
+    if claude_md_text is not None:
+        context_file = proj_dir / "CLAUDE.md"
+        context_file.write_text(claude_md_text)
+
+    memory_file: Path | None = None
+    if memory_md_text is not None:
+        memory_file = data_dir / "memory" / "MEMORY.md"
+        memory_file.write_text(memory_md_text)
+
+    return ProjectInfo(
+        name="proj",
+        project_path=proj_dir,
+        data_path=data_dir,
+        context_file=context_file,
+        memory_file=memory_file,
+    )
+
+
+class TestPriorPatternsInjection:
+    """The digest should include the prior marker block so the LLM can emit
+    COMPLETE updated sections instead of condensed deltas that reference
+    now-dropped siblings (the "X is also large — same rule as Y, Z" bug)."""
+
+    def test_digest_includes_prior_block_from_claude_md(self, tmp_path):
+        project = _project_with_files(
+            tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None
+        )
+        digest = _build_digest(project, [])
+        assert "Prior Learned Patterns" in digest
+        assert "### Large Files" in digest
+        assert "App.tsx" in digest
+
+    def test_digest_includes_prior_block_from_memory_md(self, tmp_path):
+        project = _project_with_files(
+            tmp_path, claude_md_text=None, memory_md_text=f"{_MARKER_BLOCK}\n"
+        )
+        digest = _build_digest(project, [])
+        assert "Prior Learned Patterns" in digest
+        assert "MEMORY.md" in digest
+        assert "### Large Files" in digest
+
+    def test_digest_omits_section_when_no_files_exist(self, tmp_path):
+        project = _project_with_files(tmp_path, claude_md_text=None, memory_md_text=None)
+        digest = _build_digest(project, [])
+        assert "Prior Learned Patterns" not in digest
+        assert "<!-- headroom:learn" not in digest
+
+    def test_digest_omits_section_when_file_has_no_marker_block(self, tmp_path):
+        """CLAUDE.md exists but has no headroom block → no prior section emitted."""
+        project = _project_with_files(
+            tmp_path,
+            claude_md_text="# Project\n\nJust a regular readme, no headroom block.\n",
+            memory_md_text=None,
+        )
+        digest = _build_digest(project, [])
+        assert "Prior Learned Patterns" not in digest
+
+    def test_digest_surfaces_both_files_when_both_present(self, tmp_path):
+        project = _project_with_files(
+            tmp_path,
+            claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n",
+            memory_md_text=f"{_MARKER_BLOCK}\n",
+        )
+        digest = _build_digest(project, [])
+        assert digest.count("### Large Files") >= 2  # once per file
+        assert "CLAUDE.md" in digest
+        assert "MEMORY.md" in digest
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_analyze_passes_prior_block_through_to_llm(self, mock_call_llm: MagicMock, tmp_path):
+        """End-to-end: SessionAnalyzer.analyze() → _call_llm receives digest
+        containing the prior marker block content."""
+        mock_call_llm.return_value = {"context_file_rules": [], "memory_file_rules": []}
+        project = _project_with_files(
+            tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None
+        )
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[_tc(msg_index=0, is_error=True, output="error")],
+            )
+        ]
+
+        SessionAnalyzer(model="test-model").analyze(project, sessions)
+
+        mock_call_llm.assert_called_once()
+        digest_arg = mock_call_llm.call_args[0][0]
+        assert "Prior Learned Patterns" in digest_arg
+        assert "App.tsx" in digest_arg
+
+
+# =============================================================================
+# LLM Response Parser Tests
+# =============================================================================
+
+
+class TestLLMResponseParser:
+    def test_parses_context_file_rules(self):
+        raw = {
+            "context_file_rules": [
+                {
+                    "section": "Environment",
+                    "content": "- Use `uv run python` instead of `python3`",
+                    "estimated_tokens_saved": 800,
+                    "evidence_count": 5,
+                }
+            ],
+            "memory_file_rules": [],
+        }
+        recs = _parse_llm_response(raw)
+        assert len(recs) == 1
+        assert recs[0].target == RecommendationTarget.CONTEXT_FILE
+        assert recs[0].section == "Environment"
+        assert "uv run python" in recs[0].content
+        assert recs[0].estimated_tokens_saved == 800
+        assert recs[0].evidence_count == 5
+
+    def test_parses_memory_file_rules(self):
+        raw = {
+            "context_file_rules": [],
+            "memory_file_rules": [
+                {
+                    "section": "User Preferences",
+                    "content": "- Do not auto-execute curl commands",
+                    "estimated_tokens_saved": 500,
+                    "evidence_count": 3,
+                }
+            ],
+        }
+        recs = _parse_llm_response(raw)
+        assert len(recs) == 1
+        assert recs[0].target == RecommendationTarget.MEMORY_FILE
+        assert "curl" in recs[0].content
+
+    def test_sorts_by_token_savings(self):
+        raw = {
+            "context_file_rules": [
+                {
+                    "section": "Paths",
+                    "content": "- Use correct paths",
+                    "estimated_tokens_saved": 200,
+                    "evidence_count": 2,
+                },
+                {
+                    "section": "Environment",
+                    "content": "- Use uv",
+                    "estimated_tokens_saved": 1000,
+                    "evidence_count": 5,
+                },
+            ],
+            "memory_file_rules": [],
+        }
+        recs = _parse_llm_response(raw)
+        assert recs[0].estimated_tokens_saved == 1000
+        assert recs[1].estimated_tokens_saved == 200
+
+    def test_handles_missing_fields(self):
+        raw = {
+            "context_file_rules": [
+                {"section": "Env", "content": "- stuff"},
+                {"section": "", "content": ""},  # should be skipped
+                {"not_a_real_field": True},  # should be skipped
+            ],
+            "memory_file_rules": [],
+        }
+        recs = _parse_llm_response(raw)
+        assert len(recs) == 1
+
+    def test_handles_empty_response(self):
+        recs = _parse_llm_response({})
+        assert recs == []
+
+    def test_handles_non_dict_entries(self):
+        raw = {"context_file_rules": ["not a dict", 42], "memory_file_rules": []}
+        recs = _parse_llm_response(raw)
+        assert recs == []
+
+    def test_handles_null_rule_lists_and_fields(self):
+        # The model controls this JSON. A present-but-null rules list or a null
+        # section/content must be treated like an absent value, not crash the
+        # iteration / `.strip()`.
+        assert _parse_llm_response({"context_file_rules": None, "memory_file_rules": None}) == []
+        assert (
+            _parse_llm_response({"context_file_rules": [{"section": None, "content": "x"}]}) == []
+        )
+        assert _parse_llm_response({"memory_file_rules": [{"section": "s", "content": None}]}) == []
+
+        # A truthy non-string section/content (number, list, object) is also
+        # model-controlled and must not crash `.strip()`; it is dropped like null.
+        assert _parse_llm_response({"context_file_rules": [{"section": 123, "content": "x"}]}) == []
+        assert _parse_llm_response({"context_file_rules": [{"section": "s", "content": 123}]}) == []
+        assert (
+            _parse_llm_response({"memory_file_rules": [{"section": ["s"], "content": "x"}]}) == []
+        )
+        assert (
+            _parse_llm_response({"memory_file_rules": [{"section": "s", "content": {"a": 1}}]})
+            == []
+        )
+
+        # A valid rule alongside the null shapes is still parsed.
+        recs = _parse_llm_response(
+            {
+                "context_file_rules": [
+                    None,
+                    {"section": "Large Files", "content": "use offset", "evidence_count": 3},
+                ]
+            }
+        )
+        assert [r.section for r in recs] == ["Large Files"]
+        assert recs[0].evidence_count == 3
+
+
+# =============================================================================
+# Full Analyzer Integration Tests (mocked LLM)
+# =============================================================================
+
+
+class TestSessionAnalyzer:
+    def test_empty_sessions_no_llm_call(self):
+        """No failures + no events → no LLM call, empty result."""
+        analyzer = SessionAnalyzer()
+        result = analyzer.analyze(_project(), [])
+        assert result.total_calls == 0
+        assert result.total_failures == 0
+        assert result.recommendations == []
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_calls_llm_with_digest(self, mock_call_llm: MagicMock):
+        mock_call_llm.return_value = {
+            "context_file_rules": [
+                {
+                    "section": "Environment",
+                    "content": "- Use uv run python",
+                    "estimated_tokens_saved": 800,
+                    "evidence_count": 3,
+                }
+            ],
+            "memory_file_rules": [],
+        }
+
+        analyzer = SessionAnalyzer(model="test-model")
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[
+                    _tc(msg_index=0, is_error=True, output="ModuleNotFoundError"),
+                    _tc(msg_index=1),
+                ],
+            )
+        ]
+        result = analyzer.analyze(_project(), sessions)
+
+        mock_call_llm.assert_called_once()
+        assert result.total_calls == 2
+        assert result.total_failures == 1
+        assert len(result.recommendations) == 1
+        assert "uv run python" in result.recommendations[0].content
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_handles_llm_failure_gracefully(self, mock_call_llm: MagicMock):
+        mock_call_llm.side_effect = RuntimeError("API key not set")
+
+        analyzer = SessionAnalyzer(model="test-model")
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[_tc(msg_index=0, is_error=True, output="error")],
+            )
+        ]
+        result = analyzer.analyze(_project(), sessions)
+
+        # Stats should still work, just no recommendations
+        assert result.total_calls == 1
+        assert result.total_failures == 1
+        assert result.recommendations == []
+        assert result.analysis_error == "API key not set"
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            "`claude -p` failed (exit 1):\nPrompt is too long",
+            # What codex exec printed on a real learn run: it refuses a prompt over 2**20 chars.
+            "`codex exec` failed (exit 1):\nError: turn/start: turn/start failed: Input exceeds "
+            "the maximum length of 1048576 characters. (code -32602), data: "
+            '{"input_error_code":"input_too_large","max_chars":1048576,"actual_chars":1786526}',
+        ],
+        ids=["claude", "codex"],
+    )
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_retries_smaller_digest_on_prompt_too_long(self, mock_call_llm: MagicMock, error):
+        """A context-overflow error rebuilds the digest at half the budget and retries."""
+        mock_call_llm.side_effect = [
+            RuntimeError(error),
+            {"context_file_rules": [], "memory_file_rules": []},
+        ]
+
+        analyzer = SessionAnalyzer(model="test-model")
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[
+                    # Enough volume to overflow even the halved (40k-token) budget,
+                    # so the retry digest is visibly shorter than the first.
+                    _tc(msg_index=i, is_error=True, output="x" * 200)
+                    for i in range(2000)
+                ],
+            )
+        ]
+        result = analyzer.analyze(_project(), sessions)
+
+        assert mock_call_llm.call_count == 2
+        first_digest = mock_call_llm.call_args_list[0][0][0]
+        second_digest = mock_call_llm.call_args_list[1][0][0]
+        assert len(second_digest) < len(first_digest)
+        assert result.recommendations == []
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_gives_up_when_min_digest_budget_still_too_long(self, mock_call_llm: MagicMock):
+        """Persistent overflow stops at the minimum budget instead of looping forever."""
+        mock_call_llm.side_effect = RuntimeError("Prompt is too long")
+
+        analyzer = SessionAnalyzer(model="test-model")
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[_tc(msg_index=0, is_error=True, output="error")],
+            )
+        ]
+        result = analyzer.analyze(_project(), sessions)
+
+        # Budgets: 80k, 40k, 20k, 10k — then give up.
+        assert mock_call_llm.call_count == 4
+        assert result.recommendations == []
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_non_overflow_failure_does_not_retry(self, mock_call_llm: MagicMock):
+        mock_call_llm.side_effect = RuntimeError("API key not set")
+
+        analyzer = SessionAnalyzer(model="test-model")
+        sessions = [
+            SessionData(
+                session_id="s1",
+                tool_calls=[_tc(msg_index=0, is_error=True, output="error")],
+            )
+        ]
+        analyzer.analyze(_project(), sessions)
+
+        mock_call_llm.assert_called_once()
+
+    @patch("headroom.learn.analyzer._call_llm")
+    def test_passes_events_to_digest(self, mock_call_llm: MagicMock):
+        """User messages and subagent events should appear in the digest."""
+        mock_call_llm.return_value = {"context_file_rules": [], "memory_file_rules": []}
+
+        tc = _tc(msg_index=0, is_error=True, output="error")
+        events = [
+            SessionEvent(type="tool_call", msg_index=0, tool_call=tc),
+            SessionEvent(type="user_message", msg_index=1, text="use venv python"),
+        ]
+        sessions = [SessionData(session_id="s1", tool_calls=[tc], events=events)]
+
+        analyzer = SessionAnalyzer(model="test-model")
+        analyzer.analyze(_project(), sessions)
+
+        # Check that the digest passed to the LLM includes user message
+        call_args = mock_call_llm.call_args
+        digest = call_args[0][0]  # first positional arg
+        assert "use venv python" in digest
+
+
+# =============================================================================
+# Model Auto-Detection
+# =============================================================================
+
+
+class TestDetectDefaultModel:
+    def test_anthropic_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        assert _detect_default_model() == "claude-sonnet-4-6"
+
+    def test_openai_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        assert _detect_default_model() == "gpt-4o"
+
+    def test_gemini_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "test")
+        assert _detect_default_model() == "gemini/gemini-flash-latest"
+
+    def test_anthropic_preferred_over_openai(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        assert _detect_default_model() == "claude-sonnet-4-6"
+
+    def test_no_keys_no_cli_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr("headroom.learn.analyzer.shutil.which", lambda _name: None)
+
+        with pytest.raises(RuntimeError, match="No LLM API key found"):
+            _detect_default_model()
+
+    def test_cli_fallback_claude(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "claude" else None,
+        )
+        assert _detect_default_model() == "claude-cli"
+
+    def test_cli_fallback_gemini(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "gemini" else None,
+        )
+        assert _detect_default_model() == "gemini-cli"
+
+    def test_cli_fallback_codex(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "codex" else None,
+        )
+        assert _detect_default_model() == "codex-cli"
+
+    def test_cli_fallback_never_auto_detects_agy(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("HEADROOM_LEARN_CLI", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", "1")
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "agy" else None,
+        )
+        with pytest.raises(RuntimeError, match="No LLM API key found"):
+            _detect_default_model()
+
+    def test_cli_fallback_prefers_existing_clis_over_agy(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name in ("codex", "agy") else None,
+        )
+        assert _detect_default_model() == "codex-cli"
+
+    def test_api_key_preferred_over_cli(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "claude" else None,
+        )
+        assert _detect_default_model() == "claude-sonnet-4-6"
+
+    def test_env_var_selects_gemini(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "gemini")
+        assert _detect_default_model() == "gemini-cli"
+
+    def test_env_var_selects_codex(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "codex")
+        assert _detect_default_model() == "codex-cli"
+
+    def test_env_var_selects_agy_with_unsafe_opt_in(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "agy")
+        monkeypatch.setenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", "1")
+        assert _detect_default_model() == "agy-cli"
+
+    def test_env_var_agy_without_unsafe_opt_in_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "agy")
+        with pytest.raises(ValueError, match="HEADROOM_LEARN_ALLOW_UNSAFE_AGY=1"):
+            _detect_default_model()
+
+    def test_env_var_invalid_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "unknown-tool")
+        with pytest.raises(ValueError, match="not a supported CLI"):
+            _detect_default_model()
+
+    def test_api_key_preferred_over_env_var(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "gemini")
+        assert _detect_default_model() == "claude-sonnet-4-6"
+
+    def test_env_var_preferred_over_auto_detect(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("HEADROOM_LEARN_CLI", "codex")
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: f"/usr/bin/{name}" if name == "claude" else None,
+        )
+        # codex selected via env var, even though claude is in PATH
+        assert _detect_default_model() == "codex-cli"
+
+
+# =============================================================================
+# CLI LLM Backend
+# =============================================================================
+
+
+class TestStripFencedJson:
+    def test_raw_json(self):
+        result = _strip_fenced_json('{"key": "value"}')
+        assert result == {"key": "value"}
+
+    def test_fenced_json(self):
+        raw = '```json\n{"key": "value"}\n```'
+        result = _strip_fenced_json(raw)
+        assert result == {"key": "value"}
+
+    def test_fenced_no_language_tag(self):
+        raw = '```\n{"key": "value"}\n```'
+        result = _strip_fenced_json(raw)
+        assert result == {"key": "value"}
+
+    def test_whitespace_padding(self):
+        raw = '  \n```json\n{"key": "value"}\n```\n  '
+        result = _strip_fenced_json(raw)
+        assert result == {"key": "value"}
+
+    def test_invalid_json_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _strip_fenced_json("not json at all")
+
+    def test_non_object_json_raises(self):
+        # A model may return valid JSON that is not an object (a bare array,
+        # string, number, ...). The contract is to raise JSONDecodeError so
+        # callers do not receive a non-dict and crash on `.get`.
+        for raw in ("[1, 2, 3]", '["a", "b"]', '[{"a": 1}, {"b": 2}]', '"a string"', "42", "true"):
+            with pytest.raises(json.JSONDecodeError):
+                _strip_fenced_json(raw)
+
+    def test_array_wrapping_a_single_object_is_extracted(self):
+        # The lenient first-{ .. last-} slice still recovers a single object a
+        # model wrapped in an array; only genuinely object-less JSON raises.
+        assert _strip_fenced_json('[{"key": "value"}]') == {"key": "value"}
+
+    def test_prose_preamble_before_fence(self):
+        # Models sometimes add a preamble before the fence despite being told
+        # to return JSON only (e.g. "Here it is:\n\n```json ...").
+        raw = 'The JSON is my deliverable. Here it is:\n\n```json\n{"key": "value"}\n```'
+        result = _strip_fenced_json(raw)
+        assert result == {"key": "value"}
+
+    def test_prose_around_bare_object(self):
+        raw = 'Sure, here you go: {"key": "value"} hope that helps!'
+        result = _strip_fenced_json(raw)
+        assert result == {"key": "value"}
+
+    def test_triple_backtick_inside_payload(self):
+        raw = '```json\n{"note": "run ```code``` here", "n": 1}\n```'
+        result = _strip_fenced_json(raw)
+        assert result == {"note": "run ```code``` here", "n": 1}
+
+
+def _fake_claude_popen(
+    *,
+    stdout_lines: list[str],
+    stderr_lines: list[str] | None = None,
+    returncode: int = 0,
+    stdout_delay: float = 0.0,
+) -> MagicMock:
+    """Build a Popen mock factory for the streaming claude-cli path.
+
+    Returns a MagicMock that, when called as ``Popen(cmd, ...)``, yields a
+    fake process whose stdout/stderr behave like line-iterable text streams.
+    Each stdout line is sleep(*stdout_delay*)-gated to let tests simulate slow
+    or hung processes.
+    """
+    if stderr_lines is None:
+        stderr_lines = []
+
+    def _make_iter(lines: list[str], delay: float):
+        def _gen():
+            for line in lines:
+                if delay:
+                    time.sleep(delay)
+                yield line
+
+        return _gen()
+
+    factory = MagicMock()
+
+    def _construct(*args, **kwargs):
+        proc = MagicMock()
+        proc.stdin = io.StringIO()
+        proc.stdout = _make_iter(stdout_lines, stdout_delay)
+        proc.stderr = _make_iter(stderr_lines, 0.0)
+        proc.returncode = returncode
+        proc.wait = MagicMock(return_value=returncode)
+        proc.kill = MagicMock()
+        proc.poll = MagicMock(return_value=returncode)
+        return proc
+
+    factory.side_effect = _construct
+    return factory
+
+
+def _stream_event(event_type: str, **fields) -> str:
+    return json.dumps({"type": event_type, **fields}) + "\n"
+
+
+def _result_event(text: str) -> str:
+    return _stream_event("result", subtype="success", is_error=False, result=text)
+
+
+class TestCallCliLlm:
+    def test_claude_cli_streams_and_parses_result_event(self):
+        stdout = [
+            _stream_event("system", subtype="init"),
+            _stream_event("assistant", message={"content": "thinking..."}),
+            _result_event('{"context_file_rules": [], "memory_file_rules": []}'),
+        ]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ) as popen:
+            result = _call_cli_llm("test digest", "claude-cli")
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        cmd = popen.call_args[0][0]
+        assert cmd == [
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--settings",
+            '{"disableAllHooks":true}',
+        ]
+
+    def test_claude_cli_progress_callback_is_throttled(self):
+        stdout = [
+            _stream_event("system", subtype="init"),
+            *[_stream_event("assistant", message={"content": "..."}) for _ in range(5)],
+            _result_event('{"context_file_rules": [], "memory_file_rules": []}'),
+        ]
+        progress: list[str] = []
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            result = _call_cli_llm("test digest", "claude-cli", on_progress=progress.append)
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        # All 6 progress-worthy events arrive well within one 3s throttle
+        # window, so only the first ("session started") should be echoed.
+        assert progress == ["session started"]
+
+    def test_claude_cli_progress_callback_reports_spaced_events(self, monkeypatch):
+        monkeypatch.setattr("headroom.learn.analyzer._PROGRESS_THROTTLE_SECS", 0.01)
+        stdout = [
+            _stream_event("system", subtype="init"),
+            _stream_event("assistant", message={"content": "thinking..."}),
+            _stream_event("stream_event", event={"type": "content_block_delta"}),
+            _stream_event("user", message={"content": []}),
+            _result_event('{"context_file_rules": [], "memory_file_rules": []}'),
+        ]
+        progress: list[str] = []
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen",
+            _fake_claude_popen(stdout_lines=stdout, stdout_delay=0.03),
+        ):
+            result = _call_cli_llm("test digest", "claude-cli", on_progress=progress.append)
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        assert progress[0] == "session started"
+        assert progress[1].startswith("assistant responding, ")
+        assert progress[2].startswith("assistant responding, ")  # stream_event maps like assistant
+        assert progress[3].startswith("tool running, ")
+        assert len(progress) == 4  # the terminal "result" event is never echoed as progress
+
+    def test_claude_cli_progress_callback_exception_does_not_abort_analysis(self):
+        stdout = [
+            _stream_event("system", subtype="init"),
+            _result_event('{"context_file_rules": [], "memory_file_rules": []}'),
+        ]
+
+        def _boom(_detail: str) -> None:
+            raise RuntimeError("wrapper UI pipe closed")
+
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            result = _call_cli_llm("test digest", "claude-cli", on_progress=_boom)
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+
+    def test_claude_cli_parses_fenced_result(self):
+        stdout = [
+            _result_event('```json\n{"context_file_rules": [], "memory_file_rules": []}\n```'),
+        ]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            result = _call_cli_llm("test digest", "claude-cli")
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+
+    def test_claude_cli_idle_timeout_kills_hang(self, monkeypatch):
+        import threading as _threading
+
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_IDLE_TIMEOUT_SECS", "1")
+
+        # An iterator that never yields and never EOFs — simulates a hung CLI.
+        # The pump thread blocks in __next__, so no events reach the watchdog.
+        blocked = _threading.Event()  # never set
+
+        class _HangingStream:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                blocked.wait(timeout=10)
+                raise StopIteration
+
+        def _construct(*args, **kwargs):
+            proc = MagicMock()
+            proc.stdin = io.StringIO()
+            proc.stdout = _HangingStream()
+            proc.stderr = _HangingStream()
+            proc.returncode = 0
+            proc.wait = MagicMock(return_value=0)
+            proc.kill = MagicMock(side_effect=lambda: blocked.set())
+            proc.poll = MagicMock(return_value=None)
+            return proc
+
+        popen = MagicMock(side_effect=_construct)
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError, match="produced no output"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_claude_cli_hard_cap_kills_continuous_chatter(self, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "1")
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_IDLE_TIMEOUT_SECS", "10")
+
+        # Continuous output every 50ms so idle never fires; hard cap should.
+        chatter = [_stream_event("assistant", message={"i": i}) for i in range(1000)]
+        popen = _fake_claude_popen(stdout_lines=chatter, stdout_delay=0.05)
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError, match="exceeded the 1s hard cap"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_claude_cli_missing_result_event_raises(self):
+        stdout = [_stream_event("assistant", message={"content": "no result"})]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            with pytest.raises(RuntimeError, match="did not emit a final `result` event"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_claude_cli_nonzero_exit_raises(self):
+        popen = _fake_claude_popen(
+            stdout_lines=[],
+            stderr_lines=["Error: auth required\n"],
+            returncode=1,
+        )
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError, match="failed.*exit 1"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_claude_cli_nonzero_exit_includes_api_error_from_stdout(self):
+        # Regression: `claude -p --output-format stream-json` writes NOTHING to
+        # stderr on an API failure. It still emits a final `result` event whose
+        # `result` field carries the reason, so a stderr-only message rendered as
+        # a bare "failed (exit 1):" with no cause for the user or the logs.
+        api_error = "API Error: Connection refused — a firewall or proxy may be blocking it"
+        stdout = [
+            _stream_event("system", subtype="init"),
+            _stream_event(
+                "result",
+                subtype="success",
+                is_error=False,
+                terminal_reason="api_error",
+                result=api_error,
+            ),
+        ]
+        popen = _fake_claude_popen(stdout_lines=stdout, stderr_lines=[], returncode=1)
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError) as exc_info:
+                _call_cli_llm("test digest", "claude-cli")
+        message = str(exc_info.value)
+        assert "failed (exit 1)" in message
+        assert api_error in message
+
+    def test_claude_cli_nonzero_exit_with_no_output_says_so(self):
+        popen = _fake_claude_popen(stdout_lines=[], stderr_lines=[], returncode=1)
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError) as exc_info:
+                _call_cli_llm("test digest", "claude-cli")
+        # Never a dangling colon: the message states that nothing was captured.
+        assert "(no output captured)" in str(exc_info.value)
+
+    def test_claude_cli_nonzero_exit_keeps_stderr_when_present(self):
+        popen = _fake_claude_popen(
+            stdout_lines=[_result_event("partial")],
+            stderr_lines=["Error: auth required\n"],
+            returncode=1,
+        )
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError) as exc_info:
+                _call_cli_llm("test digest", "claude-cli")
+        message = str(exc_info.value)
+        assert "auth required" in message
+        assert "partial" in message
+
+    def test_claude_cli_unparseable_result_raises_with_context(self):
+        stdout = [_result_event("This is not JSON at all")]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            with pytest.raises(RuntimeError, match="unparseable output"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_claude_cli_unparseable_result_shows_both_ends(self):
+        # A head-only excerpt of a long answer is valid-looking JSON in every
+        # case; the reason it did not parse -- truncated mid-value, or prose
+        # after the closing fence -- is only visible at the end.
+        payload = '```json\n{"context_file_rules": [' + '{"section": "x"}, ' * 400 + "]}\n```"
+        payload += "\n\nLet me know if you want this in another shape!"
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen",
+            _fake_claude_popen(stdout_lines=[_result_event(payload)]),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                _call_cli_llm("test digest", "claude-cli")
+        message = str(exc_info.value)
+        assert "unparseable output" in message
+        assert "```json" in message, "head is missing"
+        assert "another shape" in message, "tail is missing"
+        assert "chars omitted" in message
+        # Still bounded: the excerpt cannot grow with the payload.
+        assert len(message) < len(payload)
+
+    def test_output_snippet_leaves_short_output_alone(self):
+        assert _output_snippet("short") == "short"
+        edge = "x" * 2000
+        assert _output_snippet(edge) == edge
+
+    def test_claude_cli_not_installed_raises(self):
+        popen = MagicMock(side_effect=FileNotFoundError("No such file or directory: 'claude'"))
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            with pytest.raises(RuntimeError, match="not found in PATH"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_cli_uses_exec(self, mock_run: MagicMock):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"context_file_rules": [], "memory_file_rules": []}',
+            stderr="",
+        )
+        result = _call_cli_llm("test digest", "codex-cli")
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["codex", "exec", "--skip-git-repo-check"]
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_gemini_cli_uses_p_flag(self, mock_run: MagicMock):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"context_file_rules": [], "memory_file_rules": []}',
+            stderr="",
+        )
+        _call_cli_llm("test digest", "gemini-cli")
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["gemini", "-p"]
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_agy_cli_sends_stream_json_and_parses_result_event(
+        self, mock_run: MagicMock, monkeypatch
+    ):
+        monkeypatch.setenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", "1")
+        response = '```json\n{"context_file_rules": [], "memory_file_rules": []}\n```\n'
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="\n".join(
+                [
+                    '{"event": "init", "init": {"permission_mode": "default"}}',
+                    '{"event": "step_update", "step_update": {"text_delta": "{"}}',
+                    json.dumps({"event": "result", "result": {"response": response}}),
+                ]
+            ),
+            stderr="",
+        )
+        result = _call_cli_llm("test digest", "agy-cli")
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["agy", "--input-format", "stream-json", "--output-format", "stream-json"]
+        sent = json.loads(mock_run.call_args.kwargs["input"])
+        assert sent["event"] == "user"
+        assert sent["message"]["content"].endswith("test digest")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_agy_cli_result_with_unicode_line_separator(self, mock_run: MagicMock, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", "1")
+        response = '{"context_file_rules": [], "memory_file_rules": [], "note": "a b"}'
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                {"event": "result", "result": {"response": response}}, ensure_ascii=False
+            )
+            + "\n",
+            stderr="",
+        )
+        result = _call_cli_llm("test digest", "agy-cli")
+        assert result["note"] == "a b"
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_agy_cli_without_unsafe_opt_in_does_not_run(self, mock_run: MagicMock, monkeypatch):
+        monkeypatch.delenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", raising=False)
+        with pytest.raises(ValueError, match="HEADROOM_LEARN_ALLOW_UNSAFE_AGY=1"):
+            _call_cli_llm("test digest", "agy-cli")
+        mock_run.assert_not_called()
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_agy_cli_missing_result_event_raises(self, mock_run: MagicMock, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_ALLOW_UNSAFE_AGY", "1")
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"event": "init", "init": {}}\n',
+            stderr="",
+        )
+        with pytest.raises(RuntimeError, match="unparseable output"):
+            _call_cli_llm("test digest", "agy-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_nonzero_exit_raises(self, mock_run: MagicMock):
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Error: auth required",
+        )
+        with pytest.raises(RuntimeError, match="failed.*exit 1"):
+            _call_cli_llm("test digest", "codex-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_nonzero_exit_includes_stdout_when_stderr_empty(self, mock_run: MagicMock):
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="stream error: rate limit exceeded",
+            stderr="",
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            _call_cli_llm("test digest", "codex-cli")
+        assert "rate limit exceeded" in str(exc_info.value)
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_stderr_truncated_in_error(self, mock_run: MagicMock):
+        long_stderr = "x" * 5000
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr=long_stderr,
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            _call_cli_llm("test digest", "codex-cli")
+        assert long_stderr not in str(exc_info.value)
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_failure_drops_prompt_echo_and_keeps_reason(self, mock_run: MagicMock):
+        # `codex exec` echoes the whole stdin prompt to stderr ahead of its own
+        # error, so a head-of-stderr excerpt is the banner plus our system prompt
+        # and never the reason. Shape captured from codex-cli 0.156.1.
+        def _codex(cmd, *, input, **kwargs):
+            stderr = (
+                "Reading prompt from stdin...\nOpenAI Codex v0.156.1\n--------\n"
+                "model: gpt-5\n--------\nuser\n" + input + "\n\n"
+            )
+            stderr += "ERROR: Reconnecting... 1/5\n" * 100
+            stderr += "ERROR: unexpected status 401 Unauthorized: Missing bearer\n"
+            return MagicMock(returncode=1, stdout="", stderr=stderr)
+
+        mock_run.side_effect = _codex
+        with pytest.raises(RuntimeError) as exc_info:
+            _call_cli_llm("SECRET-SESSION-DIGEST", "codex-cli")
+        message = str(exc_info.value)
+        assert message.endswith("ERROR: unexpected status 401 Unauthorized: Missing bearer")
+        assert "[prompt omitted]" in message
+        assert "SECRET-SESSION-DIGEST" not in message
+        assert "OpenAI Codex v0.156.1" in message
+        # Whole lines only, still inside the snippet cap.
+        assert "\nERROR: Reconnecting... 1/5\n" in message
+        assert len(message) < 2200
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_failure_keeps_reason_behind_a_long_banner(self, mock_run: MagicMock):
+        # Diagnostics ahead of the echo longer than the whole snippet cap must
+        # not push the CLI's final error out of the message.
+        def _codex(cmd, *, input, **kwargs):
+            stderr = "WARN startup diagnostic line\n" * 100 + input + "\n"
+            stderr += "ERROR: unknown model gpt-x\n"
+            return MagicMock(returncode=1, stdout="", stderr=stderr)
+
+        mock_run.side_effect = _codex
+        with pytest.raises(RuntimeError) as exc_info:
+            _call_cli_llm("SECRET-SESSION-DIGEST", "codex-cli")
+        message = str(exc_info.value)
+        assert message.endswith("[prompt omitted]\nERROR: unknown model gpt-x")
+        assert message.startswith("`codex exec")
+        assert "SECRET-SESSION-DIGEST" not in message
+        assert len(message) < 2200
+
+    def test_unknown_cli_model_raises(self):
+        with pytest.raises(ValueError, match="Unknown CLI model"):
+            _call_cli_llm("test digest", "unknown-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_not_installed_raises(self, mock_run: MagicMock):
+        mock_run.side_effect = FileNotFoundError("No such file or directory: 'codex'")
+        with pytest.raises(RuntimeError, match="not found in PATH"):
+            _call_cli_llm("test digest", "codex-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_timeout_raises_runtime_error(self, mock_run: MagicMock):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["codex", "exec"], timeout=300)
+        with pytest.raises(RuntimeError, match="did not respond within"):
+            _call_cli_llm("test digest", "codex-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_timeout_honors_env_override(self, mock_run: MagicMock, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "42")
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+        _call_cli_llm("test digest", "codex-cli")
+        assert mock_run.call_args.kwargs["timeout"] == 42
+
+    @patch("headroom.learn.analyzer.subprocess.run")
+    def test_codex_unparseable_output_raises_with_context(self, mock_run: MagicMock):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="This is not JSON at all",
+            stderr="",
+        )
+        with pytest.raises(RuntimeError, match="unparseable output"):
+            _call_cli_llm("test digest", "codex-cli")
+
+
+class TestWindowsCliShimFallback:
+    """npm-installed CLIs on Windows are ``.cmd``/``.bat`` shims, not directly
+    executable — ``subprocess`` uses ``CreateProcess``, which (unlike a shell)
+    does not apply the ``PATHEXT`` extension search, so ``Popen`` raises
+    ``FileNotFoundError`` even though the shell (and ``shutil.which``) finds
+    the CLI fine (issue #1624). A FileNotFoundError on Windows should trigger
+    one ``shutil.which``-based retry with the resolved executable path.
+    """
+
+    def test_streaming_cli_retries_with_resolved_shim(self, monkeypatch):
+        monkeypatch.setattr("headroom.learn.analyzer.os.name", "nt")
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: r"C:\npm\claude.cmd" if name == "claude" else None,
+        )
+        stdout = [_result_event('{"context_file_rules": [], "memory_file_rules": []}')]
+        fake_popen = _fake_claude_popen(stdout_lines=stdout)
+        calls: list[list[str]] = []
+
+        def _construct(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "claude":
+                raise FileNotFoundError("No such file or directory: 'claude'")
+            return fake_popen.side_effect(cmd, *args, **kwargs)
+
+        popen = MagicMock(side_effect=_construct)
+        with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+            result = _call_cli_llm("test digest", "claude-cli")
+
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        assert calls[0][0] == "claude"
+        assert calls[1][0] == r"C:\npm\claude.cmd"
+        assert calls[1][1:] == calls[0][1:]  # remaining args preserved
+
+    def test_non_streaming_cli_retries_with_resolved_shim(self, monkeypatch):
+        monkeypatch.setattr("headroom.learn.analyzer.os.name", "nt")
+        monkeypatch.setattr(
+            "headroom.learn.analyzer.shutil.which",
+            lambda name: r"C:\npm\codex.cmd" if name == "codex" else None,
+        )
+        calls: list[list[str]] = []
+
+        def _run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "codex":
+                raise FileNotFoundError("No such file or directory: 'codex'")
+            return MagicMock(
+                returncode=0,
+                stdout='{"context_file_rules": [], "memory_file_rules": []}',
+                stderr="",
+            )
+
+        with patch("headroom.learn.analyzer.subprocess.run", side_effect=_run):
+            result = _call_cli_llm("test digest", "codex-cli")
+
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        assert calls[0][0] == "codex"
+        assert calls[1][0] == r"C:\npm\codex.cmd"
+
+    def test_shim_unresolvable_still_raises_not_found_in_path(self, monkeypatch):
+        monkeypatch.setattr("headroom.learn.analyzer.os.name", "nt")
+        monkeypatch.setattr("headroom.learn.analyzer.shutil.which", lambda name: None)
+        mock_run = MagicMock(side_effect=FileNotFoundError("No such file or directory: 'codex'"))
+        with patch("headroom.learn.analyzer.subprocess.run", mock_run):
+            with pytest.raises(RuntimeError, match="not found in PATH"):
+                _call_cli_llm("test digest", "codex-cli")
+        # shutil.which couldn't resolve anything — no retry attempted.
+        assert mock_run.call_count == 1
+
+    def test_non_windows_skips_shim_resolution(self, monkeypatch):
+        monkeypatch.setattr("headroom.learn.analyzer.os.name", "posix")
+        which = MagicMock(return_value=r"/usr/local/bin/codex")
+        monkeypatch.setattr("headroom.learn.analyzer.shutil.which", which)
+        mock_run = MagicMock(side_effect=FileNotFoundError("No such file or directory: 'codex'"))
+        with patch("headroom.learn.analyzer.subprocess.run", mock_run):
+            with pytest.raises(RuntimeError, match="not found in PATH"):
+                _call_cli_llm("test digest", "codex-cli")
+        which.assert_not_called()
+        assert mock_run.call_count == 1
+
+
+class TestParseStreamEvent:
+    def test_returns_none_for_empty_line(self):
+        from headroom.learn.analyzer import _parse_stream_event
+
+        assert _parse_stream_event("") is None
+        assert _parse_stream_event("   \n") is None
+
+    def test_returns_none_for_invalid_json(self):
+        from headroom.learn.analyzer import _parse_stream_event
+
+        assert _parse_stream_event("not json at all") is None
+        assert _parse_stream_event("{unclosed") is None
+
+    def test_returns_none_for_non_dict_json(self):
+        from headroom.learn.analyzer import _parse_stream_event
+
+        assert _parse_stream_event('"a string"') is None
+        assert _parse_stream_event("[1, 2, 3]") is None
+
+    def test_parses_valid_event(self):
+        from headroom.learn.analyzer import _parse_stream_event
+
+        assert _parse_stream_event('{"type": "result", "result": "x"}') == {
+            "type": "result",
+            "result": "x",
+        }
+
+
+class TestClaudeCliEdgeCases:
+    """Coverage for less-traveled branches in the streaming claude-cli path."""
+
+    def test_non_string_result_field_falls_through_to_missing(self):
+        # `result` event present but the `result` field is a dict, not a string.
+        # The watchdog should not store it as final_result, so the path raises
+        # the "did not emit a final result event" error.
+        stdout = [_stream_event("result", subtype="success", result={"unexpected": "shape"})]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            with pytest.raises(RuntimeError, match="did not emit a final `result` event"):
+                _call_cli_llm("test digest", "claude-cli")
+
+    def test_stderr_on_success_is_logged_not_raised(self, caplog):
+        import logging
+
+        stdout = [_result_event('{"context_file_rules": [], "memory_file_rules": []}')]
+        stderr_warning = "deprecation: --foo will be removed in v2\n"
+        popen = _fake_claude_popen(stdout_lines=stdout, stderr_lines=[stderr_warning])
+        with caplog.at_level(logging.DEBUG, logger="headroom.learn.analyzer"):
+            with patch("headroom.learn.analyzer.subprocess.Popen", popen):
+                result = _call_cli_llm("test digest", "claude-cli")
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+        assert any("CLI stderr (exit 0)" in rec.message for rec in caplog.records)
+
+    def test_non_result_stdout_lines_are_buffered_into_snippet_on_failure(self):
+        # If only assistant/system events arrive (no result), the missing-result
+        # error should include a snippet from stdout.
+        stdout = [
+            _stream_event("system", subtype="init"),
+            _stream_event("assistant", message={"content": "thinking..."}),
+        ]
+        with patch(
+            "headroom.learn.analyzer.subprocess.Popen", _fake_claude_popen(stdout_lines=stdout)
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                _call_cli_llm("test digest", "claude-cli")
+        message = str(exc_info.value)
+        assert "did not emit a final `result` event" in message
+        assert "thinking" in message  # stdout snippet was included
+
+    def test_resolve_timeout_logs_warning_for_invalid(self, caplog, monkeypatch):
+        import logging
+
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "abc")
+        with caplog.at_level(logging.WARNING, logger="headroom.learn.analyzer"):
+            assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+        assert any(
+            "Invalid HEADROOM_LEARN_CLI_TIMEOUT_SECS" in rec.message for rec in caplog.records
+        )
+
+    def test_resolve_timeout_logs_warning_for_non_positive(self, caplog, monkeypatch):
+        import logging
+
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "-5")
+        with caplog.at_level(logging.WARNING, logger="headroom.learn.analyzer"):
+            assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+        assert any("must be positive" in rec.message for rec in caplog.records)
+
+
+class TestResolveTimeoutSecs:
+    def test_uses_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", raising=False)
+        assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+
+    def test_uses_default_when_empty(self, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "")
+        assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+
+    def test_uses_default_for_non_integer(self, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "not-a-number")
+        assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+
+    def test_uses_default_for_non_positive(self, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "0")
+        assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 300
+
+    def test_returns_overridden_value(self, monkeypatch):
+        monkeypatch.setenv("HEADROOM_LEARN_CLI_TIMEOUT_SECS", "777")
+        assert _resolve_timeout_secs("HEADROOM_LEARN_CLI_TIMEOUT_SECS", 300) == 777
+
+
+class TestCallLlmRouting:
+    @patch("headroom.learn.analyzer._call_cli_llm")
+    def test_routes_cli_model_to_cli_backend(self, mock_cli: MagicMock):
+        mock_cli.return_value = {"context_file_rules": [], "memory_file_rules": []}
+        result = _call_llm("test digest", "claude-cli")
+        mock_cli.assert_called_once_with("test digest", "claude-cli", on_progress=None)
+        assert result == {"context_file_rules": [], "memory_file_rules": []}
+
+    @patch("headroom.learn.analyzer._call_cli_llm")
+    def test_routes_codex_cli(self, mock_cli: MagicMock):
+        mock_cli.return_value = {}
+        _call_llm("digest", "codex-cli")
+        mock_cli.assert_called_once_with("digest", "codex-cli", on_progress=None)
