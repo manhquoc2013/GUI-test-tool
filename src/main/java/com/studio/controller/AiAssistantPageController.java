@@ -182,7 +182,10 @@ public class AiAssistantPageController implements Initializable {
         }
         if (sendBtn != null) {
             UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
-            UiTooltips.install(sendBtn, "Gửi yêu cầu sinh test case (Ctrl+Enter / Cmd+Enter)");
+            UiTooltips.install(sendBtn, "Gửi yêu cầu sinh test case (Enter để gửi, Shift+Enter để xuống dòng)");
+        }
+        if (promptInputArea != null) {
+            UiTooltips.install(promptInputArea, "Nhập nội dung (Enter để gửi, Shift+Enter để xuống dòng)");
         }
         if (attachFileBtn != null) {
             UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
@@ -266,11 +269,20 @@ public class AiAssistantPageController implements Initializable {
             showCaseDetail(newVal);
         });
 
-        // Key listener for prompt area: Ctrl+Enter (send) and Ctrl+H (toggle history sidebar)
+        // Key listener for prompt area: Enter (send), Shift+Enter (new line), and Ctrl+H (toggle history sidebar)
         promptInputArea.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
-            if (event.getCode() == KeyCode.ENTER && (event.isControlDown() || event.isMetaDown())) {
-                sendPrompt();
-                event.consume();
+            if (event.getCode() == KeyCode.ENTER) {
+                if (event.isShiftDown() || event.isAltDown()) {
+                    // Shift+Enter / Alt+Enter: insert newline at cursor
+                    promptInputArea.replaceSelection("\n");
+                    event.consume();
+                } else {
+                    // Plain Enter (or Ctrl+Enter / Cmd+Enter): send message
+                    if (sendBtn == null || !sendBtn.isDisabled()) {
+                        sendPrompt();
+                    }
+                    event.consume();
+                }
             } else if (event.getCode() == KeyCode.H && (event.isControlDown() || event.isMetaDown())) {
                 toggleHistorySidebar();
                 event.consume();
@@ -2027,5 +2039,13 @@ public class AiAssistantPageController implements Initializable {
 
     public void setCurrentSuggestedSuite(String currentSuggestedSuite) {
         this.currentSuggestedSuite = currentSuggestedSuite;
+    }
+
+    public TextArea getPromptInputArea() {
+        return promptInputArea;
+    }
+
+    public Button getSendBtn() {
+        return sendBtn;
     }
 }

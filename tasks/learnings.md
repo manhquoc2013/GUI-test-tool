@@ -99,6 +99,13 @@
    - Hỗ trợ chế độ in-memory `jdbc:h2:mem:...` phục vụ kiểm thử đơn vị độc lập và chạy nhanh gấp nhiều lần.
 
 
+## Chat Input Key Bindings & JavaFX TextArea Event Filtering
+1. **JavaFX `TextArea` Modifier Semantics for ENTER**:
+   - Trong JavaFX `TextAreaSkin` / `TextInputControlBehavior`, `KeyBinding` mặc định cho `KeyCode.ENTER` cấu hình điều kiện `shift == NEVER`. Do đó, khi người dùng nhấn `Shift+Enter`, JavaFX mặc định bỏ qua và không tự động chèn ký tự xuống dòng.
+   - Sử dụng `addEventFilter(KeyEvent.KEY_PRESSED)` tại tầng capturing phase:
+     - Khi `event.getCode() == KeyCode.ENTER && (event.isShiftDown() || event.isAltDown())`: Thực thi `promptInputArea.replaceSelection("\n")` và gọi `event.consume()` để chèn xuống dòng tại vị trí con trỏ (hoặc thay thế vùng chọn).
+     - Khi `event.getCode() == KeyCode.ENTER && !event.isShiftDown()`: Kiểm tra `sendBtn == null || !sendBtn.isDisabled()` trước khi gọi `sendPrompt()`, đồng thời gọi `event.consume()` để gửi tin nhắn ngay lập tức (phím `Enter` thông thường hoặc `Ctrl+Enter` / `Cmd+Enter`), ngăn việc thêm dòng trắng thừa vào ô nhập liệu và chặn spam yêu cầu khi đang trong quá trình sinh kịch bản.
+
 ## System Data Cleanup & Dual-Persistence Settings Protection
 1. **Dual-Persistence & Automatic Self-Healing Settings**:
    - Cấu hình hệ thống (`SettingsStore`) áp dụng mô hình lưu trữ kép: ghi đồng thời ra file đĩa `data/config/settings.json` và bảng cơ sở dữ liệu H2 `system_settings`.

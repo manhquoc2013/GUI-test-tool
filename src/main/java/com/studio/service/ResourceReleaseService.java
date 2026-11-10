@@ -22,7 +22,7 @@ public final class ResourceReleaseService {
     /**
      * Resets shutdown flag and registered hooks for unit tests.
      */
-    static void resetForTesting() {
+    public static void resetForTesting() {
         IS_SHUTTING_DOWN.set(false);
         CLEANUP_TASKS.clear();
     }
