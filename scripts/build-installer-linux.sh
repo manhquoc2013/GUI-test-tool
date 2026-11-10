@@ -10,7 +10,7 @@ VERSION="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('pom.x
 if [ -z "${VERSION}" ]; then
   VERSION="$(sed -n 's/.*<version>\([0-9][^<]*\)<\/version>.*/\1/p' pom.xml 2>/dev/null | head -n 1)"
 fi
-if [ -z "${VERSION}" ]; then VERSION="2.4.1"; fi
+if [ -z "${VERSION}" ]; then VERSION="2.5.0"; fi
 DIST_DIR="dist"
 
 echo "================================================================="

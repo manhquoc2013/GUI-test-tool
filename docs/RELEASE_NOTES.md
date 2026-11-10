@@ -1,5 +1,54 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.5.0
+
+**Release date:** 2026-11-10
+
+Phiên bản **Test Studio v2.5.0** mang đến bước nhảy vọt toàn diện về năng lực AI Testing với **Kiến trúc cộng tác 4-Agent (4-Agent Multi-Agent Collaborative Pipeline)**, **Công cụ lập chỉ mục tri thức & tài liệu RAG kết hợp cơ sở dữ liệu nhúng H2 (Knowledge Base & RAG Indexing)**, cùng khả năng **Biên dịch kịch bản Playwright Scenario tự động** từ các bước kiểm thử và danh mục assertion phong phú.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.5.0 (Key Highlights)
+
+#### 1. Kiến trúc cộng tác đa Agent (4-Agent Multi-Agent Pipeline)
+- **Hệ thống 4 Agent chuyên biệt**:
+  - **Planner Agent**: Phân tích yêu cầu, bóc tách tài liệu đặc tả thành các kịch bản kiểm thử (Test Scenarios) logic.
+  - **Test Case Generator**: Chi tiết hóa từng kịch bản thành chuỗi các bước thao tác (steps), dữ liệu đầu vào và kết quả kỳ vọng (expected outcomes).
+  - **Script Synthesizer**: Tự động chuyển đổi các bước kiểm thử và điều kiện xác minh thành mã Playwright Java hoàn chỉnh, tối ưu bộ định vị selector và tuân thủ các quy tắc test chuẩn.
+  - **Reviewer / Refinement Agent**: Tự động thẩm định kịch bản, phát hiện các trường hợp biên (edge cases), kiểm tra độ bền vững của locator và chuẩn hóa assertion.
+- **Tự động đặt tên Suite thông minh (`autoGenerateSuiteName`)**: Tự động phân tích nội dung prompt và luồng kiểm thử để tạo tên bộ kiểm thử (Suite) ngắn gọn, chuẩn xác.
+- **Tự động tạo nhóm và bộ kịch bản đích**: Cho phép lưu trực tiếp các ca kiểm thử AI sinh ra vào cấu trúc cây dự án ngay cả khi nhóm (Group) hoặc Suite chưa tồn tại trước đó.
+
+#### 2. Lập chỉ mục tài liệu & Tìm kiếm ngữ cảnh RAG (Knowledge Base & H2 Storage)
+- **Cơ sở dữ liệu nhúng H2 cho AI Indexing**: Bổ sung bảng lưu trữ chuyên dụng `AI_DOC_INDEX` và `AI_ARTIFACTS` để quản lý tài liệu dự án, SRS, test spec và các artifacts sinh ra trong quá trình kiểm thử.
+- **Công cụ RAG Token-Aware Chunking**: Tự động phân mảnh tài liệu thông minh theo giới hạn token và ngữ nghĩa, trích xuất đúng ngữ cảnh kiểm thử cần thiết để cung cấp cho mô hình AI.
+- **Hỗ trợ đa định dạng tài liệu**: Tích hợp phân tích và chuyển đổi Markdown tự động cho các định dạng PDF, Word (DOCX), Excel (XLSX), PowerPoint (PPTX), Text, CSV và HTML.
+
+#### 3. Chuyển đổi kịch bản Playwright Scenario & Assertion Catalog
+- **Biên dịch kịch bản Playwright tự động**: Chuyển dịch trực tiếp từ dữ liệu bước kiểm thử có cấu trúc sang mã kịch bản Playwright Java có khả năng thực thi ngay lập tức.
+- **Danh mục Assertion toàn diện**: Chuẩn hóa các loại assertion (kiểm tra văn bản, hiển thị, số lượng phần tử, thuộc tính HTML, tiêu đề trang, URL) với cơ chế ánh xạ synonym và fallback an toàn.
+- **Xuất dữ liệu & Bỏ qua kịch bản linh hoạt**: Hỗ trợ xuất trực tiếp ca kiểm thử sang Excel và tự động tinh giản không sinh script Playwright đối với các ca kiểm thử thủ công/không yêu cầu URL.
+
+---
+
+### Các cải tiến & sửa lỗi (Bug Fixes & Improvements)
+
+#### 1. Đồng bộ cơ sở dữ liệu nhúng H2 & Quản lý ProjectStore
+- **Đồng bộ thời gian thực theo cấu trúc hạt (Granular H2 Sync)**: Đồng bộ tức thì mọi thao tác cập nhật dự án, suite và test case từ `ProjectStore` xuống cơ sở dữ liệu H2.
+- **Xóa & Đổi tên nhóm đệ quy (Recursive Cascading Sync)**: Bảo đảm xóa hoặc đổi tên nhóm thư mục sẽ tự động cập nhật đồng bộ toàn bộ suite và test case con trong H2 database.
+- **Bảo toàn dữ liệu ca kiểm thử đơn lẻ**: Khắc phục triệt để lỗi lưu trữ test case đơn lẻ từ AI Assistant và xử lý cascade xóa assertion khi xóa suite.
+
+#### 2. Ổn định giao diện AI Chat Assistant
+- **Bảo vệ lịch sử hội thoại khi Undo / Redo**: Cơ chế chụp snapshot theo cặp tin nhắn (paired message snapshot) đảm bảo hoàn tác mượt mà mà không làm mất phiên hội thoại.
+- **Bảo toàn phiên làm việc**: Khắc phục hiện tượng mất lịch sử khi tải lại giao diện hoặc chuyển đổi target suite.
+
+#### 3. Tối ưu hóa xuất báo cáo & Sửa lỗi biên dịch
+- **Cấu hình thư mục xuất báo cáo chuẩn xác**: Khởi tạo FileChooser xuất báo cáo HTML và Excel trỏ trực tiếp đến thư mục `exports/` an toàn của ứng dụng.
+- **Khắc phục lỗi biên dịch**: Bổ sung import `StudioPaths` còn thiếu trong `ReportDetailPageController`.
+- **Dọn dẹp chỉ mục cũ (Purge Stale Records)**: Tự động loại bỏ các bản ghi kiểm thử không còn tồn tại trong bộ nhớ chỉ mục.
+
+---
+
 ## Test Studio v2.4.1
 
 **Release date:** 2026-11-09

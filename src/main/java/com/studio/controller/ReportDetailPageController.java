@@ -14,6 +14,7 @@ import com.studio.util.AssertTypeDisplay;
 import com.studio.util.DialogTheme;
 import com.studio.util.ResponsiveTableColumns;
 import com.studio.util.StatusDisplay;
+import com.studio.util.StudioPaths;
 import com.studio.util.UiMotion;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;

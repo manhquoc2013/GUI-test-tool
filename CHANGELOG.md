@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.0] — 2026-11-10
+
+### Added
+
+- **4-Agent Multi-Agent Collaborative Architecture (`AiMultiAgentCoordinator`)**:
+  - Implemented 4-agent collaborative workflow: Planner Agent (deconstructs requirements into scenarios), Test Case Generator (produces structured steps & expected outcomes), Script Synthesizer (generates executable Playwright Java test code), and Reviewer / Refinement Agent (evaluates edge cases and selector stability).
+  - Automated Suite Naming (`autoGenerateSuiteName`): Intelligently generates concise, contextual test suite names directly from prompt analysis.
+  - Auto-create target group and test suite when persisting generated AI test cases to project tree.
+- **RAG & Knowledge Base Indexing Engine with Embedded H2 (`AiAgentIndexService`)**:
+  - Embedded H2 tables `AI_DOC_INDEX` and `AI_ARTIFACTS` for indexing SRS, specifications, domain guidelines, and generated artifacts.
+  - Token-aware RAG document chunking engine with multi-format support (PDF, DOCX, XLSX, TXT, CSV, HTML, PPTX via `DocumentParserService` & `MarkdownConverterEngine`).
+- **Structured Test Steps & Playwright Scenario Script Translation**:
+  - Automated translation of structured test steps and assertion catalog into clean, executable Playwright Java code.
+  - Full assertion catalog normalization and alias fallback (visibility, text, count, attribute, title, URL).
+  - Conditional script omission when test cases do not require browser interaction.
+
+### Fixed & Improved
+
+- **Embedded H2 Synchronization & Cascading Lifecycle**:
+  - Real-time granular synchronization from `ProjectStore` updates to H2 embedded database.
+  - Recursive cascading group deletion and rename synchronization.
+  - Resolved single-case AI persistence integrity and cascade deletion of test suite assertions.
+- **AI Chat Assistant Stability & UX**:
+  - Safe paired message snapshot restoration during Undo / Redo in AI Assistant chat.
+  - Preserved active session history and enhanced target suite reload consistency.
+- **Core Reliability & Diagnostics**:
+  - Test case indexing hardened with automatic purge of stale records.
+  - Safe initial export chooser directory set to default `exports/` folder across HTML and Excel report exporters.
+  - Added missing `StudioPaths` import in `ReportDetailPageController`.
+
+---
+
 ## [2.4.1] — 2026-11-09
 
 ### Fixed
