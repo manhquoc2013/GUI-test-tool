@@ -96,13 +96,23 @@ public class AiAmbiguityAnalyzer {
         return p;
     }
 
+    public AnalysisResult analyze(String prompt, boolean hasAttachments, boolean hasLiveDom) {
+        if (hasAttachments) {
+            // Backward compatibility when parsed document objects are not provided
+            return new AnalysisResult(Intent.GENERATE_TESTS, false, extractTargetEntity(prompt, detectIntent(prompt)), List.of(), "");
+        }
+        return analyze(prompt, false, hasLiveDom, List.of());
+    }
+
     /**
      * Determines whether test generation requires clarification from user.
-     * If prompt is brief, lacks URL, assertions, preconditions, or scenario
-     * details,
-     * it flags needsClarification = true and produces structured questions.
+     * Analyzes both user prompt and attached documents to detect ambiguities,
+     * missing target URLs, multi-screen partitioning needs, and authentication preconditions.
      */
-    public AnalysisResult analyze(String prompt, boolean hasAttachments, boolean hasLiveDom) {
+    public AnalysisResult analyze(String prompt,
+                                  boolean hasAttachments,
+                                  boolean hasLiveDom,
+                                  List<DocumentParserService.ParsedDocument> attachedDocs) {
         Intent intent = detectIntent(prompt);
         String target = extractTargetEntity(prompt, intent);
 
@@ -110,35 +120,112 @@ public class AiAmbiguityAnalyzer {
             return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
-        // If user already attached a PRD document or Live DOM was scanned -> high
-        // context available
-        if (hasAttachments || hasLiveDom) {
+        String trimmed = prompt != null ? prompt.trim() : "";
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        boolean isClarified = lower.contains("[phạm vi]") || lower.contains("[tiền điều kiện]")
+                || lower.contains("[xác minh]") || lower.contains("[scope]") || lower.contains("[precondition]")
+                || lower.contains("[chiến lược]") || lower.contains("[màn hình]");
+
+        // If user already answered interactive questions in this turn, proceed directly
+        if (isClarified) {
             return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
         }
 
-        String trimmed = prompt != null ? prompt.trim() : "";
+        // Case A: Large SRS Document Attached -> Detect Multi-Screen Ambiguities & Scope Decisions
+        if (hasAttachments && attachedDocs != null && !attachedDocs.isEmpty()) {
+            List<AiMultiAgentCoordinator.ScreenSpecSection> screens =
+                    AiMultiAgentCoordinator.extractScreenSections(trimmed, attachedDocs);
 
-        // Check if prompt is already rich or clarified (e.g. contains clarification
-        // tags, URL, step bullets, or long detailed spec > 120 chars)
-        String lower = trimmed.toLowerCase(Locale.ROOT);
-        boolean isClarified = lower.contains("[phạm vi]") || lower.contains("[tiền điều kiện]")
-                || lower.contains("[xác minh]") || lower.contains("[scope]") || lower.contains("[precondition]");
+            // If a multi-screen or large document (>2 screens or >4,000 characters) is detected,
+            // ask structured clarification on Screen Scope, Test Depth, and Script Generation
+            boolean isLargeSrs = screens.size() >= 2 || attachedDocs.stream().anyMatch(d -> d != null && d.getSizeBytes() > 4000);
+            if (isLargeSrs) {
+                List<AiClarificationQuestion> srsQuestions = generateLargeSrsClarificationQuestions(screens, trimmed);
+                String docName = attachedDocs.get(0).getFileName();
+                String screenSummary = screens.size() >= 2
+                        ? "phát hiện **" + screens.size() + " màn hình / phân hệ chức năng**"
+                        : "phát hiện tài liệu đặc tả chi tiết";
+
+                String summary = "🔍 **[Agent 1 - Spec Miner]** Đã phân tích tài liệu đính kèm **`" + docName + "`** và "
+                        + screenSummary + ".\n\n"
+                        + "Để đội ngũ 4 Tác nhân AI phối hợp thiết kế bộ kịch bản **đầy đủ, bao quát toàn bộ trường hợp** mà không bị sót hoặc chung chung, vui lòng xác nhận các điểm mờ sau:";
+
+                return new AnalysisResult(Intent.GENERATE_TESTS, true, target, srsQuestions, summary);
+            }
+
+            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+        }
+
+        // Case B: Live DOM scanned -> High UI context available
+        if (hasLiveDom) {
+            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+        }
+
         boolean hasUrl = lower.contains("http://") || lower.contains("https://");
         boolean hasSteps = trimmed.contains("\n-") || trimmed.contains("\n1.") || trimmed.contains("bước 1")
                 || trimmed.contains("step 1");
-        boolean isDetailed = isClarified || (trimmed.length() > 140 && (hasUrl || hasSteps));
+        boolean isDetailed = trimmed.length() > 140 && (hasUrl || hasSteps);
 
         if (isDetailed) {
             return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
         }
 
-        // Vague or brief prompt -> Needs clarification
+        // Case C: Vague or brief prompt -> Needs clarification
         List<AiClarificationQuestion> questions = generateClarificationQuestions(trimmed);
         String summary = "Tôi đã phân tích yêu cầu **\""
                 + (trimmed.length() > 50 ? trimmed.substring(0, 47) + "..." : trimmed)
                 + "\"**. Để bộ test case sinh ra đầy đủ, chính xác và không bị sơ sài, vui lòng làm rõ một số điểm mờ dưới đây:";
 
         return new AnalysisResult(Intent.GENERATE_TESTS, true, target, questions, summary);
+    }
+
+    private List<AiClarificationQuestion> generateLargeSrsClarificationQuestions(
+            List<AiMultiAgentCoordinator.ScreenSpecSection> screens, String prompt) {
+        List<AiClarificationQuestion> list = new ArrayList<>();
+        int screenCount = screens.size();
+
+        // Question 1: Screen Coverage & Partitioning Strategy
+        String q1Title = screenCount >= 2
+                ? "1. Phạm vi bao phủ màn hình (" + screenCount + " màn hình được phát hiện trong SRS):"
+                : "1. Chiến lược phân tách phạm vi kiểm thử từ SRS:";
+        List<String> q1Options = new ArrayList<>();
+        if (screenCount >= 2) {
+            q1Options.add("(Khuyên dùng) Bao quát toàn bộ " + screenCount + " màn hình: Phối hợp đa tác nhân thiết kế tối thiểu 3 - 5 Test Cases cho MỖI màn hình (tổng ~" + (screenCount * 4) + "+ cases)");
+            q1Options.add("Tập trung sâu vào 3 màn hình nghiệp vụ trọng tâm (Core Flows) trước");
+            q1Options.add("Chỉ sinh 1 - 2 kịch bản E2E xuyên suốt luồng người dùng giữa các màn hình");
+        } else {
+            q1Options.add("(Khuyên dùng) Đầy đủ các luồng: Happy Path + Negative Validation + Giá trị biên (BVA) + Quy tắc nghiệp vụ");
+            q1Options.add("Tập trung vào kiểm thử xác thực dữ liệu biên và thông báo lỗi (Negative & Boundary)");
+            q1Options.add("Chỉ luồng chính thành công (Happy Path)");
+        }
+        list.add(new AiClarificationQuestion("q_srs_screens", q1Title, q1Options, false, true));
+
+        // Question 2: Preconditions, Authentication & Test Data
+        list.add(new AiClarificationQuestion(
+                "q_precondition",
+                "2. Trạng thái tiền đề (Preconditions) & Dữ liệu kiểm thử:",
+                List.of(
+                        "(Khuyên dùng) Tự động bọc bước Đăng nhập tiền đề & chuẩn bị dữ liệu mẫu tương ứng cho từng màn hình",
+                        "Hệ thống đã ở trạng thái đã đăng nhập sẵn (Bỏ qua form login, thao tác trực tiếp trên màn hình)",
+                        "Kiểm thử cả phân quyền người dùng (User thường vs Admin / Phân quyền chức năng)"),
+                false,
+                true));
+
+        // Question 3: Output Deliverables (NLP Test Steps vs Runnable Playwright Code)
+        boolean hasUrl = prompt != null && (prompt.contains("http://") || prompt.contains("https://"));
+        list.add(new AiClarificationQuestion(
+                "q_output_type",
+                "3. Kết quả đầu ra mong muốn của đợt sinh này:",
+                List.of(
+                        hasUrl
+                                ? "(Khuyên dùng) Bộ kịch bản đầy đủ kép: Đặc tả QA chi tiết (Steps, Data, Assertions) + Mã Playwright Java tự động hóa"
+                                : "(Khuyên dùng) Thiết kế bộ Test Case QA/ISTQB chi tiết (Các bước, BVA, Tiêu chí nghiệm thu) - Tối ưu cho tài liệu chưa có URL thật",
+                        "Sinh kèm mã Playwright Java mẫu (dùng URL demo / startUrl nội bộ)",
+                        "Xuất ma trận kiểm thử (Test Matrix) & danh sách kịch bản ra Excel (.xlsx)"),
+                false,
+                true));
+
+        return list;
     }
 
     private List<AiClarificationQuestion> generateClarificationQuestions(String prompt) {

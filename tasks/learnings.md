@@ -99,6 +99,18 @@
    - Hỗ trợ chế độ in-memory `jdbc:h2:mem:...` phục vụ kiểm thử đơn vị độc lập và chạy nhanh gấp nhiều lần.
 
 
+## Multi-Screen SRS Semantic Sectioning & Multi-Batch 4-Agent Orchestration
+1. **Root Cause Analysis for Multi-Page SRS Truncation & Low Test Case Density**:
+   - Khi người dùng gửi tài liệu SRS lớn (ví dụ: 60 trang chứa 10 màn hình), hệ thống cũ chỉ sinh ra khoảng 10 test cases (mỗi màn hình chỉ có 1 test case sơ sài) do ba điểm nghẽn kiến trúc:
+     1. `AiTokenOptimizer` bị hardcode cắt ngắn văn bản đính kèm ở mức `4,000` ký tự (~1.5 trang A4), làm mất hơn 95% ngữ cảnh của 60 trang SRS trước khi gửi tới LLM.
+     2. Toàn bộ 4 tác nhân được gói trong một lần gọi API duy nhất, dẫn đến việc vượt quá giới hạn output token tối đa của model (thường là 4,096 - 8,192 tokens) khiến AI buộc phải rút gọn mỗi màn hình chỉ còn 1 test case.
+     3. Agent 3 (Reality Checker) & Agent 4 (Loop Engineer) chỉ kích hoạt tự bù đắp kịch bản khi toàn bộ kết quả có `cases.size() == 1`. Khi LLM trả về 10 case cho 10 màn hình, điều kiện này bị bỏ qua hoàn toàn.
+2. **Semantic Sectioning & Multi-Batch Pipeline**:
+   - **Agent 1 (Spec Miner)**: Bóc tách tài liệu SRS mà không bị cắt cụt, tự động lọc bỏ các đầu mục số trang PDF (`### Trang N`, `Page N`) và các phần tài liệu hành chính (Giới thiệu, Mục đích, Phạm vi, Lịch sử), trích xuất danh sách các `ScreenSpecSection` với đầy đủ trường dữ liệu (`extractedFields`), ràng buộc nghiệp vụ (`extractedRules`), và URL mục tiêu.
+   - **Tương tác làm rõ đa chiều (Ambiguity Analyzer for Large SRS)**: Khi phát hiện tài liệu đính kèm có cấu trúc đa màn hình (>= 2 màn hình hoặc > 4,000 ký tự), `AiAmbiguityAnalyzer` kích hoạt các câu hỏi làm rõ tương tác ngay trên UI: xác nhận phạm vi bao phủ (toàn bộ 10 màn hình vs màn hình trọng tâm), tiền đề xác thực/đăng nhập, và hình thức kết quả đầu ra.
+   - **Agent 2 (Test Architect - Multi-Batch Orchestration)**: Khi có từ 2 màn hình trở lên, hệ thống chia nhỏ thành các lô (batch) 2 màn hình/lần gọi LLM. Mỗi lần gọi tập trung toàn bộ dung lượng output token vào việc sinh 4–5 kịch bản chuyên sâu cho 2 màn hình đó.
+   - **Agent 3 & Agent 4 (Per-Screen Quality Audit & Expansion)**: Rà soát độ phủ theo **từng màn hình riêng biệt**, bảo đảm mỗi màn hình bắt buộc có đủ 4 kịch bản chuẩn QA/ISTQB: Happy Path [P0], Negative Validation [P1], Boundary BVA [P1], và Quy tắc nghiệp vụ/Phân quyền [P2]. Nếu bất kỳ màn hình nào bị thiếu, Loop Engineer sẽ tự động tổng hợp bổ sung dựa trên đặc tả trường và quy tắc của chính màn hình đó, đưa tổng số test case từ 10 lên 35–50+ cases.
+
 ## Chat Message Undo & State Restoration to Composer
 1. **Multi-Format Attachment Snapshot & Prompt Restoration**:
    - Khi người dùng bấm "Hoàn tác" (Undo) trên một tin nhắn hội thoại (dù là bong bóng của User hay Assistant), hệ thống khôi phục toàn vẹn trạng thái yêu cầu của người dùng trở lại khung soạn thảo:

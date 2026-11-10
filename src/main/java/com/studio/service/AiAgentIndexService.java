@@ -417,7 +417,7 @@ public class AiAgentIndexService {
             }
 
             // 2. Retrieve relevant chunks from indexed .md documents in data/converted_docs/
-            List<DocumentChunk> topChunks = searchTopDocumentChunks(conn, queryTerms, 4);
+            List<DocumentChunk> topChunks = searchTopDocumentChunks(conn, queryTerms, 12);
             if (!topChunks.isEmpty()) {
                 StringBuilder docSection = new StringBuilder("### Tri thức Đặc tả liên quan từ Kho Tài liệu .MD đã lập chỉ mục:\n");
                 for (DocumentChunk chunk : topChunks) {

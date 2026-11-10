@@ -59,6 +59,33 @@ public class AiMultiAgentCoordinator {
     private static final Pattern MULTI_UNDERSCORE = Pattern.compile("_+");
     private static final Pattern EDGE_UNDERSCORE = Pattern.compile("^_+|_+$");
 
+    private static final Pattern YAML_FRONTMATTER_PATTERN = Pattern.compile("(?s)^---\\r?\\n.*?\\r?\\n---\\r?\\n*");
+    private static final Pattern PDF_PAGE_HEADING_PATTERN = Pattern.compile("(?m)^#{1,4}\\s+(?:Trang|Page)\\s+\\d+\\s*$\\r?\\n?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REQUESTED_SCREEN_COUNT_PATTERN = Pattern.compile(
+            "(?:cho|với|trên|của|gồm|tạo|sinh|viết|kiểm\\s+thử|test\\s+scenario[s]?\\s+cho|test\\s+case[s]?\\s+cho)?\\s*(\\d{1,2})\\s*(?:màn\\s+hình|man\\s+hinh|screen[s]?|trang\\s+giao\\s+diện|phân\\s+hệ|module[s]?)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern HEADING_LINE_PATTERN = Pattern.compile(
+            "(?m)^(?:#{1,4}\\s+|\\*\\*(?=\\d|\\p{L}))([^\\r\\n*]{3,110})(?:\\*\\*)?\\s*$");
+    private static final Pattern TABLE_FIELD_ROW_PATTERN = Pattern.compile(
+            "(?m)^\\|\\s*(?:\\d+\\s*\\|\\s*)?([^|\\r\\n]{2,45})\\s*\\|([^|\\r\\n]*)\\|");
+    private static final Pattern BULLET_FIELD_PATTERN = Pattern.compile(
+            "(?m)^\\s*[-*•+]\\s*(?:\\*\\*)?(?:Trường|Ô\\s+nhập|Nút|Button|Field|Input|Dropdown|Combobox|Checkbox| Cột)?\\s*([^:\\r\\n*]{2,40})(?:\\*\\*)?\\s*[:\\-–]([^\\r\\n]{3,120})$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern URL_EXTRACT_PATTERN = Pattern.compile("(https?://[^\\s)\"'<>]+)");
+
+    /**
+     * Represents a single functional Screen or Module mined by Agent 1 (Spec Miner) from an SRS document or prompt.
+     */
+    public record ScreenSpecSection(
+            int screenIndex,
+            String screenTitle,
+            String featureToken,
+            String sectionContent,
+            List<String> extractedFields,
+            List<String> extractedRules,
+            String targetUrl
+    ) {}
+
     /**
      * Structured report produced by the Reality Checker &amp; Loop Engineer agents.
      */
@@ -138,6 +165,20 @@ public class AiMultiAgentCoordinator {
                                                    boolean generateScript) {
         String preInferredGroup = resolveFunctionalGroupName(userPrompt, attachedDocs, List.of(), null);
         String preInferredSuite = resolveFunctionalSuiteName(userPrompt, null, attachedDocs, List.of(), null);
+        List<ScreenSpecSection> screens = extractScreenSections(userPrompt, attachedDocs);
+
+        StringBuilder screenInventoryDirective = new StringBuilder();
+        if (screens.size() >= 2) {
+            int minTotalCases = screens.size() * 4;
+            screenInventoryDirective.append("\n   - PHÁT HIỆN ĐẶC TẢ ĐA MÀN HÌNH (").append(screens.size())
+                    .append(" màn hình/module chức năng). BẮT BUỘC sinh tối thiểu 4 - 5 Test Cases CHO MỖI MÀN HÌNH (tổng cộng tối thiểu ")
+                    .append(minTotalCases).append(" Test Cases), TUYỆT ĐỐI KHÔNG chỉ sinh 1 Test Case đại diện cho mỗi màn hình:\n");
+            for (ScreenSpecSection s : screens) {
+                screenInventoryDirective.append("     + Màn hình ").append(s.screenIndex())
+                        .append(" [").append(s.featureToken()).append("]: ").append(s.screenTitle())
+                        .append(" -> Bắt buộc đủ: (1) HappyPath [P0], (2) NegativeValidation [P1], (3) BoundaryBVA [P1], (4) BusinessRule/PhanQuyen [P2].\n");
+            }
+        }
 
         return """
                 === QUY TRÌNH ĐA TÁC NHÂN (MULTI-AGENT VERIFICATION & LOOP PIPELINE) ===
@@ -146,24 +187,73 @@ public class AiMultiAgentCoordinator {
                    - Bóc tách yêu cầu thành các module chức năng, điều kiện tiên quyết (Preconditions), phân vùng tương đương (EP) và giá trị biên (BVA).
                    - BẮT BUỘC đặt tên `"suggestedGroup"` (Nhóm chức năng/Phân hệ) và `"suggestedSuite"` (Bộ kịch bản kiểm thử) ĐÚNG THEO TÊN CHỨC NĂNG VÀ TEST CASE.
                    - Gợi ý tham chiếu từ ngữ cảnh hiện tại: suggestedGroup = "%s", suggestedSuite = "%s" (Hãy tinh chỉnh chính xác hơn theo đúng nghiệp vụ thực tế của bộ Test Case).
-                   - TUYỆT ĐỐI KHÔNG đặt tên chung chung như "AI-Tests", "AI-Generated-Suite", "Default", "Test Suite".
+                   - TUYỆT ĐỐI KHÔNG đặt tên chung chung như "AI-Tests", "AI-Generated-Suite", "Default", "Test Suite".%s
                 2. [Agent 2 - Test Architect & Script Engineer (Thiết kế Test Case & Kịch bản)]:
-                   - Áp dụng kỹ năng chuyên sâu [%s] để thiết kế đầy đủ các kịch bản: Happy Path (P0), Negative/Validation (P1), Boundary/Edge Cases (P1/P2).
-                   - Tên mỗi Test Case PHẢI tuân thủ chuẩn: `TC<SốThứTự>_<TênChứcNăng>_<KịchBảnCụThể>` (Ví dụ: `TC01_DangNhap_ThanhCong`, `TC02_DangNhap_SaiMatKhau`).
-                   - Mỗi Test Case PHẢI có đầy đủ `testSteps` (ít nhất 3 bước rõ ràng), `testDataSets` (bộ dữ liệu biên/tương đương) và `assertions`.
+                   - Áp dụng kỹ năng chuyên sâu [%s] để thiết kế đầy đủ các kịch bản cho TỪNG màn hình/chức năng: Happy Path (P0), Negative/Validation (P1), Boundary/Edge Cases (P1), Business Rules & Phân quyền (P2).
+                   - Tên mỗi Test Case PHẢI tuân thủ chuẩn: `TC<SốThứTự>_<TênMànHìnhHoặcChứcNăng>_<KịchBảnCụThể>` (Ví dụ: `TC01_ManHinhDangNhap_ThanhCong`, `TC02_ManHinhDangNhap_SaiMatKhau`).
+                   - Mỗi Test Case PHẢI có đầy đủ `testSteps` (ít nhất 4 bước rõ ràng bám sát các trường dữ liệu trong SRS), `testDataSets` (bộ dữ liệu biên/tương đương) và `assertions`.
                    - %s
                 3. [Agent 3 - Reality Checker (Thẩm định chất lượng khắt khe)]:
-                   - Tự rà soát chéo toàn bộ kết quả theo 5 cổng chất lượng: (1) Đặt tên Nhóm/Suite/Test Case chuẩn chức năng, (2) Đủ độ phủ kịch bản âm/dương/biên, (3) Đủ các bước thực thi & kết quả kỳ vọng, (4) Assertions chính xác, (5) Mã kịch bản tất định không dùng sleep cứng.
+                   - Tự rà soát chéo toàn bộ kết quả theo 5 cổng chất lượng: (1) Đặt tên Nhóm/Suite/Test Case chuẩn chức năng, (2) Đủ độ phủ tối thiểu 3-5 kịch bản/màn hình (âm/dương/biên/nghiệp vụ) cho TẤT CẢ các màn hình, (3) Đủ các bước thực thi & kết quả kỳ vọng, (4) Assertions chính xác, (5) Mã kịch bản tất định không dùng sleep cứng.
                 4. [Agent 4 - Loop Engineer (Tự hoàn thiện trước khi xuất)]:
                    - Tự động bổ sung và sửa mọi điểm khuyết thiếu phát hiện ở bước 3 và ghi tóm tắt đánh giá vào trường `"agentReview"`.
                 """.formatted(
                 preInferredGroup,
                 preInferredSuite,
+                screenInventoryDirective.toString(),
                 resolvedSkill != null ? resolvedSkill.getDisplayName() : AiSkill.PLAYWRIGHT_E2E.getDisplayName(),
                 generateScript
                         ? "CHẾ ĐỘ SINH SCRIPT BẬT: Viết mã Playwright Java hoàn chỉnh trong `scriptCode`, tuyệt đối không dùng Thread.sleep/waitForTimeout."
                         : "CHẾ ĐỘ CHỈ TẠO TEST CASE (KHÔNG SINH SCRIPT): Để trống `scriptCode: \"\"`, tập trung tối đa vào độ chi tiết của `testSteps`, `testDataSets` và `assertions`."
         );
+    }
+
+    /**
+     * Builds a focused prompt for a specific batch of screens during Multi-Batch Orchestration (Agent 2).
+     */
+    public String buildScreenBatchPrompt(String baseUserPrompt,
+                                         List<ScreenSpecSection> batchScreens,
+                                         int batchIndex,
+                                         int totalBatches,
+                                         int totalScreens,
+                                         int minCasesPerScreen) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(baseUserPrompt != null ? baseUserPrompt.trim() : "Thiết kế bộ kịch bản kiểm thử toàn diện theo tài liệu SRS.").append("\n\n");
+        sb.append("=== YÊU CẦU ĐIỀU PHỐI LÔ MÀN HÌNH (MULTI-BATCH ORCHESTRATION - LÔ ")
+                .append(batchIndex).append("/").append(totalBatches).append(") ===\n");
+        sb.append("Trong lượt này, hãy tập trung thiết kế đầy đủ và chuyên sâu bộ Test Case cho **")
+                .append(batchScreens.size()).append(" màn hình** dưới đây (thuộc tổng số ").append(totalScreens).append(" màn hình của hệ thống).\n");
+        sb.append("⚠️ QUY TẮC BẮT BUỘC: Với MỖI màn hình trong lô này, bạn PHẢI sinh tối thiểu **")
+                .append(minCasesPerScreen).append(" Test Cases** (tổng cộng tối thiểu **")
+                .append(batchScreens.size() * minCasesPerScreen).append(" Test Cases** trong JSON phản hồi này), bao gồm:\n");
+        sb.append("  1. `TCxx_<ScreenToken>_LuongChinh_HappyPath` [P0]: Luồng thành công chuẩn với đầy đủ các trường dữ liệu trên màn hình.\n");
+        sb.append("  2. `TCxx_<ScreenToken>_KiemTraHopLe_NegativeValidation` [P1]: Bỏ trống trường bắt buộc, nhập sai định dạng, kiểm tra thông báo lỗi.\n");
+        sb.append("  3. `TCxx_<ScreenToken>_GiaTriBien_BoundaryBVA` [P1]: Kiểm thử giá trị biên (Min, Max, Max+1, ký tự đặc biệt/Unicode).\n");
+        sb.append("  4. `TCxx_<ScreenToken>_QuyTacNghiepVu_PhanQuyen` [P2]: Kiểm thử quy tắc nghiệp vụ đặc thù, dữ liệu trùng lặp, phân quyền hoặc luồng phụ.\n\n");
+
+        for (ScreenSpecSection screen : batchScreens) {
+            sb.append("--- ĐẶC TẢ CHI TIẾT MÀN HÌNH #").append(screen.screenIndex())
+                    .append(": ").append(screen.screenTitle())
+                    .append(" (Token định danh: `").append(screen.featureToken()).append("`) ---\n");
+            if (!screen.extractedFields().isEmpty()) {
+                sb.append("• Các trường / thành phần giao diện chính: ")
+                        .append(String.join(", ", screen.extractedFields())).append("\n");
+            }
+            if (!screen.extractedRules().isEmpty()) {
+                sb.append("• Quy tắc nghiệp vụ & Validation trọng tâm:\n");
+                for (String rule : screen.extractedRules()) {
+                    sb.append("  - ").append(rule).append("\n");
+                }
+            }
+            String content = screen.sectionContent() != null ? screen.sectionContent().trim() : "";
+            if (!content.isEmpty()) {
+                int cap = Math.min(content.length(), 14000);
+                sb.append("• Nội dung đặc tả SRS của màn hình:\n```\n")
+                        .append(content, 0, cap)
+                        .append("\n```\n\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     /**
@@ -232,16 +322,44 @@ public class AiMultiAgentCoordinator {
 
             String featurePrefix = extractCleanFeatureToken(resolvedGroup, resolvedSuite, userPrompt);
 
-            // Multi-Scenario Coverage Expansion (Happy Path + Negative Validation + Boundary BVA)
-            // When only 1 case was returned for a full suite generation (not a single-case update),
-            // automatically synthesize Negative Validation (TC02) and Boundary BVA (TC03) cases.
+            // Multi-Scenario & Multi-Screen Coverage Expansion
             boolean isSingleCaseUpdate = cases.get(0).getTargetCaseId() != null
                     && !cases.get(0).getTargetCaseId().isBlank();
-            if (cases.size() == 1 && !isSingleCaseUpdate) {
-                AiGeneratedCase primary = cases.get(0);
-                List<AiGeneratedCase> expanded = synthesizeCompanionScenarios(primary, featurePrefix, userPrompt, generateScript);
-                cases.addAll(expanded);
-                improvements.add("Tự động mở rộng độ phủ kịch bản (Multi-Scenario Coverage): bổ sung Negative Validation & Boundary BVA (" + expanded.size() + " kịch bản)");
+            if (!isSingleCaseUpdate) {
+                List<ScreenSpecSection> screens = extractScreenSections(userPrompt, attachedDocs);
+                if (screens.size() >= 2) {
+                    int minCasesPerScreen = 4; // HappyPath + NegativeValidation + BoundaryBVA + BusinessRule/Permission
+                    int beforeCount = cases.size();
+                    List<AiGeneratedCase> multiScreenExpanded = expandMultiScreenCoverage(
+                            cases, screens, minCasesPerScreen, userPrompt, generateScript);
+                    if (multiScreenExpanded.size() > beforeCount) {
+                        cases.clear();
+                        cases.addAll(multiScreenExpanded);
+                        improvements.add("Tự động mở rộng độ phủ đa màn hình (Multi-Screen SRS Coverage): đảm bảo đủ "
+                                + minCasesPerScreen + " kịch bản/màn hình trên toàn bộ " + screens.size()
+                                + " màn hình (" + beforeCount + " -> " + cases.size() + " Test Cases)");
+                    }
+                } else {
+                    // Check if cases contain multiple distinct screen/feature groups where each only has 1-2 cases
+                    Map<String, List<AiGeneratedCase>> featureGroups = groupCasesByFeatureToken(cases, featurePrefix);
+                    if (featureGroups.size() >= 2) {
+                        int minPerGroup = 4;
+                        int beforeCount = cases.size();
+                        List<AiGeneratedCase> expandedGroups = expandFeatureGroupCoverage(
+                                featureGroups, minPerGroup, userPrompt, generateScript);
+                        if (expandedGroups.size() > beforeCount) {
+                            cases.clear();
+                            cases.addAll(expandedGroups);
+                            improvements.add("Tự động mở rộng độ phủ theo từng màn hình/chức năng: nâng từ "
+                                    + beforeCount + " lên " + cases.size() + " Test Cases (" + featureGroups.size() + " phân hệ)");
+                        }
+                    } else if (cases.size() == 1) {
+                        AiGeneratedCase primary = cases.get(0);
+                        List<AiGeneratedCase> expanded = synthesizeCompanionScenarios(primary, featurePrefix, userPrompt, generateScript);
+                        cases.addAll(expanded);
+                        improvements.add("Tự động mở rộng độ phủ kịch bản (Multi-Scenario Coverage): bổ sung Negative Validation & Boundary BVA (" + expanded.size() + " kịch bản)");
+                    }
+                }
             }
 
             for (int idx = 0; idx < cases.size(); idx++) {
@@ -267,6 +385,12 @@ public class AiMultiAgentCoordinator {
                     } else {
                         String healedName = String.format("TC%02d_%s", caseNum, cleanOrig);
                         tc.setName(healedName);
+                    }
+                } else {
+                    // Re-sequence TC prefix number so multi-batch / multi-screen cases are numbered TC01..TCNN in order
+                    String rest = origName.replaceFirst("(?i)^TC\\d+[_\\-]?", "");
+                    if (!rest.isBlank()) {
+                        tc.setName(String.format("TC%02d_%s", caseNum, sanitizeIdentifier(rest)));
                     }
                 }
 
@@ -1252,7 +1376,542 @@ public class AiMultiAgentCoordinator {
         return list;
     }
 
-    private List<TestDataItem> synthesizeTestDataSets(AiGeneratedCase tc, int caseNum) {
+    // =========================================================================
+    // MULTI-SCREEN SRS SEMANTIC SECTIONING & COVERAGE EXPANSION
+    // =========================================================================
+
+    /**
+     * Extracts functional screen/module sections from user prompt and attached SRS documents.
+     */
+    public static List<ScreenSpecSection> extractScreenSections(String prompt,
+                                                               List<DocumentParserService.ParsedDocument> attachedDocs) {
+        List<ScreenSpecSection> screens = new ArrayList<>();
+        int requestedCount = extractRequestedScreenCount(prompt);
+
+        // 1. First check attached documents
+        if (attachedDocs != null && !attachedDocs.isEmpty()) {
+            for (DocumentParserService.ParsedDocument doc : attachedDocs) {
+                if (doc == null || doc.isImage()) continue;
+                String raw = doc.getContent();
+                if (raw == null || raw.isBlank()) continue;
+
+                // Strip YAML frontmatter & page markers
+                String text = YAML_FRONTMATTER_PATTERN.matcher(raw).replaceFirst("");
+                text = PDF_PAGE_HEADING_PATTERN.matcher(text).replaceAll("");
+
+                List<RawHeadingSection> rawSections = splitByFunctionalHeadings(text);
+                int idx = 1;
+                for (RawHeadingSection rawSec : rawSections) {
+                    String cleanTitle = cleanScreenTitle(rawSec.heading);
+                    String token = toAsciiPascalCase(cleanTitle);
+                    if (token.isBlank() || token.length() < 3) {
+                        token = "ManHinh" + idx;
+                    }
+                    if (!token.toLowerCase(Locale.ROOT).startsWith("manhinh")
+                            && !token.toLowerCase(Locale.ROOT).startsWith("chucnang")
+                            && !token.toLowerCase(Locale.ROOT).startsWith("trang")) {
+                        token = "ManHinh_" + token;
+                    }
+
+                    List<String> fields = extractFieldsFromSection(rawSec.body);
+                    List<String> rules = extractRulesFromSection(rawSec.body);
+                    String url = extractTargetUrlFromSection(rawSec.body);
+
+                    screens.add(new ScreenSpecSection(idx, cleanTitle, token, rawSec.body, fields, rules, url));
+                    idx++;
+                    if (requestedCount > 0 && screens.size() >= requestedCount) {
+                        break;
+                    }
+                }
+                if (!screens.isEmpty()) {
+                    break; // Primary document processed
+                }
+            }
+        }
+
+        // 2. If no screens extracted from docs or docs are empty, check user prompt for screens list
+        if (screens.isEmpty() && prompt != null && !prompt.isBlank()) {
+            List<String> promptLines = prompt.lines()
+                    .map(String::trim)
+                    .filter(l -> !l.isBlank())
+                    .toList();
+            int idx = 1;
+            for (String line : promptLines) {
+                if (line.matches("(?i)^[-*•\\d.]+\\s+(?:Màn\\s+hình|Trang|Chức\\s+năng|Module|Screen|UC-?\\d+).*")
+                        || line.matches("(?i)^(?:Màn\\s+hình|Trang|Chức\\s+năng|Module|Screen|UC-?\\d+)\\s*[:\\-–\\d].*")) {
+                    String cleanTitle = cleanScreenTitle(line.replaceFirst("^[-*•\\d.]+\\s*", ""));
+                    String token = toAsciiPascalCase(cleanTitle);
+                    if (token.isBlank()) token = "ManHinh" + idx;
+                    if (!token.toLowerCase(Locale.ROOT).startsWith("manhinh")) {
+                        token = "ManHinh_" + token;
+                    }
+                    screens.add(new ScreenSpecSection(idx, cleanTitle, token, line, List.of(), List.of(), ""));
+                    idx++;
+                }
+            }
+        }
+
+        // 3. If requestedCount > screens.size(), synthesize indexed screen placeholders to meet the user's explicit request
+        if (requestedCount > 0 && screens.size() < requestedCount) {
+            int existing = screens.size();
+            for (int i = existing + 1; i <= requestedCount; i++) {
+                String title = "Màn hình chức năng " + i;
+                String token = "ManHinh" + String.format("%02d", i);
+                screens.add(new ScreenSpecSection(i, title, token, title, List.of(), List.of(), ""));
+            }
+        }
+
+        return screens;
+    }
+
+    public static int extractRequestedScreenCount(String prompt) {
+        if (prompt == null || prompt.isBlank()) return 0;
+        Matcher m = REQUESTED_SCREEN_COUNT_PATTERN.matcher(prompt);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group(1));
+            } catch (Exception ignored) {}
+        }
+        return 0;
+    }
+
+    private record RawHeadingSection(String heading, String body) {}
+
+    private static List<RawHeadingSection> splitByFunctionalHeadings(String markdown) {
+        List<RawHeadingSection> result = new ArrayList<>();
+        Matcher m = HEADING_LINE_PATTERN.matcher(markdown);
+        List<Integer> starts = new ArrayList<>();
+        List<String> headings = new ArrayList<>();
+
+        while (m.find()) {
+            String h = m.group(1).trim();
+            if (isFunctionalScreenHeading(h)) {
+                starts.add(m.start());
+                headings.add(h);
+            }
+        }
+
+        for (int i = 0; i < starts.size(); i++) {
+            int start = starts.get(i);
+            int end = (i + 1 < starts.size()) ? starts.get(i + 1) : markdown.length();
+            String body = markdown.substring(start, end).trim();
+            result.add(new RawHeadingSection(headings.get(i), body));
+        }
+
+        return result;
+    }
+
+    private static boolean isFunctionalScreenHeading(String heading) {
+        if (heading == null || heading.isBlank()) return false;
+        String lower = heading.toLowerCase(Locale.ROOT);
+
+        // Filter out boilerplate document headings
+        if (lower.contains("mục đích") || lower.contains("phạm vi") || lower.contains("thuật ngữ")
+                || lower.contains("tài liệu tham khảo") || lower.contains("lịch sử") || lower.contains("phiên bản")
+                || lower.contains("giới thiệu") || lower.contains("tổng quan dự án") || lower.contains("table of content")
+                || lower.contains("mục lục") || lower.contains("kiến trúc tổng thể") || lower.contains("môi trường")
+                || lower.contains("quy ước") || lower.contains("tiêu chuẩn")) {
+            return false;
+        }
+
+        // Match functional keywords
+        return lower.contains("màn hình") || lower.contains("screen") || lower.contains("trang")
+                || lower.contains("chức năng") || lower.contains("module") || lower.contains("phân hệ")
+                || lower.contains("form") || lower.contains("biểu mẫu")
+                || lower.matches(".*(?:uc|fr|req|f)[-_\\s]?\\d+.*")
+                || lower.matches("^\\d+\\.\\d+(?:\\.\\d+)?\\s+.*");
+    }
+
+    private static String cleanScreenTitle(String raw) {
+        if (raw == null) return "ManHinhChucNang";
+        return raw.replaceAll("(?i)^[#*\\-\\d.]+\\s*", "")
+                .replaceAll("(?i)^màn\\s+hình\\s*[:\\-–]?\\s*", "")
+                .replaceAll("(?i)^screen\\s*[:\\-–]?\\s*", "")
+                .replaceAll("(?i)^trang\\s*[:\\-–]?\\s*", "")
+                .replaceAll("[*`_]", "")
+                .trim();
+    }
+
+    private static List<String> extractFieldsFromSection(String body) {
+        Set<String> fields = new LinkedHashSet<>();
+        if (body == null || body.isBlank()) return List.of();
+
+        Matcher tm = TABLE_FIELD_ROW_PATTERN.matcher(body);
+        while (tm.find()) {
+            String col1 = tm.group(1).trim().replaceAll("[*`]", "");
+            if (col1.length() >= 2 && col1.length() <= 35
+                    && !col1.equalsIgnoreCase("stt") && !col1.equalsIgnoreCase("tên trường")
+                    && !col1.equalsIgnoreCase("field") && !col1.equalsIgnoreCase("tên cột")
+                    && !col1.equalsIgnoreCase("tham số") && !col1.contains("---")) {
+                fields.add(col1);
+                if (fields.size() >= 12) break;
+            }
+        }
+
+        Matcher bm = BULLET_FIELD_PATTERN.matcher(body);
+        while (bm.find()) {
+            String name = bm.group(1).trim().replaceAll("[*`]", "");
+            if (name.length() >= 2 && name.length() <= 35) {
+                fields.add(name);
+                if (fields.size() >= 12) break;
+            }
+        }
+        return new ArrayList<>(fields);
+    }
+
+    private static List<String> extractRulesFromSection(String body) {
+        List<String> rules = new ArrayList<>();
+        if (body == null || body.isBlank()) return rules;
+        for (String line : body.split("\\r?\\n")) {
+            String t = line.trim();
+            String lower = t.toLowerCase(Locale.ROOT);
+            if (lower.contains("bắt buộc") || lower.contains("tối đa") || lower.contains("tối thiểu")
+                    || lower.contains("định dạng") || lower.contains("trùng lặp") || lower.contains("thông báo lỗi")
+                    || lower.contains("phân quyền") || lower.contains("chỉ cho phép") || lower.contains("xác thực")
+                    || lower.contains("required") || lower.contains("validation") || lower.contains("unique")) {
+                String clean = t.replaceAll("^[-*•#\\d.]+\\s*", "").trim();
+                if (clean.length() >= 8 && clean.length() <= 160) {
+                    rules.add(clean);
+                    if (rules.size() >= 6) break;
+                }
+            }
+        }
+        return rules;
+    }
+
+    private static String extractTargetUrlFromSection(String body) {
+        if (body == null || body.isBlank()) return "";
+        Matcher m = URL_EXTRACT_PATTERN.matcher(body);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return "";
+    }
+
+    /**
+     * Expands test cases across all extracted screens so every screen gets {@code minCasesPerScreen}
+     * test cases (Happy Path, Negative Validation, Boundary BVA, Business Rule/Permission).
+     */
+    public List<AiGeneratedCase> expandMultiScreenCoverage(List<AiGeneratedCase> existingCases,
+                                                           List<ScreenSpecSection> screens,
+                                                           int minCasesPerScreen,
+                                                           String prompt,
+                                                           boolean generateScript) {
+        List<AiGeneratedCase> result = new ArrayList<>();
+        Map<Integer, List<AiGeneratedCase>> screenBuckets = new LinkedHashMap<>();
+        for (int i = 0; i < screens.size(); i++) {
+            screenBuckets.put(i, new ArrayList<>());
+        }
+
+        // Match existing cases into screen buckets
+        for (AiGeneratedCase tc : existingCases) {
+            int matched = matchCaseToScreenIndex(tc, screens);
+            if (matched >= 0 && matched < screens.size()) {
+                screenBuckets.get(matched).add(tc);
+            } else {
+                // If not matched, place in first available under-filled bucket or append
+                int under = findUnderfilledBucket(screenBuckets, minCasesPerScreen);
+                if (under >= 0) {
+                    screenBuckets.get(under).add(tc);
+                } else {
+                    result.add(tc);
+                }
+            }
+        }
+
+        // Ensure every screen has at least minCasesPerScreen
+        for (int i = 0; i < screens.size(); i++) {
+            ScreenSpecSection screen = screens.get(i);
+            List<AiGeneratedCase> bucket = screenBuckets.get(i);
+
+            if (bucket.isEmpty()) {
+                // Synthesize full 4-case suite for this screen
+                List<AiGeneratedCase> synthesized = synthesizeCasesForScreen(screen, minCasesPerScreen, prompt, generateScript);
+                result.addAll(synthesized);
+            } else if (bucket.size() < minCasesPerScreen) {
+                result.addAll(bucket);
+                AiGeneratedCase base = bucket.get(0);
+                List<AiGeneratedCase> companions = synthesizeScreenCompanionCases(
+                        base, screen, minCasesPerScreen - bucket.size(), generateScript);
+                result.addAll(companions);
+            } else {
+                result.addAll(bucket);
+            }
+        }
+
+        return result;
+    }
+
+    private static int matchCaseToScreenIndex(AiGeneratedCase tc, List<ScreenSpecSection> screens) {
+        if (tc == null) return -1;
+        String name = (tc.getName() != null ? tc.getName() : "").toLowerCase(Locale.ROOT);
+        String desc = (tc.getDescription() != null ? tc.getDescription() : "").toLowerCase(Locale.ROOT);
+
+        for (int i = 0; i < screens.size(); i++) {
+            ScreenSpecSection s = screens.get(i);
+            String token = s.featureToken().toLowerCase(Locale.ROOT).replace("manhinh_", "").replace("manhinh", "");
+            String title = s.screenTitle().toLowerCase(Locale.ROOT);
+            if (!token.isBlank() && (name.contains(token) || desc.contains(token))) {
+                return i;
+            }
+            if (!title.isBlank() && (name.contains(title) || desc.contains(title))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int findUnderfilledBucket(Map<Integer, List<AiGeneratedCase>> buckets, int target) {
+        for (var entry : buckets.entrySet()) {
+            if (entry.getValue().size() < target) {
+                return entry.getKey();
+            }
+        }
+        return -1;
+    }
+
+    private List<AiGeneratedCase> synthesizeCasesForScreen(ScreenSpecSection screen,
+                                                          int count,
+                                                          String prompt,
+                                                          boolean generateScript) {
+        List<AiGeneratedCase> list = new ArrayList<>();
+        String token = screen.featureToken();
+        String title = screen.screenTitle();
+        String url = screen.targetUrl();
+
+        // 1. Happy Path (P0)
+        AiGeneratedCase happy = new AiGeneratedCase();
+        happy.setName("TC01_" + token + "_LuongChinh_HappyPath");
+        happy.setPriority("P0");
+        happy.setStartUrl(url);
+        happy.setDescription("Kiểm thử luồng thành công chính (Happy Path) trên " + title
+                + " khi điền đầy đủ dữ liệu hợp lệ");
+        happy.setTestSteps(buildScreenTestSteps(screen, 1));
+        happy.setTestDataSets(synthesizeTestDataSets(happy, 1));
+        happy.setAssertions(synthesizeAssertions(happy));
+        if (generateScript && !url.isBlank()) {
+            happy.setScriptCode(synthesizeScenarioScript(happy));
+        } else {
+            happy.setScriptCode("");
+        }
+        list.add(happy);
+
+        // 2. Negative Validation (P1)
+        if (count >= 2) {
+            AiGeneratedCase neg = new AiGeneratedCase();
+            neg.setName("TC02_" + token + "_KiemTraLoiDuLieuKhongHopLe");
+            neg.setPriority("P1");
+            neg.setStartUrl(url);
+            neg.setDescription("Kiểm thử thông báo lỗi & ngăn chặn submit trên " + title
+                    + " khi bỏ trống trường bắt buộc hoặc nhập sai định dạng");
+            neg.setTestSteps(buildScreenTestSteps(screen, 2));
+            neg.setTestDataSets(synthesizeTestDataSets(neg, 2));
+            neg.setAssertions(synthesizeAssertions(neg));
+            if (generateScript && !url.isBlank()) {
+                neg.setScriptCode(synthesizeScenarioScript(neg));
+            } else {
+                neg.setScriptCode("");
+            }
+            list.add(neg);
+        }
+
+        // 3. Boundary BVA (P1/P2)
+        if (count >= 3) {
+            AiGeneratedCase bva = new AiGeneratedCase();
+            bva.setName("TC03_" + token + "_GiaTriBien_BoundaryBVA");
+            bva.setPriority("P1");
+            bva.setStartUrl(url);
+            bva.setDescription("Kiểm thử phân tích giá trị biên (Min, Max, Max+1, ký tự Unicode đặc biệt) trên các trường dữ liệu của " + title);
+            bva.setTestSteps(buildScreenTestSteps(screen, 3));
+            bva.setTestDataSets(synthesizeTestDataSets(bva, 3));
+            bva.setAssertions(synthesizeAssertions(bva));
+            if (generateScript && !url.isBlank()) {
+                bva.setScriptCode(synthesizeScenarioScript(bva));
+            } else {
+                bva.setScriptCode("");
+            }
+            list.add(bva);
+        }
+
+        // 4. Business Rule / Permission (P2)
+        if (count >= 4) {
+            AiGeneratedCase ruleCase = new AiGeneratedCase();
+            ruleCase.setName("TC04_" + token + "_QuyTacNghiepVuVaPhanQuyen");
+            ruleCase.setPriority("P2");
+            ruleCase.setStartUrl(url);
+            ruleCase.setDescription("Kiểm thử quy tắc nghiệp vụ đặc thù, trùng lặp dữ liệu và phân quyền thao tác trên " + title);
+            ruleCase.setTestSteps(buildScreenTestSteps(screen, 4));
+            ruleCase.setTestDataSets(List.of(
+                    new TestDataItem(
+                            "Quy tắc nghiệp vụ & Phân quyền",
+                            Map.of("role", "STANDARD_USER", "action", "RESTRICTED"),
+                            "Hệ thống áp dụng đúng ràng buộc nghiệp vụ hoặc thông báo quyền hạn"
+                    )
+            ));
+            ruleCase.setAssertions(synthesizeAssertions(ruleCase));
+            if (generateScript && !url.isBlank()) {
+                ruleCase.setScriptCode(synthesizeScenarioScript(ruleCase));
+            } else {
+                ruleCase.setScriptCode("");
+            }
+            list.add(ruleCase);
+        }
+
+        return list;
+    }
+
+    private List<AiGeneratedCase> synthesizeScreenCompanionCases(AiGeneratedCase base,
+                                                                ScreenSpecSection screen,
+                                                                int needed,
+                                                                boolean generateScript) {
+        List<AiGeneratedCase> companions = new ArrayList<>();
+        String token = screen != null ? screen.featureToken() : "Screen";
+        String url = base.getStartUrl() != null ? base.getStartUrl() : "";
+
+        if (needed >= 1) {
+            AiGeneratedCase neg = new AiGeneratedCase();
+            neg.setName("TC02_" + token + "_KiemTraLoiValidation");
+            neg.setPriority("P1");
+            neg.setStartUrl(url);
+            neg.setDescription("Kiểm tra xử lý ngoại lệ và hiển thị thông báo lỗi khi dữ liệu nhập vi phạm quy tắc");
+            neg.setTestSteps(buildScreenTestSteps(screen, 2));
+            neg.setTestDataSets(synthesizeTestDataSets(neg, 2));
+            neg.setAssertions(synthesizeAssertions(neg));
+            if (generateScript && !url.isBlank()) {
+                neg.setScriptCode(synthesizeScenarioScript(neg));
+            } else {
+                neg.setScriptCode("");
+            }
+            companions.add(neg);
+        }
+
+        if (needed >= 2) {
+            AiGeneratedCase bva = new AiGeneratedCase();
+            bva.setName("TC03_" + token + "_GiaTriBienBVA");
+            bva.setPriority("P1");
+            bva.setStartUrl(url);
+            bva.setDescription("Kiểm thử giá trị biên độ dài tối đa/tối thiểu và ký tự đặc biệt");
+            bva.setTestSteps(buildScreenTestSteps(screen, 3));
+            bva.setTestDataSets(synthesizeTestDataSets(bva, 3));
+            bva.setAssertions(synthesizeAssertions(bva));
+            if (generateScript && !url.isBlank()) {
+                bva.setScriptCode(synthesizeScenarioScript(bva));
+            } else {
+                bva.setScriptCode("");
+            }
+            companions.add(bva);
+        }
+
+        if (needed >= 3) {
+            AiGeneratedCase ruleCase = new AiGeneratedCase();
+            ruleCase.setName("TC04_" + token + "_QuyTacNghiepVu");
+            ruleCase.setPriority("P2");
+            ruleCase.setStartUrl(url);
+            ruleCase.setDescription("Kiểm tra ràng buộc nghiệp vụ và phân quyền truy cập");
+            ruleCase.setTestSteps(buildScreenTestSteps(screen, 4));
+            ruleCase.setTestDataSets(List.of(
+                    new TestDataItem("Ràng buộc nghiệp vụ", Map.of("constraint", "CHECK"), "Hệ thống bảo đảm tính toàn vẹn dữ liệu")
+            ));
+            ruleCase.setAssertions(synthesizeAssertions(ruleCase));
+            if (generateScript && !url.isBlank()) {
+                ruleCase.setScriptCode(synthesizeScenarioScript(ruleCase));
+            } else {
+                ruleCase.setScriptCode("");
+            }
+            companions.add(ruleCase);
+        }
+
+        return companions;
+    }
+
+    private List<TestStep> buildScreenTestSteps(ScreenSpecSection screen, int scenarioType) {
+        List<TestStep> steps = new ArrayList<>();
+        String url = (screen != null && screen.targetUrl() != null && !screen.targetUrl().isBlank())
+                ? screen.targetUrl() : "Màn hình chức năng";
+        String title = screen != null ? screen.screenTitle() : "Màn hình";
+        List<String> fields = (screen != null && screen.extractedFields() != null) ? screen.extractedFields() : List.of();
+
+        steps.add(new TestStep(1, "NAVIGATE", url, "",
+                "Truy cập " + title, "Màn hình hiển thị đầy đủ các trường nhập liệu và nút chức năng"));
+
+        if (!fields.isEmpty()) {
+            int stepNum = 2;
+            for (int f = 0; f < Math.min(fields.size(), 3); f++) {
+                String field = fields.get(f);
+                String data = switch (scenarioType) {
+                    case 2 -> "Bỏ trống (\"\") hoặc ký tự sai (!@#$)";
+                    case 3 -> "Giá trị biên: Min=1, Max=255, Max+1=256";
+                    case 4 -> "Dữ liệu kiểm tra ràng buộc nghiệp vụ / phân quyền";
+                    default -> "Dữ liệu hợp lệ chuẩn (Valid Data)";
+                };
+                steps.add(new TestStep(stepNum++, "FILL", field, data,
+                        "Nhập dữ liệu vào trường " + field, "Trường tiếp nhận và hiển thị dữ liệu kiểm tra"));
+            }
+            steps.add(new TestStep(stepNum, "CLICK", "Nút Xác nhận / Lưu / Gửi", "",
+                    "Nhấn nút xác nhận thực thi hành động",
+                    scenarioType == 2
+                            ? "Hệ thống chặn submit và hiển thị thông báo lỗi tương ứng"
+                            : "Hệ thống xử lý thành công và cập nhật trạng thái"));
+        } else {
+            steps.add(new TestStep(2, "INTERACT", "Các trường biểu mẫu",
+                    scenarioType == 2 ? "Dữ liệu rỗng / sai" : "Dữ liệu hợp lệ",
+                    "Thao tác nhập liệu trên " + title, "Hệ thống tiếp nhận thông tin"));
+            steps.add(new TestStep(3, "CLICK", "Nút Xác nhận", "",
+                    "Thực hiện gửi yêu cầu", "Hệ thống phản hồi trạng thái đúng kỳ vọng"));
+        }
+        return steps;
+    }
+
+    /**
+     * Groups existing test cases by their feature token (e.g. TC01_DangNhap_... -> DangNhap).
+     */
+    public static Map<String, List<AiGeneratedCase>> groupCasesByFeatureToken(List<AiGeneratedCase> cases, String defaultToken) {
+        Map<String, List<AiGeneratedCase>> groups = new LinkedHashMap<>();
+        if (cases == null || cases.isEmpty()) return groups;
+
+        for (AiGeneratedCase c : cases) {
+            String name = c.getName() != null ? c.getName() : "";
+            Matcher m = CASE_FEATURE_PATTERN.matcher(name);
+            String token = defaultToken;
+            if (m.matches()) {
+                String extracted = m.group(1);
+                if (extracted != null && extracted.length() >= 3
+                        && !extracted.equalsIgnoreCase("Case")
+                        && !extracted.equalsIgnoreCase("Test")
+                        && !extracted.equalsIgnoreCase("Recovered")) {
+                    token = extracted;
+                }
+            }
+            groups.computeIfAbsent(token, k -> new ArrayList<>()).add(c);
+        }
+        return groups;
+    }
+
+    /**
+     * Expands under-filled feature groups so each group has at least {@code minPerGroup} test cases.
+     */
+    public List<AiGeneratedCase> expandFeatureGroupCoverage(Map<String, List<AiGeneratedCase>> featureGroups,
+                                                            int minPerGroup,
+                                                            String prompt,
+                                                            boolean generateScript) {
+        List<AiGeneratedCase> result = new ArrayList<>();
+        for (var entry : featureGroups.entrySet()) {
+            String token = entry.getKey();
+            List<AiGeneratedCase> bucket = entry.getValue();
+            result.addAll(bucket);
+            if (bucket.size() < minPerGroup && !bucket.isEmpty()) {
+                AiGeneratedCase base = bucket.get(0);
+                List<AiGeneratedCase> companions = synthesizeCompanionScenarios(base, token, prompt, generateScript);
+                for (AiGeneratedCase comp : companions) {
+                    if (result.size() >= bucket.size() + minPerGroup) break;
+                    result.add(comp);
+                }
+            }
+        }
+        return result;
+    }
+
+    public List<TestDataItem> synthesizeTestDataSets(AiGeneratedCase tc, int caseNum) {
         List<TestDataItem> data = new ArrayList<>();
         String nameLower = tc.getName() != null ? tc.getName().toLowerCase(Locale.ROOT) : "";
         if (nameLower.contains("negative") || nameLower.contains("khonghople") || nameLower.contains("sai") || caseNum == 2) {
