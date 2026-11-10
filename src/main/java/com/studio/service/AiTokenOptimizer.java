@@ -16,10 +16,13 @@ import java.util.regex.Pattern;
 public class AiTokenOptimizer {
 
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 32768;
+    public static final int DEFAULT_MAX_DOC_CHARS = 48000;
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
+    private static final Pattern PDF_PAGE_MARKER = Pattern.compile("(?m)^#{1,4}\\s+Trang\\s+\\d+\\s*$\\r?\\n?");
+    private static final Pattern SECTION_SPLIT_PATTERN = Pattern.compile("(?m)^(#{1,4}\\s+[^\\r\\n]+|(?:\\*\\*)?(?:Màn\\s+hình|Screen|Chức\\s+năng|Module|Phân\\s+hệ|UC-?\\d+|FR-?\\d+|\\d+\\.\\d+)[^\\r\\n]{2,90})$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```([a-zA-Z0-9_-]*)\\r?\\n([\\s\\S]*?)\\r?\\n```");
 
     /**
@@ -146,6 +149,81 @@ public class AiTokenOptimizer {
     }
 
     /**
+     * Structure-preserving compression for large multi-page specification documents (e.g. 60-page SRS).
+     * Strips redundant PDF page-marker headings ("### Trang N") and, when the text exceeds {@code maxChars},
+     * preserves a complete document section outline plus balanced slices from every major section/screen
+     * instead of blindly truncating at the start of the document.
+     */
+    public ParsedDocument compressDocumentSmart(ParsedDocument doc, int maxChars) {
+        if (doc == null) return null;
+        if (doc.isImage()) {
+            return doc;
+        }
+        String raw = doc.getContent();
+        if (raw == null || raw.isBlank()) {
+            return new ParsedDocument(doc.getFileName(), doc.getPath(), false, "", doc.getMimeType(), 0);
+        }
+
+        // Normalize PDF page break markers and excessive whitespace
+        String cleaned = PDF_PAGE_MARKER.matcher(raw).replaceAll("");
+        cleaned = MULTI_NEWLINES.matcher(cleaned).replaceAll("\n\n");
+        cleaned = MULTI_SPACES.matcher(cleaned).replaceAll("  ").trim();
+
+        int effectiveMax = maxChars > 0 ? maxChars : DEFAULT_MAX_DOC_CHARS;
+        if (cleaned.length() <= effectiveMax) {
+            return new ParsedDocument(doc.getFileName(), doc.getPath(), false, cleaned, doc.getMimeType(), cleaned.length());
+        }
+
+        // Split by structural headings / screen markers to preserve every screen across a large SRS
+        java.util.regex.Matcher m = SECTION_SPLIT_PATTERN.matcher(cleaned);
+        List<Integer> starts = new ArrayList<>();
+        List<String> titles = new ArrayList<>();
+        while (m.find()) {
+            starts.add(m.start());
+            titles.add(m.group(1).replaceAll("^#+\\s*", "").trim());
+        }
+
+        if (starts.size() <= 1) {
+            String truncated = cleaned.substring(0, effectiveMax) + "\n... [Nội dung đã được lược bớt để tối ưu token]";
+            return new ParsedDocument(doc.getFileName(), doc.getPath(), false, truncated, doc.getMimeType(), truncated.length());
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("### Cấu trúc Mục lục Tài liệu (").append(starts.size()).append(" phần/màn hình):\n");
+        for (int i = 0; i < Math.min(starts.size(), 60); i++) {
+            sb.append("- ").append(titles.get(i)).append("\n");
+        }
+        sb.append("\n");
+
+        int remainingBudget = Math.max(2000, effectiveMax - sb.length());
+        int perSectionBudget = Math.max(350, remainingBudget / starts.size());
+
+        // Include preamble if present
+        if (starts.get(0) > 0) {
+            String preamble = cleaned.substring(0, Math.min(starts.get(0), Math.min(800, perSectionBudget))).trim();
+            if (!preamble.isEmpty()) {
+                sb.append(preamble).append("\n\n");
+            }
+        }
+
+        for (int i = 0; i < starts.size(); i++) {
+            int start = starts.get(i);
+            int end = (i + 1 < starts.size()) ? starts.get(i + 1) : cleaned.length();
+            String sec = cleaned.substring(start, end).trim();
+            if (sec.length() > perSectionBudget) {
+                sec = sec.substring(0, perSectionBudget) + "\n... [Lược bớt chi tiết phụ trong mục này]";
+            }
+            sb.append(sec).append("\n\n");
+            if (sb.length() >= effectiveMax) {
+                break;
+            }
+        }
+
+        String result = sb.toString().trim();
+        return new ParsedDocument(doc.getFileName(), doc.getPath(), false, result, doc.getMimeType(), result.length());
+    }
+
+    /**
      * Format reduced DOM JSON into a compact Markdown element table for AI ingestion (70% token savings).
      * Inspired by Midscene.js and Skyvern compact DOM representations.
      */
@@ -254,15 +332,22 @@ public class AiTokenOptimizer {
 
         userContent.append("### Yêu cầu người dùng:\n").append(currentUserPrompt != null ? currentUserPrompt.trim() : "").append("\n\n");
 
+        int contextLimit = maxTokens > 0 ? maxTokens : DEFAULT_MAX_CONTEXT_TOKENS;
+
         List<String> imageUrls = new ArrayList<>();
         if (attachments != null && !attachments.isEmpty()) {
+            long textDocCount = attachments.stream().filter(d -> d != null && !d.isImage()).count();
+            int totalDocCharBudget = Math.max(8000, Math.min(96000, contextLimit * 2));
+            int perDocMaxChars = textDocCount > 0 ? (int) Math.max(8000, totalDocCharBudget / textDocCount) : DEFAULT_MAX_DOC_CHARS;
+
             userContent.append("### Tài liệu đính kèm (đã tối ưu):\n");
             for (ParsedDocument doc : attachments) {
+                if (doc == null) continue;
                 if (doc.isImage()) {
                     imageUrls.add(doc.getContent());
                     userContent.append("- Hình ảnh UI: ").append(doc.getFileName()).append(" (đã đính kèm ảnh)\n");
                 } else {
-                    ParsedDocument compDoc = compressDocument(doc, 4000);
+                    ParsedDocument compDoc = compressDocumentSmart(doc, perDocMaxChars);
                     userContent.append("- Tên file: ").append(compDoc.getFileName()).append("\n");
                     userContent.append("```\n").append(compDoc.getContent()).append("\n```\n\n");
                 }
@@ -272,8 +357,6 @@ public class AiTokenOptimizer {
         String userMessageText = userContent.toString();
         int currentUserTokens = estimateTokens(userMessageText) + 4;
         usedTokens += currentUserTokens;
-
-        int contextLimit = maxTokens > 0 ? maxTokens : DEFAULT_MAX_CONTEXT_TOKENS;
 
         // 3. Sliding Window over History
         List<OpenAiClient.ChatMessage> historyMessages = new ArrayList<>();

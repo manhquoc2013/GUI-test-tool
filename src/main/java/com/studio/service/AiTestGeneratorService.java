@@ -473,7 +473,8 @@ public class AiTestGeneratorService {
         AiAmbiguityAnalyzer.AnalysisResult analysis = ambiguityAnalyzer.analyze(
                 userPrompt,
                 attachments != null && !attachments.isEmpty(),
-                domJson != null && !domJson.isBlank() && !"[]".equals(domJson)
+                domJson != null && !domJson.isBlank() && !"[]".equals(domJson),
+                attachments
         );
 
         if (analysis.intent() == AiAmbiguityAnalyzer.Intent.SEARCH_TESTS) {
@@ -585,42 +586,60 @@ public class AiTestGeneratorService {
                 AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
         );
 
-        if (progressListener != null) {
-            progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
-        }
-
-        String reply = openAiClient.chatCompletion(config, messages);
-
-        if (isChatAdvice) {
-            return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
-        }
-
-        GenerationResult res = parseResponse(reply, effectiveSkill);
-
-        // Agent 4 (Loop Engineer): If LLM failed to produce any test cases on first pass for a JSON test skill,
-        // execute 1 autonomous self-correction loop retry with explicit Reality Checker feedback.
+        // Check for Multi-Batch Screen Orchestration (Agent 2):
+        // When Agent 1 detects >= 2 screens and we are in a generation test skill,
+        // execute multi-batch generation across screen slices so each screen gets 3-5+ test cases.
         boolean expectsTestCases = (effectiveSkill != AiSkill.EXHAUSTIVE_UNIT_TEST
                 && effectiveSkill != AiSkill.FAILURE_RCA
                 && effectiveSkill != AiSkill.SECURITY_FUZZING);
-        if (expectsTestCases && (res.getCases() == null || res.getCases().isEmpty()) && reply != null && !reply.isBlank()) {
-            if (progressListener != null) {
-                progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phát hiện phản hồi thiếu cấu trúc cases, đang chạy vòng lặp tự hiệu chỉnh...");
+
+        GenerationResult res = null;
+        List<AiMultiAgentCoordinator.ScreenSpecSection> screens =
+                AiMultiAgentCoordinator.extractScreenSections(effectivePrompt, attachments);
+        if (expectsTestCases && screens.size() >= 2) {
+            GenerationResult multiBatchRes = orchestrateMultiScreenBatches(
+                    config, effectivePrompt, attachments, enrichedContext, formattedDom, history,
+                    effectiveSkill, effectiveGenerateScript, screens, progressListener);
+            if (multiBatchRes != null && multiBatchRes.getCases() != null && !multiBatchRes.getCases().isEmpty()) {
+                res = multiBatchRes;
             }
-            List<OpenAiClient.ChatMessage> retryMessages = new ArrayList<>(messages);
-            retryMessages.add(new OpenAiClient.ChatMessage("assistant", reply));
-            retryMessages.add(new OpenAiClient.ChatMessage("user",
-                    "[LOOP ENGINEER SELF-CORRECTION]: Phản hồi trước chưa xuất đúng mảng JSON `cases`. "
-                            + "Hãy xuất NGAY đối tượng JSON hợp lệ chứa `summary`, `suggestedGroup`, `suggestedSuite` và mảng `cases` (tối thiểu 2-3 test cases đầy đủ `testSteps`, `testDataSets`, `assertions`)."));
-            try {
-                String retryReply = openAiClient.chatCompletion(config, retryMessages);
-                if (retryReply != null && !retryReply.isBlank()) {
-                    GenerationResult retryRes = parseResponse(retryReply, effectiveSkill);
-                    if (retryRes.getCases() != null && !retryRes.getCases().isEmpty()) {
-                        res = retryRes;
-                    }
+        }
+
+        if (res == null) {
+            if (progressListener != null) {
+                progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
+            }
+
+            String reply = openAiClient.chatCompletion(config, messages);
+
+            if (isChatAdvice) {
+                return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
+            }
+
+            res = parseResponse(reply, effectiveSkill);
+
+            // Agent 4 (Loop Engineer): If LLM failed to produce any test cases on first pass for a JSON test skill,
+            // execute 1 autonomous self-correction loop retry with explicit Reality Checker feedback.
+            if (expectsTestCases && (res.getCases() == null || res.getCases().isEmpty()) && reply != null && !reply.isBlank()) {
+                if (progressListener != null) {
+                    progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phát hiện phản hồi thiếu cấu trúc cases, đang chạy vòng lặp tự hiệu chỉnh...");
                 }
-            } catch (Exception ignored) {
-                // Keep initial result if retry fails
+                List<OpenAiClient.ChatMessage> retryMessages = new ArrayList<>(messages);
+                retryMessages.add(new OpenAiClient.ChatMessage("assistant", reply));
+                retryMessages.add(new OpenAiClient.ChatMessage("user",
+                        "[LOOP ENGINEER SELF-CORRECTION]: Phản hồi trước chưa xuất đúng mảng JSON `cases`. "
+                                + "Hãy xuất NGAY đối tượng JSON hợp lệ chứa `summary`, `suggestedGroup`, `suggestedSuite` và mảng `cases` (tối thiểu 2-3 test cases đầy đủ `testSteps`, `testDataSets`, `assertions`)."));
+                try {
+                    String retryReply = openAiClient.chatCompletion(config, retryMessages);
+                    if (retryReply != null && !retryReply.isBlank()) {
+                        GenerationResult retryRes = parseResponse(retryReply, effectiveSkill);
+                        if (retryRes.getCases() != null && !retryRes.getCases().isEmpty()) {
+                            res = retryRes;
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Keep initial result if retry fails
+                }
             }
         }
 
@@ -647,6 +666,104 @@ public class AiTestGeneratorService {
         res.setSummary(multiAgentCoordinator.buildConciseChatSummary(res, bundle));
 
         return res;
+    }
+
+    /**
+     * Executes Multi-Batch Orchestration across screen sections.
+     * Groups screens into manageable batches (e.g. 2 screens per batch), calls the LLM per batch,
+     * parses the responses, and aggregates test cases into a unified result.
+     */
+    private GenerationResult orchestrateMultiScreenBatches(
+            AiConfig config,
+            String effectivePrompt,
+            List<ParsedDocument> attachments,
+            String enrichedContext,
+            String formattedDom,
+            List<com.studio.model.AiChatMessage> history,
+            AiSkill effectiveSkill,
+            boolean effectiveGenerateScript,
+            List<AiMultiAgentCoordinator.ScreenSpecSection> screens,
+            java.util.function.Consumer<String> progressListener) {
+        int batchSize = 2; // 2 screens per LLM batch ensures sufficient output token capacity for 8-10 cases
+        int totalScreens = screens.size();
+        int totalBatches = (int) Math.ceil((double) totalScreens / batchSize);
+
+        List<AiGeneratedCase> aggregatedCases = new ArrayList<>();
+        String primaryGroup = null;
+        String primarySuite = null;
+        StringBuilder combinedSummary = new StringBuilder();
+
+        int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+
+        for (int b = 0; b < totalBatches; b++) {
+            int start = b * batchSize;
+            int end = Math.min(totalScreens, start + batchSize);
+            List<AiMultiAgentCoordinator.ScreenSpecSection> batchScreens = screens.subList(start, end);
+
+            int batchNum = b + 1;
+            if (progressListener != null) {
+                progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case cho Màn hình "
+                        + (start + 1) + " - " + end + "/" + totalScreens + " (Lô " + batchNum + "/" + totalBatches + ")...");
+            }
+
+            String batchPrompt = multiAgentCoordinator.buildScreenBatchPrompt(
+                    effectivePrompt, batchScreens, batchNum, totalBatches, totalScreens, 4);
+
+            String batchSystemPrompt = SYSTEM_PROMPT + "\n\n" + multiAgentCoordinator.buildMultiAgentPipelineDirective(
+                    batchPrompt, effectiveSkill, attachments, effectiveGenerateScript);
+
+            if (!effectiveGenerateScript) {
+                batchSystemPrompt = batchSystemPrompt + "\n\n" + """
+                    ### ⚠️ QUY TẮC BẮT BUỘC: Đặt `scriptCode = ""` và tập trung 100% vào `testSteps`, `testDataSets` và `assertions`.
+                    """;
+            }
+
+            List<OpenAiClient.ChatMessage> batchMessages = tokenOptimizer.buildOptimizedMessages(
+                    batchSystemPrompt,
+                    history,
+                    batchPrompt,
+                    attachments,
+                    enrichedContext,
+                    formattedDom,
+                    maxTokens,
+                    AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
+            );
+
+            try {
+                String reply = openAiClient.chatCompletion(config, batchMessages);
+                if (reply != null && !reply.isBlank()) {
+                    GenerationResult batchRes = parseResponse(reply, effectiveSkill);
+                    if (batchRes != null && batchRes.getCases() != null && !batchRes.getCases().isEmpty()) {
+                        aggregatedCases.addAll(batchRes.getCases());
+                        if (primaryGroup == null && !AiMultiAgentCoordinator.isGenericOrBlank(batchRes.getSuggestedGroup())) {
+                            primaryGroup = batchRes.getSuggestedGroup();
+                        }
+                        if (primarySuite == null && !AiMultiAgentCoordinator.isGenericOrBlank(batchRes.getSuggestedSuite())) {
+                            primarySuite = batchRes.getSuggestedSuite();
+                        }
+                        if (batchRes.getSummary() != null && !batchRes.getSummary().isBlank()) {
+                            if (combinedSummary.length() > 0) combinedSummary.append("\n\n");
+                            combinedSummary.append(batchRes.getSummary());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // If a batch fails, continue with remaining batches or fallback to expansion
+            }
+        }
+
+        if (aggregatedCases.isEmpty()) {
+            return null;
+        }
+
+        GenerationResult result = new GenerationResult(
+                combinedSummary.toString(),
+                aggregatedCases,
+                ""
+        );
+        result.setSuggestedGroup(primaryGroup);
+        result.setSuggestedSuite(primarySuite);
+        return result;
     }
 
     public static boolean containsTargetUrl(String userPrompt, List<ParsedDocument> attachments, String domJson, String contextInfo) {
