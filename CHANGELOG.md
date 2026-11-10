@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.6.0] — 2026-11-10
+
+### Added
+
+- **Multi-Screen SRS Semantic Sectioning & Multi-Batch Orchestration (`AiMultiAgentCoordinator`, `AiAmbiguityAnalyzer`, `AiTestGeneratorService`)**:
+  - Semantic sectioning engine automatically parses and splits complex multi-screen/multi-feature SRS specifications into discrete logical screens.
+  - Multi-batch orchestration with balanced per-screen coverage expansion, generating high-density test suites without context window starvation or hallucination.
+- **Intent Differentiation: QA Scenarios vs Automation Test Scripts vs Both (`AiAmbiguityAnalyzer`)**:
+  - Clear distinction between `GENERATE_SCENARIOS`, `GENERATE_TESTS`, and `GENERATE_BOTH`.
+  - When user requests QA scenarios / kịch bản kiểm thử: generates structured ISTQB specifications (steps, expected results, preconditions) with clean UI display and automatically turns off script generation.
+  - When user requests automation scripts: generates complete, executable Playwright Java test code.
+  - When user requests both (`GENERATE_BOTH`): synthesizes both comprehensive scenario specifications and runnable Playwright code.
+- **Versatile 1-Click Export Suite (`TestCaseExcelExportService`, `AiAssistantPageController`)**:
+  - Export QA Scenarios to Excel (.xlsx), Markdown (.md), and JSON (.json).
+  - Export Automation Test Scripts (.zip) packaging all generated Playwright Java classes.
+  - Export Full Bundle (.zip) combining all structured scenario documents and automation scripts.
+  - Integrated 1-click export actions directly on chat bubble toolbars and preview panel MenuButton.
+- **AI Chat Assistant Keyboard Navigation & UX Flow**:
+  - Shortcut keybindings: `Enter` to instantly submit prompts, `Shift + Enter` to insert newlines in the chat composer.
+  - Intelligent Undo restoration: restoring previous prompt text and attached documents directly back to composer on undo.
+  - Active generation safeguards and automatic test preview restoration upon undo or session switching.
+
+---
+
 ## [2.5.0] — 2026-11-10
 
 ### Added

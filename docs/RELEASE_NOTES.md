@@ -1,5 +1,40 @@
 # Release Notes — Test Studio
 
+## Test Studio v2.6.0
+
+**Release date:** 2026-11-10
+
+Phiên bản **Test Studio v2.6.0** bổ sung năng lực **Phân đoạn ngữ nghĩa tài liệu SRS đa màn hình & Điều phối đa lô (Multi-Screen SRS Semantic Sectioning & Multi-Batch Orchestration)**, **Phân tách rõ ràng ý định sinh kịch bản kiểm thử (QA Scenarios) và mã tự động hóa (Automation Scripts)**, **Bộ công cụ xuất đa định dạng 1-click (Excel, Markdown, JSON, ZIP Scripts, Full Bundle)**, cùng hàng loạt cải tiến vượt bậc về **trải nghiệm AI Chat Assistant**.
+
+---
+
+### Điểm nổi bật trong phiên bản v2.6.0 (Key Highlights)
+
+#### 1. Phân đoạn ngữ nghĩa SRS đa màn hình & Điều phối đa lô (Multi-Screen SRS Sectioning & Multi-Batch Orchestration)
+- **Tự động bóc tách màn hình ngữ nghĩa**: Phân tích tài liệu SRS dài, nhận diện các ranh giới màn hình/tính năng độc lập để chia nhỏ phạm vi xử lý một cách thông minh.
+- **Điều phối sinh theo từng lô (Batch Orchestration)**: Tự động chạy tuần tự các lô sinh theo từng màn hình, mở rộng độ phủ kiểm thử đồng đều cho từng chức năng mà không bị nghẽn token hay bỏ sót yêu cầu.
+- **Đảm bảo mật độ kiểm thử cao**: Cân bằng giữa kiểm thử chức năng (positive/negative), luồng ngoại lệ, bảo mật biểu mẫu và kiểm thử xác thực dữ liệu cho từng màn hình riêng biệt.
+
+#### 2. Phân biệt ý định: Kịch bản kiểm thử (QA Scenarios) vs Mã kịch bản tự động (Automation Scripts)
+- **Hệ thống phân tích ý định linh hoạt (`AiAmbiguityAnalyzer`)**:
+  - **Chỉ sinh kịch bản (GENERATE_SCENARIOS)**: Tập trung sinh tài liệu đặc tả kiểm thử chuẩn QA/ISTQB (Preconditions, Steps, Expected Results), không sinh mã code thừa, tự động tắt cờ `Tự sinh Script`.
+  - **Chỉ sinh mã tự động (GENERATE_TESTS)**: Sinh mã kiểm thử Playwright Java chuẩn hóa, sẵn sàng thực thi ngay lập tức.
+  - **Sinh cả hai (GENERATE_BOTH)**: Tổng hợp đồng thời cả tài liệu đặc tả kiểm thử chi tiết và mã kịch bản Playwright Java runnable.
+- **Chỉ dẫn Multi-Agent chuyên sâu**: Đồng bộ ràng buộc định dạng xuống toàn bộ 4 agent (Planner, Generator, Synthesizer, Reviewer) để đảm bảo đầu ra tuân thủ tuyệt đối yêu cầu của người dùng.
+
+#### 3. Bộ công cụ xuất dữ liệu 1-Click (Scenarios, Scripts & Full Bundle)
+- **Xuất kịch bản QA Scenarios**: Hỗ trợ 1-click xuất ra Excel (.xlsx), Markdown (.md), và JSON (.json) với cấu trúc bảng biểu chuẩn hóa.
+- **Xuất mã kiểm thử Automation Scripts (.zip)**: Đóng gói toàn bộ các file `.java` Playwright của các ca kiểm thử trong phiên vào tệp nén `.zip`.
+- **Xuất gói toàn diện Full Bundle (.zip)**: Kết hợp toàn bộ tài liệu đặc tả (Excel, Markdown, JSON) và mã nguồn tự động hóa trong một gói duy nhất.
+- **Tích hợp giao diện trực quan**: Các nút xuất nhanh được tích hợp trực tiếp trên thanh công cụ chat bubble và nút bấm menu trên bảng xem trước (preview pane).
+
+#### 4. Tối ưu trải nghiệm AI Chat Assistant & Phím tắt
+- **Cấu hình phím bấm tiện lợi**: Nhấn `Enter` để gửi câu lệnh ngay lập tức, `Shift + Enter` để xuống dòng trong khung soạn thảo.
+- **Phục hồi câu lệnh và tệp đính kèm khi Hoàn tác (Undo Restoration)**: Khi bấm Undo, nội dung câu lệnh gốc cùng toàn bộ danh sách tệp đính kèm được đưa trở lại ô nhập liệu để người dùng dễ dàng chỉnh sửa tiếp.
+- **Bảo vệ tiến trình và khôi phục Preview**: Khóa an toàn ngăn chặn thao tác Undo khi AI đang trong quá trình sinh ca kiểm thử và tự động tải lại bảng xem trước ca kiểm thử tương ứng khi chuyển đổi phiên hoặc hoàn tác.
+
+---
+
 ## Test Studio v2.5.0
 
 **Release date:** 2026-11-10

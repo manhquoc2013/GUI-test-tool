@@ -42,7 +42,7 @@ Output in `target/classes/`.
 mvn -DskipTests package
 ```
 
-Produces `target/playwright-automation-studio-2.5.0.jar`.
+Produces `target/playwright-automation-studio-2.6.0.jar`.
 
 ### Run the application
 
@@ -66,7 +66,7 @@ In addition to portable archives, Test Studio provides native offline installers
 bash scripts/build-installer.sh
 ```
 
-- Produces: `dist/TestStudio-2.5.0-mac-<arch>.dmg`
+- Produces: `dist/TestStudio-2.6.0-mac-<arch>.dmg`
 - Bundles a complete `.app` bundle, embedded JRE 26, Node.js, and offline Chromium.
 - Provides standard `/Applications` drag-and-drop link and icon branding.
 
@@ -76,7 +76,7 @@ bash scripts/build-installer.sh
 scripts\build-installer.bat
 ```
 
-- Produces: `dist\TestStudio-2.5.0-windows-x64-Setup.exe`
+- Produces: `dist\TestStudio-2.6.0-windows-x64-Setup.exe`
 - Uses Inno Setup 6 (with automatic fallback to `jpackage --type exe`).
 - Creates Start Menu entries, optional Desktop shortcut, and registered Windows uninstaller.
 
