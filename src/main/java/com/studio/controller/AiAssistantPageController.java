@@ -431,6 +431,7 @@ public class AiAssistantPageController implements Initializable {
             currentSession = chatHistoryStore.loadSession(suiteDir, preferredSessionId);
         }
         renderChatHistory();
+        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
     }
 
@@ -597,6 +598,7 @@ public class AiAssistantPageController implements Initializable {
         currentSession = chatHistoryStore.createNewSession(suiteDir, "Cuộc trò chuyện mới");
         refreshSessionsList(currentSession.getId());
         renderChatHistory();
+        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
         ToastService.info("Đã tạo cuộc trò chuyện mới.");
     }
@@ -1952,6 +1954,11 @@ public class AiAssistantPageController implements Initializable {
         if (targetMsg == null)
             return;
 
+        if (sendBtn != null && sendBtn.isDisabled()) {
+            ToastService.warn("⚠️ AI đang sinh kịch bản. Vui lòng đợi hoàn tất trước khi hoàn tác.");
+            return;
+        }
+
         List<AiChatMessage> msgs = currentSession.getMessages();
         AiChatMessage appliedMsg = resolveAppliedSnapshotMessage(msgs, targetMsg);
 
@@ -2021,6 +2028,7 @@ public class AiAssistantPageController implements Initializable {
         }
 
         renderChatHistory();
+        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
         ToastService.info("Đã hoàn tác và khôi phục nội dung vào ô nhập chat.");
     }
