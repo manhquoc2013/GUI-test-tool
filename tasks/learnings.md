@@ -99,6 +99,14 @@
    - Hỗ trợ chế độ in-memory `jdbc:h2:mem:...` phục vụ kiểm thử đơn vị độc lập và chạy nhanh gấp nhiều lần.
 
 
+## Chat Message Undo & State Restoration to Composer
+1. **Multi-Format Attachment Snapshot & Prompt Restoration**:
+   - Khi người dùng bấm "Hoàn tác" (Undo) trên một tin nhắn hội thoại (dù là bong bóng của User hay Assistant), hệ thống khôi phục toàn vẹn trạng thái yêu cầu của người dùng trở lại khung soạn thảo:
+     - **Prompt text**: Lấy từ trường `rawPrompt` của `AiChatMessage` (hoặc bóc tách qua `extractPromptFromUserContent` nếu là tin nhắn cũ, tự động loại bỏ tag kỹ năng `[Skill Name]\n` và đuôi danh sách file `\n\nĐã đính kèm: ...`).
+     - **File đính kèm**: Lưu trữ `AttachedDocSnapshot` chứa đầy đủ metadata (`fileName`, `filePath`, `image`, `content` markdown/base64, `mimeType`, `sizeBytes`, `markdownPath`). Khi hoàn tác, hệ thống tái tạo các đối tượng `ParsedDocument`, hiển thị lại các file chip trên thanh đính kèm (`attachedChipsPane`) và bật hiển thị thanh file đính kèm (`attachedFilesBox`).
+     - **Kỹ năng đã chọn (Skill)**: Tự động chọn lại kỹ năng tương ứng trong `skillComboBox` nếu tin nhắn có thiết lập skill.
+     - **Định vị con trỏ**: Đặt con trỏ ở cuối văn bản vừa khôi phục và focus vào ô nhập chat giúp người dùng tiếp tục chỉnh sửa ngay lập tức.
+
 ## Chat Input Key Bindings & JavaFX TextArea Event Filtering
 1. **JavaFX `TextArea` Modifier Semantics for ENTER**:
    - Trong JavaFX `TextAreaSkin` / `TextInputControlBehavior`, `KeyBinding` mặc định cho `KeyCode.ENTER` cấu hình điều kiện `shift == NEVER`. Do đó, khi người dùng nhấn `Shift+Enter`, JavaFX mặc định bỏ qua và không tự động chèn ký tự xuống dòng.

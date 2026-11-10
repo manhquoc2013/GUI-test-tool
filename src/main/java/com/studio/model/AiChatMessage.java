@@ -20,6 +20,10 @@ public class AiChatMessage {
     private long timestamp;
     private int estimatedTokens;
     private List<String> attachedFiles = new ArrayList<>();
+    private List<String> attachedFilePaths = new ArrayList<>();
+    private List<AttachedDocSnapshot> attachedDocsSnapshot = new ArrayList<>();
+    private String rawPrompt;
+    private String skill;
     private List<AiGeneratedCase> generatedCasesSnapshot = new ArrayList<>();
     private String suiteSnapshotJson;
     private String suiteSnapshotDir;
@@ -180,6 +184,118 @@ public class AiChatMessage {
 
     public void setSuggestedSuite(String suggestedSuite) {
         this.suggestedSuite = suggestedSuite;
+    }
+
+    public String getRawPrompt() {
+        return rawPrompt;
+    }
+
+    public void setRawPrompt(String rawPrompt) {
+        this.rawPrompt = rawPrompt;
+    }
+
+    public String getSkill() {
+        return skill;
+    }
+
+    public void setSkill(String skill) {
+        this.skill = skill;
+    }
+
+    public List<String> getAttachedFilePaths() {
+        return attachedFilePaths;
+    }
+
+    public void setAttachedFilePaths(List<String> attachedFilePaths) {
+        this.attachedFilePaths = attachedFilePaths != null ? attachedFilePaths : new ArrayList<>();
+    }
+
+    public List<AttachedDocSnapshot> getAttachedDocsSnapshot() {
+        return attachedDocsSnapshot;
+    }
+
+    public void setAttachedDocsSnapshot(List<AttachedDocSnapshot> attachedDocsSnapshot) {
+        this.attachedDocsSnapshot = attachedDocsSnapshot != null ? attachedDocsSnapshot : new ArrayList<>();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class AttachedDocSnapshot {
+        private String fileName;
+        private String filePath;
+        private boolean image;
+        private String content;
+        private String mimeType;
+        private long sizeBytes;
+        private String markdownPath;
+
+        public AttachedDocSnapshot() {}
+
+        public AttachedDocSnapshot(String fileName, String filePath, boolean image, String content, String mimeType,
+                long sizeBytes, String markdownPath) {
+            this.fileName = fileName;
+            this.filePath = filePath;
+            this.image = image;
+            this.content = content;
+            this.mimeType = mimeType;
+            this.sizeBytes = sizeBytes;
+            this.markdownPath = markdownPath;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public void setFileName(String fileName) {
+            this.fileName = fileName;
+        }
+
+        public String getFilePath() {
+            return filePath;
+        }
+
+        public void setFilePath(String filePath) {
+            this.filePath = filePath;
+        }
+
+        public boolean isImage() {
+            return image;
+        }
+
+        public void setImage(boolean image) {
+            this.image = image;
+        }
+
+        public String getContent() {
+            return content;
+        }
+
+        public void setContent(String content) {
+            this.content = content;
+        }
+
+        public String getMimeType() {
+            return mimeType;
+        }
+
+        public void setMimeType(String mimeType) {
+            this.mimeType = mimeType;
+        }
+
+        public long getSizeBytes() {
+            return sizeBytes;
+        }
+
+        public void setSizeBytes(long sizeBytes) {
+            this.sizeBytes = sizeBytes;
+        }
+
+        public String getMarkdownPath() {
+            return markdownPath;
+        }
+
+        public void setMarkdownPath(String markdownPath) {
+            this.markdownPath = markdownPath;
+        }
     }
 }
 

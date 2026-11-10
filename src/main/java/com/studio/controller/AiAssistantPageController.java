@@ -981,16 +981,34 @@ public class AiAssistantPageController implements Initializable {
         }
         userChatText.append(prompt);
         List<String> fileNames = new ArrayList<>();
+        List<String> filePaths = new ArrayList<>();
+        List<AiChatMessage.AttachedDocSnapshot> docsSnapshotList = new ArrayList<>();
         if (!attachedDocuments.isEmpty()) {
             userChatText.append("\n\nĐã đính kèm: ");
             for (var d : attachedDocuments) {
                 userChatText.append(d.getFileName()).append(" ");
                 fileNames.add(d.getFileName());
+                if (d.getPath() != null) {
+                    filePaths.add(d.getPath().toString());
+                }
+                docsSnapshotList.add(new AiChatMessage.AttachedDocSnapshot(
+                        d.getFileName(),
+                        d.getPath() != null ? d.getPath().toString() : null,
+                        d.isImage(),
+                        d.getContent(),
+                        d.getMimeType(),
+                        d.getSizeBytes(),
+                        d.getMarkdownPath() != null ? d.getMarkdownPath().toString() : null
+                ));
             }
         }
 
         AiChatMessage userMsg = new AiChatMessage("user", userChatText.toString());
+        userMsg.setRawPrompt(prompt);
+        userMsg.setSkill(activeSkill != null ? activeSkill.name() : null);
         userMsg.setAttachedFiles(fileNames);
+        userMsg.setAttachedFilePaths(filePaths);
+        userMsg.setAttachedDocsSnapshot(docsSnapshotList);
         userMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userMsg));
         currentSession.addMessage(userMsg);
 
@@ -1930,7 +1948,7 @@ public class AiAssistantPageController implements Initializable {
         return fallbackSelectedSuiteDir;
     }
 
-    private void handleUndoMessage(AiChatMessage targetMsg) {
+    public void handleUndoMessage(AiChatMessage targetMsg) {
         if (targetMsg == null)
             return;
 
@@ -1964,10 +1982,12 @@ public class AiAssistantPageController implements Initializable {
             }
         }
 
-        // 2. Remove the message and its pair from the session
+        // 2. Identify user message to restore
         int idx = msgs.indexOf(targetMsg);
+        AiChatMessage userMsgToRestore = null;
         if (idx >= 0) {
             if ("user".equalsIgnoreCase(targetMsg.getRole())) {
+                userMsgToRestore = targetMsg;
                 // If user message is undone, also remove the subsequent assistant reply if
                 // present
                 if (idx + 1 < msgs.size() && "assistant".equalsIgnoreCase(msgs.get(idx + 1).getRole())) {
@@ -1977,11 +1997,19 @@ public class AiAssistantPageController implements Initializable {
             } else {
                 // If assistant message is undone, remove this assistant message and prior user
                 // prompt
-                msgs.remove(idx);
                 if (idx - 1 >= 0 && "user".equalsIgnoreCase(msgs.get(idx - 1).getRole())) {
+                    userMsgToRestore = msgs.get(idx - 1);
+                    msgs.remove(idx);
                     msgs.remove(idx - 1);
+                } else {
+                    msgs.remove(idx);
                 }
             }
+        }
+
+        // Restore prompt content and attachments back to the chat composer
+        if (userMsgToRestore != null) {
+            restoreToInputArea(userMsgToRestore);
         }
 
         // 3. Persist and re-render
@@ -1994,7 +2022,7 @@ public class AiAssistantPageController implements Initializable {
 
         renderChatHistory();
         updateTokenUsageDisplay();
-        ToastService.info("Đã hoàn tác tin nhắn thành công.");
+        ToastService.info("Đã hoàn tác và khôi phục nội dung vào ô nhập chat.");
     }
 
     public AiChatSession getCurrentSession() {
@@ -2047,5 +2075,95 @@ public class AiAssistantPageController implements Initializable {
 
     public Button getSendBtn() {
         return sendBtn;
+    }
+
+    public List<DocumentParserService.ParsedDocument> getAttachedDocuments() {
+        return attachedDocuments;
+    }
+
+    public void restoreToInputArea(AiChatMessage msg) {
+        if (msg == null) return;
+
+        // 1. Restore prompt text
+        String promptToRestore = msg.getRawPrompt();
+        if (promptToRestore == null || promptToRestore.isBlank()) {
+            promptToRestore = extractPromptFromUserContent(msg.getContent());
+        }
+        if (promptInputArea != null && promptToRestore != null) {
+            promptInputArea.setText(promptToRestore);
+            promptInputArea.positionCaret(promptInputArea.getText().length());
+            promptInputArea.requestFocus();
+        }
+
+        // 2. Restore skill if applicable
+        if (msg.getSkill() != null && skillComboBox != null) {
+            try {
+                com.studio.model.AiSkill s = com.studio.model.AiSkill.valueOf(msg.getSkill());
+                skillComboBox.setValue(s);
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Clear existing attachments and restore from message
+        clearAttachments();
+
+        if (msg.getAttachedDocsSnapshot() != null && !msg.getAttachedDocsSnapshot().isEmpty()) {
+            for (AiChatMessage.AttachedDocSnapshot snap : msg.getAttachedDocsSnapshot()) {
+                Path filePath = snap.getFilePath() != null ? Path.of(snap.getFilePath()) : null;
+                Path mdPath = snap.getMarkdownPath() != null ? Path.of(snap.getMarkdownPath()) : null;
+                DocumentParserService.ParsedDocument doc = new DocumentParserService.ParsedDocument(
+                        snap.getFileName(),
+                        filePath,
+                        snap.isImage(),
+                        snap.getContent(),
+                        snap.getMimeType(),
+                        snap.getSizeBytes(),
+                        mdPath,
+                        null
+                );
+                attachedDocuments.add(doc);
+                addFileChip(doc);
+            }
+        } else if (msg.getAttachedFilePaths() != null && !msg.getAttachedFilePaths().isEmpty()) {
+            for (String pathStr : msg.getAttachedFilePaths()) {
+                try {
+                    Path p = Path.of(pathStr);
+                    if (Files.exists(p)) {
+                        DocumentParserService.ParsedDocument doc = documentParser.parse(p);
+                        attachedDocuments.add(doc);
+                        addFileChip(doc);
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        updateAttachmentsVisibility();
+        updateTokenUsageDisplay();
+
+        if (AiTestGeneratorService.containsTargetUrl(
+                promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
+            if (autoGenerateScriptCheck != null) {
+                autoGenerateScriptCheck.setSelected(true);
+            }
+        }
+    }
+
+    public static String extractPromptFromUserContent(String content) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String text = content;
+        // Strip leading [Skill Name]\n
+        if (text.startsWith("[")) {
+            int closeBracket = text.indexOf("]\n");
+            if (closeBracket > 0) {
+                text = text.substring(closeBracket + 2);
+            }
+        }
+        // Strip trailing \n\nĐã đính kèm: ...
+        int attachIdx = text.lastIndexOf("\n\nĐã đính kèm: ");
+        if (attachIdx >= 0) {
+            text = text.substring(0, attachIdx);
+        }
+        return text.trim();
     }
 }

@@ -161,6 +161,53 @@ public class AiAssistantChatKeyBindingsTest {
             assertEquals("", promptArea.getText());
             controller.getSendBtn().setDisable(false);
 
+            // 6. Test Undo restores message content & attached files into input area
+            com.studio.model.AiChatMessage userMsg = new com.studio.model.AiChatMessage(
+                    "user", "[Fuzzing Bảo Mật]\nKiểm thử SQL Injection vào ô tìm kiếm\n\nĐã đính kèm: spec.docx ");
+            userMsg.setRawPrompt("Kiểm thử SQL Injection vào ô tìm kiếm");
+            userMsg.setSkill("SECURITY_FUZZING");
+            com.studio.model.AiChatMessage.AttachedDocSnapshot docSnap = new com.studio.model.AiChatMessage.AttachedDocSnapshot(
+                    "spec.docx",
+                    "/tmp/spec.docx",
+                    false,
+                    "# Test Specifications\nDoc content",
+                    "text/markdown",
+                    1024L,
+                    "/tmp/spec.md"
+            );
+            userMsg.setAttachedDocsSnapshot(java.util.List.of(docSnap));
+            userMsg.setAttachedFiles(java.util.List.of("spec.docx"));
+
+            com.studio.model.AiChatMessage assistantMsg = new com.studio.model.AiChatMessage(
+                    "assistant", "Đã phân tích tài liệu và sinh kịch bản kiểm thử.");
+
+            controller.getCurrentSession().addMessage(userMsg);
+            controller.getCurrentSession().addMessage(assistantMsg);
+            assertEquals(2, controller.getCurrentSession().getMessages().size());
+
+            // Clear prompt area and simulate user having typed something else
+            promptArea.setText("temporary draft text");
+
+            // Act: trigger undo on assistant message
+            controller.handleUndoMessage(assistantMsg);
+
+            // Assert: messages removed from session, prompt and files restored to input area
+            assertEquals(0, controller.getCurrentSession().getMessages().size(), "Both messages should be removed on undo");
+            assertEquals("Kiểm thử SQL Injection vào ô tìm kiếm", promptArea.getText(),
+                    "Undone prompt text should be restored into promptInputArea");
+            assertEquals(1, controller.getAttachedDocuments().size(),
+                    "Undone attached files should be restored into attachedDocuments");
+            assertEquals("spec.docx", controller.getAttachedDocuments().get(0).getFileName());
+            assertEquals("# Test Specifications\nDoc content", controller.getAttachedDocuments().get(0).getContent());
+
+            // 7. Test Undo on a legacy user message (no rawPrompt)
+            com.studio.model.AiChatMessage legacyUserMsg = new com.studio.model.AiChatMessage(
+                    "user", "Kiểm thử responsive mobile layout\n\nĐã đính kèm: layout.png ");
+            controller.getCurrentSession().addMessage(legacyUserMsg);
+            controller.handleUndoMessage(legacyUserMsg);
+            assertEquals("Kiểm thử responsive mobile layout", promptArea.getText(),
+                    "Legacy user message prompt should be parsed and restored");
+
             // Safely shutdown DB inside test scope
             DatabaseManager.getInstance().shutdown();
         });

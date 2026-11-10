@@ -143,4 +143,55 @@ public class AiAssistantChatFlowTest {
         assertEquals("Kiểm thử giỏ hàng", loaded2.getTitle());
         assertEquals(1, loaded2.getMessages().size());
     }
+
+    @Test
+    public void testExtractPromptFromUserContent() {
+        // Case 1: with skill prefix and attachment suffix
+        String content1 = "[Fuzzing Bảo Mật]\nKiểm thử form đăng nhập SQL Injection\n\nĐã đính kèm: spec.docx report.pdf ";
+        assertEquals("Kiểm thử form đăng nhập SQL Injection", AiAssistantPageController.extractPromptFromUserContent(content1));
+
+        // Case 2: only attachment suffix
+        String content2 = "Kiểm thử responsive mobile\n\nĐã đính kèm: screen.png ";
+        assertEquals("Kiểm thử responsive mobile", AiAssistantPageController.extractPromptFromUserContent(content2));
+
+        // Case 3: only skill prefix
+        String content3 = "[Kiểm Thử Toàn Diện]\nKiểm tra luồng checkout hoàn chỉnh";
+        assertEquals("Kiểm tra luồng checkout hoàn chỉnh", AiAssistantPageController.extractPromptFromUserContent(content3));
+
+        // Case 4: plain prompt
+        String content4 = "Tạo 5 test cases cho trang giỏ hàng";
+        assertEquals("Tạo 5 test cases cho trang giỏ hàng", AiAssistantPageController.extractPromptFromUserContent(content4));
+
+        // Case 5: empty or null
+        assertEquals("", AiAssistantPageController.extractPromptFromUserContent(""));
+        assertEquals("", AiAssistantPageController.extractPromptFromUserContent(null));
+    }
+
+    @Test
+    public void testAttachedDocSnapshotModel() {
+        AiChatMessage msg = new AiChatMessage("user", "prompt");
+        msg.setRawPrompt("raw prompt");
+        msg.setSkill("AUTO");
+        msg.setAttachedFilePaths(List.of("/path/to/spec.docx"));
+
+        AiChatMessage.AttachedDocSnapshot snap = new AiChatMessage.AttachedDocSnapshot(
+                "spec.docx",
+                "/path/to/spec.docx",
+                false,
+                "# Converted Markdown",
+                "text/markdown",
+                2048L,
+                "/data/converted_docs/spec.md"
+        );
+        msg.setAttachedDocsSnapshot(List.of(snap));
+
+        assertEquals("raw prompt", msg.getRawPrompt());
+        assertEquals("AUTO", msg.getSkill());
+        assertEquals(1, msg.getAttachedFilePaths().size());
+        assertEquals("/path/to/spec.docx", msg.getAttachedFilePaths().get(0));
+        assertEquals(1, msg.getAttachedDocsSnapshot().size());
+        assertEquals("spec.docx", msg.getAttachedDocsSnapshot().get(0).getFileName());
+        assertEquals("# Converted Markdown", msg.getAttachedDocsSnapshot().get(0).getContent());
+        assertEquals(2048L, msg.getAttachedDocsSnapshot().get(0).getSizeBytes());
+    }
 }
