@@ -2,7 +2,8 @@ work/
 data/reports/
 data/logs/**
 !data/logs/.gitkeep
-data/exports/*.xlsx
+data/exports/**
+!data/exports/.gitkeep
 data/project/**
 !data/project/.gitkeep
 data/config/**

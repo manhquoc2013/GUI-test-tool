@@ -6,11 +6,14 @@ import com.studio.model.AiGeneratedCase;
 import com.studio.model.AiSkill;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -357,5 +360,88 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                 assertFalse(result.getCases().isEmpty());
                 assertTrue(result.getCases().get(0).getScriptCode().contains("page.navigate(\"https://example.com/login\");"),
                                 "Script code must contain runnable Playwright automation command");
+        }
+
+        @Test
+        void testGenerateBothIntent_CreatesScenariosAndScriptsAndExportsBoth() throws Exception {
+                AiAmbiguityAnalyzer analyzer = new AiAmbiguityAnalyzer();
+                assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                                analyzer.detectIntent("Tạo cả test scenario và test script cho chức năng giỏ hàng"));
+                assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                                analyzer.detectIntent("kịch bản kiểm thử và viết code test automation"));
+
+                OpenAiClient mockClient = new OpenAiClient() {
+                        @Override
+                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+                                return """
+                                                ```json
+                                                {
+                                                  "summary": "Đã thiết kế trọn gói cả 2: Kịch bản kiểm thử QA và Mã Playwright Java Automation",
+                                                  "suggestedGroup": "BanHang_GioHang",
+                                                  "suggestedSuite": "KiemThu_GioHang",
+                                                  "cases": [
+                                                    {
+                                                      "name": "TC01_GioHang_ThemThanhCong",
+                                                      "description": "Kịch bản thêm sản phẩm vào giỏ hàng thành công",
+                                                      "priority": "P0",
+                                                      "preconditions": ["Người dùng đã đăng nhập"],
+                                                      "testSteps": [
+                                                        {"stepNumber": 1, "action": "NAVIGATE", "target": "ProductPage", "testData": "", "expectedResult": "Trang sản phẩm hiển thị"},
+                                                        {"stepNumber": 2, "action": "CLICK", "target": "#add-to-cart", "testData": "", "expectedResult": "Hiển thị thông báo thành công"}
+                                                      ],
+                                                      "testDataSets": [{"scenario": "Valid", "parameters": {}, "expectedOutcome": "SUCCESS"}],
+                                                      "assertions": [{"type": "ELEMENT_VISIBLE", "locator": ".toast-success", "status": "ACTIVE"}],
+                                                      "scriptCode": "page.click(\\"#add-to-cart\\");"
+                                                    }
+                                                  ]
+                                                }
+                                                ```
+                                                """;
+                        }
+                };
+
+                AiTestGeneratorService service = new AiTestGeneratorService(mockClient, new ObjectMapper());
+                AiConfig config = new AiConfig();
+                config.setApiKey("sk-mock-key");
+
+                AiTestGeneratorService.GenerationResult result = service.generateTestCases(
+                                config,
+                                "Tạo cả test scenario và test script cho chức năng giỏ hàng [phạm vi] Đầy đủ [tiền điều kiện] Sẵn sàng [xác minh] Toàn diện",
+                                List.of(),
+                                "",
+                                null,
+                                List.of(),
+                                null,
+                                AiSkill.PLAYWRIGHT_E2E,
+                                null,
+                                null); // generateScript=null -> auto detected as BOTH -> effectiveGenerateScript=true
+
+                assertNotNull(result);
+                assertFalse(result.getCases().isEmpty());
+                AiGeneratedCase c = result.getCases().get(0);
+
+                // Verify both scenario and script are present
+                assertFalse(c.getTestSteps().isEmpty(), "Must contain scenario test steps");
+                assertFalse(c.getAssertions().isEmpty(), "Must contain scenario assertions");
+                assertNotNull(c.getScriptCode(), "Must contain automation script");
+                assertTrue(c.getScriptCode().contains("page.click(\"#add-to-cart\");"));
+
+                // Verify export both
+                Path tempDir = Files.createTempDirectory("both_test_");
+                try {
+                        Path excelFile = tempDir.resolve("Scenarios.xlsx");
+                        TestCaseExcelExportService.exportAiGeneratedCases(result.getCases(), result.getSummary(), excelFile);
+                        assertTrue(Files.exists(excelFile), "Must be able to export Scenarios to Excel");
+
+                        Path bundleFile = tempDir.resolve("FullBundle.zip");
+                        TestCaseExcelExportService.exportFullBundle(result.getCases(), result.getSummary(), bundleFile);
+                        assertTrue(Files.exists(bundleFile), "Must be able to export Full Bundle (Both Scenarios and Scripts)");
+                } finally {
+                        try (Stream<Path> s = Files.walk(tempDir)) {
+                                s.sorted(Comparator.reverseOrder()).forEach(p -> {
+                                        try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                                });
+                        } catch (Exception ignored) {}
+                }
         }
 }

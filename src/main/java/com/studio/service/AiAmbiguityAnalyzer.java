@@ -19,6 +19,7 @@ public class AiAmbiguityAnalyzer {
         GAP_ANALYSIS,
         CHAT_ADVICE,
         GENERATE_SCENARIOS,
+        GENERATE_BOTH,
         GENERATE_TESTS
     }
 
@@ -64,6 +65,41 @@ public class AiAmbiguityAnalyzer {
     }
 
     /**
+     * Checks if the user prompt requests BOTH test scenarios (specification) AND test cases / test scripts (automation code).
+     */
+    public static boolean isBothScenariosAndScriptsRequest(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        String p = prompt.toLowerCase(Locale.ROOT);
+
+        // Normalize "kịch bản playwright" / "kịch bản automation" which are single concepts for test scripts
+        String normalized = p.replaceAll("kịch bản\\s+(playwright|automation|tự động)", "test script $1");
+
+        boolean hasScenario = normalized.contains("scenario") || normalized.contains("scenarios")
+                || normalized.contains("scenrio") || normalized.contains("kịch bản") || normalized.contains("kich ban");
+        boolean hasCaseOrScript = containsScriptOrAutomationRequest(normalized)
+                || normalized.contains("test case") || normalized.contains("test cases")
+                || normalized.contains("testcase") || normalized.contains("testcases")
+                || normalized.contains("trường hợp kiểm thử") || normalized.contains("truong hop kiem thu")
+                || normalized.contains("ca kiểm thử") || normalized.contains("ca kiem thu");
+
+        boolean hasExplicitBothPhrases = normalized.contains("cả 2") || normalized.contains("ca 2")
+                || normalized.contains("cả hai") || normalized.contains("ca hai")
+                || normalized.contains("cả kịch bản") || normalized.contains("ca kich ban")
+                || normalized.contains("làm cả 2") || normalized.contains("lam ca 2")
+                || normalized.contains("xuất cả 2") || normalized.contains("xuat ca 2")
+                || normalized.contains("yêu cầu cả 2") || normalized.contains("yeu cau ca 2")
+                || normalized.contains("kèm script") || normalized.contains("kèm code")
+                || normalized.contains("và script") || normalized.contains("va script")
+                || normalized.contains("và code") || normalized.contains("va code")
+                || normalized.contains("cùng script") || normalized.contains("cung script")
+                || normalized.contains("cùng code") || normalized.contains("cung code")
+                || normalized.contains("và test script") || normalized.contains("kèm test script");
+
+        return (hasScenario && hasCaseOrScript && (hasExplicitBothPhrases || normalized.contains(" và ") || normalized.contains(" va ") || normalized.contains(" kèm ") || normalized.contains(" kem ")))
+                || (hasExplicitBothPhrases && (hasScenario || hasCaseOrScript));
+    }
+
+    /**
      * Classifies user intent from prompt text.
      */
     public Intent detectIntent(String prompt) {
@@ -105,7 +141,12 @@ public class AiAmbiguityAnalyzer {
             return Intent.CHAT_ADVICE;
         }
 
-        // 5. Test Scenario only intent (QA Specification without automation code)
+        // 5. Both Test Scenarios and Automation Scripts intent
+        if (isBothScenariosAndScriptsRequest(p)) {
+            return Intent.GENERATE_BOTH;
+        }
+
+        // 6. Test Scenario only intent (QA Specification without automation code)
         if (isScenarioOnlyRequest(p)) {
             return Intent.GENERATE_SCENARIOS;
         }
@@ -156,7 +197,7 @@ public class AiAmbiguityAnalyzer {
         Intent intent = detectIntent(prompt);
         String target = extractTargetEntity(prompt, intent);
 
-        if (intent != Intent.GENERATE_TESTS && intent != Intent.GENERATE_SCENARIOS) {
+        if (intent != Intent.GENERATE_TESTS && intent != Intent.GENERATE_SCENARIOS && intent != Intent.GENERATE_BOTH) {
             return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
@@ -186,9 +227,14 @@ public class AiAmbiguityAnalyzer {
                         ? "phát hiện **" + screens.size() + " màn hình / phân hệ chức năng**"
                         : "phát hiện tài liệu đặc tả chi tiết";
 
-                String taskType = (intent == Intent.GENERATE_SCENARIOS)
-                        ? "thiết kế bộ kịch bản kiểm thử (Test Scenarios)"
-                        : "thiết kế bộ Test Cases & Test Scripts";
+                String taskType;
+                if (intent == Intent.GENERATE_BOTH) {
+                    taskType = "thiết kế trọn gói CẢ HAI: Kịch bản kiểm thử (Test Scenarios) & Mã Automation Script";
+                } else if (intent == Intent.GENERATE_SCENARIOS) {
+                    taskType = "thiết kế bộ kịch bản kiểm thử (Test Scenarios)";
+                } else {
+                    taskType = "thiết kế bộ Test Cases & Test Scripts";
+                }
 
                 String summary = "🔍 **[Agent 1 - Spec Miner]** Đã phân tích tài liệu đính kèm **`" + docName + "`** và "
                         + screenSummary + ".\n\n"
@@ -256,7 +302,17 @@ public class AiAmbiguityAnalyzer {
                 true));
 
         // Question 3: Output Deliverables (NLP Test Steps vs Runnable Playwright Code)
-        if (intent == Intent.GENERATE_SCENARIOS) {
+        if (intent == Intent.GENERATE_BOTH) {
+            list.add(new AiClarificationQuestion(
+                    "q_output_type",
+                    "3. Kết quả đầu ra mong muốn (Yêu cầu làm cả 2 & Xuất cả 2):",
+                    List.of(
+                            "(Khuyên dùng) Tạo trọn gói CẢ HAI: Kịch bản kiểm thử (Test Scenario) chuẩn QA/ISTQB + Toàn bộ Mã Playwright Java Automation Script hoàn chỉnh",
+                            "Tập trung sâu vào mã Playwright Java tự động hóa với assertions đa điểm",
+                            "Tập trung sâu vào đặc tả Test Scenario và xuất ma trận kiểm thử Excel"),
+                    false,
+                    true));
+        } else if (intent == Intent.GENERATE_SCENARIOS) {
             list.add(new AiClarificationQuestion(
                     "q_output_type",
                     "3. Định dạng tài liệu kịch bản kiểm thử (Test Scenario Deliverable):",
@@ -359,7 +415,7 @@ public class AiAmbiguityAnalyzer {
             }
         }
         sb.append(
-                "- **Yêu cầu bổ sung**: Sinh bộ kịch bản Playwright Java hoàn chỉnh, chi tiết, bao quát đầy đủ các tiêu chí trên, áp dụng chuẩn Agency-Agents (Zero hard sleep, web-first assertions, resilient role selectors).\n");
+                "- **Yêu cầu bổ sung**: Sinh bộ test case Playwright Java hoàn chỉnh, chi tiết, bao quát đầy đủ các tiêu chí trên, áp dụng chuẩn Agency-Agents (Zero hard sleep, web-first assertions, resilient role selectors).\n");
 
         return sb.toString();
     }

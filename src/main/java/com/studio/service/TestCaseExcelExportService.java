@@ -20,9 +20,14 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import com.studio.util.StringEscapeUtil;
 
 /**
  * Service to export Test Cases from a Suite or Group to a professional Excel
@@ -508,6 +513,108 @@ public final class TestCaseExcelExportService {
             new AiAgentIndexService().archiveAndIndexExport(outputPath, "JSON", "AI Assistant", "AI Generated Suite",
                     cases != null ? cases.size() : 0);
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Export runnable Playwright Java test scripts to a ZIP archive.
+     */
+    public static int exportScriptsToZip(List<AiGeneratedCase> cases, Path outputPath) throws Exception {
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+        int count = 0;
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(outputPath))) {
+            int idx = 1;
+            if (cases != null) {
+                for (AiGeneratedCase ac : cases) {
+                    if (ac.getScriptCode() != null && !ac.getScriptCode().isBlank()) {
+                        String name = StringEscapeUtil.safeFileName(ac.getName(), "TC_" + String.format("%02d", idx));
+                        ZipEntry entry = new ZipEntry(name + ".java");
+                        zos.putNextEntry(entry);
+                        zos.write(ac.getScriptCode().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        zos.closeEntry();
+                        count++;
+                        idx++;
+                    }
+                }
+            }
+        }
+        try {
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "SCRIPTS_ZIP", "AI Assistant", "AI Generated Suite", count);
+        } catch (Exception ignored) {
+        }
+        return count;
+    }
+
+    /**
+     * Export BOTH Test Scenarios (QA Excel/Markdown/JSON specification) AND runnable
+     * Playwright Java automation scripts bundled together into a ZIP archive.
+     */
+    public static void exportFullBundle(List<AiGeneratedCase> cases, String promptSummary, Path outputPath)
+            throws Exception {
+        exportFullBundle(cases, promptSummary, outputPath, ExportLanguage.VIETNAMESE);
+    }
+
+    public static void exportFullBundle(List<AiGeneratedCase> cases, String promptSummary, Path outputPath,
+                                        ExportLanguage lang) throws Exception {
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+        ExportLanguage effective = (lang != null) ? lang : ExportLanguage.VIETNAMESE;
+        Path tempDir = Files.createTempDirectory("studio_bundle_");
+        try {
+            Path excelPath = tempDir.resolve("TestScenarios_ISTQB.xlsx");
+            exportAiGeneratedCases(cases, promptSummary, excelPath, effective);
+
+            Path mdPath = tempDir.resolve("TestScenarios_Specification.md");
+            exportToMarkdown(cases, promptSummary, mdPath);
+
+            Path jsonPath = tempDir.resolve("TestScenarios_Data.json");
+            exportToJson(cases, promptSummary, jsonPath);
+
+            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(outputPath))) {
+                // Add QA Scenario documents under scenarios/
+                addFileEntryToZip(zos, excelPath, "scenarios/TestScenarios_ISTQB.xlsx");
+                addFileEntryToZip(zos, mdPath, "scenarios/TestScenarios_Specification.md");
+                addFileEntryToZip(zos, jsonPath, "scenarios/TestScenarios_Data.json");
+
+                // Add Runnable Java Scripts under scripts/
+                int idx = 1;
+                if (cases != null) {
+                    for (AiGeneratedCase ac : cases) {
+                        if (ac.getScriptCode() != null && !ac.getScriptCode().isBlank()) {
+                            String name = StringEscapeUtil.safeFileName(ac.getName(), "TC_" + String.format("%02d", idx));
+                            ZipEntry entry = new ZipEntry("scripts/" + name + ".java");
+                            zos.putNextEntry(entry);
+                            zos.write(ac.getScriptCode().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            zos.closeEntry();
+                            idx++;
+                        }
+                    }
+                }
+            }
+        } finally {
+            try (Stream<Path> walk = Files.walk(tempDir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                });
+            } catch (Exception ignored) {}
+        }
+        try {
+            new AiAgentIndexService().archiveAndIndexExport(outputPath, "FULL_BUNDLE_ZIP", "AI Assistant", "AI Generated Suite",
+                    cases != null ? cases.size() : 0);
+        } catch (Exception ignored) {
+        }
+        ResourceReleaseService.releaseAfterExport();
+    }
+
+    private static void addFileEntryToZip(ZipOutputStream zos, Path filePath, String entryName) throws Exception {
+        if (Files.exists(filePath)) {
+            ZipEntry entry = new ZipEntry(entryName);
+            zos.putNextEntry(entry);
+            Files.copy(filePath, zos);
+            zos.closeEntry();
         }
     }
 

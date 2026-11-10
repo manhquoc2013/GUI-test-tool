@@ -1080,9 +1080,15 @@ public class AiAssistantPageController implements Initializable {
         final String detectedTargetUrl = promptUrl;
 
         AiAmbiguityAnalyzer.Intent detectedIntent = aiGenerator.getAmbiguityAnalyzer().detectIntent(prompt);
+        boolean isBothIntent = (detectedIntent == AiAmbiguityAnalyzer.Intent.GENERATE_BOTH);
         boolean isScenarioIntent = (detectedIntent == AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS);
 
-        if (isScenarioIntent) {
+        if (isBothIntent) {
+            // Khi người dùng yêu cầu CẢ HAI (Kịch bản + Script): Bật tự động sinh script
+            if (autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
+                autoGenerateScriptCheck.setSelected(true);
+            }
+        } else if (isScenarioIntent) {
             // Khi người dùng yêu cầu tạo test scenario/kịch bản: Tắt tự động sinh script
             if (autoGenerateScriptCheck != null && autoGenerateScriptCheck.isSelected()) {
                 autoGenerateScriptCheck.setSelected(false);
@@ -1097,7 +1103,9 @@ public class AiAssistantPageController implements Initializable {
         }
 
         boolean generateScript;
-        if (isScenarioIntent) {
+        if (isBothIntent) {
+            generateScript = true;
+        } else if (isScenarioIntent) {
             generateScript = false;
         } else if (AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(prompt)) {
             generateScript = true;
@@ -1188,7 +1196,9 @@ public class AiAssistantPageController implements Initializable {
                                 exportCasesMenuBtn.setDisable(false);
                             }
                             generatedCasesListView.getSelectionModel().select(0);
-                            String unitLabel = isScenarioIntent ? "kịch bản kiểm thử (Test Scenarios)" : "test cases";
+                            String unitLabel = isBothIntent
+                                    ? "kịch bản & test scripts tự động hóa (CẢ HAI)"
+                                    : (isScenarioIntent ? "kịch bản kiểm thử (Test Scenarios)" : "test cases");
                             ToastService.success("✨ Đã tạo " + currentGeneratedCases.size() + " " + unitLabel + " thành công!");
                         } else {
                             applyToSuiteBtn.setDisable(true);
@@ -1728,6 +1738,66 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    @FXML
+    public void exportScriptsToZip() {
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Test Case/Script nào để tải về.");
+            return;
+        }
+        long scriptCount = currentGeneratedCases.stream()
+                .filter(c -> c.getScriptCode() != null && !c.getScriptCode().isBlank())
+                .count();
+        if (scriptCount == 0) {
+            ToastService.warn("⚠️ Các ca kiểm thử hiện tại chưa có mã script tự động hóa. Vui lòng xuất kịch bản Excel/Markdown.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu Mã Nguồn Playwright Java Scripts ra file ZIP");
+        configureExportChooserDirectory(chooser);
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP Archive (*.zip)", "*.zip"));
+        chooser.setInitialFileName("PlaywrightScripts_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".zip");
+
+        File file = chooser.showSaveDialog(promptInputArea != null && promptInputArea.getScene() != null ? promptInputArea.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            int exported = TestCaseExcelExportService.exportScriptsToZip(currentGeneratedCases, file.toPath());
+            ToastService.success("☕ Đã xuất " + exported + " mã Playwright Java test scripts ra file: " + file.getName());
+        } catch (Exception ex) {
+            AiLoggingService.error("EXPORT", "Xuất file Scripts ZIP thất bại: " + ex.getMessage());
+            ToastService.error("❌ Xuất file Scripts ZIP thất bại: " + ex.getMessage());
+        }
+    }
+
+    @FXML
+    public void exportFullBundle() {
+        if (currentGeneratedCases.isEmpty()) {
+            ToastService.warn("⚠️ Chưa có Kịch bản hoặc Script nào để tải về.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu Trọn gói Cả 2 (Kịch bản QA & Mã Playwright Scripts) ra file ZIP");
+        configureExportChooserDirectory(chooser);
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP Bundle (*.zip)", "*.zip"));
+        chooser.setInitialFileName("FullQA_AutomationBundle_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now()) + ".zip");
+
+        File file = chooser.showSaveDialog(promptInputArea != null && promptInputArea.getScene() != null ? promptInputArea.getScene().getWindow() : null);
+        if (file == null) return;
+
+        try {
+            TestCaseExcelExportService.exportFullBundle(
+                    currentGeneratedCases,
+                    resultSummaryLabel != null ? resultSummaryLabel.getText() : "Sinh bởi Trợ lý AI",
+                    file.toPath(),
+                    ExportLanguage.VIETNAMESE
+            );
+            ToastService.success("📦 Đã xuất trọn gói CẢ HAI (Kịch bản Excel/MD + Mã Java) ra file: " + file.getName());
+        } catch (Exception ex) {
+            AiLoggingService.error("EXPORT", "Xuất trọn gói thất bại: " + ex.getMessage());
+            ToastService.error("❌ Xuất trọn gói thất bại: " + ex.getMessage());
+        }
+    }
+
     private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
         String role = msg.getRole();
         VBox bubble = new VBox(6);
@@ -1799,61 +1869,119 @@ public class AiAssistantPageController implements Initializable {
             HBox buttonsRow = new HBox(6);
             buttonsRow.setAlignment(Pos.CENTER_LEFT);
 
-            Button excelBtn = new Button("Excel (.xlsx)");
-            excelBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
-            UiIcons.setGraphic(excelBtn, UiIcons.EXCEL, 11);
-            UiTooltips.install(excelBtn, "Tải tài liệu kịch bản ra file Excel theo chuẩn QA/ISTQB");
-            excelBtn.setOnAction(e -> {
-                currentGeneratedCases.clear();
-                currentGeneratedCases.addAll(casesSnapshot);
-                currentSuggestedGroup = msg.getSuggestedGroup();
-                currentSuggestedSuite = msg.getSuggestedSuite();
-                exportCasesToExcel();
-            });
+            if (hasScripts) {
+                Button excelBtn = new Button("Excel (.xlsx)");
+                excelBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(excelBtn, UiIcons.EXCEL, 11);
+                UiTooltips.install(excelBtn, "Tải tài liệu kịch bản ra file Excel theo chuẩn QA/ISTQB");
+                excelBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportCasesToExcel();
+                });
 
-            Button mdBtn = new Button("Markdown (.md)");
-            mdBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
-            UiIcons.setGraphic(mdBtn, UiIcons.FILE, 11);
-            UiTooltips.install(mdBtn, "Tải tài liệu kịch bản ra file Markdown");
-            mdBtn.setOnAction(e -> {
-                currentGeneratedCases.clear();
-                currentGeneratedCases.addAll(casesSnapshot);
-                currentSuggestedGroup = msg.getSuggestedGroup();
-                currentSuggestedSuite = msg.getSuggestedSuite();
-                exportCasesToMarkdown();
-            });
+                Button scriptsZipBtn = new Button("Mã Java (.zip)");
+                scriptsZipBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(scriptsZipBtn, UiIcons.FILE, 11);
+                UiTooltips.install(scriptsZipBtn, "Tải toàn bộ mã nguồn Playwright Java test scripts (.java) đóng gói trong file ZIP");
+                scriptsZipBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportScriptsToZip();
+                });
 
-            Button jsonBtn = new Button("JSON");
-            jsonBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
-            UiIcons.setGraphic(jsonBtn, UiIcons.TERMINAL, 11);
-            UiTooltips.install(jsonBtn, "Tải dữ liệu kịch bản ra định dạng JSON");
-            jsonBtn.setOnAction(e -> {
-                currentGeneratedCases.clear();
-                currentGeneratedCases.addAll(casesSnapshot);
-                currentSuggestedGroup = msg.getSuggestedGroup();
-                currentSuggestedSuite = msg.getSuggestedSuite();
-                exportCasesToJson();
-            });
+                Button bundleZipBtn = new Button("Trọn gói Cả 2 (.zip)");
+                bundleZipBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(bundleZipBtn, UiIcons.DOWNLOAD, 11);
+                UiTooltips.install(bundleZipBtn, "Tải trọn gói CẢ HAI: Kịch bản kiểm thử QA (Excel + MD) và Toàn bộ Mã Java scripts (.zip)");
+                bundleZipBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportFullBundle();
+                });
 
-            Button viewBtn = new Button("Xem danh sách");
-            viewBtn.getStyleClass().addAll("btn-primary", "btn-sm");
-            UiIcons.setGraphic(viewBtn, UiIcons.SEARCH, 11);
-            UiTooltips.install(viewBtn, "Xem chi tiết danh sách kịch bản ở khung bên phải");
-            viewBtn.setOnAction(e -> {
-                currentGeneratedCases.clear();
-                currentGeneratedCases.addAll(casesSnapshot);
-                currentSuggestedGroup = msg.getSuggestedGroup();
-                currentSuggestedSuite = msg.getSuggestedSuite();
-                generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                resultSummaryLabel.setText(msg.getContent());
-                applyToSuiteBtn.setDisable(false);
-                if (exportCasesMenuBtn != null) {
-                    exportCasesMenuBtn.setDisable(false);
-                }
-                generatedCasesListView.getSelectionModel().select(0);
-            });
+                Button viewBtn = new Button("Xem danh sách");
+                viewBtn.getStyleClass().addAll("btn-primary", "btn-sm");
+                UiIcons.setGraphic(viewBtn, UiIcons.SEARCH, 11);
+                UiTooltips.install(viewBtn, "Xem chi tiết danh sách kịch bản ở khung bên phải");
+                viewBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    generatedCasesListView.getItems().setAll(currentGeneratedCases);
+                    resultSummaryLabel.setText(msg.getContent());
+                    applyToSuiteBtn.setDisable(false);
+                    if (exportCasesMenuBtn != null) {
+                        exportCasesMenuBtn.setDisable(false);
+                    }
+                    generatedCasesListView.getSelectionModel().select(0);
+                });
 
-            buttonsRow.getChildren().addAll(excelBtn, mdBtn, jsonBtn, viewBtn);
+                buttonsRow.getChildren().addAll(excelBtn, scriptsZipBtn, bundleZipBtn, viewBtn);
+            } else {
+                Button excelBtn = new Button("Excel (.xlsx)");
+                excelBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(excelBtn, UiIcons.EXCEL, 11);
+                UiTooltips.install(excelBtn, "Tải tài liệu kịch bản ra file Excel theo chuẩn QA/ISTQB");
+                excelBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportCasesToExcel();
+                });
+
+                Button mdBtn = new Button("Markdown (.md)");
+                mdBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(mdBtn, UiIcons.FILE, 11);
+                UiTooltips.install(mdBtn, "Tải tài liệu kịch bản ra file Markdown");
+                mdBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportCasesToMarkdown();
+                });
+
+                Button jsonBtn = new Button("JSON");
+                jsonBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+                UiIcons.setGraphic(jsonBtn, UiIcons.TERMINAL, 11);
+                UiTooltips.install(jsonBtn, "Tải dữ liệu kịch bản ra định dạng JSON");
+                jsonBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    exportCasesToJson();
+                });
+
+                Button viewBtn = new Button("Xem danh sách");
+                viewBtn.getStyleClass().addAll("btn-primary", "btn-sm");
+                UiIcons.setGraphic(viewBtn, UiIcons.SEARCH, 11);
+                UiTooltips.install(viewBtn, "Xem chi tiết danh sách kịch bản ở khung bên phải");
+                viewBtn.setOnAction(e -> {
+                    currentGeneratedCases.clear();
+                    currentGeneratedCases.addAll(casesSnapshot);
+                    currentSuggestedGroup = msg.getSuggestedGroup();
+                    currentSuggestedSuite = msg.getSuggestedSuite();
+                    generatedCasesListView.getItems().setAll(currentGeneratedCases);
+                    resultSummaryLabel.setText(msg.getContent());
+                    applyToSuiteBtn.setDisable(false);
+                    if (exportCasesMenuBtn != null) {
+                        exportCasesMenuBtn.setDisable(false);
+                    }
+                    generatedCasesListView.getSelectionModel().select(0);
+                });
+
+                buttonsRow.getChildren().addAll(excelBtn, mdBtn, jsonBtn, viewBtn);
+            }
             actionBox.getChildren().addAll(titleRow, buttonsRow);
             bubble.getChildren().add(actionBox);
         }

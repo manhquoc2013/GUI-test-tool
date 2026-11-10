@@ -53,19 +53,27 @@ class AiAmbiguityAnalyzerTest {
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
                 analyzer.detectIntent("chỉ tạo kịch bản kiểm thử"));
 
-        // Test Cases & Test Scripts / Automation Code intent
+        // Both Test Scenarios and Test Scripts / Automation Code intent
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                analyzer.detectIntent("tạo cả test scenario và test case"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                analyzer.detectIntent("tạo test scenario và test script"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                analyzer.detectIntent("tạo kịch bản và sinh test script"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                analyzer.detectIntent("kịch bản kiểm thử và viết code test automation"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_BOTH,
+                analyzer.detectIntent("yêu cầu làm cả 2 kịch bản và script"));
+
+        // Test Cases & Test Scripts / Automation Code intent (without scenario keyword)
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
                 analyzer.detectIntent("tạo test case cho chức năng đăng nhập"));
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
-                analyzer.detectIntent("tạo test case theo test scenario"));
-        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
                 analyzer.detectIntent("tạo trường hợp kiểm thử cho tài liệu"));
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
-                analyzer.detectIntent("viết test script cho kịch bản đăng nhập"));
+                analyzer.detectIntent("viết test script cho form login"));
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
                 analyzer.detectIntent("viết code test automation"));
-        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
-                analyzer.detectIntent("tạo kịch bản và sinh test script"));
     }
 
     @Test

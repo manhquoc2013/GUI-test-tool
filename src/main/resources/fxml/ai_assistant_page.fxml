@@ -126,11 +126,13 @@
                         <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header"/>
                         <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true"/>
                     </VBox>
-                    <MenuButton text="Tải về Test Case" fx:id="exportCasesMenuBtn" styleClass="btn-secondary" disable="true" minWidth="-Infinity">
+                    <MenuButton text="Tải về Test Case / Kịch bản" fx:id="exportCasesMenuBtn" styleClass="btn-secondary" disable="true" minWidth="-Infinity">
                         <items>
-                            <MenuItem text="Xuất Excel (.xlsx) — Chuẩn QA/ISTQB" onAction="#exportCasesToExcel"/>
-                            <MenuItem text="Xuất Markdown (.md) — Đặc tả tài liệu" onAction="#exportCasesToMarkdown"/>
-                            <MenuItem text="Xuất JSON (.json) — Cấu trúc dữ liệu" onAction="#exportCasesToJson"/>
+                            <MenuItem text="Xuất Excel (.xlsx) — Kịch bản chuẩn QA/ISTQB" onAction="#exportCasesToExcel"/>
+                            <MenuItem text="Xuất Markdown (.md) — Tài liệu đặc tả Kịch bản" onAction="#exportCasesToMarkdown"/>
+                            <MenuItem text="Xuất JSON (.json) — Cấu trúc dữ liệu Kịch bản" onAction="#exportCasesToJson"/>
+                            <MenuItem text="Xuất Mã Scripts (.zip) — Toàn bộ file Playwright Java" onAction="#exportScriptsToZip"/>
+                            <MenuItem text="Xuất Trọn gói Cả 2 (.zip) — Kịch bản QA &amp; Mã Java" onAction="#exportFullBundle"/>
                         </items>
                     </MenuButton>
                     <Button text="Nhập vào Suite" fx:id="applyToSuiteBtn" onAction="#applyCasesToSelectedSuite" styleClass="toolbar-btn-save" disable="true"/>

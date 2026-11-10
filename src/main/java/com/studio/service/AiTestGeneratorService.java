@@ -521,12 +521,17 @@ public class AiTestGeneratorService {
         boolean isChatAdvice = analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE
                 && (selectedSkill == null || selectedSkill == AiSkill.AUTO);
 
+        boolean isBothScenariosAndScripts = analysis.intent() == AiAmbiguityAnalyzer.Intent.GENERATE_BOTH;
         boolean isScenarioOnly = analysis.intent() == AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS;
         boolean hasExplicitScriptRequest = AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(userPrompt);
 
         boolean effectiveGenerateScript;
         if (generateScript != null) {
             effectiveGenerateScript = generateScript;
+        } else if (isBothScenariosAndScripts) {
+            // Khi người dùng yêu cầu CẢ HAI (Kịch bản kiểm thử + Mã automation script):
+            // BẬT sinh mã script Playwright Java và thiết kế đầy đủ Test Scenarios
+            effectiveGenerateScript = true;
         } else if (isScenarioOnly) {
             // Khi người dùng yêu cầu tạo test scenario/kịch bản kiểm thử:
             // CHỈ cần tạo kịch bản thôi, TUYỆT ĐỐI KHÔNG sinh script code Playwright Java (scriptCode = "")
@@ -560,7 +565,25 @@ public class AiTestGeneratorService {
                     effectivePrompt, effectiveSkill, attachments, effectiveGenerateScript);
         }
 
-        if (!isChatAdvice && !effectiveGenerateScript) {
+        if (!isChatAdvice && isBothScenariosAndScripts) {
+            systemPrompt = systemPrompt + "\n\n" + """
+                ### 🌟 QUY TẮC BẮT BUỘC: CHẾ ĐỘ TẠO CẢ HAI (TEST SCENARIOS CHUẨN QA + TEST SCRIPTS TỰ ĐỘNG HÓA):
+                1. Người dùng yêu cầu LÀM CẢ HAI: Vừa thiết kế Kịch bản kiểm thử (Test Scenario) chuẩn mực QA/ISTQB, vừa viết Mã kiểm thử tự động hóa (Playwright Java Test Script).
+                2. Đối với phần KỊCH BẢN (Test Scenarios QA Specification):
+                   - Thiết kế đầy đủ tên kịch bản, mục tiêu nghiệp vụ (`description`), độ ưu tiên (`priority` P0-P3), điều kiện tiên quyết (`preconditions`).
+                   - `testSteps`: Các bước tuần tự chi tiết (stepNumber, action, target, testData, description, expectedResult).
+                   - `testDataSets`: Bao quát phân vùng tương đương và giá trị biên (Happy Path, Boundary, Negative, Edge).
+                   - `assertions`: Đầy đủ các tiêu chí nghiệm thu và kết quả mong đợi.
+                3. Đối với phần MÃ TỰ ĐỘNG HÓA (Playwright Java Test Scripts):
+                   - BẮT BUỘC viết mã Playwright Java HOÀN CHỈNH, runnable trong `scriptCode`.
+                   - Tuyệt đối không dùng hard sleep (`Thread.sleep`/`waitForTimeout`).
+                   - Sử dụng auto-waiting, web-first assertions (`assertThat(...)`), resilient locators.
+                   - Tự động bọc bước đăng nhập tiền đề nếu màn hình yêu cầu xác thực.
+                4. Đảm bảo cấu trúc dữ liệu hoàn chỉnh để người dùng có thể XUẤT CẢ HAI:
+                   - Xuất tài liệu Kịch bản kiểm thử ra Excel (.xlsx) / Markdown (.md) / JSON.
+                   - Xuất toàn bộ mã nguồn Playwright Java Test Scripts (.java) hoặc gói nén ZIP trọn gói cả hai.
+                """;
+        } else if (!isChatAdvice && !effectiveGenerateScript) {
             systemPrompt = systemPrompt + "\n\n" + """
                 ### ⚠️ QUY TẮC BẮT BUỘC: CHẾ ĐỘ THIẾT KẾ TEST SCENARIO / KỊCH BẢN KIỂM THỬ CHUẨN QA (KHÔNG SINH SCRIPT CODE):
                 1. Yêu cầu của người dùng là THIẾT KẾ TEST SCENARIO / KỊCH BẢN KIỂM THỬ CHUẨN QA/ISTQB (hoặc chế độ tắt sinh script).

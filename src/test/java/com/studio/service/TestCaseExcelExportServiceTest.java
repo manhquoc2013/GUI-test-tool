@@ -356,4 +356,65 @@ class TestCaseExcelExportServiceTest {
         assertTrue(jsonText.contains("TC02_Negative_Login"));
         assertTrue(jsonText.contains("wrongpass"));
     }
+
+    @Test
+    void testExportScriptsToZipAndFullBundle() throws Exception {
+        AiGeneratedCase ac1 = new AiGeneratedCase("TC01_Happy_Flow", "Kịch bản đăng nhập thành công", "https://example.com/login");
+        ac1.setScriptCode("page.navigate(\"https://example.com/login\");");
+        ac1.setPriority("P0");
+        ac1.setPreconditions(List.of("Tài khoản kích hoạt"));
+
+        TestStep s1 = new TestStep();
+        s1.setStepNumber(1);
+        s1.setAction("NAVIGATE");
+        s1.setTarget("https://example.com/login");
+        s1.setDescription("Mở trang đăng nhập");
+        s1.setExpectedResult("Trang tải thành công");
+        ac1.setTestSteps(List.of(s1));
+
+        AiGeneratedCase ac2 = new AiGeneratedCase("TC02_Negative_Flow", "Kịch bản đăng nhập sai pass", "https://example.com/login");
+        ac2.setScriptCode("page.fill(\"#password\", \"wrong\");");
+        ac2.setPriority("P1");
+
+        List<AiGeneratedCase> cases = List.of(ac1, ac2);
+
+        // 1. Export Scripts ZIP
+        Path scriptsZip = tempDir.resolve("scripts.zip");
+        int count = TestCaseExcelExportService.exportScriptsToZip(cases, scriptsZip);
+        assertEquals(2, count);
+        assertTrue(Files.exists(scriptsZip));
+        assertTrue(Files.size(scriptsZip) > 50);
+
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(Files.newInputStream(scriptsZip))) {
+            List<String> entryNames = new ArrayList<>();
+            java.util.zip.ZipEntry ze;
+            while ((ze = zis.getNextEntry()) != null) {
+                entryNames.add(ze.getName());
+            }
+            assertTrue(entryNames.contains("TC01_Happy_Flow.java"));
+            assertTrue(entryNames.contains("TC02_Negative_Flow.java"));
+        }
+
+        // 2. Export Full Bundle ZIP (Cả Kịch bản QA và Mã Java Scripts)
+        Path bundleZip = tempDir.resolve("full_bundle.zip");
+        TestCaseExcelExportService.exportFullBundle(cases, "Kiểm thử đăng nhập", bundleZip);
+        assertTrue(Files.exists(bundleZip));
+        assertTrue(Files.size(bundleZip) > 100);
+
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(Files.newInputStream(bundleZip))) {
+            List<String> entryNames = new ArrayList<>();
+            java.util.zip.ZipEntry ze;
+            while ((ze = zis.getNextEntry()) != null) {
+                entryNames.add(ze.getName());
+            }
+            // Scenarios documents
+            assertTrue(entryNames.contains("scenarios/TestScenarios_ISTQB.xlsx"));
+            assertTrue(entryNames.contains("scenarios/TestScenarios_Specification.md"));
+            assertTrue(entryNames.contains("scenarios/TestScenarios_Data.json"));
+
+            // Automation Scripts
+            assertTrue(entryNames.contains("scripts/TC01_Happy_Flow.java"));
+            assertTrue(entryNames.contains("scripts/TC02_Negative_Flow.java"));
+        }
+    }
 }

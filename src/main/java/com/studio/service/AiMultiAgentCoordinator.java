@@ -202,9 +202,11 @@ public class AiMultiAgentCoordinator {
                 preInferredSuite,
                 screenInventoryDirective.toString(),
                 resolvedSkill != null ? resolvedSkill.getDisplayName() : AiSkill.PLAYWRIGHT_E2E.getDisplayName(),
-                generateScript
-                        ? "CHẾ ĐỘ SINH TEST CASE & TEST SCRIPT TỰ ĐỘNG HÓA: Sinh đầy đủ các test case cụ thể theo kịch bản và VIẾT MÃ PLAYWRIGHT JAVA TỰ ĐỘNG HÓA hoàn chỉnh trong `scriptCode`, tuyệt đối không dùng Thread.sleep/waitForTimeout."
-                        : "CHẾ ĐỘ TẠO TEST SCENARIO / KỊCH BẢN KIỂM THỬ: Chỉ tạo kịch bản, để trống `scriptCode: \"\"`. Tập trung tối đa vào việc thiết kế bộ kịch bản kiểm thử (Test Scenarios) chuẩn QA/ISTQB, đặc tả luồng người dùng, điều kiện tiên quyết (preconditions), các bước thực hiện tuần tự (testSteps), bộ dữ liệu kiểm thử (testDataSets) và tiêu chí nghiệm thu (assertions). Sẵn sàng xuất tài liệu kịch bản chuẩn (Excel .xlsx, Markdown, JSON)."
+                AiAmbiguityAnalyzer.isBothScenariosAndScriptsRequest(userPrompt)
+                        ? "CHẾ ĐỘ TẠO CẢ HAI (TEST SCENARIO QA + TEST SCRIPT PLAYWRIGHT): Thiết kế đầy đủ bộ kịch bản kiểm thử (Test Scenarios) chuẩn QA/ISTQB và VIẾT MÃ PLAYWRIGHT JAVA TỰ ĐỘNG HÓA hoàn chỉnh trong `scriptCode`. Sẵn sàng xuất CẢ HAI (tài liệu kịch bản Excel/Markdown + mã nguồn Java .zip)."
+                        : (generateScript
+                                ? "CHẾ ĐỘ SINH TEST CASE & TEST SCRIPT TỰ ĐỘNG HÓA: Sinh đầy đủ các test case cụ thể theo kịch bản và VIẾT MÃ PLAYWRIGHT JAVA TỰ ĐỘNG HÓA hoàn chỉnh trong `scriptCode`, tuyệt đối không dùng Thread.sleep/waitForTimeout."
+                                : "CHẾ ĐỘ TẠO TEST SCENARIO / KỊCH BẢN KIỂM THỬ: Chỉ tạo kịch bản, để trống `scriptCode: \"\"`. Tập trung tối đa vào việc thiết kế bộ kịch bản kiểm thử (Test Scenarios) chuẩn QA/ISTQB, đặc tả luồng người dùng, điều kiện tiên quyết (preconditions), các bước thực hiện tuần tự (testSteps), bộ dữ liệu kiểm thử (testDataSets) và tiêu chí nghiệm thu (assertions). Sẵn sàng xuất tài liệu kịch bản chuẩn (Excel .xlsx, Markdown, JSON).")
         );
     }
 
