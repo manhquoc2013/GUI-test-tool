@@ -40,6 +40,32 @@ class AiAmbiguityAnalyzerTest {
 
         assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
                 analyzer.detectIntent("viết test case đăng nhập"));
+
+        // Scenario-only intent
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
+                analyzer.detectIntent("tạo test scenario cho chức năng đăng nhập"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
+                analyzer.detectIntent("kịch bản kiểm thử cho màn hình sản phẩm"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
+                analyzer.detectIntent("sinh test scenarios từ tài liệu"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
+                analyzer.detectIntent("tạo test scenrio cho 10 màn hình"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS,
+                analyzer.detectIntent("chỉ tạo kịch bản kiểm thử"));
+
+        // Test Cases & Test Scripts / Automation Code intent
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("tạo test case cho chức năng đăng nhập"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("tạo test case theo test scenario"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("tạo trường hợp kiểm thử cho tài liệu"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("viết test script cho kịch bản đăng nhập"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("viết code test automation"));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_TESTS,
+                analyzer.detectIntent("tạo kịch bản và sinh test script"));
     }
 
     @Test
@@ -103,6 +129,27 @@ class AiAmbiguityAnalyzerTest {
         assertTrue(augmented.contains("Đầy đủ: Happy + Negative + Edge"));
         assertTrue(augmented.contains("Cần đăng nhập tài khoản trước"));
         assertTrue(augmented.contains("Agency-Agents"));
+    }
+
+    @Test
+    void testScenarioOnlyIntent_ClarificationAndDetection() {
+        AiAmbiguityAnalyzer.AnalysisResult result = analyzer.analyze("tạo test scenario cho chức năng đăng nhập", false, false);
+        assertNotNull(result);
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS, result.intent());
+        assertTrue(result.needsClarification());
+
+        DocumentParserService.ParsedDocument doc = new DocumentParserService.ParsedDocument(
+                "srs.docx",
+                java.nio.file.Path.of("/docs/srs.docx"),
+                false,
+                "== Màn hình 1: Quản lý hàng hóa ==\n== Màn hình 2: Báo cáo tồn kho ==",
+                "text/markdown",
+                10000
+        );
+        AiAmbiguityAnalyzer.AnalysisResult srsResult = analyzer.analyze("tạo test scenario cho tài liệu", true, false, java.util.List.of(doc));
+        assertEquals(AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS, srsResult.intent());
+        assertTrue(srsResult.needsClarification());
+        assertTrue(srsResult.initialClarificationMessage().contains("Test Scenarios"));
     }
 }
 

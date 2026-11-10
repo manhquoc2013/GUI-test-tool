@@ -248,4 +248,114 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                 "Multi-batch orchestration + Loop Engineer expansion must produce 35+ test cases (actual: "
                                                 + result.getCases().size() + ")");
         }
+
+        @Test
+        void testScenarioOnlyPrompt_GeneratesScenariosWithoutAutomationScript() throws Exception {
+                OpenAiClient mockClient = new OpenAiClient() {
+                        @Override
+                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+                                return """
+                                                ```json
+                                                {
+                                                  "summary": "Đã thiết kế 3 kịch bản kiểm thử chuẩn QA/ISTQB",
+                                                  "suggestedGroup": "XacThuc_TaiKhoan",
+                                                  "suggestedSuite": "KiemThu_DangNhap",
+                                                  "cases": [
+                                                    {
+                                                      "name": "SC01_DangNhap_ThanhCong",
+                                                      "description": "Kịch bản đăng nhập tài khoản chuẩn",
+                                                      "priority": "P0",
+                                                      "preconditions": ["Tài khoản đã được kích hoạt"],
+                                                      "testSteps": [
+                                                        {"stepNumber": 1, "action": "NAVIGATE", "target": "LoginPage", "testData": "", "description": "Mở trang đăng nhập", "expectedResult": "Trang mở thành công"},
+                                                        {"stepNumber": 2, "action": "FILL", "target": "EmailField", "testData": "user@test.com", "description": "Nhập email", "expectedResult": "Email hợp lệ"},
+                                                        {"stepNumber": 3, "action": "CLICK", "target": "LoginBtn", "testData": "", "description": "Bấm đăng nhập", "expectedResult": "Chuyển trang Dashboard"}
+                                                      ],
+                                                      "testDataSets": [{"scenario": "Valid credentials", "parameters": {}, "expectedOutcome": "SUCCESS"}],
+                                                      "assertions": [{"type": "PAGE_HAS_TEXT", "locator": "h1", "value": "Dashboard", "status": "ACTIVE"}],
+                                                      "scriptCode": ""
+                                                    }
+                                                  ]
+                                                }
+                                                ```
+                                                """;
+                        }
+                };
+
+                AiTestGeneratorService service = new AiTestGeneratorService(mockClient, new ObjectMapper());
+                AiConfig config = new AiConfig();
+                config.setApiKey("sk-mock-key");
+
+                AiTestGeneratorService.GenerationResult result = service.generateTestCases(
+                                config,
+                                "Tạo test scenario cho chức năng đăng nhập [phạm vi] Đầy đủ [tiền điều kiện] Chuẩn bị sẵn [xác minh] Toàn diện",
+                                List.of(),
+                                "https://example.com/login",
+                                null,
+                                List.of(),
+                                null,
+                                AiSkill.PLAYWRIGHT_E2E,
+                                null,
+                                null); // generateScript=null -> auto detected based on scenario intent
+
+                assertNotNull(result);
+                assertFalse(result.getCases().isEmpty());
+                for (AiGeneratedCase c : result.getCases()) {
+                        assertEquals("", c.getScriptCode(),
+                                        "When user requests test scenario only, scriptCode MUST be empty");
+                        assertFalse(c.getTestSteps().isEmpty(), "Scenario must contain detailed test steps");
+                        assertFalse(c.getAssertions().isEmpty(), "Scenario must contain assertions");
+                }
+        }
+
+        @Test
+        void testTestCaseAndScriptPrompt_EnablesAutomationScript() throws Exception {
+                OpenAiClient mockClient = new OpenAiClient() {
+                        @Override
+                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+                                return """
+                                                ```json
+                                                {
+                                                  "summary": "Đã sinh test case và test script runnable",
+                                                  "suggestedGroup": "XacThuc_TaiKhoan",
+                                                  "suggestedSuite": "KiemThu_DangNhap",
+                                                  "cases": [
+                                                    {
+                                                      "name": "TC01_DangNhap_ThanhCong",
+                                                      "description": "Test case đăng nhập chuẩn",
+                                                      "priority": "P0",
+                                                      "preconditions": ["Tài khoản sẵn sàng"],
+                                                      "testSteps": [{"stepNumber": 1, "action": "NAVIGATE", "target": "LoginPage", "testData": "", "expectedResult": "OK"}],
+                                                      "testDataSets": [{"scenario": "Valid", "parameters": {}, "expectedOutcome": "OK"}],
+                                                      "assertions": [{"type": "PAGE_HAS_TEXT", "locator": "h1", "value": "Dashboard", "status": "ACTIVE"}],
+                                                      "scriptCode": "page.navigate(\\"https://example.com/login\\");"
+                                                    }
+                                                  ]
+                                                }
+                                                ```
+                                                """;
+                        }
+                };
+
+                AiTestGeneratorService service = new AiTestGeneratorService(mockClient, new ObjectMapper());
+                AiConfig config = new AiConfig();
+                config.setApiKey("sk-mock-key");
+
+                AiTestGeneratorService.GenerationResult result = service.generateTestCases(
+                                config,
+                                "Tạo test case và test script tự động hóa theo test scenario [phạm vi] Đầy đủ [tiền điều kiện] Sẵn sàng [xác minh] Toàn diện",
+                                List.of(),
+                                "",
+                                null,
+                                List.of(),
+                                null,
+                                AiSkill.PLAYWRIGHT_E2E,
+                                null,
+                                null);
+
+                assertNotNull(result);
+                assertFalse(result.getCases().isEmpty());
+                assertTrue(result.getCases().get(0).getScriptCode().contains("page.navigate(\"https://example.com/login\");"),
+                                "Script code must contain runnable Playwright automation command");
+        }
 }

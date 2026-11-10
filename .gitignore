@@ -20,3 +20,5 @@ data/studio_cache*
 .factorypath
 data/converted_docs/**
 !data/converted_docs/.gitkeep
+data/ai_artifacts/**
+!data/ai_artifacts/.gitkeep

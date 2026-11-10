@@ -18,6 +18,7 @@ public class AiAmbiguityAnalyzer {
         EVALUATE_TEST,
         GAP_ANALYSIS,
         CHAT_ADVICE,
+        GENERATE_SCENARIOS,
         GENERATE_TESTS
     }
 
@@ -27,6 +28,39 @@ public class AiAmbiguityAnalyzer {
             String targetEntity,
             List<AiClarificationQuestion> questions,
             String initialClarificationMessage) {
+    }
+
+    /**
+     * Checks if the user prompt explicitly requests test script generation, automation code, or Playwright scripts.
+     */
+    public static boolean containsScriptOrAutomationRequest(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        String p = prompt.toLowerCase(Locale.ROOT);
+        return p.contains("test script") || p.contains("test scripts")
+                || p.contains("viết script") || p.contains("viet script")
+                || p.contains("sinh script") || p.contains("tạo script")
+                || p.contains("viết code") || p.contains("viet code")
+                || p.contains("sinh code") || p.contains("code test")
+                || p.contains("automation") || p.contains("tự động hóa") || p.contains("tu dong hoa")
+                || p.contains("playwright");
+    }
+
+    /**
+     * Checks if the user prompt specifically requests ONLY test scenarios / kịch bản kiểm thử,
+     * without automation test scripts or code.
+     */
+    public static boolean isScenarioOnlyRequest(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        String p = prompt.toLowerCase(Locale.ROOT);
+        boolean hasScenarioKeyword = p.contains("scenario") || p.contains("scenarios")
+                || p.contains("scenrio") || p.contains("kịch bản") || p.contains("kich ban");
+        boolean hasCaseOrScriptKeyword = p.contains("test case") || p.contains("test cases")
+                || p.contains("testcase") || p.contains("testcases")
+                || p.contains("trường hợp kiểm thử") || p.contains("truong hop kiem thu")
+                || p.contains("ca kiểm thử") || p.contains("ca kiem thu")
+                || containsScriptOrAutomationRequest(p);
+
+        return hasScenarioKeyword && !hasCaseOrScriptKeyword;
     }
 
     /**
@@ -71,6 +105,11 @@ public class AiAmbiguityAnalyzer {
             return Intent.CHAT_ADVICE;
         }
 
+        // 5. Test Scenario only intent (QA Specification without automation code)
+        if (isScenarioOnlyRequest(p)) {
+            return Intent.GENERATE_SCENARIOS;
+        }
+
         return Intent.GENERATE_TESTS;
     }
 
@@ -84,12 +123,12 @@ public class AiAmbiguityAnalyzer {
         String p = prompt.trim();
 
         if (intent == Intent.SEARCH_TESTS) {
-            return p.replaceAll("^(?i)(tìm kiếm|tìm|search)\\s+(test\\s+case(s)?|case(s)?|kịch bản)?\\s*", "").trim();
+            return p.replaceAll("^(?i)(tìm kiếm|tìm|search)\\s+(test\\s+case(s)?|case(s)?|kịch bản|scenario(s)?)?\\s*", "").trim();
         }
 
         if (intent == Intent.EVALUATE_TEST) {
             return p.replaceAll(
-                    "^(?i)(đánh giá|review|chấm điểm|audit|kiểm tra)\\s+(chất lượng\\s+)?(test\\s+case(s)?|case(s)?|kịch bản)?\\s*",
+                    "^(?i)(đánh giá|review|chấm điểm|audit|kiểm tra)\\s+(chất lượng\\s+)?(test\\s+case(s)?|case(s)?|kịch bản|scenario(s)?)?\\s*",
                     "").trim();
         }
 
@@ -97,9 +136,10 @@ public class AiAmbiguityAnalyzer {
     }
 
     public AnalysisResult analyze(String prompt, boolean hasAttachments, boolean hasLiveDom) {
+        Intent intent = detectIntent(prompt);
         if (hasAttachments) {
             // Backward compatibility when parsed document objects are not provided
-            return new AnalysisResult(Intent.GENERATE_TESTS, false, extractTargetEntity(prompt, detectIntent(prompt)), List.of(), "");
+            return new AnalysisResult(intent, false, extractTargetEntity(prompt, intent), List.of(), "");
         }
         return analyze(prompt, false, hasLiveDom, List.of());
     }
@@ -116,7 +156,7 @@ public class AiAmbiguityAnalyzer {
         Intent intent = detectIntent(prompt);
         String target = extractTargetEntity(prompt, intent);
 
-        if (intent != Intent.GENERATE_TESTS) {
+        if (intent != Intent.GENERATE_TESTS && intent != Intent.GENERATE_SCENARIOS) {
             return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
@@ -128,7 +168,7 @@ public class AiAmbiguityAnalyzer {
 
         // If user already answered interactive questions in this turn, proceed directly
         if (isClarified) {
-            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+            return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
         // Case A: Large SRS Document Attached -> Detect Multi-Screen Ambiguities & Scope Decisions
@@ -140,25 +180,29 @@ public class AiAmbiguityAnalyzer {
             // ask structured clarification on Screen Scope, Test Depth, and Script Generation
             boolean isLargeSrs = screens.size() >= 2 || attachedDocs.stream().anyMatch(d -> d != null && d.getSizeBytes() > 4000);
             if (isLargeSrs) {
-                List<AiClarificationQuestion> srsQuestions = generateLargeSrsClarificationQuestions(screens, trimmed);
+                List<AiClarificationQuestion> srsQuestions = generateLargeSrsClarificationQuestions(screens, trimmed, intent);
                 String docName = attachedDocs.get(0).getFileName();
                 String screenSummary = screens.size() >= 2
                         ? "phát hiện **" + screens.size() + " màn hình / phân hệ chức năng**"
                         : "phát hiện tài liệu đặc tả chi tiết";
 
+                String taskType = (intent == Intent.GENERATE_SCENARIOS)
+                        ? "thiết kế bộ kịch bản kiểm thử (Test Scenarios)"
+                        : "thiết kế bộ Test Cases & Test Scripts";
+
                 String summary = "🔍 **[Agent 1 - Spec Miner]** Đã phân tích tài liệu đính kèm **`" + docName + "`** và "
                         + screenSummary + ".\n\n"
-                        + "Để đội ngũ 4 Tác nhân AI phối hợp thiết kế bộ kịch bản **đầy đủ, bao quát toàn bộ trường hợp** mà không bị sót hoặc chung chung, vui lòng xác nhận các điểm mờ sau:";
+                        + "Để đội ngũ 4 Tác nhân AI phối hợp " + taskType + " **đầy đủ, bao quát toàn bộ trường hợp** mà không bị sót hoặc chung chung, vui lòng xác nhận các điểm mờ sau:";
 
-                return new AnalysisResult(Intent.GENERATE_TESTS, true, target, srsQuestions, summary);
+                return new AnalysisResult(intent, true, target, srsQuestions, summary);
             }
 
-            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+            return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
         // Case B: Live DOM scanned -> High UI context available
         if (hasLiveDom) {
-            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+            return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
         boolean hasUrl = lower.contains("http://") || lower.contains("https://");
@@ -167,7 +211,7 @@ public class AiAmbiguityAnalyzer {
         boolean isDetailed = trimmed.length() > 140 && (hasUrl || hasSteps);
 
         if (isDetailed) {
-            return new AnalysisResult(Intent.GENERATE_TESTS, false, target, List.of(), "");
+            return new AnalysisResult(intent, false, target, List.of(), "");
         }
 
         // Case C: Vague or brief prompt -> Needs clarification
@@ -176,11 +220,11 @@ public class AiAmbiguityAnalyzer {
                 + (trimmed.length() > 50 ? trimmed.substring(0, 47) + "..." : trimmed)
                 + "\"**. Để bộ test case sinh ra đầy đủ, chính xác và không bị sơ sài, vui lòng làm rõ một số điểm mờ dưới đây:";
 
-        return new AnalysisResult(Intent.GENERATE_TESTS, true, target, questions, summary);
+        return new AnalysisResult(intent, true, target, questions, summary);
     }
 
     private List<AiClarificationQuestion> generateLargeSrsClarificationQuestions(
-            List<AiMultiAgentCoordinator.ScreenSpecSection> screens, String prompt) {
+            List<AiMultiAgentCoordinator.ScreenSpecSection> screens, String prompt, Intent intent) {
         List<AiClarificationQuestion> list = new ArrayList<>();
         int screenCount = screens.size();
 
@@ -212,18 +256,30 @@ public class AiAmbiguityAnalyzer {
                 true));
 
         // Question 3: Output Deliverables (NLP Test Steps vs Runnable Playwright Code)
-        boolean hasUrl = prompt != null && (prompt.contains("http://") || prompt.contains("https://"));
-        list.add(new AiClarificationQuestion(
-                "q_output_type",
-                "3. Kết quả đầu ra mong muốn của đợt sinh này:",
-                List.of(
-                        hasUrl
-                                ? "(Khuyên dùng) Bộ kịch bản đầy đủ kép: Đặc tả QA chi tiết (Steps, Data, Assertions) + Mã Playwright Java tự động hóa"
-                                : "(Khuyên dùng) Thiết kế bộ Test Case QA/ISTQB chi tiết (Các bước, BVA, Tiêu chí nghiệm thu) - Tối ưu cho tài liệu chưa có URL thật",
-                        "Sinh kèm mã Playwright Java mẫu (dùng URL demo / startUrl nội bộ)",
-                        "Xuất ma trận kiểm thử (Test Matrix) & danh sách kịch bản ra Excel (.xlsx)"),
-                false,
-                true));
+        if (intent == Intent.GENERATE_SCENARIOS) {
+            list.add(new AiClarificationQuestion(
+                    "q_output_type",
+                    "3. Định dạng tài liệu kịch bản kiểm thử (Test Scenario Deliverable):",
+                    List.of(
+                            "(Khuyên dùng) Đặc tả Kịch bản kiểm thử (Test Scenario) chuẩn QA/ISTQB - Xuất Excel (.xlsx) / Markdown / JSON (Không sinh mã Playwright)",
+                            "Đặc tả Kịch bản chi tiết kèm Ma trận bao phủ chức năng (Traceability Matrix)",
+                            "Bộ kịch bản tóm tắt các luồng người dùng (User Journey Flows)"),
+                    false,
+                    true));
+        } else {
+            boolean hasUrl = prompt != null && (prompt.contains("http://") || prompt.contains("https://"));
+            list.add(new AiClarificationQuestion(
+                    "q_output_type",
+                    "3. Kết quả đầu ra mong muốn của đợt sinh này:",
+                    List.of(
+                            hasUrl
+                                    ? "(Khuyên dùng) Bộ kịch bản đầy đủ kép: Đặc tả QA chi tiết (Steps, Data, Assertions) + Mã Playwright Java tự động hóa"
+                                    : "(Khuyên dùng) Thiết kế bộ Test Case QA/ISTQB chi tiết (Các bước, BVA, Tiêu chí nghiệm thu) - Tối ưu cho tài liệu chưa có URL thật",
+                            "Sinh kèm mã Playwright Java mẫu (dùng URL demo / startUrl nội bộ)",
+                            "Xuất ma trận kiểm thử (Test Matrix) & danh sách kịch bản ra Excel (.xlsx)"),
+                    false,
+                    true));
+        }
 
         return list;
     }

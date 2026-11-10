@@ -521,9 +521,23 @@ public class AiTestGeneratorService {
         boolean isChatAdvice = analysis.intent() == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE
                 && (selectedSkill == null || selectedSkill == AiSkill.AUTO);
 
-        boolean effectiveGenerateScript = (generateScript != null)
-                ? generateScript
-                : containsTargetUrl(userPrompt, attachments, domJson, contextInfo);
+        boolean isScenarioOnly = analysis.intent() == AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS;
+        boolean hasExplicitScriptRequest = AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(userPrompt);
+
+        boolean effectiveGenerateScript;
+        if (generateScript != null) {
+            effectiveGenerateScript = generateScript;
+        } else if (isScenarioOnly) {
+            // Khi người dùng yêu cầu tạo test scenario/kịch bản kiểm thử:
+            // CHỈ cần tạo kịch bản thôi, TUYỆT ĐỐI KHÔNG sinh script code Playwright Java (scriptCode = "")
+            effectiveGenerateScript = false;
+        } else if (hasExplicitScriptRequest) {
+            // Khi người dùng yêu cầu tạo test case / trường hợp kiểm thử / test script / code automation:
+            // Lúc này mới viết code test automation
+            effectiveGenerateScript = true;
+        } else {
+            effectiveGenerateScript = containsTargetUrl(userPrompt, attachments, domJson, contextInfo);
+        }
 
         String systemPrompt;
         if (isChatAdvice) {
@@ -548,18 +562,31 @@ public class AiTestGeneratorService {
 
         if (!isChatAdvice && !effectiveGenerateScript) {
             systemPrompt = systemPrompt + "\n\n" + """
-                ### ⚠️ QUY TẮC BẮT BUỘC KHI KHÔNG CÓ URL/LINK TRANG CẦN TEST (HOẶC TẮT TẠO TEST SCRIPT):
-                1. Yêu cầu kiểm thử hiện tại KHÔNG có URL/link trang web cần test (hoặc người dùng đã tắt tùy chọn tạo script).
-                2. TUYỆT ĐỐI KHÔNG SINH MÃ PLAYWRIGHT JAVA trong trường `scriptCode`. Đặt `scriptCode = ""` (chuỗi rỗng).
-                3. Tuyệt đối không bịa đặt startUrl (nếu không có thì đặt `startUrl = ""`).
-                4. Tập trung 100% chi tiết vào việc đặc tả bộ Test Case chuẩn QA/ISTQB:
-                   - `name`: Tên ca kiểm thử rõ ràng, quy chuẩn (ví dụ: TC01_DangNhap_ThanhCong, TC02_DangNhap_SaiMatKhau...).
-                   - `description`: Mục tiêu và phạm vi kiểm thử chi tiết.
+                ### ⚠️ QUY TẮC BẮT BUỘC: CHẾ ĐỘ THIẾT KẾ TEST SCENARIO / KỊCH BẢN KIỂM THỬ CHUẨN QA (KHÔNG SINH SCRIPT CODE):
+                1. Yêu cầu của người dùng là THIẾT KẾ TEST SCENARIO / KỊCH BẢN KIỂM THỬ CHUẨN QA/ISTQB (hoặc chế độ tắt sinh script).
+                2. TUYỆT ĐỐI KHÔNG SINH MÃ PLAYWRIGHT JAVA trong trường `scriptCode`. BẮT BUỘC đặt `scriptCode = ""` (chuỗi rỗng).
+                3. Đặt `startUrl = ""` (hoặc link màn hình nếu có trong tài liệu).
+                4. Tập trung 100% năng lực vào việc thiết kế bộ kịch bản kiểm thử chi tiết, quy chuẩn:
+                   - `name`: Tên kịch bản rõ ràng (ví dụ: SC01_DangNhap_ThanhCong, SC02_DangNhap_SaiMatKhau hoặc TC01_...).
+                   - `description`: Mục tiêu, luồng nghiệp vụ và phạm vi bao phủ kịch bản.
                    - `priority`: P0, P1, P2, P3.
-                   - `preconditions`: Môi trường, dữ liệu và trạng thái tiền đề cần chuẩn bị.
+                   - `preconditions`: Môi trường, dữ liệu mẫu, quyền hạn và trạng thái tiền đề cần chuẩn bị.
                    - `testSteps`: Danh sách đầy đủ các bước thực hiện tuần tự (`stepNumber`, `action`, `target` [tên trường/nút theo tài liệu], `testData`, `description`, `expectedResult`).
                    - `testDataSets`: Các bộ dữ liệu thử nghiệm bao quát phân vùng tương đương và giá trị biên (Happy Path, Boundary, Invalid/Empty).
                    - `assertions`: Các tiêu chí nghiệm thu và xác thực kết quả mong đợi.
+                5. Kịch bản này chuẩn bị cho QA tải tài liệu chuẩn (Excel .xlsx, Markdown .md, JSON).
+                """;
+        } else if (!isChatAdvice) {
+            systemPrompt = systemPrompt + "\n\n" + """
+                ### ⚡ QUY TẮC BẮT BUỘC: CHẾ ĐỘ SINH TEST CASE & VIẾT CODE AUTOMATION TEST SCRIPT:
+                1. Yêu cầu của người dùng là TẠO TEST CASE / TRƯỜNG HỢP KIỂM THỬ VÀ TEST SCRIPT TỰ ĐỘNG HÓA.
+                2. Sinh đầy đủ các test case cụ thể theo kịch bản (mỗi màn hình/tính năng tối thiểu 3 - 5 test cases: Happy Path [P0], Negative Validation [P1], Boundary/Edge [P1], Phân quyền/Nghiệp vụ [P2]).
+                3. BẮT BUỘC VIẾT MÃ PLAYWRIGHT JAVA HOÀN CHỈNH trong trường `scriptCode`:
+                   - Mã nguồn Java runnable, độc lập, có thể thực thi trực tiếp bằng Playwright Runner.
+                   - Tuyệt đối không dùng hard sleep (`Thread.sleep`/`waitForTimeout`).
+                   - Sử dụng web-first assertions (`assertThat(...)`), resilient locators (`getByRole`, `getByLabel`, `data-testid`).
+                   - Bọc bước đăng nhập tiền đề nếu màn hình yêu cầu xác thực.
+                4. Cung cấp đầy đủ cả đặc tả NLP (`testSteps`, `testDataSets`, `assertions`) lẫn mã thực thi `scriptCode`.
                 """;
         }
 

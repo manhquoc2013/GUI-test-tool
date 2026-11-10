@@ -1078,12 +1078,34 @@ public class AiAssistantPageController implements Initializable {
             }
         }
         final String detectedTargetUrl = promptUrl;
-        if (detectedTargetUrl != null && autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
+
+        AiAmbiguityAnalyzer.Intent detectedIntent = aiGenerator.getAmbiguityAnalyzer().detectIntent(prompt);
+        boolean isScenarioIntent = (detectedIntent == AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS);
+
+        if (isScenarioIntent) {
+            // Khi người dùng yêu cầu tạo test scenario/kịch bản: Tắt tự động sinh script
+            if (autoGenerateScriptCheck != null && autoGenerateScriptCheck.isSelected()) {
+                autoGenerateScriptCheck.setSelected(false);
+            }
+        } else if (AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(prompt)) {
+            // Khi người dùng yêu cầu tạo test case / test script / code automation: Bật tự động sinh script
+            if (autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
+                autoGenerateScriptCheck.setSelected(true);
+            }
+        } else if (detectedTargetUrl != null && autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
             autoGenerateScriptCheck.setSelected(true);
         }
-        boolean generateScript = (autoGenerateScriptCheck != null)
-                ? autoGenerateScriptCheck.isSelected()
-                : (detectedTargetUrl != null || (liveDomJson != null && !liveDomJson.isBlank() && !"[]".equals(liveDomJson)));
+
+        boolean generateScript;
+        if (isScenarioIntent) {
+            generateScript = false;
+        } else if (AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(prompt)) {
+            generateScript = true;
+        } else if (autoGenerateScriptCheck != null) {
+            generateScript = autoGenerateScriptCheck.isSelected();
+        } else {
+            generateScript = (detectedTargetUrl != null || (liveDomJson != null && !liveDomJson.isBlank() && !"[]".equals(liveDomJson)));
+        }
         final boolean effectiveGenerateScript = generateScript;
         String domContext = liveDomJson;
         final AiConfig effectiveAiConfig = aiConfig;
@@ -1094,8 +1116,9 @@ public class AiAssistantPageController implements Initializable {
             try {
                 String activeDomContext = domContext;
                 // Nếu chưa có DOM context mà phát hiện URL hợp lệ -> Tự động quét Live DOM
-                // ngầm!
-                if ((activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
+                // ngầm (chỉ quét khi không phải là kịch bản thuần túy)!
+                if (!isScenarioIntent
+                        && (activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
                         && detectedTargetUrl != null) {
                     Platform.runLater(() -> updateThinkingStatus(
                             "Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "..."));
@@ -1165,7 +1188,8 @@ public class AiAssistantPageController implements Initializable {
                                 exportCasesMenuBtn.setDisable(false);
                             }
                             generatedCasesListView.getSelectionModel().select(0);
-                            ToastService.success("✨ Đã sinh " + currentGeneratedCases.size() + " test cases thành công!");
+                            String unitLabel = isScenarioIntent ? "kịch bản kiểm thử (Test Scenarios)" : "test cases";
+                            ToastService.success("✨ Đã tạo " + currentGeneratedCases.size() + " " + unitLabel + " thành công!");
                         } else {
                             applyToSuiteBtn.setDisable(true);
                             if (exportCasesMenuBtn != null) {
@@ -1753,6 +1777,85 @@ public class AiAssistantPageController implements Initializable {
         if (msg.hasClarificationQuestions()) {
             VBox clarificationCard = buildClarificationCard(msg);
             bubble.getChildren().add(clarificationCard);
+        }
+
+        // Action Toolbar for Generated Deliverables (Scenarios / Cases & Scripts)
+        if ("assistant".equalsIgnoreCase(role) && msg.getGeneratedCasesSnapshot() != null && !msg.getGeneratedCasesSnapshot().isEmpty()) {
+            List<AiGeneratedCase> casesSnapshot = msg.getGeneratedCasesSnapshot();
+            boolean hasScripts = casesSnapshot.stream().anyMatch(c -> c.getScriptCode() != null && !c.getScriptCode().isBlank());
+            String deliverableTitle = hasScripts
+                    ? "📦 Bộ " + casesSnapshot.size() + " Test Cases & Script Tự động hóa"
+                    : "📋 Bộ " + casesSnapshot.size() + " Kịch bản kiểm thử (Test Scenarios chuẩn QA)";
+
+            VBox actionBox = new VBox(6);
+            actionBox.getStyleClass().add("ai-chat-deliverable-box");
+
+            HBox titleRow = new HBox(6);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            Label boxTitle = new Label(deliverableTitle);
+            boxTitle.getStyleClass().add("ai-chat-deliverable-title");
+            titleRow.getChildren().add(boxTitle);
+
+            HBox buttonsRow = new HBox(6);
+            buttonsRow.setAlignment(Pos.CENTER_LEFT);
+
+            Button excelBtn = new Button("Excel (.xlsx)");
+            excelBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+            UiIcons.setGraphic(excelBtn, UiIcons.EXCEL, 11);
+            UiTooltips.install(excelBtn, "Tải tài liệu kịch bản ra file Excel theo chuẩn QA/ISTQB");
+            excelBtn.setOnAction(e -> {
+                currentGeneratedCases.clear();
+                currentGeneratedCases.addAll(casesSnapshot);
+                currentSuggestedGroup = msg.getSuggestedGroup();
+                currentSuggestedSuite = msg.getSuggestedSuite();
+                exportCasesToExcel();
+            });
+
+            Button mdBtn = new Button("Markdown (.md)");
+            mdBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+            UiIcons.setGraphic(mdBtn, UiIcons.FILE, 11);
+            UiTooltips.install(mdBtn, "Tải tài liệu kịch bản ra file Markdown");
+            mdBtn.setOnAction(e -> {
+                currentGeneratedCases.clear();
+                currentGeneratedCases.addAll(casesSnapshot);
+                currentSuggestedGroup = msg.getSuggestedGroup();
+                currentSuggestedSuite = msg.getSuggestedSuite();
+                exportCasesToMarkdown();
+            });
+
+            Button jsonBtn = new Button("JSON");
+            jsonBtn.getStyleClass().addAll("btn-secondary", "btn-sm");
+            UiIcons.setGraphic(jsonBtn, UiIcons.TERMINAL, 11);
+            UiTooltips.install(jsonBtn, "Tải dữ liệu kịch bản ra định dạng JSON");
+            jsonBtn.setOnAction(e -> {
+                currentGeneratedCases.clear();
+                currentGeneratedCases.addAll(casesSnapshot);
+                currentSuggestedGroup = msg.getSuggestedGroup();
+                currentSuggestedSuite = msg.getSuggestedSuite();
+                exportCasesToJson();
+            });
+
+            Button viewBtn = new Button("Xem danh sách");
+            viewBtn.getStyleClass().addAll("btn-primary", "btn-sm");
+            UiIcons.setGraphic(viewBtn, UiIcons.SEARCH, 11);
+            UiTooltips.install(viewBtn, "Xem chi tiết danh sách kịch bản ở khung bên phải");
+            viewBtn.setOnAction(e -> {
+                currentGeneratedCases.clear();
+                currentGeneratedCases.addAll(casesSnapshot);
+                currentSuggestedGroup = msg.getSuggestedGroup();
+                currentSuggestedSuite = msg.getSuggestedSuite();
+                generatedCasesListView.getItems().setAll(currentGeneratedCases);
+                resultSummaryLabel.setText(msg.getContent());
+                applyToSuiteBtn.setDisable(false);
+                if (exportCasesMenuBtn != null) {
+                    exportCasesMenuBtn.setDisable(false);
+                }
+                generatedCasesListView.getSelectionModel().select(0);
+            });
+
+            buttonsRow.getChildren().addAll(excelBtn, mdBtn, jsonBtn, viewBtn);
+            actionBox.getChildren().addAll(titleRow, buttonsRow);
+            bubble.getChildren().add(actionBox);
         }
 
         // If applied to suite, show indicator badge

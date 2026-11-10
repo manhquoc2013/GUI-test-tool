@@ -1814,6 +1814,19 @@
     -fx-text-fill: #73daca;
     -fx-font-weight: bold;
 }
+.ai-chat-deliverable-box {
+    -fx-background-color: #1e2030;
+    -fx-background-radius: 8px;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 8px;
+    -fx-border-width: 1px;
+    -fx-padding: 8px 10px;
+}
+.ai-chat-deliverable-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #7aa2f7;
+}
 .ai-file-chip {
     -fx-background-color: #24283b;
     -fx-padding: 3px 8px;
