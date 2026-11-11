@@ -949,6 +949,29 @@
     -fx-text-fill: #475569;
 }
 
+/* Field hint + placeholder. Both are defined in the dark theme; without them
+   light mode rendered hints at default colour and size. */
+.field-hint {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-padding: 0 0 2 0;
+}
+.placeholder-label {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 14px;
+}
+
+/* Popup headings for the assert-builder / prompt dialogs. */
+.popup-title {
+    -fx-text-fill: #0f172a;
+    -fx-font-weight: bold;
+    -fx-font-size: 16px;
+}
+.popup-subtitle {
+    -fx-text-fill: #475569;
+    -fx-font-size: 12px;
+}
+
 .section-header {
     -fx-text-fill: #0f172a;
     -fx-font-weight: bold;
@@ -1549,6 +1572,32 @@
 
 .status-unknown {
     -fx-text-fill: #64748b;
+}
+
+/* Explorer preview metadata. These five classes exist in the dark theme but
+   were missing here, so preview titles and stat lines fell back to default
+   label styling whenever the app ran in light mode. */
+.preview-title {
+    -fx-text-fill: #0f172a;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+.preview-name {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+.preview-type {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+}
+.preview-desc {
+    -fx-text-fill: #334155;
+    -fx-font-size: 12px;
+}
+.preview-stats {
+    -fx-text-fill: #2563eb;
+    -fx-font-size: 12px;
 }
 
 .preview-status {
