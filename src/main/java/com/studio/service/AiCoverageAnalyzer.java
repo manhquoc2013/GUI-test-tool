@@ -3,6 +3,7 @@ package com.studio.service;
 import com.studio.model.AiGeneratedCase;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -197,9 +198,11 @@ public final class AiCoverageAnalyzer {
     }
 
     private static Set<String> tokenize(String normalized) {
-        if (normalized.isBlank()) {
+        if (normalized == null || normalized.isBlank()) {
             return Set.of();
         }
-        return Set.of(normalized.split(" "));
+        // Set.of(...) rejects repeated values, and model-written descriptions repeat words all the
+        // time ("xác định ... xác định"), so dedupe through Set.copyOf instead of the varargs factory.
+        return Set.copyOf(Arrays.asList(normalized.split(" ")));
     }
 }
