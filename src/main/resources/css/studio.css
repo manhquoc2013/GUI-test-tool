@@ -2621,6 +2621,12 @@
     -fx-max-width: 420;
 }
 
+/* A tooltip's styleable parent is the control that owns it, so control-scoped text
+   rules would otherwise repaint the tooltip label. Pin the tooltip's own colour. */
+.tooltip .text {
+    -fx-fill: #c0caf5;
+}
+
 .settings-hint-label {
     -fx-font-size: 11px;
     -fx-text-fill: #9aa5ce;

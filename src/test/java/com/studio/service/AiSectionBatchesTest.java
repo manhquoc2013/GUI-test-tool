@@ -80,6 +80,27 @@ class AiSectionBatchesTest {
     }
 
     @Test
+    void aSectionThatContinuesATableIsLabelledByItsHeadingNotByADataRow() {
+        StringBuilder material = new StringBuilder("### 3.1 Bảng trường nhập\n");
+        for (int i = 1; i <= 60; i++) {
+            material.append("| ").append(i).append(" | Trường số ").append(i)
+                    .append(" | bắt buộc | mô tả chi tiết của trường |\n");
+        }
+        material.append("### 4.2 Luồng xử lý\nbước 1 đến bước 15\n");
+
+        List<AiSectionBatches.Section> sections = AiSectionBatches.split(material.toString(), BUDGET);
+
+        assertTrue(sections.size() > 1, "bảng dài phải bị chia phần");
+        assertTrue(sections.get(0).label().contains("3.1"),
+                "phần đầu lấy nhãn từ heading của nó, got: " + sections.get(0).label());
+        String second = sections.get(1).label();
+        assertFalse(second.startsWith("|"),
+                "nhãn không được là một dòng dữ liệu bảng, got: " + second);
+        assertTrue(second.contains("4.2") || second.contains("3.1"),
+                "nhãn phải chỉ ra mục mà phần này thuộc về, got: " + second);
+    }
+
+    @Test
     void aBudgetBelowTheFloorIsRaisedInsteadOfProducingLineSizedChunks() {
         List<AiSectionBatches.Section> sections = AiSectionBatches.split("a".repeat(5_000), 10);
 

@@ -128,6 +128,11 @@ public class AiAssistantPageController implements Initializable {
     private Button attachFileBtn;
     @FXML
     private CheckBox autoGenerateScriptCheck;
+    /**
+     * True while the current tick came from prompt detection, so removing the request may clear it
+     * again. A manual click clears this flag and makes the user's choice stick.
+     */
+    private boolean scriptCheckAutoSelected;
     @FXML
     private ProgressIndicator generationProgress;
     @FXML
@@ -340,14 +345,14 @@ public class AiAssistantPageController implements Initializable {
             UiTooltips.install(exportCasesMenuBtn, "Tải về bộ Test Case đã sinh (Excel .xlsx, Markdown, JSON)");
         }
         if (autoGenerateScriptCheck != null) {
-            UiTooltips.install(autoGenerateScriptCheck, "Tự động sinh mã Playwright Java test script khi có link trang web cần test");
+            UiTooltips.install(autoGenerateScriptCheck,
+                    "Tự động sinh mã Playwright Java test script khi yêu cầu có \"test script\", \"test case\" hoặc \"trường hợp kiểm thử\"");
+            // Unticked by default: an explicit request in the prompt turns automation on, and a
+            // manual click from the user always wins over that detection.
+            autoGenerateScriptCheck.setOnAction(e -> scriptCheckAutoSelected = false);
         }
         if (promptInputArea != null && autoGenerateScriptCheck != null) {
-            promptInputArea.textProperty().addListener((obs, oldV, newV) -> {
-                if (newV != null && (newV.contains("http://") || newV.contains("https://"))) {
-                    autoGenerateScriptCheck.setSelected(true);
-                }
-            });
+            promptInputArea.textProperty().addListener((obs, oldV, newV) -> syncAutoGenerateScript(newV));
         }
         if (refreshTargetsBtn != null) {
             UiIcons.setGraphic(refreshTargetsBtn, UiIcons.REFRESH, 12);
@@ -1998,12 +2003,6 @@ public class AiAssistantPageController implements Initializable {
                 }
             }
             updateAttachmentsVisibility();
-            if (AiTestGeneratorService.containsTargetUrl(
-                    promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
-                if (autoGenerateScriptCheck != null) {
-                    autoGenerateScriptCheck.setSelected(true);
-                }
-            }
         }
     }
 
@@ -2044,12 +2043,6 @@ public class AiAssistantPageController implements Initializable {
             attachedChipsPane.getChildren().remove(chip);
             attachedDocuments.remove(doc);
             updateAttachmentsVisibility();
-            if (AiTestGeneratorService.containsTargetUrl(
-                    promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
-                if (autoGenerateScriptCheck != null) {
-                    autoGenerateScriptCheck.setSelected(true);
-                }
-            }
         });
 
         chip.getChildren().add(removeBtn);
@@ -2263,6 +2256,26 @@ public class AiAssistantPageController implements Initializable {
         return value == null ? "" : value.trim();
     }
 
+    /**
+     * Keeps the "Tạo Test Script" box in step with what the typed prompt asks for. Boxes ticked by
+     * this detection are released again when the wording disappears; a manual click clears the
+     * auto flag, so the user's own choice is never silently reversed.
+     */
+    private void syncAutoGenerateScript(String prompt) {
+        if (autoGenerateScriptCheck == null) {
+            return;
+        }
+        if (AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration(prompt)) {
+            if (!autoGenerateScriptCheck.isSelected()) {
+                autoGenerateScriptCheck.setSelected(true);
+                scriptCheckAutoSelected = true;
+            }
+        } else if (scriptCheckAutoSelected) {
+            autoGenerateScriptCheck.setSelected(false);
+            scriptCheckAutoSelected = false;
+        }
+    }
+
     private void executePromptInternal(AiChatSession targetSession, Path suiteDir, String targetGroupName,
             String targetSuiteName, String prompt,
             List<DocumentParserService.ParsedDocument> docsSnapshot,
@@ -2305,23 +2318,18 @@ public class AiAssistantPageController implements Initializable {
         boolean isBothIntent = (detectedIntent == AiAmbiguityAnalyzer.Intent.GENERATE_BOTH);
         boolean isScenarioIntent = (detectedIntent == AiAmbiguityAnalyzer.Intent.GENERATE_SCENARIOS);
 
-        if (isBothIntent) {
-            // Khi người dùng yêu cầu CẢ HAI (Kịch bản + Script): Bật tự động sinh script
-            if (autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
+        // A URL alone no longer turns automation on: the box stays unticked unless the wording asks
+        // for a script/test case (or the user ticked it), which is what the box shows here.
+        if (autoGenerateScriptCheck != null) {
+            if (isBothIntent) {
                 autoGenerateScriptCheck.setSelected(true);
-            }
-        } else if (isScenarioIntent) {
-            // Khi người dùng yêu cầu tạo test scenario/kịch bản: Tắt tự động sinh script
-            if (autoGenerateScriptCheck != null && autoGenerateScriptCheck.isSelected()) {
+                scriptCheckAutoSelected = true;
+            } else if (isScenarioIntent) {
                 autoGenerateScriptCheck.setSelected(false);
+                scriptCheckAutoSelected = false;
+            } else {
+                syncAutoGenerateScript(prompt);
             }
-        } else if (AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(prompt)) {
-            // Khi người dùng yêu cầu tạo test case / test script / code automation: Bật tự động sinh script
-            if (autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
-                autoGenerateScriptCheck.setSelected(true);
-            }
-        } else if (detectedTargetUrl != null && autoGenerateScriptCheck != null && !autoGenerateScriptCheck.isSelected()) {
-            autoGenerateScriptCheck.setSelected(true);
         }
 
         boolean generateScript;
@@ -2329,12 +2337,10 @@ public class AiAssistantPageController implements Initializable {
             generateScript = true;
         } else if (isScenarioIntent) {
             generateScript = false;
-        } else if (AiAmbiguityAnalyzer.containsScriptOrAutomationRequest(prompt)) {
-            generateScript = true;
         } else if (autoGenerateScriptCheck != null) {
             generateScript = autoGenerateScriptCheck.isSelected();
         } else {
-            generateScript = (detectedTargetUrl != null || (liveDomJson != null && !liveDomJson.isBlank() && !"[]".equals(liveDomJson)));
+            generateScript = AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration(prompt);
         }
         final boolean effectiveGenerateScript = generateScript;
         String domContext = liveDomJson;
@@ -4030,12 +4036,12 @@ public class AiAssistantPageController implements Initializable {
         updateAttachmentsVisibility();
         updateTokenUsageDisplay();
 
-        if (AiTestGeneratorService.containsTargetUrl(
-                promptInputArea != null ? promptInputArea.getText() : "", attachedDocuments, liveDomJson, null)) {
-            if (autoGenerateScriptCheck != null) {
-                autoGenerateScriptCheck.setSelected(true);
-            }
+        // Restoring a past turn must not resurrect a tick: the box follows this prompt's wording only.
+        scriptCheckAutoSelected = false;
+        if (autoGenerateScriptCheck != null) {
+            autoGenerateScriptCheck.setSelected(false);
         }
+        syncAutoGenerateScript(promptInputArea != null ? promptInputArea.getText() : "");
     }
 
     public static String extractPromptFromUserContent(String content) {

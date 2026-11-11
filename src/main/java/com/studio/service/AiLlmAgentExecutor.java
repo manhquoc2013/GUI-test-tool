@@ -108,6 +108,18 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
      */
     public static final int MAX_ANSWER_CHARS = 12_000;
 
+    /**
+     * How long the merged report of a sectioned run may be, in characters.
+     *
+     * <p>A section answer is a full answer in its own right: the model was handed one batch of the
+     * document and wrote everything it found there. Squeezing every section into an equal share of
+     * {@link #MAX_ANSWER_CHARS} threw most of that away — a two-section run kept ~5 800 characters
+     * per section, so a checker downstream read "…[lược N ký tự]…" and reported findings missing
+     * that had in fact been analysed. The merged report is therefore bounded by a multiple of the
+     * single-answer contract, and the handoff carrier is sized to match it.</p>
+     */
+    public static final int MAX_MERGED_REPORT_CHARS = 4 * MAX_ANSWER_CHARS;
+
     /** Room kept in the window for the rule prompt and the batch preamble. */
     private static final int PROMPT_RESERVE_TOKENS = 1_024;
     /** A batch smaller than this is not worth its own round trip. */
@@ -229,8 +241,8 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
         }
 
         String answer = merged.toString().strip();
-        if (answer.length() > MAX_ANSWER_CHARS) {
-            int keep = MAX_ANSWER_CHARS - CONDENSED_MARKER_RESERVE;
+        if (answer.length() > MAX_MERGED_REPORT_CHARS) {
+            int keep = MAX_MERGED_REPORT_CHARS - CONDENSED_MARKER_RESERVE;
             int dropped = answer.length() - keep;
             condensed += dropped;
             answer = answer.substring(0, keep) + condensedMarker(dropped);
@@ -240,10 +252,14 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
                 condensed);
     }
 
-    /** Characters one section answer may use so the merged report stays inside the contract. */
+    /**
+     * Characters one section answer may keep, so the merged report stays inside
+     * {@link #MAX_MERGED_REPORT_CHARS} without asking a section for less than a normal answer.
+     */
     static int sectionAnswerShare(int sectionCount) {
-        int usable = MAX_ANSWER_CHARS - MERGE_OVERHEAD_CHARS - sectionCount * SECTION_HEADER_CHARS;
-        return Math.max(MIN_SECTION_ANSWER_CHARS, usable / Math.max(1, sectionCount));
+        int count = Math.max(1, sectionCount);
+        int usable = MAX_MERGED_REPORT_CHARS - MERGE_OVERHEAD_CHARS - count * SECTION_HEADER_CHARS;
+        return Math.max(MIN_SECTION_ANSWER_CHARS, Math.min(MAX_ANSWER_CHARS, usable / count));
     }
 
     /**
@@ -352,9 +368,10 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
     private static String sectionUserPrompt(String taskBrief, AiSectionBatches.Section section, int shareChars) {
         return taskBrief
                 + "\n\n[PHẦN " + (section.index() + 1) + '/' + section.total() + "] " + section.label() + '\n'
-                + "Tài liệu dài nên được chia thành " + section.total() + " phần, mỗi phần phân tích riêng. "
-                + "CHỈ phân tích phần dưới đây; các phần khác do lượt gọi khác phụ trách nên không nhắc lại "
-                + "hay suy đoán nội dung ngoài phần này. Trả lời gọn trong tối đa " + shareChars
+                + "Đây là phần " + (section.index() + 1) + '/' + section.total()
+                + " của cùng một tài liệu; mọi phần được phân tích trong cùng lượt chạy và ghép lại "
+                + "thành một báo cáo duy nhất. Phân tích ĐẦY ĐỦ phần dưới đây, không nhắc lại phạm vi "
+                + "tài liệu, không suy đoán nội dung ngoài phần này. Trả lời tối đa " + shareChars
                 + " ký tự, giữ đúng định dạng mà rule yêu cầu.\n\n"
                 + section.body();
     }

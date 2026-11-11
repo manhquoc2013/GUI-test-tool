@@ -107,8 +107,8 @@ class AiLlmAgentExecutorTest {
                 "a circular static initialisation between the executor and the orchestrator would make "
                         + "the cap 0 and truncate every handoff to nothing");
         assertEquals(AiSubAgentOrchestrator.MAX_UPSTREAM_CHARS_PER_AGENT,
-                AiLlmAgentExecutor.MAX_ANSWER_CHARS,
-                "the length contract and the handoff carrier must not drift apart: anything longer "
+                AiLlmAgentExecutor.MAX_MERGED_REPORT_CHARS,
+                "the merged-report contract and the handoff carrier must not drift apart: anything longer "
                         + "than the carrier is written and then thrown away");
     }
 
@@ -162,10 +162,34 @@ class AiLlmAgentExecutorTest {
 
         AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát");
 
-        assertTrue(reply.content().length() <= AiLlmAgentExecutor.MAX_ANSWER_CHARS,
+        assertTrue(reply.content().length() <= AiLlmAgentExecutor.MAX_MERGED_REPORT_CHARS,
                 "câu trả lời gộp phải vừa hợp đồng bàn giao, got: " + reply.content().length());
         assertTrue(reply.condensedChars() > 0,
                 "phần bị lược phải đếm được để orchestrator báo cho người dùng");
+    }
+
+    @Test
+    void eachSectionAnswerSurvivesTheMergeInsteadOfBeingSqueezedIntoOneAnswer() throws Exception {
+        // Regression: sections used to share MAX_ANSWER_CHARS, so a two-section run kept ~5 800
+        // characters per section and the checker downstream read "[lược …]" instead of the findings.
+        AiConfig tinyWindow = new AiConfig();
+        tinyWindow.setMaxTokens(1_000); // 4 000-character floor per call
+        List<String> prompts = new ArrayList<>();
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(tinyWindow, (c, m) -> {
+            prompts.add(m.get(1).getContent());
+            return "A".repeat(7_000) + "END";
+        }, twoScreens());
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát");
+
+        assertEquals(2, prompts.size(), "hai màn hình vừa hai lượt trong cửa sổ nhỏ");
+        assertEquals(0, reply.condensedChars(),
+                "phần đã phân tích không được lược chỉ để vừa một câu trả lời đơn");
+        assertTrue(reply.content().length() > AiLlmAgentExecutor.MAX_ANSWER_CHARS,
+                "báo cáo gộp phải giữ được nhiều hơn một câu trả lời đơn, got: " + reply.content().length());
+        int firstEnd = reply.content().indexOf("END");
+        assertTrue(firstEnd >= 0 && firstEnd != reply.content().lastIndexOf("END"),
+                "cả hai phần phải còn nguyên trong báo cáo gộp");
     }
 
     @Test
@@ -228,6 +252,17 @@ class AiLlmAgentExecutorTest {
             material.append("## Màn hình ").append(i).append('\n')
                     .append("MARKER-").append(i).append(' ')
                     .append("Yêu cầu chức năng chi tiết. ".repeat(130)).append("\n\n");
+        }
+        return material.toString();
+    }
+
+    /** Two headed screens that become exactly two batches under the 4 000-character floor. */
+    private static String twoScreens() {
+        StringBuilder material = new StringBuilder();
+        for (int i = 1; i <= 2; i++) {
+            material.append("## Màn hình ").append(i).append('\n')
+                    .append("MARKER-").append(i).append(' ')
+                    .append("Yêu cầu chức năng chi tiết. ".repeat(100)).append("\n\n");
         }
         return material.toString();
     }

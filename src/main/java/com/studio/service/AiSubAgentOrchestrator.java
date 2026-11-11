@@ -160,11 +160,14 @@ public final class AiSubAgentOrchestrator {
      * producer's answer is already the largest thing in the prompt; capping here keeps a chained turn
      * from overflowing the model window and costing a retry.
      *
-     * <p>Derived from {@link AiLlmAgentExecutor#MAX_ANSWER_CHARS} — the length the agent prompt asks
-     * for — so the carrier always fits the contract instead of silently dropping the tail.</p>
+     * <p>Sized from {@link AiLlmAgentExecutor#MAX_MERGED_REPORT_CHARS} — a sectioned run merges its
+     * parts into one report of that length — so a complete report crosses the handoff whole. The
+     * previous cap was a single answer, which cut the middle out of a two-part report and left the
+     * reviewer receiving it (LoopEngineer) unable to name the findings it had to close.</p>
      */
-    static final int MAX_UPSTREAM_CHARS_PER_AGENT = AiLlmAgentExecutor.MAX_ANSWER_CHARS;
-    static final int MAX_UPSTREAM_TOTAL_CHARS = 20_000;
+    static final int MAX_UPSTREAM_CHARS_PER_AGENT = AiLlmAgentExecutor.MAX_MERGED_REPORT_CHARS;
+    /** Total room for all upstream artefacts: two full reports, which covers a review + the artefact. */
+    static final int MAX_UPSTREAM_TOTAL_CHARS = 2 * AiLlmAgentExecutor.MAX_MERGED_REPORT_CHARS;
     /** Share of the artefact kept from the front; the rest is taken from the end. */
     private static final double HANDOFF_HEAD_SHARE = 0.7;
 

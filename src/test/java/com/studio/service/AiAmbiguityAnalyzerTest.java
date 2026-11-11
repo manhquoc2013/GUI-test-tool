@@ -77,6 +77,25 @@ class AiAmbiguityAnalyzerTest {
     }
 
     @Test
+    void testRequestsScriptOrCaseGeneration_FollowsExplicitWordingOnly() {
+        // The three phrasings a user types when they want automation output.
+        assertTrue(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("tạo test script cho form login"));
+        assertTrue(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("tạo test case cho chức năng đăng nhập"));
+        assertTrue(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("sinh trường hợp kiểm thử từ tài liệu"));
+        assertTrue(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("viết code test automation"));
+        assertTrue(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("TEST CASE cho giỏ hàng"));
+
+        // A plain URL is not a request for a script.
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("kiểm thử https://example.com/login"));
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("đăng nhập với tài khoản admin"));
+        // Scenario-only wording produces a specification, not Playwright code.
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("tạo kịch bản kiểm thử cho màn hình sản phẩm"));
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("chỉ tạo test scenario"));
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration(null));
+        assertFalse(AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration("   "));
+    }
+
+    @Test
     void testVaguePrompt_TriggersClarification() {
         AiAmbiguityAnalyzer.AnalysisResult result = analyzer.analyze("viết test đăng nhập", false, false);
         assertNotNull(result);

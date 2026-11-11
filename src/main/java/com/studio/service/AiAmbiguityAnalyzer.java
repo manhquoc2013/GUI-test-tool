@@ -47,6 +47,28 @@ public class AiAmbiguityAnalyzer {
     }
 
     /**
+     * Checks if the prompt explicitly asks for generated test artefacts that carry automation
+     * output: test scripts, Playwright/code, test cases or case-level "trường hợp kiểm thử".
+     * A scenarios-only request ("kịch bản") stays false because it produces a specification,
+     * not automation code.
+     */
+    public static boolean requestsScriptOrCaseGeneration(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        return containsCaseOrScriptKeyword(prompt.toLowerCase(Locale.ROOT));
+    }
+
+    /** Test-case wording shared by every intent classifier below. */
+    private static boolean containsCaseKeyword(String p) {
+        return p.contains("test case") || p.contains("testcase")
+                || p.contains("trường hợp kiểm thử") || p.contains("truong hop kiem thu")
+                || p.contains("ca kiểm thử") || p.contains("ca kiem thu");
+    }
+
+    private static boolean containsCaseOrScriptKeyword(String p) {
+        return containsCaseKeyword(p) || containsScriptOrAutomationRequest(p);
+    }
+
+    /**
      * Checks if the user prompt specifically requests ONLY test scenarios / kịch bản kiểm thử,
      * without automation test scripts or code.
      */
@@ -55,13 +77,8 @@ public class AiAmbiguityAnalyzer {
         String p = prompt.toLowerCase(Locale.ROOT);
         boolean hasScenarioKeyword = p.contains("scenario") || p.contains("scenarios")
                 || p.contains("scenrio") || p.contains("kịch bản") || p.contains("kich ban");
-        boolean hasCaseOrScriptKeyword = p.contains("test case") || p.contains("test cases")
-                || p.contains("testcase") || p.contains("testcases")
-                || p.contains("trường hợp kiểm thử") || p.contains("truong hop kiem thu")
-                || p.contains("ca kiểm thử") || p.contains("ca kiem thu")
-                || containsScriptOrAutomationRequest(p);
 
-        return hasScenarioKeyword && !hasCaseOrScriptKeyword;
+        return hasScenarioKeyword && !containsCaseOrScriptKeyword(p);
     }
 
     /**
@@ -76,11 +93,7 @@ public class AiAmbiguityAnalyzer {
 
         boolean hasScenario = normalized.contains("scenario") || normalized.contains("scenarios")
                 || normalized.contains("scenrio") || normalized.contains("kịch bản") || normalized.contains("kich ban");
-        boolean hasCaseOrScript = containsScriptOrAutomationRequest(normalized)
-                || normalized.contains("test case") || normalized.contains("test cases")
-                || normalized.contains("testcase") || normalized.contains("testcases")
-                || normalized.contains("trường hợp kiểm thử") || normalized.contains("truong hop kiem thu")
-                || normalized.contains("ca kiểm thử") || normalized.contains("ca kiem thu");
+        boolean hasCaseOrScript = containsCaseOrScriptKeyword(normalized);
 
         boolean hasExplicitBothPhrases = normalized.contains("cả 2") || normalized.contains("ca 2")
                 || normalized.contains("cả hai") || normalized.contains("ca hai")

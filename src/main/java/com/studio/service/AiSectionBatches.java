@@ -27,13 +27,21 @@ public final class AiSectionBatches {
     private static final int LABEL_MAX_CHARS = 80;
     private static final String LINE_BREAK = "\n";
     private static final String HEADING_PREFIX = "#";
+    /** A markdown table row is data, never a section name. */
+    private static final String TABLE_ROW_PREFIX = "|";
+    /** A horizontal rule carries no name either. */
+    private static final String SEPARATOR_PREFIX = "---";
+    /** Plain-text documents number their sections ("4.2 Luồng xử lý") instead of using '#' headings. */
+    private static final java.util.regex.Pattern SECTION_TITLE_PATTERN =
+            java.util.regex.Pattern.compile("^\\d+(?:\\.\\d+)*[.)]?\\s+\\S.*");
 
     /**
      * One batch of material.
      *
      * @param index zero-based position in the whole material
      * @param total number of batches this material was split into
-     * @param label human-readable section name, taken from the batch's first heading
+     * @param label human-readable section name: its first heading, the heading it continues,
+     *              or a numbered section title for plain-text documents
      * @param body  the batch text itself, with all its original lines
      */
     public record Section(int index, int total, String label, String body) {
@@ -53,40 +61,56 @@ public final class AiSectionBatches {
             return List.of();
         }
         int budget = Math.max(MIN_BATCH_CHARS, maxChars);
-        List<String> chunks = chunk(material, budget);
+        List<Batch> chunks = chunk(material, budget);
         List<Section> sections = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
-            String body = chunks.get(i);
-            sections.add(new Section(i, chunks.size(), labelOf(body, i), body));
+            Batch batch = chunks.get(i);
+            sections.add(new Section(i, chunks.size(),
+                    labelOf(batch.body(), batch.headingBefore(), i), batch.body()));
         }
         return sections;
     }
 
-    /** Groups lines into chunks no longer than {@code maxChars}, preferring heading boundaries. */
-    private static List<String> chunk(String material, int maxChars) {
+    /** One chunk plus the heading that was in force when the chunk began. */
+    private record Batch(String body, String headingBefore) {
+    }
+
+    /**
+     * Groups lines into chunks no longer than {@code maxChars}, preferring heading boundaries, and
+     * remembers the heading each chunk continues so a chunk that starts mid-table still has a name.
+     */
+    private static List<Batch> chunk(String material, int maxChars) {
         String[] lines = material.split("\\r\\n|\\r|\\n", -1);
-        List<String> chunks = new ArrayList<>();
+        List<Batch> chunks = new ArrayList<>();
         StringBuilder current = new StringBuilder();
+        String lastHeading = null;
+        String headingAtStart = null;
         for (String line : lines) {
             for (String piece : fitLine(line, maxChars)) {
                 boolean overflows = current.length() > 0
                         && current.length() + piece.length() + LINE_BREAK.length() > maxChars;
                 // Keep a heading at the start of its chunk when the current one is already half full:
-                // a chunk that begins mid-section would be labelled by body text instead of the screen.
+                // a chunk that begins mid-section would lose the screen it belongs to.
                 boolean headingStartsChunk = piece.startsWith(HEADING_PREFIX)
                         && current.length() * 2 >= maxChars;
                 if (overflows || headingStartsChunk) {
-                    flush(chunks, current);
+                    flush(chunks, current, headingAtStart);
+                    headingAtStart = lastHeading;
                 }
-                if (current.length() > 0) {
+                if (current.length() == 0) {
+                    headingAtStart = lastHeading;
+                } else {
                     current.append(LINE_BREAK);
                 }
                 current.append(piece);
+                if (piece.startsWith(HEADING_PREFIX)) {
+                    lastHeading = stripHeading(piece);
+                }
             }
         }
-        flush(chunks, current);
+        flush(chunks, current, headingAtStart);
         if (chunks.isEmpty()) {
-            chunks.add(material);
+            chunks.add(new Batch(material, null));
         }
         return chunks;
     }
@@ -118,23 +142,61 @@ public final class AiSectionBatches {
         return pieces;
     }
 
-    private static void flush(List<String> chunks, StringBuilder current) {
+    private static void flush(List<Batch> chunks, StringBuilder current, String headingBefore) {
         if (current.length() == 0) {
             return;
         }
-        chunks.add(current.toString());
+        chunks.add(new Batch(current.toString(), headingBefore));
         current.setLength(0);
     }
 
-    /** The batch's first heading, or its first non-empty line, shortened for a merge header. */
-    private static String labelOf(String body, int index) {
+    /**
+     * The batch's first heading, else the heading it continues, else its first non-empty line.
+     *
+     * <p>A batch that continues a table starts with a data row, and the old first-line rule labelled
+     * it "| 8 | Quản trị viên | …" — unreadable in the merged report. A heading inside the batch wins;
+     * otherwise the heading in force when the batch began names the section it belongs to.</p>
+     */
+    private static String labelOf(String body, String headingBefore, int index) {
+        String firstProseLine = null;
+        String firstSectionTitle = null;
         for (String raw : body.split("\\r?\\n")) {
-            String line = raw.replaceFirst("^#{1,6}\\s*", "").replace("*", "").strip();
-            if (line.isEmpty()) {
+            String stripped = raw.strip();
+            if (stripped.isEmpty()) {
                 continue;
             }
-            return line.length() > LABEL_MAX_CHARS ? line.substring(0, LABEL_MAX_CHARS - 1) + "…" : line;
+            if (stripped.startsWith(HEADING_PREFIX)) {
+                return shorten(stripHeading(stripped));
+            }
+            boolean tableRow = stripped.startsWith(TABLE_ROW_PREFIX);
+            boolean separator = stripped.startsWith(SEPARATOR_PREFIX);
+            if (!tableRow && !separator) {
+                if (firstProseLine == null) {
+                    firstProseLine = stripped.replace("*", "").strip();
+                }
+                if (firstSectionTitle == null
+                        && stripped.length() <= LABEL_MAX_CHARS * 2
+                        && SECTION_TITLE_PATTERN.matcher(stripped).matches()) {
+                    firstSectionTitle = stripped.replace("*", "").strip();
+                }
+            }
         }
-        return FALLBACK_LABEL + " " + (index + 1);
+        if (headingBefore != null) {
+            return shorten(headingBefore);
+        }
+        if (firstSectionTitle != null) {
+            return shorten(firstSectionTitle);
+        }
+        return firstProseLine != null ? shorten(firstProseLine) : FALLBACK_LABEL + " " + (index + 1);
+    }
+
+    /** A heading line reduced to its readable text. */
+    private static String stripHeading(String line) {
+        return line.replaceFirst("^#{1,6}\\s*", "").replace("*", "").strip();
+    }
+
+    /** Keeps a label short enough for a merge header. */
+    private static String shorten(String label) {
+        return label.length() > LABEL_MAX_CHARS ? label.substring(0, LABEL_MAX_CHARS - 1) + "…" : label;
     }
 }

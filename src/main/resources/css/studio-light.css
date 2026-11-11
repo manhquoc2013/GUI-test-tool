@@ -2158,7 +2158,7 @@
 
 .check-box .box {
     -fx-background-color: #ffffff;
-    -fx-border-color: #94a3b8;
+    -fx-border-color: #64748b;
     -fx-background-radius: 4;
     -fx-border-radius: 4;
     -fx-border-width: 1.5;
@@ -2215,7 +2215,7 @@
 .studio-dialog .check-box .box,
 .settings-tab-pane .check-box .box {
     -fx-background-color: #ffffff;
-    -fx-border-color: #94a3b8;
+    -fx-border-color: #64748b;
 }
 
 .dialog-pane .check-box:selected .box,
@@ -2531,6 +2531,15 @@
     -fx-padding: 5 9;
     -fx-font-size: 11px;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.25), 8, 0.1, 0, 3);
+    -fx-wrap-text: true;
+    -fx-max-width: 420;
+}
+
+/* A tooltip's styleable parent is the control that owns it, so control-scoped text
+   rules (`.check-box .text`, ...) leak into the tooltip label and painted its text
+   #0f172a on this dark fill. Pin the tooltip's own colour instead. */
+.tooltip .text {
+    -fx-fill: #f8fafc;
 }
 
 /* === SCROLLBARS ===

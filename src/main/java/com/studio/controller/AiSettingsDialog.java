@@ -372,14 +372,16 @@ public class AiSettingsDialog {
         aiRow++;
 
         // Max Tokens
-        Label maxTokensLabel = new Label("Giới hạn token (Max Tokens):");
+        Label maxTokensLabel = new Label("Cửa sổ ngữ cảnh - Max Tokens:");
         maxTokensLabel.getStyleClass().add("field-label");
         int initialTokens = Math.max(0, aiConfig.getMaxTokens());
         Spinner<Integer> maxTokensSpinner = new Spinner<>(0, 131072, initialTokens, 1024);
         maxTokensSpinner.setEditable(true);
         HBox.setHgrow(maxTokensSpinner, Priority.ALWAYS);
 
-        Label maxTokensHint = new Label("0 = Không giới hạn (bỏ trần token, khuyên dùng cho DeepSeek & reasoning models)");
+        Label maxTokensHint = new Label("Cửa sổ ngữ cảnh model nhận trong một lượt. "
+                + "0 = ứng dụng tạm tính 32.768 token, nên tài liệu dài sẽ bị chia phần/nén; "
+                + "đặt đúng cửa sổ thật của model (VD 65.536 hoặc 131.072) để AI đọc trọn tài liệu trong một lượt.");
         maxTokensHint.getStyleClass().add("settings-hint-label");
 
         VBox maxTokensBox = new VBox(4, maxTokensSpinner, maxTokensHint);
