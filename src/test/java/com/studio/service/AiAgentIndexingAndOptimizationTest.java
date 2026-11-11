@@ -115,7 +115,7 @@ public class AiAgentIndexingAndOptimizationTest {
     public void testConciseChatSummaryWithoutRawCodeAndArtifactPersistence() throws Exception {
         OpenAiClient mockClient = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 // Simulate LLM returning verbose markdown + code blocks inside summary and a single case
                 return new Completion("""
                         ```json
@@ -167,17 +167,17 @@ public class AiAgentIndexingAndOptimizationTest {
         assertTrue(chatSummary.contains("QuanLyDatPhong"), "Chat summary should show target Group");
         assertTrue(chatSummary.contains("KiemThu_DatPhongKhachSan"), "Chat summary should show target Suite");
 
-        // 2. Multi-Scenario Coverage Expansion: 1 case -> 3 cases (Happy Path, Negative Validation, Boundary BVA)
-        assertEquals(3, result.getCases().size(), "Single case must be expanded to 3 scenarios (Happy Path, Negative, Boundary)");
+        // 2. No companion scenarios are fabricated: the single model-written case stays single.
+        assertEquals(1, result.getCases().size(),
+                "Coordinator must not invent Happy/Negative/Boundary cases the model never returned");
         assertEquals("TC01_DatPhong_ThanhCong", result.getCases().get(0).getName());
-        assertTrue(result.getCases().get(1).getName().startsWith("TC02_"));
-        assertTrue(result.getCases().get(2).getName().startsWith("TC03_"));
 
         // 3. Inline Thread.sleep inside try/catch must be stripped, and assertion alias TEXT_CONTAINS normalized
         AiGeneratedCase tc1 = result.getCases().get(0);
         assertFalse(tc1.getScriptCode().contains("Thread.sleep("), "Inline Thread.sleep inside try/catch must be stripped");
-        assertTrue(tc1.getAssertions().size() >= 2, "Case must have multi-point assertions (>= 2)");
         assertEquals("ELEMENT_HAS_TEXT", tc1.getAssertions().get(0).getType(), "TEXT_CONTAINS must normalize to ELEMENT_HAS_TEXT");
+        assertFalse(result.getAgentReviewReport().getGaps().isEmpty(),
+                "Missing scenarios must be surfaced as gaps instead of being fabricated");
 
         // 4. Verify artifacts (.md report, .json bundle, scripts/*.java, assertions/*_assertions.json) saved in data/ai_artifacts/
         Path artifactDir = result.getArtifactDir();
@@ -191,24 +191,24 @@ public class AiAgentIndexingAndOptimizationTest {
         assertTrue(Files.exists(assertionsDir), "assertions/ sub-folder must exist in artifact directory");
 
         try (Stream<Path> scriptFiles = Files.list(scriptsDir)) {
-            assertEquals(3, scriptFiles.filter(p -> p.toString().endsWith(".java")).count(),
-                    "All 3 test scripts (.java) must be saved in scripts/ directory");
+            assertEquals(1, scriptFiles.filter(p -> p.toString().endsWith(".java")).count(),
+                    "Only model-written scripts may be persisted; no companion scenarios are fabricated");
         }
         try (Stream<Path> assertFiles = Files.list(assertionsDir)) {
-            assertEquals(3, assertFiles.filter(p -> p.toString().endsWith("_assertions.json")).count(),
-                    "All 3 assertion files (*_assertions.json) must be saved in assertions/ directory");
+            assertEquals(1, assertFiles.filter(p -> p.toString().endsWith("_assertions.json")).count(),
+                    "One assertion file per real case must be saved in assertions/");
         }
 
         // 5. Verify fast batch applyCasesToSuite preserves preconditions and writes all cases atomically
         Path suiteDir = StudioPaths.getProjectDir().resolve("QuanLyDatPhong").resolve("KiemThu_DatPhongKhachSan");
         ProjectStore store = new ProjectStore();
         List<TestCase> applied = generator.applyCasesToSuite(suiteDir, result.getCases(), store);
-        assertEquals(3, applied.size());
+        assertEquals(1, applied.size());
         assertTrue(applied.get(0).getDescription().contains("Điều kiện tiên quyết: Khách hàng đã đăng nhập"),
                 "Preconditions must be preserved in TestCase description");
 
         TestSuite reloadedSuite = store.loadAndMigrateSuite(suiteDir);
-        assertEquals(3, reloadedSuite.getCases().size());
+        assertEquals(1, reloadedSuite.getCases().size());
     }
 
     @Test
@@ -257,23 +257,21 @@ public class AiAgentIndexingAndOptimizationTest {
         assertEquals("true", a.getExpectedValue(), "expectedValue should fallback to value when attribute is specified");
         assertTrue(AssertCodeGenerator.isSupported(a.getType()));
 
-        // Verify step-to-script synthesis in AiMultiAgentCoordinator
-        AiGeneratedCase stepCase = new AiGeneratedCase("TC01_StepToScript", "Test step translation", "https://example.com/form");
-        stepCase.setTestSteps(List.of(
-                new com.studio.model.TestStep(1, "FILL", "#email-input", "qa@example.com", "Nhập email", "Email đã nhập"),
-                new com.studio.model.TestStep(2, "CLICK", "#submit-btn", "", "Bấm nút gửi", "Gửi biểu mẫu")
-        ));
-        Assertion vis = new Assertion();
-        vis.setType("ELEMENT_VISIBLE");
-        vis.setLocator("#success-banner");
-        stepCase.setAssertions(List.of(vis));
-
-        String synthesizedScript = service.getMultiAgentCoordinator().synthesizeScenarioScript(stepCase);
-        assertTrue(synthesizedScript.contains("healLocator(\"#email-input\""));
-        assertTrue(synthesizedScript.contains(".fill(\"qa@example.com\")"));
-        assertTrue(synthesizedScript.contains("healLocator(\"#submit-btn\""));
-        assertTrue(synthesizedScript.contains(".click()"));
-        assertTrue(synthesizedScript.contains("#success-banner"));
+        // Steps/assertions are preserved verbatim, but no script is invented when the model omitted it.
+        AiGeneratedCase parsedStepCase = service.parseResponse("""
+                ```json
+                {"summary":"ok","suggestedGroup":"G","suggestedSuite":"S","cases":[
+                  {"name":"TC01_StepToScript","description":"Test step translation","startUrl":"https://example.com/form",
+                   "testSteps":[{"stepNumber":1,"action":"FILL","target":"#email-input","testData":"qa@example.com","expectedResult":"Filled"},
+                                {"stepNumber":2,"action":"CLICK","target":"#submit-btn","testData":"","expectedResult":"Clicked"}],
+                   "assertions":[{"type":"ELEMENT_VISIBLE","locator":"#success-banner","value":"","status":"ACTIVE"}]}
+                ]}
+                ```
+                """).getCases().get(0);
+        assertEquals(2, parsedStepCase.getTestSteps().size(), "Model-provided steps must be preserved");
+        assertEquals(1, parsedStepCase.getAssertions().size(), "Model-provided assertions must be preserved");
+        assertTrue(parsedStepCase.getScriptCode() == null || parsedStepCase.getScriptCode().isBlank(),
+                "A missing scriptCode must stay missing instead of being replaced by a boilerplate script");
 
         // Verify Markdown heading case extraction when no code fence is present
         String mdOnly = """

@@ -417,7 +417,8 @@ public class AiAgentIndexService {
             }
 
             // 2. Retrieve relevant chunks from indexed .md documents in data/converted_docs/
-            List<DocumentChunk> topChunks = searchTopDocumentChunks(conn, queryTerms, 12);
+            int topK = Math.max(4, Math.min(12, budget / 120));
+            List<DocumentChunk> topChunks = searchTopDocumentChunks(conn, queryTerms, topK);
             if (!topChunks.isEmpty()) {
                 StringBuilder docSection = new StringBuilder("### Tri thức Đặc tả liên quan từ Kho Tài liệu .MD đã lập chỉ mục:\n");
                 for (DocumentChunk chunk : topChunks) {
@@ -433,7 +434,8 @@ public class AiAgentIndexService {
                     sb.append(docSection);
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-RAG", "Không truy hồi được ngữ cảnh index: " + e.getMessage());
         }
 
         return sb.toString().trim();
@@ -473,46 +475,105 @@ public class AiAgentIndexService {
                             (desc != null && desc.length() > 90 ? desc.substring(0, 87) + "..." : (desc != null ? desc : ""))));
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-RAG", "Bỏ qua test case index không truy vấn được: " + e.getMessage());
         }
         return results;
     }
 
     private List<DocumentChunk> searchTopDocumentChunks(Connection conn, List<String> queryTerms, int topK) {
-        if (queryTerms.isEmpty()) return List.of();
         List<ScoredChunk> scored = new ArrayList<>();
-        String sql = "SELECT id, doc_id, chunk_index, heading, content, keywords, token_estimate FROM ai_document_chunks LIMIT 200";
+        List<String> terms = queryTerms.stream()
+                .filter(t -> t != null && t.length() >= 3)
+                .distinct()
+                .limit(8)
+                .toList();
+        if (terms.isEmpty() || topK <= 0) {
+            return List.of();
+        }
+
+        // Score in SQL and only return chunks that actually match a term. The previous version read an
+        // arbitrary LIMIT 200 window and scored in Java, so a match beyond the first 200 rows was lost.
+        StringBuilder sql = new StringBuilder(
+                "SELECT id, doc_id, chunk_index, heading, content, keywords, token_estimate, (");
+        for (int i = 0; i < terms.size(); i++) {
+            if (i > 0) sql.append(" + ");
+            sql.append("(CASE WHEN LOWER(heading) LIKE ? THEN 5 ELSE 0 END)");
+            sql.append(" + (CASE WHEN LOWER(keywords) LIKE ? THEN 3 ELSE 0 END)");
+            sql.append(" + (CASE WHEN LOWER(content) LIKE ? THEN 1 ELSE 0 END)");
+        }
+        sql.append(") AS relevance FROM ai_document_chunks WHERE ");
+        for (int i = 0; i < terms.size(); i++) {
+            if (i > 0) sql.append(" OR ");
+            sql.append("LOWER(heading) LIKE ? OR LOWER(keywords) LIKE ? OR LOWER(content) LIKE ?");
+        }
+        sql.append(" ORDER BY relevance DESC, chunk_index ASC LIMIT ?");
+
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int param = 1;
+            for (String term : terms) {
+                String like = "%" + term.toLowerCase(Locale.ROOT) + "%";
+                ps.setString(param++, like);
+                ps.setString(param++, like);
+                ps.setString(param++, like);
+            }
+            for (String term : terms) {
+                String like = "%" + term.toLowerCase(Locale.ROOT) + "%";
+                ps.setString(param++, like);
+                ps.setString(param++, like);
+                ps.setString(param++, like);
+            }
+            ps.setInt(param, Math.max(1, Math.min(24, topK * 2)));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next() && scored.size() < topK) {
+                    scored.add(new ScoredChunk(new DocumentChunk(
+                            rs.getString("id"),
+                            rs.getString("doc_id"),
+                            rs.getInt("chunk_index"),
+                            rs.getString("heading"),
+                            rs.getString("content"),
+                            rs.getString("keywords"),
+                            rs.getInt("token_estimate")
+                    ), rs.getInt("relevance")));
+                }
+            }
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-RAG", "Truy vấn chunk thất bại, dùng chấm điểm trong bộ nhớ: " + e.getMessage());
+            return searchTopDocumentChunksFallback(conn, terms, topK);
+        }
+        return scored.stream().map(ScoredChunk::chunk).toList();
+    }
+
+    /** Fallback for drivers that reject the CASE/ORDER BY query; still term-filtered, never a blind scan. */
+    private List<DocumentChunk> searchTopDocumentChunksFallback(Connection conn, List<String> terms, int topK) {
+        List<ScoredChunk> scored = new ArrayList<>();
+        String sql = "SELECT id, doc_id, chunk_index, heading, content, keywords, token_estimate FROM ai_document_chunks";
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 DocumentChunk chunk = new DocumentChunk(
-                        rs.getString("id"),
-                        rs.getString("doc_id"),
-                        rs.getInt("chunk_index"),
-                        rs.getString("heading"),
-                        rs.getString("content"),
-                        rs.getString("keywords"),
-                        rs.getInt("token_estimate")
-                );
-                String kw = (chunk.keywords() != null ? chunk.keywords() : "").toLowerCase(Locale.ROOT);
-                String head = (chunk.heading() != null ? chunk.heading() : "").toLowerCase(Locale.ROOT);
+                        rs.getString("id"), rs.getString("doc_id"), rs.getInt("chunk_index"),
+                        rs.getString("heading"), rs.getString("content"),
+                        rs.getString("keywords"), rs.getInt("token_estimate"));
+                String head = chunk.heading() != null ? chunk.heading().toLowerCase(Locale.ROOT) : "";
+                String kw = chunk.keywords() != null ? chunk.keywords().toLowerCase(Locale.ROOT) : "";
+                String content = chunk.content() != null ? chunk.content().toLowerCase(Locale.ROOT) : "";
                 int score = 0;
-                for (String term : queryTerms) {
-                    if (head.contains(term)) score += 3;
-                    if (kw.contains(term)) score += 2;
+                for (String term : terms) {
+                    if (head.contains(term)) score += 5;
+                    if (kw.contains(term)) score += 3;
+                    if (content.contains(term)) score += 1;
                 }
                 if (score > 0) {
                     scored.add(new ScoredChunk(chunk, score));
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-RAG", "Fallback truy vấn chunk cũng thất bại: " + e.getMessage());
+            return List.of();
         }
         scored.sort(Comparator.comparingInt(ScoredChunk::score).reversed());
-        List<DocumentChunk> top = new ArrayList<>();
-        for (int i = 0; i < Math.min(topK, scored.size()); i++) {
-            top.add(scored.get(i).chunk());
-        }
-        return top;
+        return scored.stream().limit(topK).map(ScoredChunk::chunk).toList();
     }
 
     private record ScoredChunk(DocumentChunk chunk, int score) {}

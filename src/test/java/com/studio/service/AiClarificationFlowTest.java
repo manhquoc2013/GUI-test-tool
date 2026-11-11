@@ -139,7 +139,7 @@ class AiClarificationFlowTest {
         // 4. Chat advice
         OpenAiClient mockClient = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig cfg, List<ChatMessage> msgs, int outputTokenOverride) {
+            public Completion completeChat(AiConfig cfg, List<ChatMessage> msgs, int outputTokenOverride, boolean jsonMode) {
                 return new Completion("Để chờ element trong Playwright, hãy sử dụng `assertThat(locator).isVisible()` thay vì hard sleep.", "stop");
             }
         };

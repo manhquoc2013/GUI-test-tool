@@ -26,6 +26,13 @@ public class OpenAiClient {
     private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
     private static volatile HttpClient SHARED_HTTP_CLIENT;
 
+    /** Per-attempt HTTP timeout; transient provider stalls should fail fast and retry, not hang the UI. */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(2);
+    private static final int MAX_NETWORK_RETRIES = 2;
+    private static final long RETRY_BASE_BACKOFF_MS = 500;
+    private static final java.util.Set<Integer> RETRYABLE_STATUS_CODES = java.util.Set.of(
+            408, 425, 429, 500, 502, 503, 504);
+
     private static HttpClient getSharedHttpClient() {
         if (SHARED_HTTP_CLIENT == null) {
             synchronized (OpenAiClient.class) {
@@ -261,7 +268,16 @@ public class OpenAiClient {
      */
     public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
             throws IOException, InterruptedException {
-        return executeChat(config, messages, outputTokenOverride);
+        return completeChat(config, messages, outputTokenOverride, false);
+    }
+
+    /**
+     * Same call with an optional JSON-output contract. Providers that reject {@code response_format}
+     * are retried once without it, so a compatible endpoint keeps working.
+     */
+    public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
+                                   boolean jsonMode) throws IOException, InterruptedException {
+        return executeChat(config, messages, outputTokenOverride, jsonMode);
     }
 
     /**
@@ -270,7 +286,7 @@ public class OpenAiClient {
      * otherwise max_tokens is omitted (model default).
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) throws IOException, InterruptedException {
-        Completion completion = executeChat(config, messages, outputTokenOverride);
+        Completion completion = executeChat(config, messages, outputTokenOverride, false);
         if (completion.truncated()) {
             // The caller asked for a plain string, so it cannot act on the stop reason. Retry once with a
             // larger budget here rather than handing back a half-written script as if it were complete.
@@ -292,7 +308,7 @@ public class OpenAiClient {
             if (escalated > budget) {
                 AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, chạy lại với max_tokens=" + escalated
                         + " (trước: " + (budget > 0 ? String.valueOf(budget) : "mặc định model") + ")");
-                Completion retry = executeChat(config, messages, escalated);
+                Completion retry = executeChat(config, messages, escalated, false);
                 if (!retry.content().isBlank() && retry.content().length() >= completion.content().length()) {
                     return retry.content();
                 }
@@ -309,8 +325,8 @@ public class OpenAiClient {
         return Math.max(0, outputTokenOverride);
     }
 
-    private Completion executeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
-            throws IOException, InterruptedException {
+    private Completion executeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
+                                   boolean jsonMode) throws IOException, InterruptedException {
         String baseUrl = config.getEffectiveBaseUrl();
         String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
@@ -327,58 +343,32 @@ public class OpenAiClient {
             requestedMaxTokens = outputTokenOverride;
         }
 
-        ObjectNode root = mapper.createObjectNode();
-        root.put("model", config.getEffectiveModel());
-        root.put("temperature", config.getTemperature());
-        if (requestedMaxTokens > 0) {
-            root.put("max_tokens", requestedMaxTokens);
-        }
-
-        ArrayNode messagesNode = root.putArray("messages");
-        for (ChatMessage msg : messages) {
-            ObjectNode m = messagesNode.addObject();
-            m.put("role", msg.getRole());
-
-            if (msg.getImageDataUrls().isEmpty()) {
-                m.put("content", msg.getTextContent());
-            } else {
-                ArrayNode contentArray = m.putArray("content");
-                ObjectNode textNode = contentArray.addObject();
-                textNode.put("type", "text");
-                textNode.put("text", msg.getTextContent());
-
-                for (String imgUrl : msg.getImageDataUrls()) {
-                    ObjectNode imgPart = contentArray.addObject();
-                    imgPart.put("type", "image_url");
-                    ObjectNode urlObj = imgPart.putObject("image_url");
-                    urlObj.put("url", imgUrl);
-                }
-            }
-        }
-
+        ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, jsonMode);
         String requestBody = mapper.writeValueAsString(root);
         String maxTokensDesc = requestedMaxTokens > 0 ? String.valueOf(requestedMaxTokens) : "không giới hạn (mặc định model)";
         AiLoggingService.info("AI-REQUEST", "Gửi yêu cầu tới " + config.getEffectiveModel() + " (" + targetUrl
                 + ") | max_tokens=" + maxTokensDesc + " | temp=" + config.getTemperature()
-                + " | messages=" + messages.size());
+                + " | json_mode=" + jsonMode + " | messages=" + messages.size());
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(targetUrl))
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("User-Agent", "TestStudio/1.0")
-                .timeout(Duration.ofMinutes(2))
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
+        Attempt attempt = sendWithRetry(targetUrl, apiKey, requestBody);
+        HttpResponse<String> response = attempt.response();
+        long latency = attempt.latencyMs();
 
-        long startTime = System.currentTimeMillis();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        long latency = System.currentTimeMillis() - startTime;
+        // Some OpenAI-compatible servers reject response_format outright. Losing structured output is
+        // better than losing the whole turn, so retry once without it and say so in the log.
+        if (jsonMode && (response.statusCode() == 400 || response.statusCode() == 422)
+                && looksLikeUnsupportedJsonMode(response.body())) {
+            AiLoggingService.warn("AI-REQUEST", provider + " từ chối response_format=json_object; thử lại ở chế độ text");
+            root = buildRequestBody(config, messages, requestedMaxTokens, false);
+            attempt = sendWithRetry(targetUrl, apiKey, mapper.writeValueAsString(root));
+            response = attempt.response();
+            latency = attempt.latencyMs();
+        }
 
         if (response.statusCode() != 200) {
             String err = extractErrorMessage(response.body());
             String safeErr = com.studio.util.SecuritySanitizer.sanitize(err, apiKey);
-            AiLoggingService.error("AI-RESPONSE", "Lỗi HTTP " + response.statusCode() + " sau " + latency + "ms: " + safeErr);
+            AiLoggingService.error("AI-RESPONSE", "Lỗi HTTP " + response.statusCode() + ": " + safeErr);
             throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + safeErr);
         }
 
@@ -441,6 +431,99 @@ public class OpenAiClient {
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi HTTP 200 nhưng không tìm thấy choices[] hợp lệ.");
         return new Completion("", "missing");
+    }
+
+    private ObjectNode buildRequestBody(AiConfig config, List<ChatMessage> messages,
+                                        int requestedMaxTokens, boolean jsonMode) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("model", config.getEffectiveModel());
+        root.put("temperature", config.getTemperature());
+        if (requestedMaxTokens > 0) {
+            root.put("max_tokens", requestedMaxTokens);
+        }
+        if (jsonMode) {
+            root.putObject("response_format").put("type", "json_object");
+        }
+
+        ArrayNode messagesNode = root.putArray("messages");
+        for (ChatMessage msg : messages) {
+            ObjectNode m = messagesNode.addObject();
+            m.put("role", msg.getRole());
+
+            if (msg.getImageDataUrls().isEmpty()) {
+                m.put("content", msg.getTextContent());
+            } else {
+                ArrayNode contentArray = m.putArray("content");
+                ObjectNode textNode = contentArray.addObject();
+                textNode.put("type", "text");
+                textNode.put("text", msg.getTextContent());
+
+                for (String imgUrl : msg.getImageDataUrls()) {
+                    ObjectNode imgPart = contentArray.addObject();
+                    imgPart.put("type", "image_url");
+                    ObjectNode urlObj = imgPart.putObject("image_url");
+                    urlObj.put("url", imgUrl);
+                }
+            }
+        }
+        return root;
+    }
+
+    private record Attempt(HttpResponse<String> response, long latencyMs) {
+    }
+
+    /**
+     * Sends one request, retrying transient transport failures and retryable status codes with linear
+     * backoff. A 4xx other than 408/425/429 is returned immediately: retrying a bad request only adds
+     * latency without changing the outcome.
+     */
+    private Attempt sendWithRetry(String targetUrl, String apiKey, String requestBody)
+            throws IOException, InterruptedException {
+        IOException lastFailure = null;
+        long latency = 0;
+        for (int attempt = 0; attempt <= MAX_NETWORK_RETRIES; attempt++) {
+            if (attempt > 0) {
+                long backoff = RETRY_BASE_BACKOFF_MS * attempt;
+                AiLoggingService.warn("AI-RETRY", "Thử lại lần " + attempt + "/" + MAX_NETWORK_RETRIES
+                        + " sau " + backoff + "ms");
+                Thread.sleep(backoff);
+            }
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(targetUrl))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .header("User-Agent", "TestStudio/1.0")
+                    .timeout(REQUEST_TIMEOUT)
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+            long start = System.currentTimeMillis();
+            try {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                latency = System.currentTimeMillis() - start;
+                if (RETRYABLE_STATUS_CODES.contains(response.statusCode()) && attempt < MAX_NETWORK_RETRIES) {
+                    AiLoggingService.warn("AI-RETRY", "HTTP " + response.statusCode() + " (tạm thời) sau "
+                            + latency + "ms; sẽ thử lại");
+                    continue;
+                }
+                return new Attempt(response, latency);
+            } catch (IOException e) {
+                lastFailure = e;
+                latency = System.currentTimeMillis() - start;
+                AiLoggingService.warn("AI-RETRY", "Lỗi transport sau " + latency + "ms: " + e.getMessage());
+            }
+        }
+        throw lastFailure != null ? lastFailure
+                : new IOException("Không gửi được yêu cầu tới " + targetUrl + " sau " + MAX_NETWORK_RETRIES + " lần thử");
+    }
+
+    private static boolean looksLikeUnsupportedJsonMode(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return false;
+        }
+        String lower = responseBody.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("response_format")
+                || lower.contains("json_object")
+                || lower.contains("json mode");
     }
 
     public static String extractErrorMessage(String responseBody) {

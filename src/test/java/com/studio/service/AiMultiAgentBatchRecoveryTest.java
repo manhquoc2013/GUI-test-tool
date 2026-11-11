@@ -37,14 +37,10 @@ public class AiMultiAgentBatchRecoveryTest {
 
     private static final String SRS = """
             # SRS
-            ### Trang 1
-            ## 1. Đăng nhập & Xác thực
-            ### Trang 2
-            ## 2. Giỏ hàng
-            ### Trang 3
-            ## 3. Thanh toán
-            ### Trang 4
-            ## 4. Theo dõi Đơn hàng
+            ## Màn hình 1: Đăng nhập & Xác thực
+            ## Màn hình 2: Giỏ hàng
+            ## Màn hình 3: Thanh toán
+            ## Màn hình 4: Theo dõi Đơn hàng
             """;
 
     private static DocumentParserService.ParsedDocument srsDoc() {
@@ -74,7 +70,7 @@ public class AiMultiAgentBatchRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 // First attempt of the very first batch answers with prose, exactly like the production log.
                 if (calls.getAndIncrement() == 0) {
                     return new Completion("Tôi đã phân tích yêu cầu chức năng giỏ hàng của bạn.", "stop");
@@ -96,7 +92,7 @@ public class AiMultiAgentBatchRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 // Every reply for the first batch stays prose; later batches answer correctly.
                 if (calls.getAndIncrement() < 2) {
                     return new Completion("Tôi sẽ thiết kế kịch bản kiểm thử cho bạn ngay sau đây.", "stop");

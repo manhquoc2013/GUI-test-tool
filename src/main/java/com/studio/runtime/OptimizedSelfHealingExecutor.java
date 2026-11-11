@@ -12,6 +12,7 @@ import com.studio.model.HealedStepMeta;
 import com.studio.model.MultiLocatorProfile;
 import com.studio.model.TestCase;
 import com.studio.model.TestSuite;
+import com.studio.service.AiLoggingService;
 import com.studio.service.OpenAiClient;
 import com.studio.store.ProjectStore;
 
@@ -31,8 +32,10 @@ import java.util.function.Consumer;
 public class OptimizedSelfHealingExecutor {
 
     private static final ObjectMapper MAPPER = ProjectStore.DEFAULT_MAPPER;
-    private static final Map<String, String> LOCATE_CACHE = new ConcurrentHashMap<>();
+    private static final LocateCache LOCATE_CACHE = new LocateCache();
     public static final int MAX_MUTATIONS_PER_CASE = 3;
+    private static final int ANIMATION_SETTLE_MS = 350;
+    private static final double MIN_VLM_CONFIDENCE = 0.70;
     private static final Map<String, Integer> MUTATION_COUNTS = new ConcurrentHashMap<>();
 
     private final Page page;
@@ -81,7 +84,34 @@ public class OptimizedSelfHealingExecutor {
     }
 
     public static Map<String, String> getLocateCache() {
-        return Collections.unmodifiableMap(LOCATE_CACHE);
+        return LOCATE_CACHE.snapshot();
+    }
+
+    /** Cache scope: normalised page URL so a repair on page A cannot be applied on page B. */
+    private String cacheScope() {
+        if (page == null) {
+            return "";
+        }
+        try {
+            String url = page.url();
+            if (url == null) {
+                return "";
+            }
+            int cut = url.indexOf('?');
+            if (cut >= 0) {
+                url = url.substring(0, cut);
+            }
+            cut = url.indexOf('#');
+            return cut >= 0 ? url.substring(0, cut) : url;
+        } catch (Exception e) {
+            AiLoggingService.warn("SELF-HEAL", "Không đọc được URL trang để scoped cache: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private String cachedSelector(String selector) {
+        String cached = LOCATE_CACHE.get(cacheScope(), selector);
+        return cached != null ? cached : selector;
     }
 
     /**
@@ -96,7 +126,7 @@ public class OptimizedSelfHealingExecutor {
             return page != null ? page.locator(selector) : null;
         }
 
-        String initialSelector = LOCATE_CACHE.getOrDefault(selector, selector);
+        String initialSelector = cachedSelector(selector);
         Locator initialLocator = page.locator(initialSelector);
 
         return createProxy(initialSelector, initialLocator, actionDescription, null);
@@ -180,14 +210,18 @@ public class OptimizedSelfHealingExecutor {
                                         Locator visibleLoc = StudioRuntime.findFirstVisible(currentLoc);
                                         if (visibleLoc != null) {
                                             Object result = method.invoke(visibleLoc, args);
-                                            System.out.printf("[Self-Healing Disambiguation] Resolved to visible matching element for '%s'%n", currentActive);
+                                            AiLoggingService.debug("SELF-HEAL",
+                                                    "Disambiguation resolved to visible matching element for '" + currentActive + "'");
                                             if (result instanceof Locator childLoc && !"page".equals(method.getName())) {
                                                 ChainedStep nextStep = new ChainedStep(parentStep, method, args);
                                                 return createProxy(currentActive, childLoc, actionDescription, nextStep);
                                             }
                                             return result;
                                         }
-                                    } catch (Throwable ignored) {}
+                                    } catch (Throwable disambiguationEx) {
+                                        AiLoggingService.debug("SELF-HEAL",
+                                                "Bỏ qua nhánh disambiguation: " + disambiguationEx.getMessage());
+                                    }
                                 }
                                 String repaired = repairSelector(
                                         currentActive,
@@ -242,17 +276,20 @@ public class OptimizedSelfHealingExecutor {
             Consumer<String> actionRunnable,
             Consumer<String> onSelectorRepairedCallback) {
 
-        String activeSelector = LOCATE_CACHE.getOrDefault(currentSelector, currentSelector);
+        String activeSelector = cachedSelector(currentSelector);
 
         try {
             actionRunnable.accept(activeSelector);
         } catch (PlaywrightException ex) {
-            System.err.printf("[Self-Healing] Step failed with selector '%s': %s%n", activeSelector, ex.getMessage());
+            AiLoggingService.warn("SELF-HEAL",
+                    "Step failed with selector '" + activeSelector + "': " + ex.getMessage());
 
             // Tier 0: Smart wait buffer for UI animation / hydration
             try {
-                page.waitForTimeout(350);
-            } catch (Exception ignored) {}
+                page.waitForTimeout(ANIMATION_SETTLE_MS);
+            } catch (Exception waitEx) {
+                AiLoggingService.warn("SELF-HEAL", "Wait buffer bỏ qua: " + waitEx.getMessage());
+            }
 
             String repairedSelector = repairSelector(currentSelector, actionDescription, ex.getMessage());
 
@@ -264,7 +301,7 @@ public class OptimizedSelfHealingExecutor {
                     try {
                         onSelectorRepairedCallback.accept(repairedSelector);
                     } catch (Exception cbEx) {
-                        System.err.println("[Self-Healing] Callback error: " + cbEx.getMessage());
+                        AiLoggingService.warn("SELF-HEAL", "Callback error: " + cbEx.getMessage());
                     }
                 }
             } else {
@@ -279,13 +316,11 @@ public class OptimizedSelfHealingExecutor {
     public String repairSelector(String failedSelector, String actionDescription, String errorMessage) {
         if (page == null || failedSelector == null) return null;
 
-        // Tier 1: Locate Cache
-        if (LOCATE_CACHE.containsKey(failedSelector)) {
-            String cached = LOCATE_CACHE.get(failedSelector);
-            if (validateCandidate(cached)) {
-                recordHealing(failedSelector, cached, "LOCATE_CACHE", 1.0, actionDescription);
-                return cached;
-            }
+        // Tier 1: Locate Cache (page-scoped)
+        String cached = LOCATE_CACHE.get(cacheScope(), failedSelector);
+        if (cached != null && !cached.equals(failedSelector) && validateCandidate(cached)) {
+            recordHealing(failedSelector, cached, "LOCATE_CACHE", 1.0, actionDescription);
+            return cached;
         }
 
         // Tier 1.5: Multi-Locator Fallback Cascade (<15ms, Testsigma-inspired)
@@ -308,15 +343,18 @@ public class OptimizedSelfHealingExecutor {
         // Tier 3: Multimodal VLM Healing (only if configured model supports vision)
         if (openAiClient != null && aiConfig != null && !aiConfig.getEffectiveApiKey().isBlank()
                 && isVisionSupported(aiConfig.getEffectiveModel())) {
-            String vlmMatch = attemptVlmHealing(failedSelector, actionDescription, errorMessage);
-            if (vlmMatch != null) {
-                recordHealing(failedSelector, vlmMatch, "VLM", 0.90, actionDescription);
-                persistMutation(failedSelector, vlmMatch);
-                return vlmMatch;
+            VlmCandidate vlm = attemptVlmHealing(failedSelector, actionDescription, errorMessage);
+            if (vlm != null) {
+                recordHealing(failedSelector, vlm.selector(), "VLM", vlm.confidence(), actionDescription);
+                persistMutation(failedSelector, vlm.selector());
+                return vlm.selector();
             }
         }
 
         return null;
+    }
+
+    private record VlmCandidate(String selector, double confidence) {
     }
 
     public static boolean isVisionSupported(String modelName) {
@@ -329,7 +367,7 @@ public class OptimizedSelfHealingExecutor {
         return true;
     }
 
-    private String attemptVlmHealing(String failedSelector, String actionDescription, String errorMessage) {
+    private VlmCandidate attemptVlmHealing(String failedSelector, String actionDescription, String errorMessage) {
         try {
             byte[] ssBytes = page.screenshot(new Page.ScreenshotOptions()
                     .setType(ScreenshotType.JPEG)
@@ -363,17 +401,24 @@ public class OptimizedSelfHealingExecutor {
 
             String jsonText = extractJsonBlock(response);
             JsonNode root = MAPPER.readTree(jsonText);
+            double confidence = root.path("confidence").asDouble(0.0);
+            if (confidence < MIN_VLM_CONFIDENCE) {
+                AiLoggingService.warn("SELF-HEAL-VLM",
+                        "Từ chối selector do confidence " + confidence + " < " + MIN_VLM_CONFIDENCE
+                                + " (action=" + actionDescription + ")");
+                return null;
+            }
             JsonNode cands = root.get("candidates");
             if (cands != null && cands.isArray()) {
                 for (JsonNode candNode : cands) {
                     String candidate = candNode.asText();
                     if (validateCandidate(candidate)) {
-                        return candidate;
+                        return new VlmCandidate(candidate, confidence);
                     }
                 }
             }
         } catch (Exception e) {
-            System.err.println("[Self-Healing VLM] Recovery failed: " + e.getMessage());
+            AiLoggingService.warn("SELF-HEAL-VLM", "Recovery failed: " + e.getMessage());
         }
         return null;
     }
@@ -389,12 +434,13 @@ public class OptimizedSelfHealingExecutor {
     }
 
     private void recordHealing(String oldSelector, String newSelector, String method, double confidence, String actionDesc) {
-        LOCATE_CACHE.put(oldSelector, newSelector);
+        LOCATE_CACHE.put(cacheScope(), oldSelector, newSelector);
         String caseId = currentCase != null ? currentCase.getId() : "runtime";
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         HealedStepMeta meta = new HealedStepMeta(caseId, actionDesc, oldSelector, newSelector, method, confidence, now);
         auditLogs.add(meta);
-        System.out.printf("[Self-Healing SUCCESS via %s] '%s' ➔ '%s'%n", method, oldSelector, newSelector);
+        AiLoggingService.info("SELF-HEAL",
+                "SUCCESS via " + method + " (confidence=" + confidence + "): '" + oldSelector + "' -> '" + newSelector + "'");
     }
 
     private void persistMutation(String oldSelector, String newSelector) {
@@ -407,8 +453,9 @@ public class OptimizedSelfHealingExecutor {
         if (caseKey != null) {
             int currentCount = MUTATION_COUNTS.getOrDefault(caseKey, 0);
             if (currentCount >= MAX_MUTATIONS_PER_CASE) {
-                System.err.printf("[Anti-Thrashing GUARD] Case '%s' has reached the maximum patch limit (%d). Halting speculative mutations to prevent file thrashing.%n",
-                        caseKey, MAX_MUTATIONS_PER_CASE);
+                AiLoggingService.warn("SELF-HEAL", "Anti-thrashing guard: case '" + caseKey
+                        + "' reached the max patch limit (" + MAX_MUTATIONS_PER_CASE
+                        + "); halting speculative mutations");
                 String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 auditLogs.add(new HealedStepMeta(caseKey, "ANTI_THRASHING_HALT", oldSelector, newSelector,
                         "ANTI_THRASHING_GUARD", 0.0, now));
@@ -433,12 +480,12 @@ public class OptimizedSelfHealingExecutor {
 
                 if (content.contains(quotedOldEsc)) {
                     ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldEsc, quotedNew));
-                    System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
-                            scriptFileName, newSelector);
+                    AiLoggingService.info("SELF-HEAL",
+                            "Persisted " + scriptFileName + " with new selector '" + newSelector + "'");
                 } else if (content.contains(quotedOldRaw)) {
                     ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldRaw, quotedNew));
-                    System.out.printf("[Self-Healing PERSISTED] Updated %s with new selector '%s'%n",
-                            scriptFileName, newSelector);
+                    AiLoggingService.info("SELF-HEAL",
+                            "Persisted " + scriptFileName + " with new selector '" + newSelector + "'");
                 }
             }
 
@@ -467,11 +514,11 @@ public class OptimizedSelfHealingExecutor {
                 }
                 if (suiteModified) {
                     projectStore.saveSuite(currentSuite, suiteDir);
-                    System.out.println("[Self-Healing PERSISTED] Updated suite.json assertions and test steps.");
+                    AiLoggingService.info("SELF-HEAL", "Persisted suite.json assertions and test steps.");
                 }
             }
         } catch (Exception e) {
-            System.err.println("[Self-Healing PERSIST ERROR] " + e.getMessage());
+            AiLoggingService.error("SELF-HEAL", "Persist error: " + e.getMessage(), e);
         }
     }
 
@@ -527,7 +574,8 @@ public class OptimizedSelfHealingExecutor {
             } catch (AssertionError ae) {
                 throw ae;
             } catch (Exception ex) {
-                System.err.println("[Semantic-Assert] VLM call error, falling back to text verification: " + ex.getMessage());
+                AiLoggingService.warn("SELF-HEAL", "Semantic assert VLM call failed, falling back to text verification: "
+                        + ex.getMessage());
             }
         }
 

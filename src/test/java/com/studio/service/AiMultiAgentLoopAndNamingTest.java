@@ -66,22 +66,32 @@ public class AiMultiAgentLoopAndNamingTest {
 
         assertNotNull(report);
         assertEquals(4, report.getAgentStagesExecuted().size());
-        assertTrue(report.getFinalQualityScore() > report.getInitialQualityScore(),
-                "Loop Engineer must improve quality score from initial=" + report.getInitialQualityScore() + " to final=" + report.getFinalQualityScore());
-        assertEquals(100, report.getFinalQualityScore());
+        assertTrue(report.getFinalQualityScore() < 100,
+                "An incomplete deliverable must not be scored 100 (actual=" + report.getFinalQualityScore() + ")");
 
         // Verify Group and Suite names were healed to accurate functional names
         assertEquals("QuanLyDonHang", result.getSuggestedGroup());
         assertEquals("KiemThu_QuanLyDonHangVaGiaoHang", result.getSuggestedSuite());
 
-        // Verify case was healed
+        // Verify case was healed structurally…
         AiGeneratedCase healed = result.getCases().get(0);
         assertTrue(healed.getName().startsWith("TC01_"), "Case name should be normalized with TC01_ prefix: " + healed.getName());
         assertEquals("P1", healed.getPriority());
-        assertTrue(healed.getTestSteps().size() >= 3, "Loop Engineer must synthesize at least 3 test steps");
-        assertFalse(healed.getAssertions().isEmpty(), "Loop Engineer must synthesize assertions");
-        assertFalse(healed.getTestDataSets().isEmpty(), "Loop Engineer must synthesize BVA/EP test data sets");
         assertFalse(healed.getScriptCode().contains("Thread.sleep("), "Loop Engineer must strip hard Thread.sleep()");
+
+        // …but missing work is reported as a gap, never invented.
+        assertTrue(healed.getTestSteps() == null || healed.getTestSteps().isEmpty(),
+                "Loop Engineer must not synthesize test steps the model never wrote");
+        assertTrue(healed.getAssertions() == null || healed.getAssertions().isEmpty(),
+                "Loop Engineer must not synthesize assertions the model never wrote");
+        assertTrue(healed.getTestDataSets() == null || healed.getTestDataSets().isEmpty(),
+                "Loop Engineer must not synthesize test data the model never wrote");
+        assertTrue(report.getGaps().stream().anyMatch(g -> g.contains("bước thực thi")),
+                "Missing steps must be reported: " + report.getGaps());
+        assertTrue(report.getGaps().stream().anyMatch(g -> g.contains("assertion")),
+                "Missing assertions must be reported: " + report.getGaps());
+        assertTrue(report.getGaps().stream().anyMatch(g -> g.contains("dữ liệu kiểm thử")),
+                "Missing test data must be reported: " + report.getGaps());
         assertFalse(progressLogs.isEmpty());
     }
 
@@ -90,7 +100,7 @@ public class AiMultiAgentLoopAndNamingTest {
         AtomicInteger callCount = new AtomicInteger(0);
         OpenAiClient mockClient = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 int step = callCount.incrementAndGet();
                 if (step == 1) {
                     // First attempt returns unstructured text with 0 cases
@@ -132,7 +142,7 @@ public class AiMultiAgentLoopAndNamingTest {
         // mock keeps exercising the same scripted replies.
         OpenAiClient delegating = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode)
                     throws java.io.IOException, InterruptedException {
                 return mockClient.completeChat(config, messages, outputTokenOverride);
             }
@@ -155,13 +165,15 @@ public class AiMultiAgentLoopAndNamingTest {
         );
 
         assertEquals(2, callCount.get(), "Loop Engineer should trigger exactly 1 retry when first response has 0 cases");
-        assertEquals(3, result.getCases().size(), "Loop Engineer should auto-expand 1 case into 3 scenarios (Happy Path, Negative, Boundary)");
+        assertEquals(1, result.getCases().size(),
+                "Loop Engineer must keep the single model-written case instead of fabricating companion scenarios");
         assertEquals("MuaSam_GioHang", result.getSuggestedGroup());
         assertEquals("KiemThu_GioHangVaThanhToan", result.getSuggestedSuite());
         assertEquals("TC01_GioHang_ThemSanPhamThanhCong", result.getCases().get(0).getName());
         assertEquals("", result.getCases().get(0).getScriptCode(), "When generateScript=false, scriptCode must be empty");
         assertNotNull(result.getAgentReviewReport());
-        assertEquals(100, result.getAgentReviewReport().getFinalQualityScore());
+        assertTrue(result.getAgentReviewReport().getFinalQualityScore() < 100,
+                "A single happy-path case cannot be scored as a complete suite");
     }
 
     @Test

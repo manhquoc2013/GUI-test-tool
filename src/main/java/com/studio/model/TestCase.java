@@ -29,6 +29,12 @@ public class TestCase {
     private List<Assertion> assertions = new ArrayList<>();
     private List<TestStep> testSteps = new ArrayList<>();
     private List<TestDataItem> testDataSets = new ArrayList<>();
+    /** Stable business identifier (TC01_...) copied from the AI case for traceability. */
+    private String testId = "";
+    /** Screen token this case belongs to; empty for manually authored cases. */
+    private String screenId = "";
+    /** SRS section / requirement clause this case was generated from. */
+    private String requirementRef = "";
 
     public TestCase() {
     }
@@ -176,5 +182,34 @@ public class TestCase {
 
     public void setTestDataProfileId(String testDataProfileId) {
         this.testDataProfileId = testDataProfileId;
+    }
+
+    public String getTestId() {
+        return testId != null ? testId : "";
+    }
+
+    public void setTestId(String testId) {
+        this.testId = testId != null ? testId.trim() : "";
+    }
+
+    public String getScreenId() {
+        return screenId != null ? screenId : "";
+    }
+
+    public void setScreenId(String screenId) {
+        this.screenId = screenId != null ? screenId.trim() : "";
+    }
+
+    public String getRequirementRef() {
+        return requirementRef != null ? requirementRef : "";
+    }
+
+    public void setRequirementRef(String requirementRef) {
+        this.requirementRef = requirementRef != null ? requirementRef.trim() : "";
+    }
+
+    /** True when the case can be traced to both a screen and an SRS clause. */
+    public boolean hasTraceability() {
+        return !getTestId().isBlank() && !getScreenId().isBlank() && !getRequirementRef().isBlank();
     }
 }

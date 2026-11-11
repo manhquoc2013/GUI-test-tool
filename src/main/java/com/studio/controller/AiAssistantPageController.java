@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.*;
 import com.studio.service.AiAmbiguityAnalyzer;
+import com.studio.service.AiDelegationPolicy;
 import com.studio.service.AiAgentPlanParser;
 import com.studio.service.AiCoordinatorAgent;
 import com.studio.service.AiLlmAgentExecutor;
@@ -743,7 +744,18 @@ public class AiAssistantPageController implements Initializable {
      * user could otherwise have answered.
      */
     private boolean delegateToAgents(AiChatSession session, String prompt,
-                                     AiConfig aiConfig, boolean generateScript) {
+                                     AiConfig aiConfig, boolean generateScript,
+                                     List<DocumentParserService.ParsedDocument> docs,
+                                     String domJson, String suiteContext,
+                                     AiAmbiguityAnalyzer.Intent intent) {
+        boolean hasDocs = docs != null && !docs.isEmpty();
+        boolean hasDom = domJson != null && !domJson.isBlank() && !"[]".equals(domJson);
+        if (!AiDelegationPolicy.shouldDelegate(intent, hasDocs, hasDom, prompt)) {
+            AiLoggingService.info("AI-COORDINATOR", "Bỏ qua điều phối: intent=" + intent
+                    + ", docs=" + hasDocs + ", dom=" + hasDom + " (dùng trợ lý đơn có grounding)");
+            return false;
+        }
+        String grounding = aiGenerator.buildSubAgentGrounding(prompt, docs, domJson, suiteContext);
         OpenAiClient client = new OpenAiClient();
         AiAgentPlanParser.InvalidPlanException[] planFailure = new AiAgentPlanParser.InvalidPlanException[1];
 
@@ -752,7 +764,7 @@ public class AiAssistantPageController implements Initializable {
                 return client.chatCompletion(aiConfig, List.of(
                         new OpenAiClient.ChatMessage("system", new AiCoordinatorAgent(
                                 r -> "{}").plannerSystemPrompt()),
-                        new OpenAiClient.ChatMessage("user", userRequest)));
+                        new OpenAiClient.ChatMessage("user", userRequest + "\n\n" + grounding)));
             } catch (Exception e) {
                 planFailure[0] = new AiAgentPlanParser.InvalidPlanException(
                         "Không gọi được bộ lập kế hoạch: " + e.getMessage());
@@ -780,9 +792,9 @@ public class AiAssistantPageController implements Initializable {
                             OpenAiClient.defaultOutputTokensFor(generateScript));
                     return new AiLlmAgentExecutor.MeasuredReply(
                             reply.content(),
-                            new AiLlmAgentExecutor.AgentUsage(1, reply.promptTokens(), reply.completionTokens()));
+                            new AiLlmAgentExecutor.AgentUsage(1,                             reply.promptTokens(), reply.completionTokens()));
                 },
-                "");
+                grounding);
         AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
 
         // Parent turn recorded first so the transcript reads request -> agents -> one answer.
@@ -1304,7 +1316,8 @@ public class AiAssistantPageController implements Initializable {
 
                 // Điều phối đa tác nhân: coordinator phân rã yêu cầu, mỗi tác nhân con chạy theo
                 // rule cố định của nó, rồi một kết quả tổng hợp duy nhất được phát về chat.
-                if (delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript)) {
+                if (delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript,
+                        docsSnapshot, activeDomContext, context, detectedIntent)) {
                     Platform.runLater(() -> {
                         removeThinkingBubble();
                         sendBtn.setDisable(false);

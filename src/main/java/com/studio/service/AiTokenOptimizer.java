@@ -17,6 +17,18 @@ public class AiTokenOptimizer {
 
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 32768;
     public static final int DEFAULT_MAX_DOC_CHARS = 48000;
+    /**
+     * Conservative characters-per-token for mixed Vietnamese + JSON + Java. Vietnamese diacritics and
+     * punctuation tokenize worse than English prose, so 3-4 chars/token would under-count the prompt.
+     */
+    public static final int CHARS_PER_TOKEN = 2;
+    /** Share of the context window that documents may occupy before history and output are reserved. */
+    private static final double DOC_BUDGET_RATIO = 0.55;
+    /** Never send a request above this share of the configured window. */
+    private static final double HARD_BUDGET_RATIO = 0.95;
+    private static final String BUDGET_TRIM_MARKER = "\n... [Đã cắt bớt để không vượt ngân sách token]";
+    /** Rough cost of one inline screenshot at reduced JPEG quality. */
+    private static final int IMAGE_TOKENS_ESTIMATE = 800;
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
     /** How many earlier user turns the retained-conversation-state block keeps in full. */
     public static final int MAX_RETAINED_USER_TURNS = 8;
@@ -69,6 +81,21 @@ public class AiTokenOptimizer {
         // Code punctuation: ~1 token per 2 special chars
         double estimate = (words * 1.3) + (nonAscii * 0.4) + (specialChars * 0.5);
         return Math.max(1, (int) Math.round(estimate));
+    }
+
+    /**
+     * Estimate tokens for an AI request message (role + text + images).
+     */
+    public int estimateMessageTokens(OpenAiClient.ChatMessage msg) {
+        if (msg == null) return 0;
+        int tokens = 4; // role framing overhead
+        if (msg.getTextContent() != null) {
+            tokens += estimateTokens(msg.getTextContent());
+        }
+        if (msg.getImageDataUrls() != null && !msg.getImageDataUrls().isEmpty()) {
+            tokens += msg.getImageDataUrls().size() * IMAGE_TOKENS_ESTIMATE;
+        }
+        return tokens;
     }
 
     /**
@@ -263,12 +290,14 @@ public class AiTokenOptimizer {
             }
             StringBuilder sb = new StringBuilder();
             sb.append("### Giao diện DOM tương tác thực tế (Live Page Elements):\n");
-            sb.append("| # | Tag | Candidate Locator | Role/Type | Text/Placeholder/Label |\n");
+            sb.append("Chỉ các phần tử có thể thao tác/được đọc mới được liệt kê; dùng đúng `Element ID` khi trích xuất selector.\n");
+            sb.append("| Element ID | Tag | Candidate Locator | Role/Type | Text/Placeholder/Label |\n");
             sb.append("|---|---|---|---|---|\n");
             int count = 0;
+            java.util.Set<String> seenLocators = new java.util.HashSet<>();
             for (JsonNode node : root) {
                 if (count >= limit) break;
-                String tag = node.path("tag").asText("");
+                String tag = node.path("tag").asText("").toLowerCase(java.util.Locale.ROOT);
                 String id = node.path("id").asText("");
                 String testId = node.path("testId").asText("");
                 String name = node.path("name").asText("");
@@ -278,36 +307,63 @@ public class AiTokenOptimizer {
                 String aria = node.path("ariaLabel").asText("");
                 String placeholder = node.path("placeholder").asText("");
 
+                if (!isInteractiveElement(tag, role, testId, type)) {
+                    continue;
+                }
+
                 String locator;
-                if (!testId.isBlank()) {
+                if (!testId.isBlank() && !"null".equals(testId)) {
                     locator = "[data-testid=\"" + testId + "\"]";
-                } else if (!id.isBlank() && !id.equals("null")) {
+                } else if (!id.isBlank() && !"null".equals(id)) {
                     locator = "#" + id;
-                } else if (!name.isBlank() && !name.equals("null")) {
+                } else if (!name.isBlank() && !"null".equals(name)) {
                     locator = tag + "[name=\"" + name + "\"]";
-                } else if (!aria.isBlank() && !aria.equals("null")) {
+                } else if (!aria.isBlank() && !"null".equals(aria)) {
                     locator = "[aria-label=\"" + aria + "\"]";
-                } else if (!role.isBlank() && !role.equals("null") && !text.isBlank()) {
+                } else if (!role.isBlank() && !"null".equals(role) && !text.isBlank()) {
                     locator = "role=" + role + "[name=\"" + text + "\"]";
                 } else if (!text.isBlank()) {
                     locator = tag + ":has-text(\"" + text + "\")";
                 } else {
                     locator = tag;
                 }
+                if (!seenLocators.add(locator)) {
+                    continue;
+                }
 
-                String roleType = !role.isBlank() && !role.equals("null") ? role : (!type.isBlank() ? type : "-");
+                String roleType = !role.isBlank() && !"null".equals(role) ? role : (!type.isBlank() ? type : "-");
                 String desc = !text.isBlank() ? text : (!placeholder.isBlank() ? "ph: " + placeholder : (!aria.isBlank() ? aria : "-"));
                 if (desc.length() > 40) {
                     desc = desc.substring(0, 37) + "...";
                 }
 
-                sb.append(String.format("| %d | %s | `%s` | %s | %s |\n", count + 1, tag, locator, roleType, desc));
+                sb.append(String.format("| `e%d` | %s | `%s` | %s | %s |\n", count + 1, tag, locator, roleType, desc));
                 count++;
+            }
+            if (count == 0) {
+                return "";
             }
             return sb.toString();
         } catch (Exception e) {
+            AiLoggingService.warn("DOM-FORMAT", "DOM không phải JSON hợp lệ, dùng bản nén thô: " + e.getMessage());
             return compressText(domJson, 2000);
         }
+    }
+
+    /** Elements the model can actually act on; a plain {@code div} only qualifies with a role or test id. */
+    private static boolean isInteractiveElement(String tag, String role, String testId, String type) {
+        if (!testId.isBlank() && !"null".equals(testId)) {
+            return true;
+        }
+        if (!role.isBlank() && !"null".equals(role)) {
+            return true;
+        }
+        return switch (tag) {
+            case "a", "button", "input", "select", "textarea", "option", "summary",
+                 "label", "details", "dialog", "form", "checkbox", "radio" -> true;
+            case "div", "span" -> !type.isBlank() && !"null".equals(type);
+            default -> false;
+        };
     }
 
     /**
@@ -351,7 +407,7 @@ public class AiTokenOptimizer {
         }
 
         if (domContext != null && !domContext.isBlank()) {
-            userContent.append(domContext.trim()).append("\n\n");
+            userContent.append("<untrusted_dom>\n").append(domContext.trim()).append("\n</untrusted_dom>\n\n");
         }
 
         userContent.append("### Yêu cầu người dùng:\n").append(currentUserPrompt != null ? currentUserPrompt.trim() : "").append("\n\n");
@@ -364,7 +420,10 @@ public class AiTokenOptimizer {
                     .filter(d -> d != null && !d.isImage())
                     .toList();
             int textDocCount = textDocs.size();
-            int totalDocCharBudget = Math.max(8000, Math.min(96000, contextLimit * 2));
+            // Budget is expressed in tokens and converted once: mixing tokens with characters made the
+            // allowance meaningless (contextLimit * 2 chars could exceed the window on its own).
+            int docTokenBudget = Math.max(512, (int) (contextLimit * DOC_BUDGET_RATIO));
+            int totalDocCharBudget = docTokenBudget * CHARS_PER_TOKEN;
 
             // AG-9: two-pass water-filling document allowance instead of an equal split. A document
             // shorter than its fair share only takes its own length, freeing the remainder for long
@@ -426,8 +485,9 @@ public class AiTokenOptimizer {
                         allowance = docAllowances[textIdx++];
                     }
                     ParsedDocument compDoc = compressDocumentSmart(doc, allowance);
-                    userContent.append("- Tên file: ").append(compDoc.getFileName()).append("\n");
-                    userContent.append("```\n").append(compDoc.getContent()).append("\n```\n\n");
+                    userContent.append("<untrusted_document name=\"").append(compDoc.getFileName()).append("\">\n")
+                            .append(compDoc.getContent())
+                            .append("\n</untrusted_document>\n\n");
                 }
             }
         }
@@ -487,7 +547,82 @@ public class AiTokenOptimizer {
             result.add(new OpenAiClient.ChatMessage("system", retained));
         }
 
-        return result;
+        return enforceContextBudget(result, contextLimit);
+    }
+
+    /**
+     * Last line of defence before the request leaves the process: if the assembled prompt still
+     * exceeds the window, drop the optional retained-state block, then the oldest history turns, and
+     * finally shrink the largest message. The system prompt is never touched.
+     */
+    private List<OpenAiClient.ChatMessage> enforceContextBudget(List<OpenAiClient.ChatMessage> messages,
+                                                               int contextLimit) {
+        int hardLimit = Math.max(1, (int) (contextLimit * HARD_BUDGET_RATIO));
+        int total = messages.stream().mapToInt(this::estimateMessageTokens).sum();
+        if (total <= hardLimit) {
+            return messages;
+        }
+        AiLoggingService.warn("TOKEN-BUDGET", "Prompt vượt ngân sách: " + total + " > " + hardLimit
+                + " tokens (limit=" + contextLimit + "); đang cắt phần không bắt buộc");
+
+        List<OpenAiClient.ChatMessage> trimmed = new ArrayList<>(messages);
+
+        // 1. The trailing retained-state block is a convenience, not a requirement.
+        int last = trimmed.size() - 1;
+        if (last > 1 && "system".equalsIgnoreCase(trimmed.get(last).getRole())) {
+            total -= estimateMessageTokens(trimmed.remove(last));
+        }
+
+        // 2. Drop the oldest history turns, keeping the leading system prompt and the user message.
+        while (total > hardLimit && trimmed.size() > 2) {
+            int candidate = -1;
+            for (int i = 1; i < trimmed.size() - 1; i++) {
+                if (!"system".equalsIgnoreCase(trimmed.get(i).getRole())) {
+                    candidate = i;
+                    break;
+                }
+            }
+            if (candidate < 0) {
+                break;
+            }
+            total -= estimateMessageTokens(trimmed.remove(candidate));
+        }
+
+        // 3. Shrink the largest remaining non-system message to fit the remaining deficit.
+        while (total > hardLimit) {
+            int largest = -1;
+            int largestTokens = 0;
+            for (int i = 0; i < trimmed.size(); i++) {
+                OpenAiClient.ChatMessage m = trimmed.get(i);
+                if ("system".equalsIgnoreCase(m.getRole())) {
+                    continue;
+                }
+                int tokens = estimateMessageTokens(m);
+                if (tokens > largestTokens) {
+                    largest = i;
+                    largestTokens = tokens;
+                }
+            }
+            if (largest < 0) {
+                break;
+            }
+            OpenAiClient.ChatMessage m = trimmed.get(largest);
+            int deficit = total - hardLimit;
+            int targetTokens = Math.max(64, largestTokens - deficit - 16);
+            int targetChars = Math.max(64, targetTokens * CHARS_PER_TOKEN);
+            String content = m.getTextContent();
+            String shortened = content.length() <= targetChars
+                    ? content
+                    : content.substring(0, Math.min(content.length(), targetChars)) + BUDGET_TRIM_MARKER;
+            trimmed.set(largest, new OpenAiClient.ChatMessage(m.getRole(), shortened, m.getImageDataUrls()));
+            int newTotal = trimmed.stream().mapToInt(this::estimateMessageTokens).sum();
+            if (newTotal >= total) {
+                break;
+            }
+            total = newTotal;
+        }
+
+        return trimmed;
     }
 
     /**

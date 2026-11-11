@@ -1,0 +1,12 @@
+{
+  "at": 1794383929435,
+  "kind": "tripwire_breach",
+  "change_class": "C1",
+  "breach_kind": "undeclared_path",
+  "triage_id": "TRI-1794383888849-e17f",
+  "loc_changed": 0,
+  "files_touched": 0,
+  "detail": "[undeclared_path] Intake tripwire — undeclared path: writing \"/private/var/folders/_s/5ws2z03s0n98539f6lm_5lwc0000gn/T/ai-studio/sessions/124cbdbbe65bb3f70a5c70c0fe26766bc23fd91c7d505be0d7ea436414f79470/ComposerProbe.java\" was REFUSED and this C1 lane is now LOCKED — do NOT retry this write. FIX: add \"/private/var/folders/_s/5ws2z03s0n98539f6lm_5lwc0000gn/T/ai-studio/sessions/124cbdbbe65bb3f70a5c7…",
+  "provider_id": "etc-ai",
+  "model_id": "deepseek-flash"
+}

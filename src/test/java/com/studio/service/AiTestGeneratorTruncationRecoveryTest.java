@@ -58,7 +58,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         List<Integer> budgets = new java.util.ArrayList<>();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 budgets.add(outputTokenOverride);
                 return calls.getAndIncrement() == 0
                         ? new Completion(CUT_MID_JSON, "length")
@@ -102,7 +102,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 return switch (calls.incrementAndGet()) {
                     case 1 -> new Completion(PART_2, "length");
                     default -> new Completion(PART_3, "stop");
@@ -131,7 +131,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 String lastUser = messages.get(messages.size() - 1).getTextContent();
                 if (lastUser != null && lastUser.startsWith("[CONTINUATION")) {
                     continuedPrompts.add(lastUser);
@@ -174,7 +174,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 calls.incrementAndGet();
                 return new Completion(TWO_CASES, "stop");
             }
@@ -200,7 +200,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
     public void stillTruncatedReplyIsReportedNotSwallowed() throws Exception {
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 return new Completion(CUT_MID_JSON, "length");
             }
         };
@@ -225,7 +225,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 return calls.getAndIncrement() == 0
                         ? new Completion(firstCaseComplete, "length")
                         : new Completion("Tôi không thể tạo kịch bản lúc này.", "stop");
@@ -243,7 +243,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
     public void truncationFlagIsFalseForANormalReply() throws Exception {
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 return new Completion(TWO_CASES, "stop");
             }
         };
@@ -278,7 +278,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         List<String> userPrompts = new java.util.ArrayList<>();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 String lastUser = messages.get(messages.size() - 1).getTextContent();
                 userPrompts.add(lastUser);
                 int call = calls.incrementAndGet();
@@ -309,7 +309,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 calls.incrementAndGet();
                 return new Completion("```json\n{\"summary\":\"lại từ đầu\",\"cases\":[", "length");
             }
@@ -353,7 +353,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         List<Integer> budgets = new java.util.ArrayList<>();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode)
                     throws java.io.IOException {
                 budgets.add(outputTokenOverride);
                 // The provider's real window is smaller than the configured one, so the first ask is refused.
@@ -383,7 +383,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
     public void unrelatedErrorIsNotSwallowedByTheFallback() {
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                 throw new java.io.UncheckedIOException(new java.io.IOException("HTTP 401: bad key"));
             }
         };

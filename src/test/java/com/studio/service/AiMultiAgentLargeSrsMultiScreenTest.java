@@ -134,7 +134,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
         }
 
         @Test
-        public void testPerScreenCoverageExpansionProduces30To50CasesEvenIfLlmReturns1CasePerScreen() {
+        public void testCoverageGapsAreReportedInsteadOfFabricatingExtraCases() {
                 AiTestGeneratorService service = new AiTestGeneratorService();
                 AiMultiAgentCoordinator coordinator = service.getMultiAgentCoordinator();
 
@@ -147,8 +147,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                 "text/markdown",
                                 srsMarkdown.length());
 
-                // Simulate an LLM that only produced 1 test case per screen (10 test cases
-                // total)
+                // Simulate an LLM that only produced 1 happy-path test case per screen (10 total).
                 List<AiGeneratedCase> tenSingleCases = new ArrayList<>();
                 List<AiMultiAgentCoordinator.ScreenSpecSection> screens = AiMultiAgentCoordinator
                                 .extractScreenSections("Tạo test scenario cho 10 màn hình", List.of(srsDoc));
@@ -179,18 +178,33 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
 
                 assertNotNull(report);
                 List<AiGeneratedCase> finalCases = result.getCases();
-                // 10 screens * 4 cases/screen = 40 test cases
-                assertTrue(finalCases.size() >= 35 && finalCases.size() <= 50,
-                                "Agent 4 (Loop Engineer) must expand 10 single-cases into 30 - 50 cases (actual: "
+
+                // No invented companion scenarios: the suite keeps exactly what the model produced.
+                assertEquals(10, finalCases.size(),
+                                "Coordinator must not fabricate cases the model never wrote (actual: "
                                                 + finalCases.size() + ")");
 
-                // Check sequential numbering and per-screen distribution
+                // Sequential numbering is still normalised.
                 assertEquals("TC01_", finalCases.get(0).getName().substring(0, 5));
                 assertEquals(String.format("TC%02d_", finalCases.size()),
                                 finalCases.get(finalCases.size() - 1).getName().substring(0, 5));
 
-                // Verify quality score is 100
-                assertEquals(100, report.getFinalQualityScore());
+                // Coverage is measured, and the missing scenario kinds are surfaced per screen.
+                assertNotNull(report.getCoverage());
+                assertEquals(10, report.getCoverage().screensTotal());
+                assertTrue(report.getCoverage().hasGaps(),
+                                "One happy-path case per screen cannot cover 4 required kinds");
+                for (AiCoverageAnalyzer.ScreenCoverage screenCoverage : report.getCoverage().screens()) {
+                        assertFalse(screenCoverage.missingKinds().isEmpty(),
+                                        "Screen " + screenCoverage.screenTitle()
+                                                        + " must report its missing scenario kinds");
+                }
+                assertFalse(report.getGaps().isEmpty(), "Structural gaps must be visible to the user");
+
+                // The judge never awards a full score to a suite with unverified scenarios.
+                assertTrue(report.getFinalQualityScore() < 100,
+                                "Quality score must reflect the real gaps (actual: "
+                                                + report.getFinalQualityScore() + ")");
         }
 
         @Test
@@ -199,10 +213,11 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
 
                 OpenAiClient mockBatchClient = new OpenAiClient() {
                         @Override
-                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                                 int call = batchInvocations.incrementAndGet();
-                                // Return 8 cases per batch of 2 screens
-                                return new Completion("""
+                                // Return 2 unique cases per batch of 2 screens. Names are batch-scoped so the
+                                // cross-batch dedupe keeps them instead of collapsing identical names.
+                                String json = """
                                                 ```json
                                                 {
                                                   "summary": "Đã thiết kế các test case cho lô màn hình",
@@ -214,7 +229,10 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                                   ]
                                                 }
                                                 ```
-                                                """, "stop");
+                                                """;
+                                return new Completion(json
+                                        .replace("TC01_", "L" + call + "_TC01_")
+                                        .replace("TC02_", "L" + call + "_TC02_"), "stop");
                         }
                 };
 
@@ -256,8 +274,11 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                 assertEquals(expectedBatches, batchInvocations.get(),
                                 screens.size() + " screens with batchSize=" + batchSize
                                                 + " must trigger " + expectedBatches + " focused LLM batch invocations");
-                assertTrue(result.getCases().size() >= 35,
-                                "Multi-batch orchestration + Loop Engineer expansion must produce 35+ test cases (actual: "
+                assertTrue(result.getCases().size() >= 2 * expectedBatches,
+                                "Multi-batch orchestration must keep every batch's cases (expected >= "
+                                                + (2 * expectedBatches) + ", actual: " + result.getCases().size() + ")");
+                assertTrue(result.getCases().size() <= 2 * expectedBatches,
+                                "No fabricated companion scenarios may be added on top of the LLM output (actual: "
                                                 + result.getCases().size() + ")");
         }
 
@@ -265,7 +286,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
         void testScenarioOnlyPrompt_GeneratesScenariosWithoutAutomationScript() throws Exception {
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                                 return new Completion("""
                                                 ```json
                                                 {
@@ -324,7 +345,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
         void testTestCaseAndScriptPrompt_EnablesAutomationScript() throws Exception {
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                                 return new Completion("""
                                                 ```json
                                                 {
@@ -381,7 +402,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
 
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride, boolean jsonMode) {
                                 return new Completion("""
                                                 ```json
                                                 {

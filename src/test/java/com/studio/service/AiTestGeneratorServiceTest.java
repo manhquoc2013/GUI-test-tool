@@ -423,17 +423,11 @@ class AiTestGeneratorServiceTest {
 
     @Test
     void testValidateAndFixScript_NoUrlReturnsBlankScript() {
-        // When startUrl is blank or about:blank and scriptCode is blank, it should return "" (no script generated)
-        String emptyResult1 = service.validateAndFixScript("", "TestCase_01", "");
-        assertEquals("", emptyResult1);
-
-        String emptyResult2 = service.validateAndFixScript(null, "TestCase_02", "about:blank");
-        assertEquals("", emptyResult2);
-
-        // When a valid startUrl is present, it can generate valid boilerplate
-        String boilerplate = service.validateAndFixScript("", "TestCase_03", "https://example.com");
-        assertTrue(boilerplate.contains("public class TestCase_03"));
-        assertTrue(boilerplate.contains("https://example.com"));
+        // A blank script is a missing deliverable: it must not be replaced with a boilerplate class that
+        // navigates nowhere yet passes compilation, because that makes an empty case look runnable.
+        assertEquals("", service.validateAndFixScript("", "TestCase_01", ""));
+        assertEquals("", service.validateAndFixScript(null, "TestCase_02", "about:blank"));
+        assertEquals("", service.validateAndFixScript("", "TestCase_03", "https://example.com"));
     }
 }
 
