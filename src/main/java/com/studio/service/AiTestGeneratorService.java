@@ -95,16 +95,23 @@ public class AiTestGeneratorService {
     private AiAgentDefinitionLoader definitionLoader = AiAgentDefinitionLoader.defaultInstance();
 
     /**
-     * Share of the model's input window that sub-agent grounding may take, and the bounds of one
-     * document's slice. A fixed 2 500-character cap used to reduce a 23-section SRS to its table of
-     * contents, which made every agent answer "không xác định được từ tài liệu".
+     * Hard ceiling on the material one delegated run may carry in total.
+     *
+     * <p>The run is split into section batches by {@link AiLlmAgentExecutor}, so this is not a prompt
+     * budget: it only stops a pathological attachment from filling memory. Every section of a
+     * realistic SRS is far below it, which is the point — the old per-document slice dropped the tail
+     * of a long specification before any agent could read it.</p>
      */
-    private static final double SUB_AGENT_DOC_BUDGET_RATIO = 0.35;
-    private static final int SUB_AGENT_MIN_DOC_CHARS = 2500;
-    private static final int SUB_AGENT_MAX_DOC_CHARS = 16000;
+    private static final int SUB_AGENT_MAX_MATERIAL_CHARS = 400_000;
+    /** The planner only needs the document's structure to decide who does what. */
+    private static final int SUB_AGENT_PLAN_DIGEST_CHARS = 6_000;
     private static final int SUB_AGENT_MAX_DOCS = 6;
     private static final int SUB_AGENT_DOM_ELEMENTS = 40;
     private static final int SUB_AGENT_RAG_CHARS = 1500;
+    /** Stamped into the prompt when an attachment alone exceeds the whole material ceiling. */
+    private static final String MATERIAL_CUT_MARKER =
+            "\n…[tài liệu vượt trần vật liệu của một lượt uỷ nhiệm: đã lấy ";
+    private static final String MATERIAL_CUT_SUFFIX = " ký tự đầu]…";
 
     public AiTestGeneratorService() {
         this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator(), new AiAgentIndexService());
@@ -1245,12 +1252,15 @@ public class AiTestGeneratorService {
      *
      * <p>Without this the delegated path answered from the prompt alone while the single-assistant
      * path had the SRS, DOM and retrieved context — the exact opposite of the intended routing.</p>
+     *
+     * <p>Attachments are included whole, up to {@link #SUB_AGENT_MAX_MATERIAL_CHARS}. The run is
+     * section-batched downstream, so a long specification is read in full instead of being sliced to
+     * a share of the window before any agent sees it.</p>
      */
     public String buildSubAgentGrounding(String prompt,
                                          List<ParsedDocument> attachments,
                                          String domJson,
-                                         String suiteContext,
-                                         int contextTokens) {
+                                         String suiteContext) {
         StringBuilder sb = new StringBuilder();
         if (suiteContext != null && !suiteContext.isBlank()) {
             sb.append("### Ngữ cảnh bộ kiểm thử\n").append(suiteContext.trim()).append("\n\n");
@@ -1262,30 +1272,39 @@ public class AiTestGeneratorService {
         }
 
         if (attachments != null && !attachments.isEmpty()) {
-            int documentCount = 0;
+            int eligible = 0;
             for (ParsedDocument doc : attachments) {
-                if (doc != null && !doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank()) {
-                    documentCount++;
+                if (isTextDocument(doc)) {
+                    eligible++;
                 }
             }
-            int allowance = resolveSubAgentDocAllowance(contextTokens, documentCount);
-            int remaining = allowance * Math.max(1, documentCount);
+            int available = SUB_AGENT_MAX_MATERIAL_CHARS;
             int used = 0;
-            sb.append("### Tài liệu đính kèm (trích xuất theo ngân sách ngữ cảnh)\n");
+            sb.append("### Tài liệu đính kèm (toàn văn, tác nhân đọc theo từng phần)\n");
             for (ParsedDocument doc : attachments) {
-                if (doc == null || doc.isImage() || remaining <= 0 || used >= SUB_AGENT_MAX_DOCS) {
+                if (!isTextDocument(doc) || available <= 0 || used >= SUB_AGENT_MAX_DOCS) {
                     continue;
                 }
-                int perDoc = Math.min(allowance, remaining);
-                ParsedDocument compressed = tokenOptimizer.compressDocumentSmart(doc, perDoc);
-                if (compressed == null || compressed.getContent() == null || compressed.getContent().isBlank()) {
-                    continue;
-                }
-                String body = compressed.getContent();
+                String content = doc.getContent().strip();
+                int keep = Math.min(content.length(), available);
                 sb.append("<untrusted_document name=\"").append(doc.getFileName()).append("\">\n")
-                        .append(body).append("\n</untrusted_document>\n\n");
-                remaining -= body.length();
+                        .append(content, 0, keep);
+                if (keep < content.length()) {
+                    sb.append(MATERIAL_CUT_MARKER).append(keep)
+                            .append('/').append(content.length()).append(MATERIAL_CUT_SUFFIX);
+                    AiLoggingService.warn("AI-DOC", "Tài liệu " + doc.getFileName()
+                            + " vượt trần vật liệu uỷ nhiệm; chỉ gửi " + keep + "/" + content.length() + " ký tự");
+                }
+                sb.append("\n</untrusted_document>\n\n");
+                available -= keep;
                 used++;
+            }
+            if (eligible > used) {
+                // Dropping a whole attachment must never be silent: an agent then answers as if the
+                // missing specification did not exist.
+                AiLoggingService.warn("AI-DOC", "Chỉ gửi " + used + '/' + eligible
+                        + " tài liệu văn bản cho tác nhân (giới hạn " + SUB_AGENT_MAX_DOCS
+                        + " tài liệu hoặc hết trần vật liệu)");
             }
         }
 
@@ -1301,15 +1320,45 @@ public class AiTestGeneratorService {
         return sb.toString().trim();
     }
 
+    /** An attachment the agents can actually read: parsed text, not an image and not empty. */
+    private static boolean isTextDocument(ParsedDocument doc) {
+        return doc != null && !doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank();
+    }
+
     /**
-     * Characters one attached document may use in a sub-agent prompt, derived from the model's window
-     * rather than a hard-coded cap so a larger-context model sees more of the specification.
+     * A structure-only view of the grounding for the planner.
+     *
+     * <p>The planner decides <em>who</em> does <em>what</em>; it does not analyse the specification.
+     * Handing it the whole material made a long SRS overflow the planner's own window, so it only
+     * receives the headings and the document names, which is all a delegation decision needs.</p>
      */
-    static int resolveSubAgentDocAllowance(int contextTokens, int documentCount) {
-        int windowTokens = contextTokens > 0 ? contextTokens : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
-        long totalChars = (long) (windowTokens * AiTokenOptimizer.CHARS_PER_TOKEN * SUB_AGENT_DOC_BUDGET_RATIO);
-        long shared = totalChars / Math.max(1, documentCount);
-        return (int) Math.max(SUB_AGENT_MIN_DOC_CHARS, Math.min(SUB_AGENT_MAX_DOC_CHARS, shared));
+    public String buildSubAgentPlanDigest(String grounding) {
+        if (grounding == null || grounding.isBlank()) {
+            return "";
+        }
+        String header = "### Cấu trúc tài liệu nguồn\n";
+        StringBuilder digest = new StringBuilder(header);
+        boolean found = false;
+        for (String rawLine : grounding.split("\\r?\\n")) {
+            String line = rawLine.strip();
+            boolean structural = line.startsWith("#") || line.startsWith("<untrusted_document");
+            if (!structural || line.isEmpty()) {
+                continue;
+            }
+            if (digest.length() + line.length() + 3 > SUB_AGENT_PLAN_DIGEST_CHARS) {
+                digest.append("- … (còn mục khác, đã lược để vừa ngân sách lập kế hoạch)\n");
+                found = true;
+                break;
+            }
+            digest.append("- ").append(line).append('\n');
+            found = true;
+        }
+        if (!found) {
+            // A plain-text specification has no headings; its opening is the only structure available.
+            int keep = Math.min(grounding.length(), SUB_AGENT_PLAN_DIGEST_CHARS);
+            return "### Trích đầu tài liệu nguồn\n" + grounding.substring(0, keep);
+        }
+        return digest.toString().stripTrailing();
     }
 
     public AiAmbiguityAnalyzer getAmbiguityAnalyzer() {

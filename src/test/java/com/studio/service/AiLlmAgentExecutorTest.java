@@ -5,6 +5,7 @@ import com.studio.model.AiConfig;
 import com.studio.model.AiChatMessage;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -109,5 +110,136 @@ class AiLlmAgentExecutorTest {
                 AiLlmAgentExecutor.MAX_ANSWER_CHARS,
                 "the length contract and the handoff carrier must not drift apart: anything longer "
                         + "than the carrier is written and then thrown away");
+    }
+
+    @Test
+    void materialThatFitsOneCallStillMakesExactlyOneCall() throws Exception {
+        List<String> prompts = new ArrayList<>();
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(CONFIG, (c, m) -> {
+            prompts.add(m.get(1).getContent());
+            return "kết luận";
+        }, "## Màn hình đăng nhập\nngắn");
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "chấm điểm");
+
+        assertEquals(1, prompts.size(), "vật liệu vừa một lượt thì không được chia phần");
+        assertEquals(1, reply.usage().sections());
+        assertEquals(0, reply.condensedChars());
+        assertTrue(prompts.get(0).contains("Màn hình đăng nhập"));
+    }
+
+    @Test
+    void materialBeyondOneCallIsAnsweredSectionBySectionWithoutLosingAnySection() throws Exception {
+        // A tiny window forces the batch budget down to its floor, so the test does not need 300k chars.
+        AiConfig smallWindow = new AiConfig();
+        smallWindow.setMaxTokens(6_000);
+        List<String> prompts = new ArrayList<>();
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(smallWindow, (c, m) -> {
+            prompts.add(m.get(1).getContent());
+            return "phân tích " + prompts.size();
+        }, threeScreens());
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát ba màn hình");
+
+        assertTrue(prompts.size() > 1, "vật liệu vượt ngân sách một lượt phải được chia phần");
+        for (int i = 1; i <= 3; i++) {
+            final String marker = "MARKER-" + i;
+            assertTrue(prompts.stream().anyMatch(p -> p.contains(marker)),
+                    "màn hình " + i + " phải tới được model, đây là phần từng bị cắt mất");
+        }
+        assertTrue(prompts.get(0).contains("[PHẦN 1/"), "mỗi lượt phải biết mình đang phân tích phần nào");
+        assertEquals(prompts.size(), reply.usage().sections());
+        assertEquals(prompts.size(), reply.usage().llmCalls());
+        assertTrue(reply.content().contains("phân tích 1"));
+    }
+
+    @Test
+    void sectionedAnswerStaysInsideTheHandoffContractAndReportsWhatItDropped() throws Exception {
+        AiConfig smallWindow = new AiConfig();
+        smallWindow.setMaxTokens(6_000);
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(smallWindow,
+                (c, m) -> "NỘI DUNG-RẤT-DÀI ".repeat(2_000), threeScreens());
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát");
+
+        assertTrue(reply.content().length() <= AiLlmAgentExecutor.MAX_ANSWER_CHARS,
+                "câu trả lời gộp phải vừa hợp đồng bàn giao, got: " + reply.content().length());
+        assertTrue(reply.condensedChars() > 0,
+                "phần bị lược phải đếm được để orchestrator báo cho người dùng");
+    }
+
+    @Test
+    void sectionedRunSumsTheUsageOfEveryCall() throws Exception {
+        AiConfig smallWindow = new AiConfig();
+        smallWindow.setMaxTokens(6_000);
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(smallWindow, (c, m) ->
+                new AiLlmAgentExecutor.MeasuredReply("phân tích",
+                        new AiLlmAgentExecutor.AgentUsage(1, 100, 50, 1)), threeScreens());
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát");
+
+        int calls = reply.usage().llmCalls();
+        assertTrue(calls > 1);
+        assertEquals(100 * calls, reply.usage().promptTokens());
+        assertEquals(50 * calls, reply.usage().completionTokens());
+    }
+
+    @Test
+    void inputBudgetPerCallGrowsWithTheContextWindowAndHasAFloor() {
+        AiConfig unknownWindow = new AiConfig();
+        assertEquals(28_672, AiLlmAgentExecutor.maxInputCharsPerCall(unknownWindow),
+                "context mặc định 32k trừ trần output 16k và phần dự phòng");
+
+        AiConfig largeWindow = new AiConfig();
+        largeWindow.setMaxTokens(128_000);
+        assertTrue(AiLlmAgentExecutor.maxInputCharsPerCall(largeWindow)
+                > AiLlmAgentExecutor.maxInputCharsPerCall(unknownWindow));
+
+        AiConfig tinyWindow = new AiConfig();
+        tinyWindow.setMaxTokens(1_000);
+        assertEquals(4_000, AiLlmAgentExecutor.maxInputCharsPerCall(tinyWindow),
+                "cửa sổ không đủ chỗ vẫn phải còn một ngân sách dùng được");
+    }
+
+    @Test
+    void runawaySectionCountIsCappedAndTheOmittedMaterialIsCounted() throws Exception {
+        AiConfig tinyWindow = new AiConfig();
+        tinyWindow.setMaxTokens(1_000); // forces the 4 000-character floor per call
+        List<String> prompts = new ArrayList<>();
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(tinyWindow, (c, m) -> {
+            prompts.add(m.get(1).getContent());
+            return "phân tích";
+        }, manyScreens(30));
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "rà soát");
+
+        assertEquals(24, reply.usage().sections(), "số lượt gọi phải có trần");
+        assertEquals(24, prompts.size());
+        assertTrue(prompts.get(0).contains("[PHẦN 1/24]"),
+                "tiêu đề phần phải đánh số lại theo số phần thực chạy");
+        assertTrue(reply.condensedChars() > 0,
+                "vật liệu bị bỏ phải đếm được, không được im lặng");
+    }
+
+    /** Thirty headed screens, each larger than the forced batch budget. */
+    private static String manyScreens(int count) {
+        StringBuilder material = new StringBuilder();
+        for (int i = 1; i <= count; i++) {
+            material.append("## Màn hình ").append(i).append('\n')
+                    .append("MARKER-").append(i).append(' ')
+                    .append("Yêu cầu chức năng chi tiết. ".repeat(130)).append("\n\n");
+        }
+        return material.toString();
+    }
+
+    /** Three headed screens, each larger than the forced batch budget, with a searchable marker. */
+    private static String threeScreens() {
+        StringBuilder material = new StringBuilder();
+        for (int i = 1; i <= 3; i++) {
+            material.append("## Màn hình ").append(i).append('\n')
+                    .append("MARKER-").append(i).append(' ')
+                    .append("Yêu cầu chức năng chi tiết. ".repeat(80)).append("\n\n");
+        }
+        return material.toString();
     }
 }

@@ -495,20 +495,7 @@ class AiTestGeneratorServiceTest {
     }
 
     @Test
-    void subAgentDocAllowanceScalesWithTheContextWindow() {
-        // Floor: a tiny window must not starve a document below the smallest useful slice.
-        assertEquals(2500, AiTestGeneratorService.resolveSubAgentDocAllowance(2000, 1));
-        // Cap: a huge window must not push one document past the useful extraction limit.
-        assertEquals(16000, AiTestGeneratorService.resolveSubAgentDocAllowance(32768, 1));
-        // An unknown window falls back to the default instead of returning a zero budget.
-        assertEquals(16000, AiTestGeneratorService.resolveSubAgentDocAllowance(0, 1));
-        // Several documents share the same budget rather than each claiming the full window.
-        assertEquals(14933, AiTestGeneratorService.resolveSubAgentDocAllowance(128000, 6));
-        assertEquals(2500, AiTestGeneratorService.resolveSubAgentDocAllowance(4000, 4));
-    }
-
-    @Test
-    void subAgentGroundingKeepsTheLaterSectionsOfALargeSrs() {
+    void subAgentGroundingKeepsALargeSrsWhole() {
         StringBuilder content = new StringBuilder("# Tài liệu SRS\n\n");
         for (int i = 1; i <= 23; i++) {
             content.append("## 3.").append(i).append(" Màn hình số ").append(i).append('\n');
@@ -520,12 +507,55 @@ class AiTestGeneratorServiceTest {
                 "srs.docx", null, false, content.toString(), "docx", content.length());
 
         String grounding = service.buildSubAgentGrounding("tạo test case cho tài liệu srs", List.of(srs), null,
-                "Suite X", 32768);
+                "Suite X");
 
         assertTrue(grounding.contains("MARKER-23"),
                 "mục cuối của SRS phải tới được tác nhân, không chỉ mục lục");
-        assertTrue(grounding.length() > 9000,
-                "ngân sách cố định 9.000 ký tự cũ làm mất các mục sau, got: " + grounding.length());
+        assertTrue(grounding.contains(content.toString().strip()),
+                "toàn văn tài liệu phải tới tác nhân; việc chia phần do executor lo, không cắt trước");
+    }
+
+    @Test
+    void subAgentGroundingKeepsADocumentLongerThanTheOldPerDocumentSlice() {
+        // 40 000 characters is well past the retired 16 000-character slice: the tail used to vanish
+        // before the agent ever saw it, which is the loss this path now avoids.
+        String body = "NỘI DUNG-CHI-TIẾT ".repeat(2_000) + "CUỐI-TÀI-LIỆU";
+        DocumentParserService.ParsedDocument srs = new DocumentParserService.ParsedDocument(
+                "dai.docx", null, false, body, "docx", body.length());
+
+        String grounding = service.buildSubAgentGrounding("phân tích tài liệu", List.of(srs), null, "");
+
+        assertTrue(grounding.contains("CUỐI-TÀI-LIỆU"),
+                "phần cuối tài liệu dài phải còn, trước đây bị cắt ở ngân sách mỗi tài liệu");
+    }
+
+    @Test
+    void planDigestCarriesStructureInsteadOfTheWholeSpecification() {
+        StringBuilder grounding = new StringBuilder("### Ngữ cảnh bộ kiểm thử\nsuite\n");
+        for (int i = 1; i <= 200; i++) {
+            grounding.append("## Màn hình ").append(i).append('\n')
+                    .append("Chi tiết yêu cầu. ".repeat(30)).append('\n');
+        }
+
+        String digest = service.buildSubAgentPlanDigest(grounding.toString());
+
+        assertTrue(digest.contains("Màn hình 1"), "bộ lập kế hoạch cần thấy cấu trúc tài liệu");
+        assertFalse(digest.contains("Chi tiết yêu cầu."), "nội dung chi tiết không thuộc phạm vi lập kế hoạch");
+        assertTrue(digest.length() <= 6_000 + 200, "digest phải vừa ngân sách prompt, got: " + digest.length());
+    }
+
+    @Test
+    void planDigestFallsBackToTheOpeningWhenThereAreNoHeadings() {
+        String digest = service.buildSubAgentPlanDigest("Yêu cầu thô không có tiêu đề. ".repeat(500));
+
+        assertTrue(digest.startsWith("### Trích đầu tài liệu nguồn"));
+        assertTrue(digest.length() <= 6_000 + 64);
+    }
+
+    @Test
+    void planDigestOfEmptyGroundingIsEmpty() {
+        assertEquals("", service.buildSubAgentPlanDigest(null));
+        assertEquals("", service.buildSubAgentPlanDigest("   "));
     }
 }
 

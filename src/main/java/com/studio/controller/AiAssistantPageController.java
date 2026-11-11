@@ -1039,8 +1039,10 @@ public class AiAssistantPageController implements Initializable {
                     + ", docs=" + hasDocs + ", dom=" + hasDom + " (dùng trợ lý đơn có grounding)");
             return null;
         }
-        String grounding = aiGenerator.buildSubAgentGrounding(prompt, docs, domJson, suiteContext,
-                aiConfig.getMaxTokens());
+        String grounding = aiGenerator.buildSubAgentGrounding(prompt, docs, domJson, suiteContext);
+        // The planner only decides who does what; handing it the whole specification overflowed its
+        // own window on a long SRS. The agents below still receive the full material, section-batched.
+        String planDigest = aiGenerator.buildSubAgentPlanDigest(grounding);
         OpenAiClient client = new OpenAiClient();
 
         AiCoordinatorAgent coordinator = new AiCoordinatorAgent(userRequest -> {
@@ -1048,7 +1050,7 @@ public class AiAssistantPageController implements Initializable {
                 return completeUntilDone(client, aiConfig, List.of(
                                 new OpenAiClient.ChatMessage("system", new AiCoordinatorAgent(
                                         r -> "{}").plannerSystemPrompt()),
-                                new OpenAiClient.ChatMessage("user", userRequest + "\n\n" + grounding)),
+                                new OpenAiClient.ChatMessage("user", userRequest + "\n\n" + planDigest)),
                         OpenAiClient.defaultOutputTokensFor(false),
                         AiContinuation.DocumentShape.JSON,
                         "Bộ lập kế hoạch",

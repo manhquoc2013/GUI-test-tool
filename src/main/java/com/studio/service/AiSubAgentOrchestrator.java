@@ -151,6 +151,10 @@ public final class AiSubAgentOrchestrator {
     static final long AGENT_RETRY_BACKOFF_MS = 1_000L;
     /** Metric key for how many calls the agent needed; the token badge shows the successful one. */
     static final String METRIC_ATTEMPTS = "attempts";
+    /** How many section batches the run was split into; 1 means the material fit one reply. */
+    static final String METRIC_SECTIONS = "sections";
+    /** Characters a sectioned run had to drop to respect the handoff contract. */
+    static final String METRIC_CONDENSED_CHARS = "condensedChars";
     /**
      * Context budget for the artefact handoff. A reviewer only needs the producer's answer, and the
      * producer's answer is already the largest thing in the prompt; capping here keeps a chained turn
@@ -579,7 +583,7 @@ public final class AiSubAgentOrchestrator {
                     String output = reply.content();
                     child.setResultSummary(output);
                     AiChatMessage recorded = record(parent, child, "assistant", safe(output));
-                    applyUsage(child, recorded, reply.usage());
+                    applyUsage(child, recorded, reply);
                     child.getMetrics().put(METRIC_ATTEMPTS, String.valueOf(attempts));
                     child.setStatus(AiSubAgentSession.Status.COMPLETED);
                     return output == null || output.isBlank() ? null : output;
@@ -688,14 +692,17 @@ public final class AiSubAgentOrchestrator {
      * A "not reported" usage still records the call count, which the executor always knows.
      */
     private void applyUsage(AiSubAgentSession child, AiChatMessage msg,
-                            AiLlmAgentExecutor.AgentUsage usage) {
-        AiLlmAgentExecutor.AgentUsage safe = usage != null
-                ? usage
+                            AiLlmAgentExecutor.MeasuredReply reply) {
+        AiLlmAgentExecutor.AgentUsage safe = reply != null && reply.usage() != null
+                ? reply.usage()
                 : new AiLlmAgentExecutor.AgentUsage(1, -1, -1);
         child.getMetrics().put("llmCalls", String.valueOf(safe.llmCalls()));
         child.getMetrics().put("promptTokens", String.valueOf(safe.promptTokens()));
         child.getMetrics().put("completionTokens", String.valueOf(safe.completionTokens()));
         child.getMetrics().put("reportedUsage", String.valueOf(safe.hasReportedTokens()));
+        child.getMetrics().put(METRIC_SECTIONS, String.valueOf(Math.max(1, safe.sections())));
+        child.getMetrics().put(METRIC_CONDENSED_CHARS,
+                String.valueOf(reply != null ? Math.max(0, reply.condensedChars()) : 0));
         if (msg != null) {
             msg.setPromptTokens(safe.promptTokens());
             msg.setCompletionTokens(safe.completionTokens());
@@ -715,6 +722,19 @@ public final class AiSubAgentOrchestrator {
         return Math.max(1, Math.round(content.length() / 3.0f));
     }
 
+    /** Metric values are persisted as strings; a missing or malformed one reads as zero. */
+    private static int parseIntOrZero(String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException malformed) {
+            AiLoggingService.debug("AI-COORDINATOR", "Giá trị metric không phải số: " + value);
+            return 0;
+        }
+    }
+
     /**
      * Rule-boundary gate: an agent that returned nothing, or claimed work its rule prohibits,
      * contributes findings instead of silently passing. This is what stops a sub-agent from
@@ -726,6 +746,14 @@ public final class AiSubAgentOrchestrator {
         if (summary == null || summary.isBlank()) {
             findings.add(child.getAgentName() + ": không trả về kết quả cho nhiệm vụ được giao");
             return findings;
+        }
+        int condensed = parseIntOrZero(child.getMetrics().get(METRIC_CONDENSED_CHARS));
+        if (condensed > 0) {
+            // Written-but-dropped text looked exactly like a complete answer before this line existed:
+            // the consumer silently read a shorter artefact than the agent produced.
+            findings.add(child.getAgentName() + ": nội dung vượt hợp đồng bàn giao, đã lược "
+                    + condensed + " ký tự (phân tích theo "
+                    + child.getMetrics().getOrDefault(METRIC_SECTIONS, "1") + " phần)");
         }
         String lower = summary.toLowerCase(java.util.Locale.ROOT);
         for (String prohibited : ruleProhibitions(child)) {

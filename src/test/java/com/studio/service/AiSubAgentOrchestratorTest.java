@@ -679,4 +679,35 @@ class AiSubAgentOrchestratorTest {
                 .count();
         assertEquals(1, alphaCopies, "nội dung dài chỉ được xuất hiện một lần");
     }
+
+    @Test
+    void condensedAgentAnswerIsReportedInsteadOfPassingAsComplete() {
+        AiChatSession parent = new AiChatSession();
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the measured seam carries the result");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief,
+                                                                    String upstreamArtifacts) {
+                return new AiLlmAgentExecutor.MeasuredReply("KẾT_LUẬN_CỦA_" + rule.getId(),
+                        new AiLlmAgentExecutor.AgentUsage(4, 10, 10, 4), 900);
+            }
+        }, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS")));
+
+        assertTrue(res.openFindings().stream().anyMatch(f -> f.contains("900")),
+                "phần bị lược phải thành finding, không được im lặng coi là hoàn chỉnh");
+        assertTrue(res.aggregatedSummary().contains("900"),
+                "finding phải tới được câu trả lời tổng hợp mà người dùng đọc");
+        assertEquals("4", res.sessions().get(0).getMetrics().get(
+                AiSubAgentOrchestrator.METRIC_SECTIONS));
+        assertEquals("900", res.sessions().get(0).getMetrics().get(
+                AiSubAgentOrchestrator.METRIC_CONDENSED_CHARS));
+    }
 }
