@@ -729,9 +729,11 @@ public class AiTestGeneratorService {
             if (progressListener != null) {
                 progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
             }
-            outputTruncated = false;
-            OpenAiClient.Completion completion = openAiClient.completeChat(config, messages,
+            OpenAiClient.Completion completion = completeChatWithTruncationRecovery(config, messages,
                     OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript));
+            // The recovery call may have appended continuation turns until the JSON closed. Trust the parse:
+            // a closed document is complete whatever the provider's last stop reason said.
+            outputTruncated = completion.truncated() && !containsCompleteJson(completion.content());
             String reply = completion.content();
 
             if (isChatAdvice) {
@@ -743,27 +745,23 @@ public class AiTestGeneratorService {
             // A reply cut off at the output limit (“scriptCode” for four cases is the biggest single
             // response) parses to nothing or to a half-written case. Treat it as recoverable: keep any
             // cases that did parse, and ask once more with a larger, capped output budget.
-            if (completion.truncated()) {
-                outputTruncated = true;
-                AiLoggingService.warn("AI-PARSE", "Phản hồi chạm trần output_tokens (" + res.getCases().size()
-                        + " case còn đọc được); chạy lại với ngân sách output lớn hơn");
-                if (progressListener != null) {
-                    progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phản hồi bị cắt do giới hạn token, đang chạy lại với ngân sách lớn hơn...");
+            if (completion.truncated() && !outputTruncated) {
+                // The recovery call already escalated the budget and appended continuation turns; this block
+                // now only refines the parsed cases from the complete-enough accumulated text.
+                GenerationResult repaired = parseResponse(completion.content(), effectiveSkill);
+                if (repaired.getCases() != null && repaired.getCases().size() > res.getCases().size()) {
+                    res = repaired;
                 }
-                try {
-                    OpenAiClient.Completion retry = completeChatWithTruncationRecovery(config, messages,
-                            Math.min(MAX_OUTPUT_TOKENS_CEILING,
-                                    Math.max(OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript),
-                                            requestedOutputBudget(config, effectiveGenerateScript)) * 2));
-                    if (retry.content() != null && !retry.content().isBlank()) {
-                        GenerationResult retryRes = parseResponse(retry.content(), effectiveSkill);
-                        if (retryRes.getCases() != null && retryRes.getCases().size() > res.getCases().size()) {
-                            res = retryRes;
-                            outputTruncated = retry.truncated();
-                        }
-                    }
-                } catch (Exception e) {
-                    AiLoggingService.warn("AI-PARSE", "Lượt chạy lại sau khi cắt token thất bại: " + e.getMessage());
+            } else if (completion.truncated()) {
+                // Still cut after every continuation turn: keep what parsed, and say the suite may be short.
+                AiLoggingService.warn("AI-PARSE", "Phản hồi chạm trần output_tokens (" + res.getCases().size()
+                        + " case đọc được); đã nối tiếp " + MAX_CONTINUATION_TURNS + " lượt tối đa");
+                if (progressListener != null) {
+                    progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phản hồi bị cắt do giới hạn token, đang vá tiếp phần còn thiếu...");
+                }
+                GenerationResult repaired = parseResponse(completion.content(), effectiveSkill);
+                if (repaired.getCases() != null && repaired.getCases().size() > res.getCases().size()) {
+                    res = repaired;
                 }
             }
 
@@ -1131,6 +1129,12 @@ public class AiTestGeneratorService {
 
     /** Hard ceiling for an output budget increase: models beyond this reject the request outright. */
     static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
+    /**
+     * How many continuation turns may be appended to one reply. A response that is still cut after this
+     * many rounds is reported as truncated instead of looping: each turn costs tokens and latency, and a
+     * model that keeps overflowing is producing more than one suite's worth of content anyway.
+     */
+    static final int MAX_CONTINUATION_TURNS = 3;
 
     /**
      * One model call with output-limit recovery. When the reply stopped on {@code length} the client
@@ -1150,8 +1154,98 @@ public class AiTestGeneratorService {
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, thử lại với max_tokens=" + escalated);
         OpenAiClient.Completion retry = openAiClient.completeChat(config, messages, escalated);
-        return retry.content() == null || retry.content().length() < completion.content().length()
+        OpenAiClient.Completion better = retry.content() == null || retry.content().length() < completion.content().length()
                 ? completion : retry;
+        // Still cut after the bigger budget: stop enlarging and continue the text instead of restarting it.
+        return better.truncated() ? continueCompletion(config, messages, better.content(), escalated, new java.util.ArrayList<>()) : better;
+    }
+
+    /**
+     * Appends continuation turns to an answer that stopped on the output limit. The model is handed its own
+     * partial reply and asked to resume exactly where it stopped, so a long JSON document is rebuilt piece by
+     * piece and parsed as a whole by the caller. Bounded by {@link #MAX_CONTINUATION_TURNS}; once the budget is
+     * exhausted the accumulated text is returned still flagged as truncated.
+     */
+    OpenAiClient.Completion continueCompletion(AiConfig config,
+                                              List<OpenAiClient.ChatMessage> messages,
+                                              String partial,
+                                              int outputBudget,
+                                              List<String> continuationLog) throws IOException, InterruptedException {
+        String accumulated = partial != null ? partial : "";
+        OpenAiClient.Completion current = new OpenAiClient.Completion(accumulated, "length");
+        for (int turn = 1; turn <= MAX_CONTINUATION_TURNS && current.truncated(); turn++) {
+            List<OpenAiClient.ChatMessage> turnMessages = new ArrayList<>(messages);
+            turnMessages.add(new OpenAiClient.ChatMessage("assistant", accumulated));
+            turnMessages.add(new OpenAiClient.ChatMessage("user", buildContinuationPrompt(accumulated)));
+            AiLoggingService.info("AI-CONTINUE", "Lượt nối tiếp " + turn + "/" + MAX_CONTINUATION_TURNS
+                    + " sau " + accumulated.length() + " ký tự");
+            OpenAiClient.Completion next = openAiClient.completeChat(config, turnMessages, outputBudget);
+            String piece = next.content() != null ? next.content() : "";
+            if (piece.isBlank()) {
+                break;
+            }
+            accumulated = mergeContinuation(accumulated, piece);
+            continuationLog.add(piece);
+            // A provider may flag "length" even when the joined document already closes: the parse decides.
+            String finish = next.finishReason();
+            if (next.truncated() && containsCompleteJson(accumulated)) {
+                finish = "stop";
+            }
+            current = new OpenAiClient.Completion(accumulated, finish);
+        }
+        return current;
+    }
+
+    /** Whether the text already holds a balanced root JSON object, i.e. nothing more needs continuing. */
+    static boolean containsCompleteJson(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        try {
+            ObjectMapper validator = new ObjectMapper();
+            validator.readTree(extractJsonBlock(text));
+            return true;
+        } catch (Exception notComplete) {
+            return false;
+        }
+    }
+
+    /**
+     * Prompt for the follow-up turn. The instruction is deliberately about the byte where the previous reply
+     * stopped: anything vaguer makes the model restart the JSON, and a restarted fragment cannot be merged.
+     */
+    static String buildContinuationPrompt(String accumulated) {
+        String tail = accumulated.length() > 400
+                ? accumulated.substring(accumulated.length() - 400)
+                : accumulated;
+        return "[CONTINUATION]: Phản hồi trước bị cắt do giới hạn output tokens. "
+                + "Hãy viết TIẾP đúng từ ký tự tiếp theo của nội dung dưới đây, không lặp lại phần đã có, "
+                + "không mở lại từ đầu, không thêm lời dẫn hay markdown."
+                + "\n\n--- Cuối nội dung đã nhận (" + accumulated.length() + " ký tự) ---\n" + tail
+                + "\n--- Hết ---\nTiếp tục ngay từ đây:";
+    }
+
+    /**
+     * Joins a continuation piece to what came before. A model sometimes repeats the trailing fragment it was
+     * shown; that overlap is removed by matching the longest suffix of the head against the piece's prefix, so a
+     * single line is not duplicated across the join.
+     */
+    static String mergeContinuation(String accumulated, String piece) {
+        String head = accumulated != null ? accumulated : "";
+        String add = piece != null ? piece : "";
+        if (head.isBlank()) {
+            return add;
+        }
+        if (add.isBlank()) {
+            return head;
+        }
+        int maxOverlap = Math.min(head.length(), add.length());
+        for (int len = maxOverlap; len >= 16; len--) {
+            if (head.regionMatches(head.length() - len, add, 0, len)) {
+                return head + add.substring(len);
+            }
+        }
+        return head + add;
     }
 
     /** The output budget actually in force for this request (explicit config wins over the mode default). */

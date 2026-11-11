@@ -1919,6 +1919,18 @@
     -fx-font-weight: bold;
     -fx-text-fill: #7aa2f7;
 }
+/* Output cut by the model's token limit, or a screen batch that failed: the suite below is incomplete. */
+.ai-chat-incomplete-warning {
+    -fx-font-size: 11px;
+    -fx-text-fill: #e0af68;
+    -fx-background-color: #2a2418;
+    -fx-background-radius: 4px;
+    -fx-border-color: #5a4a25;
+    -fx-border-width: 1px;
+    -fx-border-radius: 4px;
+    -fx-padding: 6px 9px;
+    -fx-wrap-text: true;
+}
 .ai-file-chip {
     -fx-background-color: #24283b;
     -fx-padding: 3px 8px;

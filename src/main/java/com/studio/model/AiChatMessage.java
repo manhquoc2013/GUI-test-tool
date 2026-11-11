@@ -34,6 +34,11 @@ public class AiChatMessage {
     private String intent;
     private String suggestedGroup;
     private String suggestedSuite;
+    /**
+     * Warning shown in the bubble when the generated suite is known to be incomplete: output cut by the
+     * model's token limit after every continuation turn, or a screen batch that never returned cases.
+     */
+    private String completenessWarning;
     /** Sub-agent that produced this message; null for the parent session's own turns. */
     private String agentId;
     private String agentName;
@@ -223,6 +228,14 @@ public class AiChatMessage {
 
     public String getSuggestedSuite() {
         return suggestedSuite;
+    }
+
+    public String getCompletenessWarning() {
+        return completenessWarning;
+    }
+
+    public void setCompletenessWarning(String completenessWarning) {
+        this.completenessWarning = completenessWarning;
     }
 
     public void setSuggestedSuite(String suggestedSuite) {

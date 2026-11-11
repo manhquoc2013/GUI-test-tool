@@ -1422,6 +1422,18 @@
 .ai-chat-bubble-user .ai-chat-bubble-content {
     -fx-text-fill: #1e3a8a;
 }
+/* Output cut by the model's token limit, or a screen batch that failed: the suite below is incomplete. */
+.ai-chat-incomplete-warning {
+    -fx-font-size: 11px;
+    -fx-text-fill: #8a5a00;
+    -fx-background-color: #fff7e6;
+    -fx-background-radius: 4px;
+    -fx-border-color: #f0d9a8;
+    -fx-border-width: 1px;
+    -fx-border-radius: 4px;
+    -fx-padding: 6px 9px;
+    -fx-wrap-text: true;
+}
 .ai-chat-applied-badge {
     -fx-padding: 4 0 0 0;
 }
