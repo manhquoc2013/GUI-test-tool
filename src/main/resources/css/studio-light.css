@@ -1155,6 +1155,26 @@
     -fx-font-size: 11px;
     -fx-text-fill: #64748b;
 }
+
+/* Sub-agent bubble — light theme parity with the dark rules in studio.css. */
+.ai-chat-bubble-agent {
+    -fx-background-color: #f1f5fd;
+    -fx-border-color: #3b82f6 transparent transparent transparent;
+    -fx-border-width: 0 0 0 3px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 8px 12px;
+}
+
+/* Aggregated final answer — light theme parity. */
+.ai-chat-bubble-aggregate {
+    -fx-background-color: #f0fdf4;
+    -fx-border-color: #16a34a transparent transparent transparent;
+    -fx-border-width: 0 0 0 3px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 10px 12px;
+}
 .ai-chat-bubble-content {
     -fx-font-size: 13px;
     -fx-text-fill: #0f172a;

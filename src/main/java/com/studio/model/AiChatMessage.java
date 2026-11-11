@@ -34,6 +34,12 @@ public class AiChatMessage {
     private String intent;
     private String suggestedGroup;
     private String suggestedSuite;
+    /** Sub-agent that produced this message; null for the parent session's own turns. */
+    private String agentId;
+    private String agentName;
+    private String agentRole;
+    /** Set on the single aggregated answer posted back to the parent. */
+    private boolean aggregatedResult;
 
     public AiChatMessage() {
         this.id = UUID.randomUUID().toString();
@@ -48,6 +54,43 @@ public class AiChatMessage {
 
     public String getId() {
         return id;
+    }
+
+    /** True when this message belongs to a sub-agent rather than the parent session. */
+    public boolean isAgentMessage() {
+        return agentName != null && !agentName.isBlank();
+    }
+
+    public String getAgentId() {
+        return agentId;
+    }
+
+    public void setAgentId(String agentId) {
+        this.agentId = agentId;
+    }
+
+    public String getAgentName() {
+        return agentName;
+    }
+
+    public void setAgentName(String agentName) {
+        this.agentName = agentName;
+    }
+
+    public String getAgentRole() {
+        return agentRole;
+    }
+
+    public void setAgentRole(String agentRole) {
+        this.agentRole = agentRole;
+    }
+
+    public boolean isAggregatedResult() {
+        return aggregatedResult;
+    }
+
+    public void setAggregatedResult(boolean aggregatedResult) {
+        this.aggregatedResult = aggregatedResult;
     }
 
     public void setId(String id) {

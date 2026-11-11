@@ -1798,6 +1798,26 @@
     -fx-font-size: 11px;
     -fx-text-fill: #9aa5ce;
 }
+
+/* Sub-agent bubble: indented, accent left border, visually distinct from the parent. */
+.ai-chat-bubble-agent {
+    -fx-background-color: #1f2438;
+    -fx-border-color: #7aa2f7 transparent transparent transparent;
+    -fx-border-width: 0 0 0 3px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 8px 12px;
+}
+
+/* Aggregated final answer: emphasised as the single deliverable of the whole team. */
+.ai-chat-bubble-aggregate {
+    -fx-background-color: #22302a;
+    -fx-border-color: #5ec27a transparent transparent transparent;
+    -fx-border-width: 0 0 0 3px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 10px 12px;
+}
 .ai-chat-bubble-content {
     -fx-font-size: 13px;
     -fx-text-fill: #c0caf5;

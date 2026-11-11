@@ -1799,12 +1799,38 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /**
+     * Bubble header. A sub-agent message shows its agent name and role so the transcript
+     * makes clear which agent is speaking; the aggregated answer is labelled as the final
+     * result of the whole team.
+     */
+    private String bubbleHeader(AiChatMessage msg, String formattedTime) {
+        String speaker;
+        if (msg.isAgentMessage()) {
+            String role = msg.getAgentRole();
+            speaker = "🤖 " + msg.getAgentName() + (role != null && !role.isBlank() ? " · " + role : "");
+        } else if (msg.isAggregatedResult()) {
+            speaker = "✅ Điều phối · Kết quả tổng hợp";
+        } else if ("user".equalsIgnoreCase(msg.getRole())) {
+            speaker = "Bạn";
+        } else {
+            speaker = "Trợ lý AI";
+        }
+        return speaker + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
+    }
+
     private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
         String role = msg.getRole();
         VBox bubble = new VBox(6);
         bubble.setMaxWidth(520);
         bubble.getStyleClass().add("ai-chat-bubble");
         bubble.getStyleClass().add("user".equalsIgnoreCase(role) ? "ai-chat-bubble-user" : "ai-chat-bubble-assistant");
+        if (msg.isAgentMessage()) {
+            bubble.getStyleClass().add("ai-chat-bubble-agent");
+        }
+        if (msg.isAggregatedResult()) {
+            bubble.getStyleClass().add("ai-chat-bubble-aggregate");
+        }
 
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(msg.getTimestamp()), ZoneId.systemDefault());
         String formattedTime = time.format(DateTimeFormatter.ofPattern("HH:mm"));
@@ -1813,9 +1839,7 @@ public class AiAssistantPageController implements Initializable {
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        String title = ("user".equalsIgnoreCase(role) ? "Bạn" : "Trợ lý AI") + "  •  " + formattedTime + "  •  ~"
-                + msg.getEstimatedTokens() + " tokens";
-        Label headerLabel = new Label(title);
+        String title = bubbleHeader(msg, formattedTime);        Label headerLabel = new Label(title);
         headerLabel.getStyleClass().add("ai-chat-bubble-header");
         HBox.setHgrow(headerLabel, Priority.ALWAYS);
 

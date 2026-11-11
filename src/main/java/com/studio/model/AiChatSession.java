@@ -20,6 +20,8 @@ public class AiChatSession {
     private long createdAt;
     private long lastUpdated;
     private boolean pinned;
+    /** Sub-agent sessions spawned from this session, in dispatch order. */
+    private List<AiSubAgentSession> subAgents = new ArrayList<>();
 
     public AiChatSession() {
         this.id = UUID.randomUUID().toString();
@@ -85,6 +87,18 @@ public class AiChatSession {
 
     public List<AiChatMessage> getMessages() {
         return messages;
+    }
+
+    public List<AiSubAgentSession> getSubAgents() {
+        return subAgents;
+    }
+
+    public void setSubAgents(List<AiSubAgentSession> subAgents) {
+        this.subAgents = subAgents != null ? subAgents : new ArrayList<>();
+    }
+
+    public boolean hasSubAgents() {
+        return subAgents != null && !subAgents.isEmpty();
     }
 
     public void setMessages(List<AiChatMessage> messages) {
