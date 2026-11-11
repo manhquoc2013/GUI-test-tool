@@ -131,7 +131,6 @@
                               styleClass="ai-prompt-input"/>
                     <HBox spacing="8" alignment="CENTER_LEFT" styleClass="ai-composer-footer">
                         <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
-                        <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
                         <CheckBox fx:id="autoGenerateScriptCheck" text="Tạo Test Script" selected="false" styleClass="field-label-small" minWidth="-Infinity"/>
                         <Region HBox.hgrow="ALWAYS" minWidth="0"/>
                         <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run"

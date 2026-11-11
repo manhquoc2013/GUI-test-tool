@@ -4,11 +4,11 @@
   "title" : "tạo full kịch bản kiểm thử t...",
   "summary" : null,
   "messages" : [ {
-    "id" : "034e0f57-ffa3-4504-8ef4-cdca99bcd112",
+    "id" : "4838a115-c778-4ab6-8c62-8d40bde02cbb",
     "sessionId" : "b4dd4a84-0359-4359-873a-7f1564d327d7",
     "role" : "user",
     "content" : "tạo full kịch bản kiểm thử từ tài liệu\n\nĐã đính kèm: [Web hội] - Đăng kí người yếu thế.docx ",
-    "timestamp" : 1794406137599,
+    "timestamp" : 1794407723016,
     "estimatedTokens" : 54,
     "promptTokens" : -1,
     "completionTokens" : -1,
@@ -44,7 +44,7 @@
     "reportedTotalTokens" : 0
   } ],
   "createdAt" : 1794400947739,
-  "lastUpdated" : 1794406137599,
+  "lastUpdated" : 1794407723016,
   "pinned" : false,
   "targetGroup" : "",
   "targetSuite" : "",

@@ -122,8 +122,6 @@ public class AiAssistantPageController implements Initializable {
     @FXML
     private Button attachFileBtn;
     @FXML
-    private Button clearAttachmentsBtn;
-    @FXML
     private CheckBox autoGenerateScriptCheck;
     @FXML
     private ProgressIndicator generationProgress;
@@ -1675,8 +1673,8 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    @FXML
-    public void clearAttachments() {
+    /** Drops every attachment; each chip still has its own ✕ for removing a single document. */
+    private void clearAttachments() {
         attachedDocuments.clear();
         attachedChipsPane.getChildren().clear();
         updateAttachmentsVisibility();
@@ -1686,8 +1684,6 @@ public class AiAssistantPageController implements Initializable {
         boolean hasFiles = !attachedDocuments.isEmpty();
         attachedFilesBox.setVisible(hasFiles);
         attachedFilesBox.setManaged(hasFiles);
-        clearAttachmentsBtn.setVisible(hasFiles);
-        clearAttachmentsBtn.setManaged(hasFiles);
     }
 
     private void addFileChip(DocumentParserService.ParsedDocument doc) {
