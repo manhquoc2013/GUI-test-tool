@@ -3,6 +3,7 @@ package com.studio.service;
 import com.studio.model.AiConfig;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -127,6 +128,58 @@ class AiContinuationTest {
         assertTrue(prompts.get(1).startsWith("[CONTINUATION - STRICT]"));
         assertEquals("{\"cases\": [{\"name\":\"TC01_A\"}]}", result.content());
         assertEquals("stop", result.finishReason());
+    }
+
+    @Test
+    void lostConnectionDuringContinuationKeepsWhatAlreadyArrived() throws Exception {
+        OpenAiClient.Completion first = new OpenAiClient.Completion("Phần đầu đã nhận được.", "length");
+
+        OpenAiClient.Completion result = AiContinuation.continueUntilComplete(
+                config("gpt-4o", 200_000), BASE, first, 8192, AiContinuation.DocumentShape.PROSE,
+                (messages, budget) -> {
+                    // What a proxy that resets the stream looks like after every retry is spent.
+                    throw new IOException("HTTP/1.1 header parser received no bytes");
+                }, new ArrayList<>());
+
+        assertEquals("Phần đầu đã nhận được.", result.content(),
+                "text received before the connection dropped must never be thrown away");
+        assertTrue(result.truncated(), "the missing tail must still be reported as incomplete");
+    }
+
+    @Test
+    void lostConnectionBeforeAnyContentStillFailsTheCall() {
+        OpenAiClient.Completion empty = new OpenAiClient.Completion("", "length");
+
+        assertThrows(IOException.class, () -> AiContinuation.continueUntilComplete(
+                        config("gpt-4o", 200_000), BASE, empty, 8192, AiContinuation.DocumentShape.PROSE,
+                        (messages, budget) -> {
+                            throw new IOException("Connection reset");
+                        }, new ArrayList<>()),
+                "a call that produced nothing must surface the transport failure");
+    }
+
+    @Test
+    void continuationTurnDoesNotEchoTheWholeAnswerBack() throws Exception {
+        String longAnswer = "Báo cáo rất dài. ".repeat(2_500);
+        List<List<OpenAiClient.ChatMessage>> sent = new ArrayList<>();
+
+        AiContinuation.continueUntilComplete(
+                config("gpt-4o", 200_000), BASE,
+                new OpenAiClient.Completion(longAnswer, "length"), 8192,
+                AiContinuation.DocumentShape.PROSE,
+                (messages, budget) -> {
+                    sent.add(messages);
+                    return new OpenAiClient.Completion(" Phần cuối.", "stop");
+                }, new ArrayList<>());
+
+        String echo = sent.get(0).stream()
+                .filter(m -> "assistant".equals(m.getRole()))
+                .findFirst().orElseThrow()
+                .getTextContent();
+        assertTrue(echo.length() <= AiContinuation.CONTINUATION_ECHO_CHARS,
+                "the echoed answer must stay bounded so the prompt does not grow with every turn "
+                        + "(actual: " + echo.length() + " chars)");
+        assertTrue(longAnswer.endsWith(echo), "what is echoed must be the tail, where the answer stopped");
     }
 
     @Test

@@ -93,4 +93,21 @@ class AiLlmAgentExecutorTest {
         AiLlmAgentExecutor executor = new AiLlmAgentExecutor(CONFIG, (c, m) -> "  finding: thiếu assertion  ", "");
         assertTrue("finding: thiếu assertion".equals(executor.execute(rule(), "chấm điểm")));
     }
+
+    @Test
+    void systemPromptBoundsTheAnswerToWhatTheHandoffCanCarry() {
+        String system = new AiLlmAgentExecutor(CONFIG, (c, m) -> "ok", "")
+                .buildMessages(rule(), "chấm điểm").get(0).getContent();
+
+        assertTrue(system.contains(String.valueOf(AiLlmAgentExecutor.MAX_ANSWER_CHARS)),
+                "the agent must be told how long its answer may be, otherwise one reply overruns the "
+                        + "output ceiling and the tail is lost");
+        assertTrue(AiLlmAgentExecutor.MAX_ANSWER_CHARS > 0,
+                "a circular static initialisation between the executor and the orchestrator would make "
+                        + "the cap 0 and truncate every handoff to nothing");
+        assertEquals(AiSubAgentOrchestrator.MAX_UPSTREAM_CHARS_PER_AGENT,
+                AiLlmAgentExecutor.MAX_ANSWER_CHARS,
+                "the length contract and the handoff carrier must not drift apart: anything longer "
+                        + "than the carrier is written and then thrown away");
+    }
 }

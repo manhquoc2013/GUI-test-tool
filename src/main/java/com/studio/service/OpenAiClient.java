@@ -536,8 +536,18 @@ public class OpenAiClient {
         boolean jsonModeRetried = false;
         while (true) {
             ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, useJsonMode, true);
-            HttpResponse<InputStream> response =
-                    sendStreamWithRetry(targetUrl, apiKey, mapper.writeValueAsString(root));
+            String streamBody = mapper.writeValueAsString(root);
+            HttpResponse<InputStream> response;
+            try {
+                response = sendStreamWithRetry(targetUrl, apiKey, streamBody);
+            } catch (IOException streamOpenFailure) {
+                // Every attempt died before a single header byte arrived, so nothing was streamed. That is
+                // the same situation as "the endpoint cannot stream" and gets the same documented answer:
+                // one single-body request, which runs its own retry policy over a fresh connection.
+                AiLoggingService.warn("AI-STREAM", "Không mở được stream sau khi hết lượt thử ("
+                        + streamOpenFailure.getMessage() + ")");
+                return null;
+            }
             int statusCode = response.statusCode();
 
             if (statusCode == 200) {

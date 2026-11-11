@@ -126,6 +126,8 @@ public final class AiSubAgentOrchestrator {
     private final AgentExecutor executor;
     private final Consumer<String> progressListener;
     private final Consumer<AiChatMessage> transcriptListener;
+    /** Pause before retrying an agent; 0 in tests so a retry costs no wall-clock time. */
+    private final long retryBackoffMs;
     /** Longest one-line outcome kept in the aggregated answer; the full text stays in the agent bubble. */
     private static final int OUTCOME_SNIPPET_CHARS = 200;
     /**
@@ -134,12 +136,30 @@ public final class AiSubAgentOrchestrator {
      */
     public static final int DEFAULT_MAX_PARALLEL_AGENTS = 4;
     private static final String SUB_AGENT_THREAD_NAME = "ai-sub-agent";
+
+    /**
+     * Attempts per agent task: the first call plus one retry.
+     *
+     * <p>A dropped connection, a provider timeout or an empty reply is worth one more call: that costs
+     * one round trip, while a failed agent cancels every agent downstream of it and the user loses the
+     * whole turn. A deterministic failure (bad argument, Stop request, recompiled class) is not
+     * retried, because the second call reaches exactly the same outcome.</p>
+     */
+    static final int MAX_AGENT_ATTEMPTS = 2;
+    /** Pause before a retry: long enough for a provider that just dropped the connection, short enough
+     *  that a 40s call plus its retry still finishes inside the user's patience. */
+    static final long AGENT_RETRY_BACKOFF_MS = 1_000L;
+    /** Metric key for how many calls the agent needed; the token badge shows the successful one. */
+    static final String METRIC_ATTEMPTS = "attempts";
     /**
      * Context budget for the artefact handoff. A reviewer only needs the producer's answer, and the
      * producer's answer is already the largest thing in the prompt; capping here keeps a chained turn
      * from overflowing the model window and costing a retry.
+     *
+     * <p>Derived from {@link AiLlmAgentExecutor#MAX_ANSWER_CHARS} — the length the agent prompt asks
+     * for — so the carrier always fits the contract instead of silently dropping the tail.</p>
      */
-    static final int MAX_UPSTREAM_CHARS_PER_AGENT = 12_000;
+    static final int MAX_UPSTREAM_CHARS_PER_AGENT = AiLlmAgentExecutor.MAX_ANSWER_CHARS;
     static final int MAX_UPSTREAM_TOTAL_CHARS = 20_000;
     /** Share of the artefact kept from the front; the rest is taken from the end. */
     private static final double HANDOFF_HEAD_SHARE = 0.7;
@@ -155,9 +175,18 @@ public final class AiSubAgentOrchestrator {
      */
     public AiSubAgentOrchestrator(AgentExecutor executor, Consumer<String> progressListener,
                                   Consumer<AiChatMessage> transcriptListener) {
+        this(executor, progressListener, transcriptListener, AGENT_RETRY_BACKOFF_MS);
+    }
+
+    /**
+     * @param retryBackoffMs pause between attempts; tests pass 0 so a retry adds no wall-clock time
+     */
+    AiSubAgentOrchestrator(AgentExecutor executor, Consumer<String> progressListener,
+                           Consumer<AiChatMessage> transcriptListener, long retryBackoffMs) {
         this.executor = executor;
         this.progressListener = progressListener;
         this.transcriptListener = transcriptListener;
+        this.retryBackoffMs = Math.max(0L, retryBackoffMs);
     }
 
     /**
@@ -530,6 +559,10 @@ public final class AiSubAgentOrchestrator {
 
     /**
      * Runs one child and returns its artefact for the dependents, or null when it produced nothing.
+     *
+     * <p>A transient failure is retried once before the agent is declared failed: one extra call is far
+     * cheaper than cancelling every agent downstream and losing the turn. Only the final outcome reaches
+     * the transcript, so a rescued failure leaves no error bubble behind.</p>
      */
     private String runChild(AiChatSession parent, AiSubAgentSession child, SubAgentTask task,
                             String upstreamBlock) {
@@ -537,33 +570,54 @@ public final class AiSubAgentOrchestrator {
         child.setStartedAt(System.currentTimeMillis());
         progress("🤖 [" + child.getAgentName() + "] Đang xử lý…");
 
+        int attempts = 0;
         try {
-            AiLlmAgentExecutor.MeasuredReply reply = runMeasured(task, upstreamBlock);
-            String output = reply.content();
-            child.setResultSummary(output);
-            AiChatMessage recorded = record(parent, child, "assistant", safe(output));
-            applyUsage(child, recorded, reply.usage());
-            child.setStatus(AiSubAgentSession.Status.COMPLETED);
-            return output == null || output.isBlank() ? null : output;
-        } catch (AiRunCancelledException cancelled) {
-            // A stopped turn is not a failed agent: recording "không hoàn thành" for every sub-agent
-            // would fill the transcript with error bubbles after the user asked to stop.
-            child.setErrorMessage(AiRunCancelledException.MESSAGE);
-            child.setStatus(AiSubAgentSession.Status.CANCELLED);
-            return null;
-        } catch (Exception e) {
-            child.setErrorMessage(e.getMessage() != null ? e.getMessage() : e.toString());
-            child.setStatus(AiSubAgentSession.Status.FAILED);
-            record(parent, child, "assistant", "Không hoàn thành nhiệm vụ: " + child.getErrorMessage());
-            return null;
-        } catch (LinkageError linkFailure) {
-            // Missing/recompiled classes: the child cannot run, and letting the Error escape would leave
-            // this session RUNNING with a spinner that never stops and every dependent waiting on it.
-            child.setErrorMessage(linkFailure.getClass().getSimpleName()
-                    + ": mã đã biên dịch bị thay đổi trong khi ứng dụng đang chạy");
-            child.setStatus(AiSubAgentSession.Status.FAILED);
-            record(parent, child, "assistant", "Không hoàn thành nhiệm vụ: " + child.getErrorMessage());
-            return null;
+            while (true) {
+                attempts++;
+                try {
+                    AiLlmAgentExecutor.MeasuredReply reply = runMeasured(task, upstreamBlock);
+                    String output = reply.content();
+                    child.setResultSummary(output);
+                    AiChatMessage recorded = record(parent, child, "assistant", safe(output));
+                    applyUsage(child, recorded, reply.usage());
+                    child.getMetrics().put(METRIC_ATTEMPTS, String.valueOf(attempts));
+                    child.setStatus(AiSubAgentSession.Status.COMPLETED);
+                    return output == null || output.isBlank() ? null : output;
+                } catch (AiRunCancelledException cancelled) {
+                    // A stopped turn is not a failed agent: recording "không hoàn thành" for every sub-agent
+                    // would fill the transcript with error bubbles after the user asked to stop.
+                    child.setErrorMessage(AiRunCancelledException.MESSAGE);
+                    child.setStatus(AiSubAgentSession.Status.CANCELLED);
+                    return null;
+                } catch (LinkageError linkFailure) {
+                    // Missing/recompiled classes: the child cannot run, and letting the Error escape would leave
+                    // this session RUNNING with a spinner that never stops and every dependent waiting on it.
+                    failChild(parent, child, linkFailure.getClass().getSimpleName()
+                            + ": mã đã biên dịch bị thay đổi trong khi ứng dụng đang chạy");
+                    return null;
+                } catch (InterruptedException interrupted) {
+                    // The wave is being shut down; retrying now would outlive the run it belongs to.
+                    Thread.currentThread().interrupt();
+                    child.setErrorMessage(AiRunCancelledException.MESSAGE);
+                    child.setStatus(AiSubAgentSession.Status.CANCELLED);
+                    return null;
+                } catch (Exception failure) {
+                    String reason = failure.getMessage() != null ? failure.getMessage() : failure.toString();
+                    if (attempts >= MAX_AGENT_ATTEMPTS || !isRetryableAgentFailure(failure)) {
+                        failChild(parent, child, reason);
+                        return null;
+                    }
+                    AiLoggingService.warn("AI-COORDINATOR", "Tác nhân " + child.getAgentName()
+                            + " lỗi tạm thời (" + reason + "); thử lại lần " + attempts + "/"
+                            + (MAX_AGENT_ATTEMPTS - 1) + " sau " + retryBackoffMs + "ms");
+                    progress("🔁 [" + child.getAgentName() + "] Lỗi tạm thời, đang thử lại…");
+                    if (!awaitRetryBackoff()) {
+                        child.setErrorMessage(AiRunCancelledException.MESSAGE);
+                        child.setStatus(AiSubAgentSession.Status.CANCELLED);
+                        return null;
+                    }
+                }
+            }
         } finally {
             child.setFinishedAt(System.currentTimeMillis());
             child.getMetrics().put("durationMs", String.valueOf(child.getDurationMs()));
@@ -571,10 +625,51 @@ public final class AiSubAgentOrchestrator {
     }
 
     /**
-     * Runs the task through the richest executor the injected one supports. An executor that only
-     * implements {@link AgentExecutor#execute} still works; it just reports no provider usage and
-     * ignores the upstream block.
+     * Whether {@code failure} is worth another model call at the agent level.
+     *
+     * <p>Cancellation is terminal by contract, {@code IllegalArgumentException} means the request itself
+     * is wrong, and an {@code Error} means the JVM cannot run this class any more — repeating any of them
+     * reproduces the same failure at the price of a full round trip. Everything else a provider can throw
+     * (dropped stream, timeout, empty reply) may well succeed on the next attempt.</p>
      */
+    static boolean isRetryableAgentFailure(Throwable failure) {
+        if (failure == null) {
+            return false;
+        }
+        if (failure instanceof AiRunCancelledException) {
+            return false;
+        }
+        if (failure instanceof IllegalArgumentException) {
+            return false;
+        }
+        return !(failure instanceof Error);
+    }
+
+    /** Waits out the retry backoff; false when the run was interrupted, i.e. the wave is cancelled. */
+    private boolean awaitRetryBackoff() {
+        if (retryBackoffMs <= 0L) {
+            return true;
+        }
+        try {
+            Thread.sleep(retryBackoffMs);
+            return true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /** Records one terminal failure for an agent: log, session state and one transcript bubble. */
+    private void failChild(AiChatSession parent, AiSubAgentSession child, String reason) {
+        // Without this line a dead agent left no trace in the AI log at all: the transcript bubble
+        // was its only record, so a pipeline that ran on partial work looked like a clean run.
+        AiLoggingService.warn("AI-COORDINATOR", "Tác nhân " + child.getAgentName()
+                + " không hoàn thành nhiệm vụ: " + reason);
+        child.setErrorMessage(reason);
+        child.setStatus(AiSubAgentSession.Status.FAILED);
+        record(parent, child, "assistant", "Không hoàn thành nhiệm vụ: " + reason);
+    }
+
     /**
      * Runs the task on the measured seam, handing over the upstream block when the injected executor
      * supports it. A plain {@link AgentExecutor} still runs; it just cannot see upstream output.

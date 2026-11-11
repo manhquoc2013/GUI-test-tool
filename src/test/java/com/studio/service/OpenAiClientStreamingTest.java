@@ -195,6 +195,35 @@ class OpenAiClientStreamingTest {
         assertEquals(ANSWER, reply.content(), "observing must not change the accumulated answer");
     }
 
+    @Test
+    void streamThatCannotBeOpenedFallsBackToASingleBodyRequest() throws Exception {
+        AtomicInteger streamAttempts = new AtomicInteger();
+        AtomicInteger plainAttempts = new AtomicInteger();
+        server.createContext("/chat/completions", exchange -> {
+            String body = readRequestBody(exchange);
+            if (body.contains("\"stream\":true")) {
+                streamAttempts.incrementAndGet();
+                // The proxy accepts the connection then closes it without sending one header byte,
+                // which the JDK reports as "HTTP/1.1 header parser received no bytes".
+                exchange.close();
+                return;
+            }
+            plainAttempts.incrementAndGet();
+            respond(exchange, 200, JSON_CONTENT_TYPE,
+                    "{\"choices\":[{\"message\":{\"content\":\"" + ANSWER.replace("\n", "\\n")
+                            + "\"},\"finish_reason\":\"stop\"}]}");
+        });
+        server.start();
+
+        OpenAiClient.Completion reply = new OpenAiClient()
+                .completeChat(config(), messages(), OpenAiClient.defaultOutputTokensFor(false));
+
+        assertEquals(ANSWER, reply.content(), "a stream that never opens must not lose the answer");
+        assertEquals("stop", reply.finishReason());
+        assertTrue(streamAttempts.get() > 1, "the stream is retried before giving up on it");
+        assertEquals(1, plainAttempts.get(), "exactly one single-body retry carries the request");
+    }
+
     private static void write(OutputStream out, String text) throws IOException {
         out.write(text.getBytes(StandardCharsets.UTF_8));
         out.flush();

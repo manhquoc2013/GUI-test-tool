@@ -81,6 +81,18 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
     private final Completion completion;
     private final String sharedContext;
 
+    /**
+     * How long one agent answer may be, in characters.
+     *
+     * <p>Two measured limits meet here. The orchestrator only hands a dependent agent
+     * {@code MAX_UPSTREAM_CHARS_PER_AGENT} characters of any artefact, so anything longer is written
+     * and then discarded. And one reply is capped by the model's output ceiling — 8192 tokens for the
+     * DeepSeek family, which at the provider's measured ~2.1 chars/token is roughly 17000 characters:
+     * a report longer than that was cut mid-sentence and had to be stitched back together over three
+     * more round trips. Staying inside the smaller of the two means one reply carries the whole answer.</p>
+     */
+    public static final int MAX_ANSWER_CHARS = 12_000;
+
     public AiLlmAgentExecutor(AiConfig config, Completion completion, String sharedContext) {
         this.config = config;
         this.completion = completion;
@@ -163,6 +175,12 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.Upstream
             }
         }
         sb.append("\nNếu nhiệm vụ đòi hỏi việc ngoài phạm vi, hãy nêu rõ là không thực hiện được và lý do.");
+        // Without this the agent writes a full report: at 8192 output tokens the reply was cut
+        // mid-sentence, and the continuation calls needed to finish it were the ones the gateway kept
+        // dropping. The bound is what the downstream handoff can actually carry anyway.
+        sb.append("\n\nGiới hạn độ dài: trả về tối đa ").append(MAX_ANSWER_CHARS).append(" ký tự. ")
+          .append("Phần dài hơn sẽ bị cắt trước khi tác nhân phụ thuộc đọc được, nên hãy viết súc tích ")
+          .append("(gạch đầu dòng, không lặp lại nội dung) và đặt kết luận quan trọng ở cả đầu lẫn cuối.");
         return sb.toString();
     }
 

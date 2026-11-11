@@ -49,6 +49,16 @@ public final class AiContinuation {
         PROSE
     }
 
+    /**
+     * How much of the answer is echoed back as the {@code assistant} turn of a continuation request.
+     *
+     * <p>Only the stop point matters, and {@link #buildContinuationPrompt} already carries that tail.
+     * Re-sending the whole answer made the prompt grow by the answer's size on every turn (16k chars of
+     * prose became ~21k prompt tokens on the first continuation alone), which costs another full model
+     * call per turn and makes a gateway that drops large bodies close the connection instead of replying.</p>
+     */
+    public static final int CONTINUATION_ECHO_CHARS = 4_000;
+
     /** One model call: the seam that keeps the loop independent of the transport. */
     @FunctionalInterface
     public interface Transport {
@@ -92,13 +102,16 @@ public final class AiContinuation {
                 break;
             }
             List<OpenAiClient.ChatMessage> turnMessages = new ArrayList<>(baseMessages);
-            turnMessages.add(new OpenAiClient.ChatMessage("assistant", accumulated));
+            turnMessages.add(new OpenAiClient.ChatMessage("assistant", echoTail(accumulated)));
             turnMessages.add(new OpenAiClient.ChatMessage("user", buildContinuationPrompt(accumulated)));
             AiLoggingService.info("AI-CONTINUE", "Lượt nối tiếp " + turn + "/" + DEFAULT_MAX_TURNS
                     + " sau " + accumulated.length() + " ký tự | max_tokens=" + budget
                     + " | shape=" + shape);
 
-            OpenAiClient.Completion next = transport.call(turnMessages, budget);
+            OpenAiClient.Completion next = callTransport(transport, turnMessages, budget, accumulated.length());
+            if (next == null) {
+                break;
+            }
             String piece = next.content() != null ? next.content() : "";
             if (piece.isBlank()) {
                 break;
@@ -114,7 +127,11 @@ public final class AiContinuation {
                         + "và yêu cầu lại lượt " + turn + " với chỉ dẫn mạnh hơn");
                 turnMessages.set(turnMessages.size() - 1,
                         new OpenAiClient.ChatMessage("user", buildStrictContinuationPrompt(accumulated)));
-                OpenAiClient.Completion retyped = transport.call(turnMessages, budget);
+                OpenAiClient.Completion retyped = callTransport(transport, turnMessages, budget,
+                        accumulated.length());
+                if (retyped == null) {
+                    break;
+                }
                 String retryPiece = retyped.content() != null ? retyped.content() : "";
                 if (retryPiece.isBlank() || isDocumentRestart(accumulated, retryPiece, shape)) {
                     break;
@@ -141,6 +158,45 @@ public final class AiContinuation {
                     sumTokens(current.completionTokens(), next.completionTokens()));
         }
         return current;
+    }
+
+    /** The tail of the answer that is echoed back as the assistant turn; see {@link #CONTINUATION_ECHO_CHARS}. */
+    static String echoTail(String accumulated) {
+        if (accumulated == null) {
+            return "";
+        }
+        return accumulated.length() > CONTINUATION_ECHO_CHARS
+                ? accumulated.substring(accumulated.length() - CONTINUATION_ECHO_CHARS)
+                : accumulated;
+    }
+
+    /**
+     * One transport call that keeps the text already received when the connection drops mid-answer.
+     *
+     * <p>A stream that dies before its first token reaches this seam as an {@code IOException} after
+     * the transport has spent its own retries. Discarding the half already in hand loses work the
+     * user paid for, so the accumulated text is kept and reported as still truncated. When nothing
+     * was received yet there is nothing to keep, and the failure propagates so the caller can retry
+     * the whole call.</p>
+     *
+     * @param keptChars length of the answer already received; 0 means "nothing to preserve"
+     * @return the model's reply, or {@code null} when the connection failed after text was received
+     */
+    private static OpenAiClient.Completion callTransport(Transport transport,
+                                                         List<OpenAiClient.ChatMessage> messages,
+                                                         int budget,
+                                                         int keptChars) throws IOException, InterruptedException {
+        try {
+            return transport.call(messages, budget);
+        } catch (IOException connectionFailure) {
+            if (keptChars <= 0) {
+                throw connectionFailure;
+            }
+            AiLoggingService.warn("AI-CONTINUE", "Mất kết nối khi nối tiếp ("
+                    + connectionFailure.getMessage() + "); giữ " + keptChars
+                    + " ký tự đã nhận và báo phản hồi còn thiếu phần cuối");
+            return null;
+        }
     }
 
     /** Adds two usage figures while preserving -1 as "not reported" on both sides. */

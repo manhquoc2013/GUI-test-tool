@@ -431,6 +431,122 @@ class AiSubAgentOrchestratorTest {
     }
 
     @Test
+    void transientAgentFailureIsRetriedBeforeItIsReported() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("Connection reset");
+            }
+            return "kết quả sau khi thử lại";
+        }, null, null, 0L);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+
+        assertEquals(2, calls.get(), "một lỗi tạm thời phải được thử lại đúng một lần");
+        assertEquals(AiSubAgentSession.Status.COMPLETED, res.sessions().get(0).getStatus());
+        assertTrue(res.allSucceeded(), "thử lại thành công thì lượt chạy vẫn trọn vẹn");
+        assertEquals("2", res.sessions().get(0).getMetrics().get("attempts"),
+                "số lần thử phải được ghi lại để người dùng biết đã tốn thêm một lượt gọi");
+        assertTrue(parent.getMessages().stream()
+                        .noneMatch(m -> m.getContent() != null && m.getContent().contains("Không hoàn thành")),
+                "một lần lỗi đã được cứu không được để lại bong bóng thất bại");
+    }
+
+    @Test
+    void retryExhaustionReportsExactlyOneFailure() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            calls.incrementAndGet();
+            throw new java.io.UncheckedIOException(new java.io.IOException("request timed out"));
+        }, null, null, 0L);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+
+        assertEquals(AiSubAgentOrchestrator.MAX_AGENT_ATTEMPTS, calls.get(),
+                "phải dùng hết ngân sách thử lại rồi mới báo lỗi");
+        assertEquals(AiSubAgentSession.Status.FAILED, res.sessions().get(0).getStatus());
+        assertEquals(1, parent.getMessages().stream()
+                        .filter(m -> m.getContent() != null && m.getContent().startsWith("Không hoàn thành"))
+                        .count(),
+                "mỗi agent chỉ được một bong bóng lỗi, không phải một bong bóng cho mỗi lần thử");
+    }
+
+    @Test
+    void userStopIsNeverRetried() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            calls.incrementAndGet();
+            throw new AiRunCancelledException();
+        }, null, null, 0L);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+
+        assertEquals(1, calls.get(), "người dùng đã dừng thì thử lại chỉ tốn thêm một lượt gọi vô ích");
+        assertEquals(AiSubAgentSession.Status.CANCELLED, res.sessions().get(0).getStatus());
+    }
+
+    @Test
+    void deterministicFailureIsNotRetried() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            calls.incrementAndGet();
+            throw new IllegalArgumentException("rule id không tồn tại");
+        }, null, null, 0L);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+
+        assertEquals(1, calls.get(), "lỗi do tham số sai sẽ lặp lại y hệt, thử lại là lãng phí");
+        assertEquals(AiSubAgentSession.Status.FAILED, res.sessions().get(0).getStatus());
+        assertTrue(res.openFindings().stream().anyMatch(f -> f.contains("rule id không tồn tại")));
+    }
+
+    @Test
+    void aFailedUpstreamThatRecoversOnRetryStillFeedsItsDependent() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.atomic.AtomicInteger minerCalls = new java.util.concurrent.atomic.AtomicInteger();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the measured seam carries the handoff");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief,
+                                                                    String upstreamArtifacts) {
+                if (AiAgentRuleCatalog.SPEC_MINER.equals(rule.getId()) && minerCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("stream closed");
+                }
+                return new AiLlmAgentExecutor.MeasuredReply("SAN_PHAM_CUA_" + rule.getId(),
+                        new AiLlmAgentExecutor.AgentUsage(1, 10, 10));
+            }
+        }, null, null, 0L);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.TEST_ARCHITECT), "thiết kế case")));
+
+        assertEquals(AiSubAgentSession.Status.COMPLETED, res.sessions().get(0).getStatus());
+        assertEquals(AiSubAgentSession.Status.COMPLETED, res.sessions().get(1).getStatus(),
+                "thử lại thành công thì agent phụ thuộc phải chạy, không bị huỷ oan");
+        assertTrue(res.allSucceeded());
+    }
+
+    @Test
     void digestCarriesSpecialistConclusionsToTheGeneratorWithinBudget() {
         AiChatSession parent = new AiChatSession();
         AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
