@@ -12,6 +12,7 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogEvent;
 import javafx.scene.control.DialogPane;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
@@ -37,6 +38,42 @@ public final class DialogTheme {
     private static final String ENTER_DONE = "studio.dialogEnterDone";
 
     private DialogTheme() {}
+
+    /**
+     * Bounds a dialog's content to the screen so nothing is cut off on a short
+     * display: wraps it in a ScrollPane with a max height derived from the
+     * screen's visual bounds, and makes the dialog resizable so the user can
+     * widen or maximise it. Without this a tall form simply clipped its lower
+     * controls with no way to reach them.
+     */
+    public static void fitToScreen(Dialog<?> dialog, double prefWidth) {
+        if (dialog == null || dialog.getDialogPane() == null) {
+            return;
+        }
+        DialogPane pane = dialog.getDialogPane();
+        Node content = pane.getContent();
+        if (content == null) {
+            return;
+        }
+        javafx.geometry.Rectangle2D screen =
+                javafx.stage.Screen.getPrimary().getVisualBounds();
+        // Leave room for the title bar, header text and the button bar.
+        double maxContentHeight = Math.max(220, screen.getHeight() - 260);
+
+        ScrollPane scroller = new ScrollPane(content);
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroller.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroller.setMaxHeight(maxContentHeight);
+        scroller.getStyleClass().add("dialog-scroll");
+        // Transparent chrome so the dialog surface shows through, matching the
+        // panels behind it.
+        scroller.setStyle("-fx-background-color: transparent;");
+
+        pane.setContent(scroller);
+        pane.setPrefWidth(prefWidth);
+        dialog.setResizable(true);
+    }
 
     public static void apply(Dialog<?> dialog) {
         if (dialog == null) return;

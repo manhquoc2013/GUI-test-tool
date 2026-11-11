@@ -216,6 +216,7 @@ public class DataCleanupDialog {
         content.getChildren().addAll(safetyBox, targetsBox, actionsRow);
         pane.setContent(content);
         DialogTheme.apply(dialog);
+        DialogTheme.fitToScreen(dialog, 620);
 
         dialog.showAndWait();
     }

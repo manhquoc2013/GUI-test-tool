@@ -492,6 +492,7 @@ public class AiSettingsDialog {
         pane.setContent(tabPane);
         pane.setPrefWidth(660);
         DialogTheme.apply(dialog);
+        DialogTheme.fitToScreen(dialog, 660);
 
         dialog.setResultConverter(btn -> {
             if (btn == ButtonType.OK) {

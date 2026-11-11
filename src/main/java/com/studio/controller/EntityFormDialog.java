@@ -207,6 +207,7 @@ public final class EntityFormDialog {
         dialog.getDialogPane().setContent(form);
         dialog.getDialogPane().setPrefWidth(DIALOG_WIDTH);
         dialog.getDialogPane().setMinWidth(DIALOG_WIDTH);
+        DialogTheme.fitToScreen(dialog, DIALOG_WIDTH);
         nameField.requestFocus();
 
         Label errorLabel = new Label();

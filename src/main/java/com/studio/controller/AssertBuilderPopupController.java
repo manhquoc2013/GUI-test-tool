@@ -94,6 +94,7 @@ public class AssertBuilderPopupController extends Dialog<List<Assertion>> {
             pane.setContent(content);
             pane.getButtonTypes().clear();
             DialogTheme.apply(controller);
+            DialogTheme.fitToScreen(controller, 720);
             controller.wireWindowCloseConfirm();
             return controller;
         } catch (IOException e) {
