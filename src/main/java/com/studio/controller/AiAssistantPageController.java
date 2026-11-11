@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.*;
 import com.studio.service.AiAmbiguityAnalyzer;
+import com.studio.service.AiChatRunRegistry;
 import com.studio.service.AiContinuation;
 import com.studio.service.AiDelegationPolicy;
 import com.studio.service.AiCoordinatorAgent;
@@ -58,7 +59,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.ResourceBundle;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import javafx.beans.property.SimpleStringProperty;
 
@@ -174,7 +174,7 @@ public class AiAssistantPageController implements Initializable {
      * One worker per conversation. Runs are keyed by session id, so switching tabs, switching
      * conversations or choosing another save target never stops or hijacks a running agent.
      */
-    private final Map<String, SessionRun> activeRuns = new ConcurrentHashMap<>();
+    private final AiChatRunRegistry runRegistry = new AiChatRunRegistry();
     private String liveDomJson = null;
     private String currentSuggestedGroup = null;
     private String currentSuggestedSuite = null;
@@ -185,30 +185,14 @@ public class AiAssistantPageController implements Initializable {
     private Timeline thinkingTimeline = null;
     private Label thinkingStatusLabel = null;
 
-    /** Live state of the single in-flight turn of one conversation. */
-    private static final class SessionRun {
-        private final AiChatSession session;
-        private volatile String status;
-
-        SessionRun(AiChatSession session, String initialStatus) {
-            this.session = session;
-            this.status = initialStatus;
-        }
-
-        AiChatSession getSession() {
-            return session;
-        }
-
-        String getStatus() {
-            return status;
-        }
-
-        void setStatus(String nextStatus) {
-            if (nextStatus != null && !nextStatus.isBlank()) {
-                this.status = nextStatus;
-            }
-        }
-    }
+    /** Toolbar labels of the collapsible history rail. */
+    private static final String HISTORY_TOGGLE_OPEN_LABEL = "Lịch sử";
+    private static final String HISTORY_TOGGLE_COLLAPSE_LABEL = "Thu gọn";
+    /** Badges shown both on the rail rows and on the toolbar toggle. */
+    private static final String RUNNING_GLYPH = "⏳";
+    private static final String UNREAD_GLYPH = "●";
+    private static final String RUNNING_BADGE_LABEL = RUNNING_GLYPH + " Đang chạy";
+    private static final String UNREAD_BADGE_LABEL = UNREAD_GLYPH + " Kết quả mới";
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -605,10 +589,12 @@ public class AiAssistantPageController implements Initializable {
             loaded = chatHistoryStore.loadSession(null, null);
         }
         currentSession = loaded;
+        runRegistry.markRead(currentSession.getId());
         applySessionTarget(currentSession);
         renderChatHistory();
         updateTokenUsageDisplay();
         updateComposerRunState();
+        refreshActivityIndicators();
     }
 
     /**
@@ -617,17 +603,13 @@ public class AiAssistantPageController implements Initializable {
      * the user switches away and back instead of showing a stale copy read from disk.
      */
     private AiChatSession loadLiveSession(String sessionId) {
-        SessionRun run = sessionId != null ? activeRuns.get(sessionId) : null;
-        if (run != null) {
-            return run.getSession();
-        }
-        return chatHistoryStore.loadSessionById(sessionId);
+        AiChatSession live = runRegistry.getLiveSession(sessionId);
+        return live != null ? live : chatHistoryStore.loadSessionById(sessionId);
     }
 
     private void setupSessionsSidebar() {
         if (toggleSidebarBtn != null) {
             UiIcons.setGraphic(toggleSidebarBtn, UiIcons.FOLDER, 12);
-            UiTooltips.install(toggleSidebarBtn, "Đóng/mở thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)");
         }
         if (newChatBtn != null) {
             UiIcons.setGraphic(newChatBtn, UiIcons.PLUS, 12);
@@ -677,10 +659,16 @@ public class AiAssistantPageController implements Initializable {
                         bottomRow.getChildren().add(timeLabel);
 
                         if (isSessionRunning(item.getId())) {
-                            Label runLabel = new Label("⏳ Đang chạy");
+                            Label runLabel = new Label(RUNNING_BADGE_LABEL);
                             runLabel.getStyleClass().add("ai-session-running");
                             bottomRow.getChildren().add(runLabel);
                             UiTooltips.install(this, "Tác nhân AI đang xử lý trong cuộc trò chuyện này");
+                        } else if (runRegistry.isUnread(item.getId())) {
+                            Label unreadLabel = new Label(UNREAD_BADGE_LABEL);
+                            unreadLabel.getStyleClass().add("ai-session-unread");
+                            bottomRow.getChildren().add(unreadLabel);
+                            UiTooltips.install(this,
+                                    "Cuộc trò chuyện này có kết quả mới từ tác nhân AI mà bạn chưa mở");
                         } else {
                             UiTooltips.clear(this);
                         }
@@ -730,39 +718,94 @@ public class AiAssistantPageController implements Initializable {
                 filteredSessions.setPredicate(session -> session == null || session.matches(query));
             });
         }
+        refreshHistoryToggleBadge();
     }
 
     public void refreshSessionsList(String selectSessionId) {
         // One workspace-wide history: the save target no longer decides which conversations are visible.
         List<AiChatSessionMeta> list = chatHistoryStore.listAllSessions();
         allSessions.setAll(list);
+        selectSessionRow(selectSessionId);
+        refreshHistoryToggleBadge();
+    }
 
-        if (sessionsListView != null) {
-            isSwitchingSession = true;
-            try {
-                String targetId = selectSessionId != null ? selectSessionId : (currentSession != null ? currentSession.getId() : null);
-                if (targetId != null) {
-                    for (AiChatSessionMeta meta : allSessions) {
-                        if (targetId.equals(meta.getId())) {
-                            sessionsListView.getSelectionModel().select(meta);
-                            return;
-                        }
+    /** Keeps the rail selection on the open conversation without switching the transcript. */
+    private void selectSessionRow(String selectSessionId) {
+        if (sessionsListView == null) {
+            return;
+        }
+        isSwitchingSession = true;
+        try {
+            String targetId = selectSessionId != null
+                    ? selectSessionId
+                    : (currentSession != null ? currentSession.getId() : null);
+            if (targetId != null) {
+                for (AiChatSessionMeta meta : allSessions) {
+                    if (targetId.equals(meta.getId())) {
+                        sessionsListView.getSelectionModel().select(meta);
+                        return;
                     }
                 }
-                if (!allSessions.isEmpty()) {
-                    sessionsListView.getSelectionModel().select(0);
-                }
-            } finally {
-                isSwitchingSession = false;
             }
+            if (!allSessions.isEmpty()) {
+                sessionsListView.getSelectionModel().select(0);
+            }
+        } finally {
+            isSwitchingSession = false;
         }
     }
 
-    /** Repaints only the running badges, without re-reading every session file from disk. */
-    private void refreshSessionsRunningState() {
+    /**
+     * Repaints the activity badges: the history rows (running / new results) plus the toolbar
+     * toggle, so work happening in a conversation the user is not reading stays visible.
+     */
+    private void refreshActivityIndicators() {
         if (sessionsListView != null) {
             sessionsListView.refresh();
         }
+        refreshHistoryToggleBadge();
+    }
+
+    /** The rail can be collapsed, so background runs and unseen results are mirrored on the toggle. */
+    private void refreshHistoryToggleBadge() {
+        if (toggleSidebarBtn == null) {
+            return;
+        }
+        boolean sidebarVisible = historySidebar != null && historySidebar.isVisible();
+        String viewedSessionId = currentSession != null ? currentSession.getId() : null;
+        int backgroundRuns = runRegistry.countBackgroundRuns(viewedSessionId);
+        int unread = runRegistry.countUnread();
+        toggleSidebarBtn.setText(buildHistoryToggleLabel(sidebarVisible, backgroundRuns, unread));
+        UiTooltips.install(toggleSidebarBtn,
+                buildHistoryToggleTooltip(sidebarVisible, backgroundRuns, unread));
+    }
+
+    /** Toolbar label of the history rail with one badge per activity kind, e.g. "Lịch sử ⏳2 ●1". */
+    static String buildHistoryToggleLabel(boolean sidebarVisible, int backgroundRuns, int unread) {
+        StringBuilder label = new StringBuilder(
+                sidebarVisible ? HISTORY_TOGGLE_COLLAPSE_LABEL : HISTORY_TOGGLE_OPEN_LABEL);
+        if (backgroundRuns > 0) {
+            label.append(' ').append(RUNNING_GLYPH).append(backgroundRuns);
+        }
+        if (unread > 0) {
+            label.append(' ').append(UNREAD_GLYPH).append(unread);
+        }
+        return label.toString();
+    }
+
+    private static String buildHistoryToggleTooltip(boolean sidebarVisible, int backgroundRuns, int unread) {
+        StringBuilder tip = new StringBuilder(sidebarVisible
+                ? "Thu gọn thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)"
+                : "Mở thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)");
+        if (backgroundRuns > 0) {
+            tip.append("\n").append(RUNNING_GLYPH).append(' ').append(backgroundRuns)
+                    .append(" cuộc trò chuyện đang chạy ngầm");
+        }
+        if (unread > 0) {
+            tip.append("\n").append(UNREAD_GLYPH).append(' ').append(unread)
+                    .append(" cuộc trò chuyện có kết quả mới chưa mở");
+        }
+        return tip.toString();
     }
 
     private void switchToSession(String sessionId) {
@@ -776,10 +819,12 @@ public class AiAssistantPageController implements Initializable {
                 return;
             }
             currentSession = loaded;
+            runRegistry.markRead(sessionId);
             applySessionTarget(currentSession);
             renderChatHistory();
             updateTokenUsageDisplay();
             updateComposerRunState();
+            refreshActivityIndicators();
         } finally {
             isSwitchingSession = false;
         }
@@ -795,9 +840,7 @@ public class AiAssistantPageController implements Initializable {
             sidebarSeparator.setVisible(visible);
             sidebarSeparator.setManaged(visible);
         }
-        if (toggleSidebarBtn != null) {
-            toggleSidebarBtn.setText(visible ? "Thu gọn" : "Lịch sử");
-        }
+        refreshHistoryToggleBadge();
     }
 
     /**
@@ -815,8 +858,7 @@ public class AiAssistantPageController implements Initializable {
             sidebarSeparator.setManaged(false);
         }
         if (toggleSidebarBtn != null) {
-            toggleSidebarBtn.setText("Lịch sử");
-            UiTooltips.install(toggleSidebarBtn, "Mở thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)");
+            refreshHistoryToggleBadge();
         }
     }
 
@@ -826,6 +868,7 @@ public class AiAssistantPageController implements Initializable {
         currentSession = chatHistoryStore.createNewSession(null, "Cuộc trò chuyện mới");
         currentSession.setTargetGroup("");
         currentSession.setTargetSuite("");
+        runRegistry.markRead(currentSession.getId());
         try {
             chatHistoryStore.saveSession(currentSession);
         } catch (IOException e) {
@@ -887,10 +930,12 @@ public class AiAssistantPageController implements Initializable {
         if (res.isPresent() && res.get() == ButtonType.OK) {
             try {
                 chatHistoryStore.deleteSession(item.getId());
+                runRegistry.forget(item.getId());
                 ToastService.info("Đã xóa cuộc trò chuyện.");
                 if (currentSession != null && item.getId().equals(currentSession.getId())) {
                     currentSession = null;
                 }
+                refreshActivityIndicators();
                 loadChatHistoryForSuite();
             } catch (IOException e) {
                 AiLoggingService.warn("AI-CHAT", "Không xóa được cuộc trò chuyện: " + e.getMessage());
@@ -1021,10 +1066,7 @@ public class AiAssistantPageController implements Initializable {
         }
         String sessionId = session.getId();
         Platform.runLater(() -> {
-            SessionRun run = activeRuns.get(sessionId);
-            if (run != null) {
-                run.setStatus(status);
-            }
+            runRegistry.updateStatus(sessionId, status);
             if (isCurrentSession(session)) {
                 updateThinkingStatus(status);
             }
@@ -1186,7 +1228,7 @@ public class AiAssistantPageController implements Initializable {
         if (currentSession == null) {
             return;
         }
-        SessionRun run = activeRuns.get(currentSession.getId());
+        AiChatRunRegistry.Run run = runRegistry.getRun(currentSession.getId());
         if (run == null) {
             return;
         }
@@ -1640,8 +1682,8 @@ public class AiAssistantPageController implements Initializable {
 
         final String targetSessionId = targetSession.getId();
         final String initialStatus = aiConfig.getEffectiveModel() + " — " + activeSkill.getDisplayName();
-        activeRuns.put(targetSessionId, new SessionRun(targetSession, initialStatus));
-        refreshSessionsRunningState();
+        runRegistry.startRun(targetSession, initialStatus);
+        refreshActivityIndicators();
         updateComposerRunState();
         if (isCurrentSession(targetSession)) {
             showThinkingBubble(initialStatus);
@@ -1857,13 +1899,17 @@ public class AiAssistantPageController implements Initializable {
         thread.start();
     }
 
-    /** Ends one conversation's run and releases only that conversation's composer/indicator. */
+    /**
+     * Ends one conversation's run. A turn that completed while the user was reading another
+     * conversation leaves its result flagged as unseen until that conversation is opened.
+     */
     private void finishRun(AiChatSession targetSession) {
         if (targetSession == null) {
             return;
         }
-        activeRuns.remove(targetSession.getId());
-        refreshSessionsRunningState();
+        String viewedSessionId = currentSession != null ? currentSession.getId() : null;
+        runRegistry.finishRun(targetSession.getId(), viewedSessionId);
+        refreshActivityIndicators();
         if (isCurrentSession(targetSession)) {
             removeThinkingBubble();
             updateComposerRunState();
@@ -1892,7 +1938,7 @@ public class AiAssistantPageController implements Initializable {
 
     /** True while a worker of this conversation is generating (also drives the history badge). */
     public boolean isSessionRunning(String sessionId) {
-        return sessionId != null && activeRuns.containsKey(sessionId);
+        return runRegistry.isRunning(sessionId);
     }
 
     /**
@@ -3009,10 +3055,6 @@ public class AiAssistantPageController implements Initializable {
         return currentSession;
     }
 
-    public void setCurrentSession(AiChatSession session) {
-        this.currentSession = session;
-    }
-
     public ComboBox<String> getTargetGroupCombo() {
         return targetGroupCombo;
     }
@@ -3027,6 +3069,10 @@ public class AiAssistantPageController implements Initializable {
 
     public TextField getSessionSearchField() {
         return sessionSearchField;
+    }
+
+    public Button getHistoryToggleBtn() {
+        return toggleSidebarBtn;
     }
 
     public VBox getChatMessagesBox() {

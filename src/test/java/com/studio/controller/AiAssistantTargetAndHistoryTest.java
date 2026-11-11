@@ -165,6 +165,38 @@ public class AiAssistantTargetAndHistoryTest {
     }
 
     @Test
+    public void testHistoryToggleLabelMirrorsBackgroundActivity() {
+        assertEquals("Lịch sử", AiAssistantPageController.buildHistoryToggleLabel(false, 0, 0));
+        assertEquals("Thu gọn", AiAssistantPageController.buildHistoryToggleLabel(true, 0, 0));
+        assertEquals("Lịch sử ⏳2", AiAssistantPageController.buildHistoryToggleLabel(false, 2, 0));
+        assertEquals("Lịch sử ●3", AiAssistantPageController.buildHistoryToggleLabel(false, 0, 3));
+        assertEquals("Thu gọn ⏳1 ●2", AiAssistantPageController.buildHistoryToggleLabel(true, 1, 2));
+    }
+
+    @Test
+    public void testHistoryToggleShowsActivityWithoutOpeningTheRail(@TempDir Path tempHome) throws Exception {
+        StudioPaths.setPathsForTesting(tempHome, null);
+        prepareProject();
+
+        runFx(() -> {
+            try {
+                AiAssistantPageController controller = loadController();
+                assertNotNull(controller.getHistoryToggleBtn());
+                assertEquals("Lịch sử", controller.getHistoryToggleBtn().getText(),
+                        "Thanh lịch sử mặc định thu gọn, nên nút phải ở trạng thái mở");
+
+                controller.toggleHistorySidebar();
+                assertEquals("Thu gọn", controller.getHistoryToggleBtn().getText());
+
+                controller.toggleHistorySidebar();
+                assertEquals("Lịch sử", controller.getHistoryToggleBtn().getText());
+            } catch (IOException e) {
+                fail(e.getMessage(), e);
+            }
+        });
+    }
+
+    @Test
     public void testHistorySearchMatchesTitleAndMessageText(@TempDir Path tempHome) throws Exception {
         StudioPaths.setPathsForTesting(tempHome, null);
 

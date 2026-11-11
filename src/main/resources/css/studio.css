@@ -1823,6 +1823,11 @@
     -fx-font-size: 10px;
     -fx-font-weight: bold;
 }
+.ai-session-unread {
+    -fx-text-fill: #9ece6a;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
 .ai-split-pane > .split-pane-divider {
     -fx-background-color: #2a2b3d;
     -fx-padding: 0 1 0 1;

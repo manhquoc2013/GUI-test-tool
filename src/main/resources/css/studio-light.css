@@ -1354,6 +1354,11 @@
     -fx-font-size: 10px;
     -fx-font-weight: bold;
 }
+.ai-session-unread {
+    -fx-text-fill: #047857;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
 
 .ai-left-panel, .ai-right-panel {
     -fx-background-color: #ffffff;

@@ -21,12 +21,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class DataCleanupServiceTest {
 
+    /**
+     * Cleanup walks the configured data directory. Without isolation a test run would delete the
+     * developer's real chat history, reports and work files — so every test gets its own home.
+     */
+    @TempDir
+    Path tempHome;
+
     private DatabaseManager dbManager;
     private ReportStore reportStore;
     private DataCleanupService cleanupService;
 
     @BeforeEach
     public void setup() {
+        StudioPaths.setPathsForTesting(tempHome, null);
         dbManager = DatabaseManager.createInMemory("cleanup_test_" + System.currentTimeMillis());
         DatabaseManager.setInstance(dbManager);
         reportStore = new ReportStore();
@@ -39,6 +47,7 @@ public class DataCleanupServiceTest {
             dbManager.shutdown();
         }
         DatabaseManager.setInstance(null);
+        StudioPaths.resetForTesting();
     }
 
     @Test
