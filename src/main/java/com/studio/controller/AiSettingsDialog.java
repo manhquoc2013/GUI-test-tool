@@ -371,7 +371,7 @@ public class AiSettingsDialog {
         aiRow++;
 
         // Max Tokens
-        Label maxTokensLabel = new Label("Max Tokens:");
+        Label maxTokensLabel = new Label("Giới hạn token (Max Tokens):");
         maxTokensLabel.getStyleClass().add("field-label");
         int initialTokens = Math.max(0, aiConfig.getMaxTokens());
         Spinner<Integer> maxTokensSpinner = new Spinner<>(0, 131072, initialTokens, 1024);
