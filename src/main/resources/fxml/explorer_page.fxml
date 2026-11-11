@@ -31,7 +31,7 @@
         <VBox styleClass="tree-panel">
             <HBox styleClass="tree-header-box" alignment="CENTER_LEFT" spacing="6">
                 <padding><Insets top="6" right="8" bottom="6" left="8"/></padding>
-                <Label text="Cây dự án" styleClass="tree-hint" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <Label text="Cây dự án" styleClass="tree-panel-title" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                 <HBox fx:id="statusFilterChips" spacing="4" alignment="CENTER_RIGHT" styleClass="filter-chips-box">
                     <Button fx:id="chipAll" text="Tất cả" styleClass="filter-chip active" onAction="#filterChipAll"/>
                     <Button fx:id="chipActive" text="Hoạt động" styleClass="filter-chip" onAction="#filterChipActive"/>

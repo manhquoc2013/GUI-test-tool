@@ -531,6 +531,14 @@
     -fx-font-size: 11px;
     -fx-padding: 8 12 4 12;
 }
+/* Panel heading above the project tree. It previously borrowed .tree-hint, a
+   muted helper style at ~2.9:1 contrast, so the heading read as disabled text. */
+.tree-panel-title {
+    -fx-text-fill: #c0caf5;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 0 2;
+}
 .project-tree .tree-cell.tree-group {
     -fx-font-weight: bold;
 }
@@ -1647,20 +1655,36 @@
 }
 .scroll-bar {
     -fx-background-color: #1a1b26;
+    /* The stock bar is ~20px wide. Width is set through padding insets and a
+       fixed pref size, because VirtualFlow sizes the bar through layout. */
+    -fx-pref-width: 10;
+    -fx-pref-height: 10;
+    -fx-min-width: 10;
+    -fx-min-height: 10;
+    -fx-max-width: 10;
+    -fx-max-height: 10;
+    -fx-padding: 0;
 }
 .scroll-bar .thumb {
     -fx-background-color: #3b3d57;
-    -fx-background-radius: 6;
+    -fx-background-radius: 5;
+    -fx-background-insets: 1;
 }
 .scroll-bar .thumb:hover {
     -fx-background-color: #565f89;
 }
 .scroll-bar .track {
-    -fx-background-color: #1a1b26;
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
 }
 .scroll-bar .increment-button,
 .scroll-bar .decrement-button {
     -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: " ";
     -fx-padding: 0;
 }
 

@@ -256,6 +256,9 @@ public class AiAssistantPageController implements Initializable {
         }
 
         // Setup case list cell factory
+        // Fixed row height: single-line cells, so VirtualFlow can skip per-cell
+        // measurement while scrolling.
+        generatedCasesListView.setFixedCellSize(30);
         generatedCasesListView.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(AiGeneratedCase item, boolean empty) {
@@ -457,6 +460,7 @@ public class AiAssistantPageController implements Initializable {
 
         if (sessionsListView != null) {
             sessionsListView.setItems(filteredSessions);
+            sessionsListView.setFixedCellSize(30);
             sessionsListView.setCellFactory(lv -> new ListCell<>() {
                 @Override
                 protected void updateItem(AiChatSessionMeta item, boolean empty) {

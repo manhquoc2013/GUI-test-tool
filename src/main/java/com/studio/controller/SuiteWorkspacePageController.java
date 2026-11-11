@@ -395,6 +395,10 @@ public class SuiteWorkspacePageController {
 
     private void setupCaseListCells() {
         ContextMenu menu = buildCaseContextMenu();
+        // Uniform row height lets VirtualFlow skip per-cell measurement during
+        // scrolling, which is what made long lists stutter. Every cell here is a
+        // single line (no wrapped labels), so a fixed size is safe.
+        caseListView.setFixedCellSize(34);
         caseListView.setCellFactory(lv -> {
             ListCell<String> cell = new ListCell<>() {
                 private final HBox row = new HBox(8);

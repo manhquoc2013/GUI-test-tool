@@ -739,6 +739,13 @@
 .tree-hint {
     -fx-text-fill: #64748b;
 }
+/* Panel heading above the project tree; see the dark theme's note. */
+.tree-panel-title {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 0 2;
+}
 
 .filter-chip {
     -fx-background-color: #ffffff;
@@ -2417,4 +2424,39 @@
     -fx-padding: 5 9;
     -fx-font-size: 11px;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.25), 8, 0.1, 0, 3);
+}
+
+/* === SCROLLBARS ===
+   The light theme had no scroll-bar rules at all, so it fell back to the
+   stock JavaFX bar: ~15px wide with arrow buttons, which reads heavy against
+   the app's 12px type and costs work area. Matching the dark theme's 9px track. */
+.scroll-bar {
+    -fx-background-color: transparent;
+    -fx-pref-width: 9;
+    -fx-pref-height: 9;
+    -fx-min-width: 9;
+    -fx-min-height: 9;
+    -fx-padding: 0;
+}
+.scroll-bar .thumb {
+    -fx-background-color: #cbd5e1;
+    -fx-background-radius: 5;
+    -fx-background-insets: 1;
+}
+.scroll-bar .thumb:hover {
+    -fx-background-color: #94a3b8;
+}
+.scroll-bar .track {
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
+}
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
 }

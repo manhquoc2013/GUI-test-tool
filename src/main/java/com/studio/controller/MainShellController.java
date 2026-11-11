@@ -5,6 +5,7 @@ import com.studio.service.StatusBarService;
 import com.studio.service.ToastService;
 import com.studio.store.SettingsStore;
 import com.studio.util.BusyButtons;
+import com.studio.util.CompactScrollBars;
 import com.studio.util.UiMotion;
 import com.studio.util.UiResponsive;
 import javafx.application.Platform;
@@ -481,6 +482,9 @@ public class MainShellController implements Initializable {
      * each cross so a window that grows again restores the expanded rail.
      */
     private void installResponsiveBehaviour() {
+        // Slim scroll bars app-wide: VirtualFlow overrides CSS sizing, so this
+        // must be pinned on the controls after their skins exist.
+        CompactScrollBars.install(sidebar.getScene());
         UiResponsive.install(sidebar, mode -> {
             boolean wantExpanded = mode == UiResponsive.Mode.REGULAR;
             if (sidebarExpanded != wantExpanded && !UiMotion.isBusy(sidebar)) {
