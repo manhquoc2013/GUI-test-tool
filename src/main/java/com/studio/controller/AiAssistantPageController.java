@@ -22,6 +22,7 @@ import com.studio.store.AiChatHistoryStore;
 import com.studio.store.ProjectStore;
 import com.studio.store.SettingsStore;
 import com.studio.util.DialogTheme;
+import com.studio.util.SmoothScroll;
 import com.studio.util.StudioPaths;
 import com.studio.util.UiIcons;
 import com.studio.util.UiTooltips;
@@ -46,6 +47,7 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.*;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.FileChooser;
@@ -65,6 +67,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -217,12 +220,22 @@ public class AiAssistantPageController implements Initializable {
      * queued (and re-laid out the whole transcript) dozens of times per second.
      */
     private final AtomicBoolean previewDirty = new AtomicBoolean(false);
-    /** Coalesces the many "scroll to bottom" requests of one FX pulse into a single move. */
-    private final AtomicBoolean scrollToBottomQueued = new AtomicBoolean(false);
     /** Throttled painter of the live preview; runs only while a thinking bubble is on screen. */
     private Timeline previewTimeline = null;
+    /** Eases wheel scroll and "follow the stream" so the viewport never teleports. */
+    private SmoothScroll chatSmoothScroll = null;
+    /** How many newest messages are currently rendered; grows page by page towards the top. */
+    private int transcriptWindow = TRANSCRIPT_PAGE_SIZE;
+    /** Session whose window is loaded, so opening another conversation starts from one page. */
+    private String transcriptWindowSessionId = null;
+    /** Suppresses the auto-load listener while a page is being prepended and re-anchored. */
+    private boolean loadingEarlierMessages = false;
+    /** Full provider payload behind the truncated raw viewer, opened on demand. */
+    private String rawResponseFull = "";
     /** The bubble currently on screen for each message, so a turn ends without re-rendering it all. */
     private final Map<AiChatMessage, HBox> renderedBubbles = new IdentityHashMap<>();
+    /** "Tải thêm tin nhắn trước" row of the windowed transcript, or null when nothing is hidden. */
+    private HBox earlierMessagesBar = null;
     /**
      * Conversation whose bubble owns the preview. Volatile because model workers read it to reject
      * deltas of another conversation; only the FX thread writes it.
@@ -236,6 +249,26 @@ public class AiAssistantPageController implements Initializable {
     private static final double PREVIEW_VIEWPORT_HEIGHT = 54;
     /** How close to the bottom still counts as "following the stream". */
     private static final double CHAT_BOTTOM_PIN_THRESHOLD = 0.02;
+
+    /**
+     * Newest transcript messages kept in the scene graph. The chat panel is a plain VBox inside a
+     * ScrollPane, so every layout pass re-measures every bubble; a 200-message history turned one
+     * streamed line into a 60ms stall (measured). Only the newest page lives in the DOM, and the
+     * previous page is rendered when the reader approaches the top.
+     */
+    private static final int TRANSCRIPT_PAGE_SIZE = 40;
+    /** Scrolling this close to the top pulls the previous page in before the wall is visible. */
+    private static final double TRANSCRIPT_LOAD_MORE_THRESHOLD = 0.02;
+    /**
+     * Characters rendered inline in one bubble. Beyond this the full text opens in
+     * {@link LongTextDialog}: a single 25k-character label costs ~40ms per layout, which is what made
+     * "Chi tiết"/"Xem thêm" feel like the page was dragging.
+     */
+    private static final int BUBBLE_INLINE_CHAR_LIMIT = 4_000;
+    /** Raw provider payload rendered in the right panel; the rest is one double-click away. */
+    private static final int RAW_RESPONSE_VIEW_LIMIT = 60_000;
+    private static final String RAW_RESPONSE_TRUNCATED_NOTE =
+            "\n\n… (đã rút gọn để hiển thị mượt — nháy đúp để xem toàn bộ)";
 
     /**
      * The right-hand result header is a fixed row of the page, not a reading surface. A full
@@ -421,8 +454,42 @@ public class AiAssistantPageController implements Initializable {
         resultSummaryLabel.textProperty().bind(Bindings.createStringBinding(
                 () -> resultSummaryExcerpt(resultSummaryText.get()), resultSummaryText));
 
+        setupChatScrolling();
+
         // Load initial chat history for the default target suite
         loadChatHistoryForSuite();
+    }
+
+    /**
+     * Wires the transcript viewport: one wheel notch eases the content instead of teleporting it, the
+     * horizontal bar never appears (it would change the wrap width of every bubble), and reaching the
+     * top pulls the previous history page in while keeping the reader's position on screen.
+     */
+    private void setupChatScrolling() {
+        if (chatScroll == null) {
+            return;
+        }
+        chatScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        chatScroll.setPannable(false);
+        chatSmoothScroll = SmoothScroll.install(chatScroll);
+        // Only a real wheel/trackpad gesture may pull the previous page in. Watching vvalue alone
+        // also fired when the skin clamped the value on the first layout of a rebuilt transcript,
+        // which silently raised the window on every render.
+        chatScroll.addEventFilter(ScrollEvent.SCROLL, event -> {
+            if (event.getDeltaY() != 0 && !loadingEarlierMessages
+                    && chatScroll.getVvalue() <= TRANSCRIPT_LOAD_MORE_THRESHOLD) {
+                loadEarlierMessages();
+            }
+        });
+        if (rawResponseViewer != null) {
+            UiTooltips.install(rawResponseViewer, "Nháy đúp để mở toàn bộ phản hồi gốc");
+            rawResponseViewer.setOnMouseClicked(e -> {
+                if (e.getClickCount() == 2 && !rawResponseFull.isBlank()) {
+                    LongTextDialog.show("Phản hồi gốc từ OpenAI", "Toàn bộ nội dung JSON/raw của lượt này",
+                            rawResponseFull);
+                }
+            });
+        }
     }
 
     public void refreshModelIndicator() {
@@ -1316,21 +1383,38 @@ public class AiAssistantPageController implements Initializable {
 
     /** True when the user is reading the newest message rather than an earlier one. */
     private boolean isChatPinnedToBottom() {
-        return chatScroll == null || chatScroll.getVvalue() >= 1.0 - CHAT_BOTTOM_PIN_THRESHOLD;
+        if (chatScroll == null) {
+            return true;
+        }
+        return chatScroll.getVvalue() >= 1.0 - CHAT_BOTTOM_PIN_THRESHOLD
+                || (chatSmoothScroll != null && chatSmoothScroll.isTargetingBottom());
     }
 
     /**
-     * Scrolls to the newest message at most once per FX pulse. Calling {@code setVvalue(1.0)} from every
-     * paint was one of the reasons the viewport appeared to jump while text streamed in.
+     * Follows the newest message with one eased move. Calling {@code setVvalue(1.0)} from every paint
+     * was one of the reasons the viewport appeared to jump while text streamed in.
      */
     private void requestChatScrollToBottom() {
-        if (chatScroll == null || !scrollToBottomQueued.compareAndSet(false, true)) {
+        if (chatScroll == null) {
             return;
         }
-        Platform.runLater(() -> {
-            scrollToBottomQueued.set(false);
+        if (chatSmoothScroll != null) {
+            chatSmoothScroll.scrollToBottom();
+        } else {
             chatScroll.setVvalue(1.0);
-        });
+        }
+    }
+
+    /** Puts the viewport at the newest message immediately — used when a transcript is rebuilt. */
+    private void jumpChatToBottom() {
+        if (chatScroll == null) {
+            return;
+        }
+        if (chatSmoothScroll != null) {
+            chatSmoothScroll.jumpTo(1.0);
+        } else {
+            chatScroll.setVvalue(1.0);
+        }
     }
 
     private void scrollToBottomIfPinned(boolean pinned) {
@@ -1477,12 +1561,21 @@ public class AiAssistantPageController implements Initializable {
                 continuationLog);
     }
 
-    private void renderChatHistory() {
+    /** Rebuilds the whole transcript from {@link #currentSession}. Package-private for layout tests. */
+    void renderChatHistory() {
         // The transcript is rebuilt from the session, so any bubble left from the previous render is
         // detached; a run still active in this session gets a fresh indicator at the end.
         removeThinkingBubble();
         chatMessagesBox.getChildren().clear();
         renderedBubbles.clear();
+        earlierMessagesBar = null;
+
+        String sessionId = currentSession != null ? currentSession.getId() : null;
+        if (!Objects.equals(transcriptWindowSessionId, sessionId)) {
+            // A new conversation starts at one page, never at the window size of the previous one.
+            transcriptWindow = TRANSCRIPT_PAGE_SIZE;
+            transcriptWindowSessionId = sessionId;
+        }
 
         if (currentSession.getMessages().isEmpty()) {
             // Add default welcome message
@@ -1493,7 +1586,8 @@ public class AiAssistantPageController implements Initializable {
             renderMessageBubble(welcomeMsg, false);
             clearPreviewArea();
         } else {
-            for (AiChatMessage msg : currentSession.getMessages()) {
+            appendEarlierMessagesBar(chatMessagesBox.getChildren().size());
+            for (AiChatMessage msg : windowedMessages()) {
                 renderMessageBubble(msg, false);
             }
             // Restore preview cases from the latest assistant response
@@ -1501,7 +1595,140 @@ public class AiAssistantPageController implements Initializable {
         }
 
         syncRunBubbleForCurrentSession();
-        requestChatScrollToBottom();
+        jumpChatToBottom();
+    }
+
+    /** Newest slice of the conversation that is allowed into the scene graph. */
+    private List<AiChatMessage> windowedMessages() {
+        if (currentSession == null) {
+            return List.of();
+        }
+        List<AiChatMessage> messages = currentSession.getMessages();
+        int from = Math.max(0, messages.size() - Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow));
+        return messages.subList(from, messages.size());
+    }
+
+    /** Messages not rendered yet because they predate the current transcript window. */
+    private int hiddenMessageCount() {
+        if (currentSession == null) {
+            return 0;
+        }
+        return Math.max(0, currentSession.getMessages().size() - Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow));
+    }
+
+    /**
+     * Drops the oldest rendered bubbles once a turn pushed the transcript past its window. The
+     * "load earlier" row is rebuilt so its hidden count matches what is actually on screen.
+     */
+    private void trimTranscriptToWindow() {
+        int maxRendered = Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow);
+        if (renderedBubbles.size() <= maxRendered) {
+            return;
+        }
+        List<Node> children = chatMessagesBox.getChildren();
+        for (int i = 0; i < children.size() && renderedBubbles.size() > maxRendered; ) {
+            Node child = children.get(i);
+            if (child == earlierMessagesBar) {
+                i++;
+                continue;
+            }
+            AiChatMessage owner = null;
+            for (Map.Entry<AiChatMessage, HBox> entry : renderedBubbles.entrySet()) {
+                if (entry.getValue() == child) {
+                    owner = entry.getKey();
+                    break;
+                }
+            }
+            if (owner == null) {
+                i++;
+                continue;
+            }
+            renderedBubbles.remove(owner);
+            children.remove(i);
+        }
+        if (earlierMessagesBar != null) {
+            children.remove(earlierMessagesBar);
+            earlierMessagesBar = null;
+        }
+        appendEarlierMessagesBar(0);
+    }
+
+    /**
+     * Row at {@code index} that reports how much older history is held back and renders it on demand.
+     * It is chrome, not a message: it never enters {@link #renderedBubbles}.
+     */
+    private void appendEarlierMessagesBar(int index) {
+        int hidden = hiddenMessageCount();
+        if (hidden <= 0) {
+            return;
+        }
+        int page = Math.min(TRANSCRIPT_PAGE_SIZE, hidden);
+        Button loadEarlier = new Button("⤒ Tải thêm " + page + " tin nhắn trước (" + hidden + " tin nhắn ẩn)");
+        loadEarlier.getStyleClass().addAll("btn-secondary", "btn-sm");
+        loadEarlier.setOnAction(e -> loadEarlierMessages());
+        UiTooltips.install(loadEarlier, "Chỉ các tin nhắn gần nhất được render để khung chat luôn mượt");
+
+        HBox bar = new HBox(loadEarlier);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.getStyleClass().add("ai-transcript-earlier");
+        chatMessagesBox.getChildren().add(Math.min(index, chatMessagesBox.getChildren().size()), bar);
+        earlierMessagesBar = bar;
+    }
+
+    /**
+     * Prepends the previous history page without rebuilding the transcript. Only the newly revealed
+     * messages are built, so an in-flight run keeps its thinking bubble and live preview, and the
+     * reader's viewport is shifted by exactly the height that was inserted above it.
+     */
+    private void loadEarlierMessages() {
+        if (loadingEarlierMessages || currentSession == null || hiddenMessageCount() <= 0) {
+            return;
+        }
+        loadingEarlierMessages = true;
+        try {
+            List<AiChatMessage> all = currentSession.getMessages();
+            int renderedBefore = Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow);
+            int oldStart = Math.max(0, all.size() - renderedBefore);
+            double oldVvalue = chatScroll != null ? chatScroll.getVvalue() : 1;
+            double oldContentHeight = chatMessagesBox.getHeight();
+            double viewportHeight = chatScroll != null ? chatScroll.getViewportBounds().getHeight() : 0;
+
+            transcriptWindow += TRANSCRIPT_PAGE_SIZE;
+            int newStart = Math.max(0, all.size() - Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow));
+
+            if (earlierMessagesBar != null) {
+                chatMessagesBox.getChildren().remove(earlierMessagesBar);
+                earlierMessagesBar = null;
+            }
+            List<Node> revealed = new ArrayList<>(oldStart - newStart);
+            for (int i = newStart; i < oldStart; i++) {
+                AiChatMessage msg = all.get(i);
+                if (!renderedBubbles.containsKey(msg)) {
+                    revealed.add(buildMessageBubble(msg));
+                }
+            }
+            chatMessagesBox.getChildren().addAll(0, revealed);
+            appendEarlierMessagesBar(0);
+
+            // Layout now (not on the next pulse) so the anchor correction lands in this same frame.
+            chatMessagesBox.applyCss();
+            chatMessagesBox.layout();
+            double newContentHeight = chatMessagesBox.getHeight();
+            double oldRange = Math.max(0, oldContentHeight - viewportHeight);
+            double newRange = Math.max(0, newContentHeight - viewportHeight);
+            if (newRange > 0) {
+                double added = Math.max(0, newContentHeight - oldContentHeight);
+                double anchored = (oldVvalue * oldRange + added) / newRange;
+                double clamped = Math.max(0, Math.min(1, anchored));
+                if (chatSmoothScroll != null) {
+                    chatSmoothScroll.jumpTo(clamped);
+                } else if (chatScroll != null) {
+                    chatScroll.setVvalue(clamped);
+                }
+            }
+        } finally {
+            loadingEarlierMessages = false;
+        }
     }
 
     /** Recreates the "đang chạy" indicator for the open conversation after a re-render or a switch. */
@@ -1627,6 +1854,24 @@ public class AiAssistantPageController implements Initializable {
             exportCasesMenuBtn.setDisable(true);
         }
         showCaseDetail(null);
+        showRawResponse(null);
+    }
+
+    /**
+     * Puts a bounded head of the raw provider payload into the right panel. A 200 KB JSON document in
+     * a wrapped TextArea blocks the FX thread for hundreds of milliseconds and makes its scrollbar
+     * crawl; the untruncated value is kept for the double-click viewer.
+     */
+    private void showRawResponse(String raw) {
+        rawResponseFull = raw == null ? "" : raw;
+        if (rawResponseViewer == null) {
+            return;
+        }
+        boolean clipped = rawResponseFull.length() > RAW_RESPONSE_VIEW_LIMIT;
+        rawResponseViewer.setWrapText(!clipped);
+        rawResponseViewer.setText(clipped
+                ? rawResponseFull.substring(0, RAW_RESPONSE_VIEW_LIMIT) + RAW_RESPONSE_TRUNCATED_NOTE
+                : rawResponseFull);
     }
 
     private void updateTokenUsageDisplay() {
@@ -1886,6 +2131,11 @@ public class AiAssistantPageController implements Initializable {
                     + " Hãy tạo cuộc trò chuyện mới để chạy song song.");
             return;
         }
+
+        // A previous turn may have appended more bubbles than the window holds; dropping the oldest
+        // ones here (never mid-stream, when the reader is following the answer) keeps the transcript
+        // layout bounded for the whole conversation.
+        trimTranscriptToWindow();
 
         // Auto-detect or override skill from slash command if user typed it
         com.studio.model.AiSkill chosenSkill = (skillComboBox != null && skillComboBox.getValue() != null)
@@ -2199,7 +2449,7 @@ public class AiAssistantPageController implements Initializable {
                         currentSuggestedSuite = generationResult.getSuggestedSuite();
 
                         generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                        rawResponseViewer.setText(generationResult.getRawResponse());
+                        showRawResponse(generationResult.getRawResponse());
 
                         if (!currentGeneratedCases.isEmpty()) {
                             applyToSuiteBtn.setDisable(false);
@@ -3272,7 +3522,7 @@ public class AiAssistantPageController implements Initializable {
             return;
         }
         boolean pinned = isChatPinnedToBottom();
-        for (AiChatMessage msg : currentSession.getMessages()) {
+        for (AiChatMessage msg : windowedMessages()) {
             if (!renderedBubbles.containsKey(msg)) {
                 insertMessageBubbleBeforeThinking(msg);
             }
@@ -3307,12 +3557,35 @@ public class AiAssistantPageController implements Initializable {
         ChatDisplayMode mode = "user".equalsIgnoreCase(msg.getRole()) ? ChatDisplayMode.DETAIL : chatDisplayMode;
         ChatDisplayMode.Excerpt excerpt = mode.excerpt(content);
 
-        Label contentLabel = new Label(excerpt.text());
+        // A bubble is a summary surface. Rendering tens of thousands of characters inside the
+        // scrollable transcript made every layout pass re-measure the whole history, so the inline
+        // label is bounded and the untouched original stays one click away.
+        boolean opensInViewer = content.length() > BUBBLE_INLINE_CHAR_LIMIT;
+        String inlineText = excerpt.text();
+        if (inlineText.length() > BUBBLE_INLINE_CHAR_LIMIT) {
+            inlineText = clipForInlineRendering(inlineText, BUBBLE_INLINE_CHAR_LIMIT);
+            opensInViewer = true;
+        }
+
+        Label contentLabel = new Label(inlineText);
         contentLabel.setWrapText(true);
         contentLabel.getStyleClass().add("ai-chat-bubble-content");
 
         VBox box = new VBox(4);
         box.getChildren().add(contentLabel);
+
+        if (opensInViewer) {
+            Button viewAll = new Button("Xem toàn bộ");
+            viewAll.getStyleClass().add("chat-action-btn");
+            UiTooltips.install(viewAll, "Mở toàn bộ " + content.length()
+                    + " ký tự trong cửa sổ riêng (khung chat chỉ hiển thị phần đầu)");
+            viewAll.setOnAction(e -> LongTextDialog.show("Nội dung đầy đủ",
+                    "Bản gốc của tin nhắn — khung chat chỉ hiển thị phần đầu để giữ cuộn mượt",
+                    content));
+            box.getChildren().add(viewAll);
+            return box;
+        }
+
         if (!excerpt.truncated()) {
             return box;
         }
@@ -3328,6 +3601,18 @@ public class AiAssistantPageController implements Initializable {
         });
         box.getChildren().add(toggle);
         return box;
+    }
+
+    /** Cuts at the last line break before {@code limit} so the excerpt never ends mid-word. */
+    private static String clipForInlineRendering(String text, int limit) {
+        if (text.length() <= limit) {
+            return text;
+        }
+        int cut = text.lastIndexOf('\n', limit);
+        if (cut < limit / 2) {
+            cut = limit;
+        }
+        return text.substring(0, cut).strip() + ChatDisplayMode.ELLIPSIS;
     }
 
     private VBox buildClarificationCard(AiChatMessage msg) {

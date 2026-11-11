@@ -1859,6 +1859,10 @@
 .ai-chat-container {
     -fx-background-color: transparent;
 }
+/* "Tải thêm tin nhắn trước": chrome row above the windowed transcript, not a bubble. */
+.ai-transcript-earlier {
+    -fx-padding: 2px 0 4px 0;
+}
 .ai-chat-bubble {
     -fx-padding: 10px 14px;
 }

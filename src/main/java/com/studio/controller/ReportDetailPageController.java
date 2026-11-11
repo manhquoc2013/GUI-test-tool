@@ -13,6 +13,7 @@ import com.studio.store.ReportStore;
 import com.studio.util.AssertTypeDisplay;
 import com.studio.util.DialogTheme;
 import com.studio.util.ResponsiveTableColumns;
+import com.studio.util.SmoothScroll;
 import com.studio.util.StatusDisplay;
 import com.studio.util.StudioPaths;
 import com.studio.util.UiMotion;
@@ -136,6 +137,14 @@ public class ReportDetailPageController {
     private RunReport currentReport;
     private ObservableList<CaseResult> allCases = FXCollections.observableArrayList();
     private boolean detailVisible = false;
+    /** Untruncated log of the selected case, shown on demand by the full-text viewer. */
+    private String fullLogText = "";
+    /** Wrapped text above this length re-measures every paragraph on each layout pass. */
+    private static final int LOG_WRAP_LIMIT_CHARS = 20_000;
+    /** Text placed into the TextArea; the rest stays in {@link #fullLogText}. */
+    private static final int LOG_VIEW_LIMIT_CHARS = 120_000;
+    private static final String LOG_TRUNCATED_NOTE =
+            "\n\n… (đã rút gọn để hiển thị mượt — nháy đúp để xem toàn bộ)";
 
     @FXML
     public void initialize() {
@@ -167,6 +176,16 @@ public class ReportDetailPageController {
             detailScroll.setFitToWidth(true);
             detailScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
             detailScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            SmoothScroll.install(detailScroll);
+        }
+        if (logExcerpt != null) {
+            com.studio.util.UiTooltips.install(logExcerpt, "Nháy đúp để mở toàn bộ log của case");
+            logExcerpt.setOnMouseClicked(e -> {
+                if (e.getClickCount() == 2 && !fullLogText.isBlank()) {
+                    LongTextDialog.show("Log thực thi đầy đủ", "Toàn bộ log/ghi chú của case đang chọn",
+                            fullLogText);
+                }
+            });
         }
         if (detailBody != null && detailScroll != null) {
             detailBody.maxWidthProperty().bind(detailScroll.widthProperty().subtract(4));
@@ -649,7 +668,7 @@ public class ReportDetailPageController {
             sb.append(healedLog);
         }
 
-        logExcerpt.setText(sb.toString());
+        showLog(sb.toString());
 
         // Screenshot path + preview
         Path resolvedShot = resolveScreenshotFile(cr.getScreenshotPath());
@@ -672,6 +691,22 @@ public class ReportDetailPageController {
                 screenshotView.setVisible(false);
             }
         }
+    }
+
+    /**
+     * Shows a bounded, unwrapped log in the drawer. Wrapped paragraphs are re-measured by the
+     * TextArea on every layout pass, which made the drawer crawl on multi-megabyte harness logs.
+     */
+    private void showLog(String log) {
+        fullLogText = log == null ? "" : log;
+        if (logExcerpt == null) {
+            return;
+        }
+        boolean clipped = fullLogText.length() > LOG_VIEW_LIMIT_CHARS;
+        logExcerpt.setWrapText(!clipped && fullLogText.length() <= LOG_WRAP_LIMIT_CHARS);
+        logExcerpt.setText(clipped
+                ? fullLogText.substring(0, LOG_VIEW_LIMIT_CHARS) + LOG_TRUNCATED_NOTE
+                : fullLogText);
     }
 
     /**

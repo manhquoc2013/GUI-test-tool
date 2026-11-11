@@ -38,6 +38,8 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Controller for suite_workspace_page.fxml.
@@ -88,6 +90,11 @@ public class SuiteWorkspacePageController {
     private TestSuite suite;
     private Path suitePath;
     private TestCase selectedCase;
+    /** Harness log lines waiting for the next FX pulse; keeps one CSS pass for a whole burst. */
+    private final java.util.Queue<String> pendingTerminalLines = new ConcurrentLinkedQueue<>();
+    private final AtomicBoolean terminalFlushQueued = new AtomicBoolean(false);
+    /** Wrapped text budget of the terminal; older lines are dropped beyond it. */
+    private static final int TERMINAL_MAX_CHARS = 120_000;
     private final ProjectStore projectStore = new ProjectStore();
     private final SettingsStore settingsStore = new SettingsStore();
     private final ReportStore reportStore = new ReportStore();
@@ -1599,20 +1606,54 @@ public class SuiteWorkspacePageController {
     }
 
     private void terminalAppend(String message) {
-        if (terminalOutput == null) return;
-        Runnable append = () -> {
-            terminalOutput.appendText(message + "\n");
-            terminalOutput.applyCss();
-        };
-        if (Platform.isFxApplicationThread()) {
-            append.run();
-        } else {
-            Platform.runLater(append);
+        if (terminalOutput == null || message == null) {
+            return;
         }
+        pendingTerminalLines.add(message);
+        // One flush per FX pulse instead of one append + applyCss per harness line. A suite run emits
+        // dozens of lines per second; pushing each one through a full CSS pass is what made the whole
+        // workspace window stutter while tests executed.
+        if (terminalFlushQueued.compareAndSet(false, true)) {
+            Platform.runLater(this::flushTerminal);
+        }
+    }
+
+    /** Drains buffered harness lines into the terminal and keeps its text within a bounded size. */
+    private void flushTerminal() {
+        terminalFlushQueued.set(false);
+        if (terminalOutput == null) {
+            pendingTerminalLines.clear();
+            return;
+        }
+        StringBuilder batch = new StringBuilder();
+        String line;
+        while ((line = pendingTerminalLines.poll()) != null) {
+            batch.append(line).append('\n');
+        }
+        if (batch.length() == 0) {
+            return;
+        }
+        terminalOutput.appendText(batch.toString());
+        trimTerminalIfOversized();
+    }
+
+    /**
+     * A growing wrapped TextArea re-measures every paragraph on layout, so an unbounded harness log
+     * eventually makes the terminal crawl. The oldest lines are dropped once the buffer passes its
+     * budget; the run report keeps the complete output.
+     */
+    private void trimTerminalIfOversized() {
+        String text = terminalOutput.getText();
+        if (text == null || text.length() <= TERMINAL_MAX_CHARS) {
+            return;
+        }
+        int cut = text.indexOf('\n', text.length() - TERMINAL_MAX_CHARS);
+        terminalOutput.setText(text.substring(cut < 0 ? text.length() - TERMINAL_MAX_CHARS : cut + 1));
     }
 
     @FXML
     public void clearTerminal() {
+        pendingTerminalLines.clear();
         terminalOutput.clear();
     }
 

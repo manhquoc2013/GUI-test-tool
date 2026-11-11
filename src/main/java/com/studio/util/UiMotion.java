@@ -9,6 +9,7 @@ import javafx.animation.ScaleTransition;
 import javafx.animation.Timeline;
 import javafx.animation.TranslateTransition;
 import javafx.beans.property.DoubleProperty;
+import javafx.scene.CacheHint;
 import javafx.scene.Node;
 import javafx.scene.layout.Region;
 import javafx.util.Duration;
@@ -23,8 +24,32 @@ public final class UiMotion {
     public static final Duration DRAWER = Duration.millis(260);
 
     private static final String BUSY = "studio.uiMotionBusy";
+    private static final String CACHED = "studio.uiMotionCached";
 
     private UiMotion() {}
+
+    /**
+     * Renders a moving subtree once into a texture for the duration of the animation. A page or
+     * drawer holding a long transcript re-laid out and re-rasterized its whole content on every
+     * frame of a translate/fade; with a cached bitmap the motion only moves pixels. The cache is
+     * dropped when the animation finishes so text returns to native sharpness and live content
+     * (a streaming bubble) repaints normally.
+     */
+    private static void cacheForMotion(Node node) {
+        if (node == null) {
+            return;
+        }
+        node.setCache(true);
+        node.setCacheHint(CacheHint.SPEED);
+        node.getProperties().put(CACHED, Boolean.TRUE);
+    }
+
+    private static void dropMotionCache(Node node) {
+        if (node != null && Boolean.TRUE.equals(node.getProperties().remove(CACHED))) {
+            node.setCache(false);
+            node.setCacheHint(CacheHint.DEFAULT);
+        }
+    }
 
     public static boolean isBusy(Node node) {
         return node != null && Boolean.TRUE.equals(node.getProperties().get(BUSY));
@@ -40,6 +65,7 @@ public final class UiMotion {
     public static void clearBusy(Node node) {
         if (node != null) {
             node.getProperties().remove(BUSY);
+            dropMotionCache(node);
         }
     }
 
@@ -52,6 +78,7 @@ public final class UiMotion {
         Node host = content != null ? content : overlay;
         if (isBusy(host)) return;
         markBusy(host, true);
+        cacheForMotion(content);
 
         ParallelTransition all = new ParallelTransition();
         if (overlay != null) {
@@ -84,6 +111,7 @@ public final class UiMotion {
             all.getChildren().addAll(fade, scale, slide);
         }
         all.setOnFinished(e -> {
+            dropMotionCache(content);
             markBusy(host, false);
             if (onDone != null) onDone.run();
         });
@@ -98,6 +126,7 @@ public final class UiMotion {
         Node host = content != null ? content : overlay;
         if (isBusy(host)) return;
         markBusy(host, true);
+        cacheForMotion(content);
 
         ParallelTransition all = new ParallelTransition();
         if (overlay != null) {
@@ -122,6 +151,7 @@ public final class UiMotion {
             all.getChildren().addAll(fade, scale, slide);
         }
         all.setOnFinished(e -> {
+            dropMotionCache(content);
             markBusy(host, false);
             if (onDone != null) onDone.run();
         });
@@ -136,6 +166,7 @@ public final class UiMotion {
         }
         if (isBusy(drawer)) return;
         markBusy(drawer, true);
+        cacheForMotion(drawer);
 
         double width = drawer.getBoundsInParent().getWidth();
         if (width <= 1 && drawer instanceof Region r) {
@@ -163,6 +194,7 @@ public final class UiMotion {
             all.getChildren().add(fade);
         }
         all.setOnFinished(e -> {
+            dropMotionCache(drawer);
             markBusy(drawer, false);
             if (onDone != null) onDone.run();
         });
@@ -176,6 +208,7 @@ public final class UiMotion {
         }
         if (isBusy(drawer)) return;
         markBusy(drawer, true);
+        cacheForMotion(drawer);
 
         double width = drawer.getBoundsInParent().getWidth();
         if (width <= 1 && drawer instanceof Region r) {
@@ -196,6 +229,7 @@ public final class UiMotion {
         }
         all.setOnFinished(e -> {
             drawer.setTranslateX(0);
+            dropMotionCache(drawer);
             markBusy(drawer, false);
             if (onDone != null) onDone.run();
         });
@@ -254,6 +288,7 @@ public final class UiMotion {
             return;
         }
         markBusy(page, true);
+        cacheForMotion(page);
         page.setOpacity(0);
         page.setTranslateY(16);
 
@@ -270,6 +305,7 @@ public final class UiMotion {
         all.setOnFinished(e -> {
             page.setOpacity(1);
             page.setTranslateY(0);
+            dropMotionCache(page);
             markBusy(page, false);
             if (onDone != null) onDone.run();
         });
