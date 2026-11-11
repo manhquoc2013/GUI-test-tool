@@ -326,6 +326,56 @@
     -fx-background-color: #1d4ed8;
 }
 
+/* Success CTA and its spinner. Defined in the dark theme only, so in light mode
+   the run-success button fell back to the bare JavaFX button look. */
+.btn-success {
+    -fx-background-color: #16a34a;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+    -fx-border-color: #16a34a;
+}
+.btn-success:hover {
+    -fx-background-color: #15803d;
+}
+.btn-spinner {
+    -fx-progress-color: #ffffff;
+}
+
+/* Small secondary button used inside dialogs and table rows. It was declared
+   in FXML but defined in neither theme, so it fell back to the default button. */
+.btn-sm,
+.btn-sm-primary {
+    -fx-font-size: 12px;
+    -fx-padding: 4 10;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.btn-sm {
+    -fx-background-color: #f1f5f9;
+    -fx-text-fill: #334155;
+    -fx-border-color: #cbd5e1;
+}
+.btn-sm:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+.btn-sm-primary {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #2563eb;
+    -fx-font-weight: bold;
+}
+.btn-sm-primary:hover {
+    -fx-background-color: #1d4ed8;
+}
+
+/* Summary line under a section header (AI results panel). */
+.section-summary {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+}
+
 .toolbar-btn,
 .page-toolbar .toolbar-btn,
 .tool-bar.page-toolbar .toolbar-btn {
@@ -1073,6 +1123,49 @@
 .preview-scroll,
 .preview-scroll > .viewport {
     -fx-background-color: transparent;
+}
+
+/* AI assistant split panes: transparent canvas so the panel surface shows
+   through instead of a JavaFX default grey gutter. */
+.ai-split-pane {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+.ai-split-pane > .split-pane-divider {
+    -fx-background-color: #e2e8f0;
+    -fx-padding: 0 1 0 1;
+}
+.ai-quick-suggestions {
+    -fx-padding: 2 0;
+}
+
+/* Shared row/label geometry, same as elsewhere in the app. */
+.case-row {
+    -fx-alignment: center-left;
+}
+.case-row-label {
+    -fx-text-fill: #0f172a;
+}
+
+/* Screenshot evidence block in the report detail view. */
+.screenshot-path-label {
+    -fx-text-fill: #475569;
+    -fx-font-size: 12px;
+    -fx-text-overrun: ellipsis;
+}
+.screenshot-preview-frame {
+    -fx-background-color: #f8fafc;
+    -fx-background-radius: 6;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-alignment: center;
+    -fx-min-height: 160;
+    -fx-max-width: Infinity;
+    -fx-cursor: hand;
+}
+.screenshot-preview-frame:hover {
+    -fx-border-color: #2563eb;
 }
 
 .section-header {

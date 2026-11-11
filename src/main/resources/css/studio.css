@@ -492,6 +492,40 @@
     -fx-progress-color: #1a1b26;
 }
 
+/* Small secondary button used inside dialogs and table rows, and the summary
+   line under a section header. Both were declared in FXML but defined in
+   neither theme, so they rendered with default JavaFX button/label styling. */
+.btn-sm,
+.btn-sm-primary {
+    -fx-font-size: 12px;
+    -fx-padding: 4 10;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.btn-sm {
+    -fx-background-color: #24283b;
+    -fx-text-fill: #c0caf5;
+    -fx-border-color: #2a2b3d;
+}
+.btn-sm:hover {
+    -fx-background-color: #2f334d;
+    -fx-border-color: #7aa2f7;
+}
+.btn-sm-primary {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #1a1b26;
+    -fx-border-color: #7aa2f7;
+    -fx-font-weight: bold;
+}
+.btn-sm-primary:hover {
+    -fx-background-color: #89b4fa;
+}
+.section-summary {
+    -fx-text-fill: #9aa5ce;
+    -fx-font-size: 12px;
+}
+
 .tree-hint {
     -fx-text-fill: #565f89;
     -fx-font-size: 11px;
