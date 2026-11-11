@@ -33,7 +33,7 @@
                 <padding><Insets top="6" right="8" bottom="6" left="8"/></padding>
                 <Label text="Cây dự án" styleClass="tree-hint" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
                 <HBox fx:id="statusFilterChips" spacing="4" alignment="CENTER_RIGHT" styleClass="filter-chips-box">
-                    <Button fx:id="chipAll" text="Tất cả" styleClass="filter-chip, active" onAction="#filterChipAll"/>
+                    <Button fx:id="chipAll" text="Tất cả" styleClass="filter-chip active" onAction="#filterChipAll"/>
                     <Button fx:id="chipActive" text="Hoạt động" styleClass="filter-chip" onAction="#filterChipActive"/>
                     <Button fx:id="chipDraft" text="Nháp" styleClass="filter-chip" onAction="#filterChipDraft"/>
                     <Button fx:id="chipInactive" text="Ngừng" styleClass="filter-chip" onAction="#filterChipInactive"/>
@@ -71,10 +71,10 @@
                 <VBox VBox.vgrow="ALWAYS"/>
                 <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
                     <HBox HBox.hgrow="ALWAYS"/>
-                    <Button fx:id="openWorkspaceBtn" text="Mở Workspace" onAction="#openWorkspace"
-                            styleClass="btn-primary, preview-cta" visible="false"/>
+                    <Button fx:id="openWorkspaceBtn" text="Mở suite" onAction="#openWorkspace"
+                            styleClass="btn-primary preview-cta" visible="false"/>
                     <Button fx:id="runNodeBtn" text="Chạy" onAction="#runNode"
-                            styleClass="btn-success, preview-cta, preview-cta-run" visible="false"/>
+                            styleClass="btn-success preview-cta preview-cta-run" visible="false"/>
                 </HBox>
             </VBox>
         </ScrollPane>
