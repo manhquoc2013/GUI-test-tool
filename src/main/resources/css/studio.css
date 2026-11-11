@@ -2121,6 +2121,23 @@
     -fx-font-weight: bold;
     -fx-text-fill: #7dcfff;
 }
+/* Secondary action beside a primary run/send CTA (e.g. "Đính kèm" next to
+   "Gửi (Enter)"). The btn-secondary fill matched the dark canvas, and a bare
+   CheckBox kept the Modena focus border that read as "always selected". */
+.ai-input-box .btn-secondary {
+    -fx-background-color: #24283b;
+    -fx-border-color: #3b3d57;
+}
+.ai-input-box .btn-secondary:hover {
+    -fx-background-color: #2f334d;
+    -fx-border-color: #7aa2f7;
+}
+.ai-input-box .check-box {
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0 2;
+}
+
 .field-label-small {
     -fx-font-size: 11px;
     -fx-font-weight: bold;
@@ -2523,7 +2540,10 @@
     -fx-background-radius: 5;
     -fx-padding: 5 9;
     -fx-font-size: 11px;
+    -fx-background-insets: 0;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 8, 0.1, 0, 3);
+    -fx-wrap-text: true;
+    -fx-max-width: 420;
 }
 
 .settings-hint-label {

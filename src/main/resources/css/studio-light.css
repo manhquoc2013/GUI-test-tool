@@ -1359,6 +1359,25 @@
     -fx-border-color: #e2e8f0;
 }
 
+/* The composer sits on the panel's own #f8fafc; give it the white card step so
+   it reads as one surface with its input instead of a washed-out band. */
+.ai-input-box {
+    -fx-background-color: #ffffff;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+/* "Đính kèm" is a secondary action inside the composer: match the input's
+   border weight so it is neither floating nor competing with "Gửi". */
+.ai-input-box .btn-secondary {
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #cbd5e1;
+}
+.ai-input-box .btn-secondary:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-border-color: #94a3b8;
+}
+
 .ai-chat-scroll {
     -fx-background: transparent;
     -fx-background-color: transparent;

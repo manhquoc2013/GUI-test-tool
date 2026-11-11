@@ -219,6 +219,10 @@ public class AiAssistantPageController implements Initializable {
             UiTooltips.install(refreshTargetsBtn, "Làm mới danh sách Nhóm & Suite");
         }
 
+        // Both target pickers leave an empty item so Đích lưu can be cleared to
+        // "(Tự động tạo khi lưu)" — without it selecting a group/suite was one-way.
+        targetGroupCombo.setButtonCell(placeholderCell("Chọn Nhóm..."));
+        targetSuiteCombo.setButtonCell(placeholderCell("Chọn Suite..."));
         targetGroupCombo.setOnAction(e -> onGroupSelected());
         targetSuiteCombo.setOnAction(e -> loadChatHistoryForSuite());
 
@@ -335,14 +339,17 @@ public class AiAssistantPageController implements Initializable {
                 } catch (IOException ignored) {}
             }
 
-            if (!groups.equals(new ArrayList<>(targetGroupCombo.getItems()))) {
-                targetGroupCombo.getItems().setAll(groups);
+            List<String> groupChoices = withBlankChoice(groups);
+            if (!groupChoices.equals(new ArrayList<>(targetGroupCombo.getItems()))) {
+                targetGroupCombo.getItems().setAll(groupChoices);
             }
 
+            // Truly unselected stays unselected; only a never-populated picker
+            // falls back to the first group so the suite list is not empty.
             String targetGroup = null;
-            if (prevGroup != null && groups.contains(prevGroup)) {
-                targetGroup = prevGroup;
-            } else if (!groups.isEmpty()) {
+            if (prevGroup != null && !prevGroup.isBlank()) {
+                targetGroup = groups.contains(prevGroup) ? prevGroup : null;
+            } else if (targetGroupCombo.getValue() == null && !groups.isEmpty()) {
                 targetGroup = groups.get(0);
             }
             targetGroupCombo.setValue(targetGroup);
@@ -360,12 +367,13 @@ public class AiAssistantPageController implements Initializable {
                 }
             }
 
-            if (!suites.equals(new ArrayList<>(targetSuiteCombo.getItems()))) {
-                targetSuiteCombo.getItems().setAll(suites);
+            List<String> suiteChoices = withBlankChoice(suites);
+            if (!suiteChoices.equals(new ArrayList<>(targetSuiteCombo.getItems()))) {
+                targetSuiteCombo.getItems().setAll(suiteChoices);
             }
 
             String targetSuite = null;
-            if (prevSuite != null && suites.contains(prevSuite)) {
+            if (prevSuite != null && !prevSuite.isBlank() && suites.contains(prevSuite)) {
                 targetSuite = prevSuite;
             } else if (!suites.isEmpty()) {
                 targetSuite = suites.get(0);
@@ -405,7 +413,7 @@ public class AiAssistantPageController implements Initializable {
                       .forEach(suites::add);
             } catch (IOException ignored) {}
         }
-        targetSuiteCombo.getItems().setAll(suites);
+        targetSuiteCombo.getItems().setAll(withBlankChoice(suites));
         if (!suites.isEmpty()) {
             targetSuiteCombo.getSelectionModel().select(0);
         } else {
@@ -413,7 +421,28 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /** Prepends the "no selection" entry so both pickers can be cleared again. */
+    private static List<String> withBlankChoice(List<String> values) {
+        List<String> choices = new ArrayList<>(values.size() + 1);
+        choices.add("");
+        choices.addAll(values);
+        return choices;
+    }
+
+    /** Renders the empty choice as a prompt instead of an unexplained blank line. */
+    private static ListCell<String> placeholderCell(String prompt) {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null || item.isBlank() ? prompt : item);
+                setStyle(item == null || item.isBlank() ? "-fx-text-fill: derive(-fx-text-background-color, 45%);" : null);
+            }
+        };
+    }
+
     public Path getSelectedSuiteDir() {
+        if (targetGroupCombo == null || targetSuiteCombo == null) return null;
         String group = targetGroupCombo.getValue();
         String suite = targetSuiteCombo.getValue();
         if (group != null && suite != null && !group.isBlank() && !suite.isBlank()) {
