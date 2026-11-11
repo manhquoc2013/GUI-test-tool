@@ -107,15 +107,16 @@
                     <TextArea fx:id="promptInputArea" prefRowCount="3" wrapText="true"
                               promptText="Nhập yêu cầu kiểm thử hoặc kịch bản cần sinh (Enter để gửi, Shift+Enter để xuống dòng)..."
                               styleClass="ai-prompt-input"/>
-                    <HBox spacing="8" alignment="CENTER_LEFT">
+                    <!-- Wrapping footer: at compact widths this row used to squeeze
+                         "Tạo Test Script" into an ellipsis and push Send off-line. -->
+                    <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT">
                         <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
                         <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary" minWidth="-Infinity"/>
                         <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
-                        <CheckBox fx:id="autoGenerateScriptCheck" text="Tạo Test Script" selected="false" styleClass="field-label-small"/>
-                        <HBox HBox.hgrow="ALWAYS"/>
+                        <CheckBox fx:id="autoGenerateScriptCheck" text="Tạo Test Script" selected="false" styleClass="field-label-small" minWidth="-Infinity"/>
                         <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
                         <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run" minWidth="-Infinity"/>
-                    </HBox>
+                    </FlowPane>
                 </VBox>
             </VBox>
 
@@ -123,10 +124,12 @@
             <VBox spacing="10" styleClass="ai-right-panel">
                 <padding><Insets top="10" right="12" bottom="12" left="12"/></padding>
 
-                <HBox spacing="10" alignment="CENTER_LEFT">
-                    <VBox spacing="2" HBox.hgrow="ALWAYS">
-                        <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header"/>
-                        <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true"/>
+                <!-- Wrapping header: the export menu is wide and cannot shrink,
+                     so a fixed HBox forced this panel past the window edge. -->
+                <FlowPane hgap="10" vgap="6" alignment="CENTER_LEFT">
+                    <VBox spacing="2" prefWidth="260" minWidth="120">
+                        <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header" wrapText="true" minWidth="0"/>
+                        <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true" minWidth="0"/>
                     </VBox>
                     <MenuButton text="Tải về Test Case / Kịch bản" fx:id="exportCasesMenuBtn" styleClass="btn-secondary" disable="true" minWidth="-Infinity">
                         <items>
@@ -137,8 +140,8 @@
                             <MenuItem text="Xuất Trọn gói Cả 2 (.zip) — Kịch bản QA &amp; Mã Java" onAction="#exportFullBundle"/>
                         </items>
                     </MenuButton>
-                    <Button text="Nhập vào Suite" fx:id="applyToSuiteBtn" onAction="#applyCasesToSelectedSuite" styleClass="toolbar-btn-save" disable="true"/>
-                </HBox>
+                    <Button text="Nhập vào Suite" fx:id="applyToSuiteBtn" onAction="#applyCasesToSelectedSuite" styleClass="toolbar-btn-save" disable="true" minWidth="-Infinity"/>
+                </FlowPane>
 
                 <SplitPane dividerPositions="0.35" orientation="VERTICAL" VBox.vgrow="ALWAYS" styleClass="ai-preview-split">
                     <!-- Cases List -->
