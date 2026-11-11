@@ -68,11 +68,11 @@
     <SplitPane fx:id="mainSplitPane" dividerPositions="0.25" VBox.vgrow="ALWAYS">
         <!-- Left: Case list panel -->
         <VBox styleClass="case-list-panel" minWidth="200" prefWidth="260">
-            <HBox styleClass="section-header-row" spacing="8" alignment="CENTER_LEFT">
+            <FlowPane styleClass="section-header-row" hgap="8" vgap="6" alignment="CENTER_LEFT">
                 <padding><Insets top="8" right="8" bottom="6" left="8"/></padding>
-                <Label text="Danh sách Case" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button text="Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add"/>
-            </HBox>
+                <Label text="Danh sách Case" styleClass="section-header" minWidth="0"/>
+                <Button text="Case mới" fx:id="addCaseBtn" onAction="#addNewCase" styleClass="toolbar-btn-add" minWidth="-Infinity"/>
+            </FlowPane>
             <HBox spacing="8" alignment="CENTER_LEFT">
                 <padding><Insets top="0" right="8" bottom="6" left="8"/></padding>
                 <TextField fx:id="caseSearchField" promptText="Tìm case…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
@@ -124,14 +124,14 @@
                     <!-- Right: Asserts Catalog & Manager -->
                     <VBox fx:id="assertsPanel" spacing="8" styleClass="asserts-panel">
                         <padding><Insets top="8" right="10" bottom="10" left="10"/></padding>
-                        <HBox spacing="8" alignment="CENTER_LEFT" styleClass="asserts-header-row">
-                            <Label text="Danh mục Asserts" styleClass="section-header" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                            <Button text="Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn"/>
-                        </HBox>
-                        <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
-                            <TextField fx:id="assertSearchField" promptText="Tìm assert…" HBox.hgrow="ALWAYS" styleClass="toolbar-search"/>
-                            <ComboBox fx:id="assertTypeFilter" prefWidth="150" promptText="Loại assert"/>
-                        </HBox>
+                        <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT" styleClass="asserts-header-row">
+                            <Label text="Danh mục Asserts" styleClass="section-header" minWidth="0"/>
+                            <Button text="Quản lý Asserts" fx:id="addAssertBtn" onAction="#openAssertBuilder" styleClass="toolbar-btn" minWidth="-Infinity"/>
+                        </FlowPane>
+                        <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT" styleClass="field-row">
+                            <TextField fx:id="assertSearchField" promptText="Tìm assert…" styleClass="toolbar-search" prefWidth="200" minWidth="110"/>
+                            <ComboBox fx:id="assertTypeFilter" prefWidth="150" minWidth="100" promptText="Loại assert"/>
+                        </FlowPane>
                         <ListView fx:id="assertListView" VBox.vgrow="ALWAYS" styleClass="assert-list"/>
                     </VBox>
                 </SplitPane>

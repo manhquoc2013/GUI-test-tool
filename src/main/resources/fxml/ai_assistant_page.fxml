@@ -32,12 +32,12 @@
     <FlowPane styleClass="page-toolbar" hgap="10" vgap="6" alignment="CENTER_LEFT"
               prefWrapLength="1100">
         <padding><Insets top="8" right="14" bottom="8" left="14"/></padding>
-        <Button text="☰ Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar" styleClass="icon-btn" minWidth="-Infinity"/>
+        <Button text="Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar" styleClass="icon-btn" minWidth="-Infinity"/>
         <Label text="Trợ lý AI" styleClass="page-title" minWidth="-Infinity"/>
         <Label fx:id="pageSubtitleLabel" text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
         <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="-Infinity"/>
         <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="-Infinity"/>
-        <Button text="+ Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
+        <Button text="Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
     </FlowPane>
@@ -47,7 +47,7 @@
         <!-- Collapsible Left Sidebar for Chat Sessions -->
         <VBox fx:id="historySidebar" styleClass="ai-sessions-sidebar" prefWidth="250" minWidth="170" maxWidth="320">
             <padding><Insets top="10" right="8" bottom="10" left="8"/></padding>
-            <Button text="+ Cuộc trò chuyện mới" fx:id="newChatBtn" onAction="#createNewChat"
+            <Button text="Cuộc trò chuyện mới" fx:id="newChatBtn" onAction="#createNewChat"
                     styleClass="ai-new-chat-btn" maxWidth="Infinity"/>
             <TextField fx:id="sessionSearchField" promptText="Tìm cuộc trò chuyện..." styleClass="ai-session-search">
                 <VBox.margin><Insets top="8" bottom="8"/></VBox.margin>
@@ -111,7 +111,6 @@
                          "Tạo Test Script" into an ellipsis and push Send off-line. -->
                     <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT">
                         <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
-                        <Button text="Quét Live DOM" fx:id="scanDomBtn" onAction="#scanLiveDom" styleClass="btn-secondary" minWidth="-Infinity"/>
                         <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
                         <CheckBox fx:id="autoGenerateScriptCheck" text="Tạo Test Script" selected="false" styleClass="field-label-small" minWidth="-Infinity"/>
                         <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>

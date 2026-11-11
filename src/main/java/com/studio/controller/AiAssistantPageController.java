@@ -109,8 +109,6 @@ public class AiAssistantPageController implements Initializable {
     @FXML
     private Button attachFileBtn;
     @FXML
-    private Button scanDomBtn;
-    @FXML
     private Button clearAttachmentsBtn;
     @FXML
     private CheckBox autoGenerateScriptCheck;
@@ -176,6 +174,7 @@ public class AiAssistantPageController implements Initializable {
     public void initialize(URL location, ResourceBundle resources) {
         refreshModelIndicator();
         setupSessionsSidebar();
+        collapseHistorySidebarByDefault();
         reloadTargets();
 
         if (settingsBtn != null) {
@@ -196,10 +195,6 @@ public class AiAssistantPageController implements Initializable {
         if (attachFileBtn != null) {
             UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);
             UiTooltips.install(attachFileBtn, "Đính kèm tài liệu (.txt, .md, Word, PDF) hoặc ảnh UI (.png, .jpg)");
-        }
-        if (scanDomBtn != null) {
-            UiIcons.setGraphic(scanDomBtn, UiIcons.SEARCH, 12);
-            UiTooltips.install(scanDomBtn, "Quét cấu trúc tương tác DOM từ trang web thực tế");
         }
         if (applyToSuiteBtn != null) {
             UiIcons.setGraphic(applyToSuiteBtn, UiIcons.CHECK, 12);
@@ -598,7 +593,27 @@ public class AiAssistantPageController implements Initializable {
             sidebarSeparator.setManaged(visible);
         }
         if (toggleSidebarBtn != null) {
-            toggleSidebarBtn.setText(visible ? "☰ Thu gọn" : "☰ Lịch sử");
+            toggleSidebarBtn.setText(visible ? "Thu gọn" : "Lịch sử");
+        }
+    }
+
+    /**
+     * Collapses the history rail on first load: the chat column is the work area,
+     * and the rail is opt-in via the toolbar toggle.
+     */
+    private void collapseHistorySidebarByDefault() {
+        if (historySidebar == null) {
+            return;
+        }
+        historySidebar.setVisible(false);
+        historySidebar.setManaged(false);
+        if (sidebarSeparator != null) {
+            sidebarSeparator.setVisible(false);
+            sidebarSeparator.setManaged(false);
+        }
+        if (toggleSidebarBtn != null) {
+            toggleSidebarBtn.setText("Lịch sử");
+            UiTooltips.install(toggleSidebarBtn, "Mở thanh lịch sử cuộc trò chuyện (Ctrl+H / Cmd+H)");
         }
     }
 
@@ -1252,6 +1267,7 @@ public class AiAssistantPageController implements Initializable {
                     assistantMsg.setGeneratedCasesSnapshot(result.getCases());
                     assistantMsg.setSuggestedGroup(result.getSuggestedGroup());
                     assistantMsg.setSuggestedSuite(result.getSuggestedSuite());
+                    assistantMsg.setCompletenessWarning(completenessWarningOf(result));
                     assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
                     targetSession.addMessage(assistantMsg);
 
@@ -1905,8 +1921,30 @@ public class AiAssistantPageController implements Initializable {
         return speaker + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
     }
 
-    private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
-        String role = msg.getRole();
+    /**
+     * One sentence for the assistant bubble when the suite is not provably complete: a reply that stayed cut
+     * after every continuation turn, or a screen batch that never returned cases. Empty when nothing is wrong.
+     */
+    static String completenessWarningOf(AiTestGeneratorService.GenerationResult result) {
+        if (result == null) {
+            return "";
+        }
+        StringBuilder warning = new StringBuilder();
+        String truncation = result.describeOutputTruncation();
+        if (truncation != null && !truncation.isBlank()) {
+            warning.append(truncation);
+        }
+        String lostBatches = result.describeLostBatches();
+        if (lostBatches != null && !lostBatches.isBlank()) {
+            if (warning.length() > 0) {
+                warning.append("\n");
+            }
+            warning.append(lostBatches);
+        }
+        return warning.toString();
+    }
+
+    private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {        String role = msg.getRole();
         VBox bubble = new VBox(6);
         bubble.setMaxWidth(520);
         bubble.getStyleClass().add("ai-chat-bubble");
@@ -1959,6 +1997,17 @@ public class AiAssistantPageController implements Initializable {
         if (msg.hasClarificationQuestions()) {
             VBox clarificationCard = buildClarificationCard(msg);
             bubble.getChildren().add(clarificationCard);
+        }
+
+        // A suite that is missing its tail (output cut) or an entire screen batch (batch lost) must not look
+        // complete: the warning sits inside the same bubble, above the deliverable box it qualifies.
+        String completenessWarning = msg.getCompletenessWarning();
+        if (completenessWarning != null && !completenessWarning.isBlank()) {
+            Label warningLabel = new Label(completenessWarning);
+            warningLabel.setWrapText(true);
+            warningLabel.setMaxWidth(480);
+            warningLabel.getStyleClass().add("ai-chat-incomplete-warning");
+            bubble.getChildren().add(warningLabel);
         }
 
         // Action Toolbar for Generated Deliverables (Scenarios / Cases & Scripts)
