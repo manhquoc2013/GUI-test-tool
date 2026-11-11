@@ -563,6 +563,25 @@ public class AiTestGeneratorService {
                                              AiSkill selectedSkill,
                                              Path suiteDir,
                                              Boolean generateScript) throws IOException, InterruptedException {
+        return generateTestCases(config, userPrompt, attachments, contextInfo, domJson, history,
+                progressListener, selectedSkill, suiteDir, generateScript, AiStreamObserver.none());
+    }
+
+    /**
+     * Same generation with a live stream observer, so the chat bubble can show the answer arriving
+     * instead of a frozen spinner. The observer only observes; the returned result is unchanged.
+     */
+    public GenerationResult generateTestCases(AiConfig config, String userPrompt,
+                                             List<ParsedDocument> attachments,
+                                             String contextInfo,
+                                             String domJson,
+                                             List<com.studio.model.AiChatMessage> history,
+                                             java.util.function.Consumer<String> progressListener,
+                                             AiSkill selectedSkill,
+                                             Path suiteDir,
+                                             Boolean generateScript,
+                                             AiStreamObserver streamObserver) throws IOException, InterruptedException {
+        AiStreamObserver observer = streamObserver != null ? streamObserver : AiStreamObserver.none();
         // 1. Analyze ambiguity and user intent
         AiAmbiguityAnalyzer.AnalysisResult analysis = ambiguityAnalyzer.analyze(
                 userPrompt,
@@ -756,7 +775,7 @@ public class AiTestGeneratorService {
         if (expectsTestCases && screens.size() >= 2) {
             GenerationResult multiBatchRes = orchestrateMultiScreenBatches(
                     config, effectivePrompt, attachments, enrichedContext, formattedDom, history,
-                    effectiveSkill, effectiveGenerateScript, screens, progressListener);
+                    effectiveSkill, effectiveGenerateScript, screens, progressListener, observer);
             if (multiBatchRes != null && multiBatchRes.getCases() != null && !multiBatchRes.getCases().isEmpty()) {
                 res = multiBatchRes;
                 // Multi-batch already reports its own per-batch losses; a truncated single reply is not
@@ -770,7 +789,7 @@ public class AiTestGeneratorService {
                 progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
             }
             OpenAiClient.Completion completion = completeChatWithTruncationRecovery(config, messages,
-                    OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), jsonMode);
+                    OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), jsonMode, observer);
             // The recovery call may have appended continuation turns until the JSON closed. Trust the parse:
             // a closed document is complete whatever the provider's last stop reason said.
             outputTruncated = completion.truncated() && !containsCompleteJson(completion.content());
@@ -826,7 +845,7 @@ public class AiTestGeneratorService {
                 try {
                     OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
                             retryMessages,
-                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), jsonMode);
+                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), jsonMode, observer);
                     String retryReply = retryCompletion.content();
                     if (retryReply != null && !retryReply.isBlank()) {
                         GenerationResult retryRes = parseResponse(retryReply, effectiveSkill);
@@ -928,7 +947,8 @@ public class AiTestGeneratorService {
             AiSkill effectiveSkill,
             boolean effectiveGenerateScript,
             List<AiMultiAgentCoordinator.ScreenSpecSection> screens,
-            java.util.function.Consumer<String> progressListener) {
+            java.util.function.Consumer<String> progressListener,
+            AiStreamObserver observer) {
         int totalScreens = screens.size();
         // AG-2: batch size is derived, not guessed. A script-bearing batch is the largest single
         // response (a Java script plus 4 full cases), so it runs one screen per batch; otherwise the
@@ -1001,7 +1021,7 @@ public class AiTestGeneratorService {
 
             try {
                 OpenAiClient.Completion batchCompletion = completeChatWithTruncationRecovery(config, batchMessages,
-                        OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true);
+                        OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true, observer);
                 String reply = batchCompletion.content();
                 if (batchCompletion.truncated()) {
                     // A cut batch yields a half-written case list; say so instead of passing it off as complete.
@@ -1017,7 +1037,7 @@ public class AiTestGeneratorService {
                             + " không trả JSON cases, chạy lại một lượt tự hiệu chỉnh");
                     OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
                             buildBatchRetryMessages(batchMessages, reply),
-                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true);
+                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true, observer);
                     String retryReply = retryCompletion.content();
                     if (retryCompletion.truncated()) {
                         outputTruncationNoted = true;
@@ -1322,8 +1342,16 @@ public class AiTestGeneratorService {
                                                                List<OpenAiClient.ChatMessage> messages,
                                                                int outputBudget,
                                                                boolean jsonMode) throws IOException, InterruptedException {
+        return completeChatWithTruncationRecovery(config, messages, outputBudget, jsonMode, AiStreamObserver.none());
+    }
+
+    OpenAiClient.Completion completeChatWithTruncationRecovery(AiConfig config,
+                                                               List<OpenAiClient.ChatMessage> messages,
+                                                               int outputBudget,
+                                                               boolean jsonMode,
+                                                               AiStreamObserver observer) throws IOException, InterruptedException {
         int safeBudget = clampOutputBudget(config, messages, outputBudget, "");
-        OpenAiClient.Completion completion = completeWithBudgetFallback(config, messages, safeBudget, jsonMode);
+        OpenAiClient.Completion completion = completeWithBudgetFallback(config, messages, safeBudget, jsonMode, observer);
         if (!completion.truncated()) {
             return completion;
         }
@@ -1332,15 +1360,15 @@ public class AiTestGeneratorService {
                         Math.max(safeBudget, safeBudget * 2)), "");
         if (escalated <= safeBudget) {
             return continueCompletion(config, messages, completion.content(), safeBudget,
-                    new java.util.ArrayList<>(), jsonMode);
+                    new java.util.ArrayList<>(), jsonMode, observer);
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, thử lại với max_tokens=" + escalated);
-        OpenAiClient.Completion retry = completeWithBudgetFallback(config, messages, escalated, jsonMode);
+        OpenAiClient.Completion retry = completeWithBudgetFallback(config, messages, escalated, jsonMode, observer);
         OpenAiClient.Completion better = retry.content() == null || retry.content().length() < completion.content().length()
                 ? completion : retry;
         // Still cut after the bigger budget: stop enlarging and continue the text instead of restarting it.
         return better.truncated() ? continueCompletion(config, messages, better.content(), escalated,
-                new java.util.ArrayList<>(), jsonMode) : better;
+                new java.util.ArrayList<>(), jsonMode, observer) : better;
     }
 
     /**
@@ -1358,12 +1386,25 @@ public class AiTestGeneratorService {
                                                        List<OpenAiClient.ChatMessage> messages,
                                                        int outputBudget,
                                                        boolean jsonMode) throws IOException, InterruptedException {
+        return completeWithBudgetFallback(config, messages, outputBudget, jsonMode, AiStreamObserver.none());
+    }
+
+    OpenAiClient.Completion completeWithBudgetFallback(AiConfig config,
+                                                       List<OpenAiClient.ChatMessage> messages,
+                                                       int outputBudget,
+                                                       boolean jsonMode,
+                                                       AiStreamObserver observer) throws IOException, InterruptedException {
         try {
-            // Keep the 3-arg overload on the non-JSON path so subclasses/mocks that only override the
+            // Keep the legacy overloads when nobody listens, so subclasses/mocks that only override the
             // classic signature still intercept the call instead of performing a real network request.
+            if (AiStreamObserver.isNone(observer)) {
+                return jsonMode
+                        ? openAiClient.completeChat(config, messages, outputBudget, true)
+                        : openAiClient.completeChat(config, messages, outputBudget);
+            }
             return jsonMode
-                    ? openAiClient.completeChat(config, messages, outputBudget, true)
-                    : openAiClient.completeChat(config, messages, outputBudget);
+                    ? openAiClient.completeChat(config, messages, outputBudget, true, observer)
+                    : openAiClient.completeChat(config, messages, outputBudget, observer);
         } catch (IOException refused) {
             if (!isContextOverflowRefusal(refused.getMessage())) {
                 throw refused;
@@ -1374,9 +1415,14 @@ public class AiTestGeneratorService {
             }
             AiLoggingService.warn("AI-RESPONSE", "Model từ chối vì vượt context window; giảm max_tokens "
                     + outputBudget + " → " + reduced + " rồi thử lại");
+            if (AiStreamObserver.isNone(observer)) {
+                return jsonMode
+                        ? openAiClient.completeChat(config, messages, reduced, true)
+                        : openAiClient.completeChat(config, messages, reduced);
+            }
             return jsonMode
-                    ? openAiClient.completeChat(config, messages, reduced, true)
-                    : openAiClient.completeChat(config, messages, reduced);
+                    ? openAiClient.completeChat(config, messages, reduced, true, observer)
+                    : openAiClient.completeChat(config, messages, reduced, observer);
         }
     }
 
@@ -1432,10 +1478,21 @@ public class AiTestGeneratorService {
                                               int outputBudget,
                                               List<String> continuationLog,
                                               boolean jsonMode) throws IOException, InterruptedException {
+        return continueCompletion(config, messages, partial, outputBudget, continuationLog, jsonMode,
+                AiStreamObserver.none());
+    }
+
+    OpenAiClient.Completion continueCompletion(AiConfig config,
+                                              List<OpenAiClient.ChatMessage> messages,
+                                              String partial,
+                                              int outputBudget,
+                                              List<String> continuationLog,
+                                              boolean jsonMode,
+                                              AiStreamObserver observer) throws IOException, InterruptedException {
         OpenAiClient.Completion first = new OpenAiClient.Completion(partial != null ? partial : "", "length");
         return AiContinuation.continueUntilComplete(config, messages, first, outputBudget,
                 AiContinuation.DocumentShape.JSON,
-                (turnMessages, budget) -> completeWithBudgetFallback(config, turnMessages, budget, jsonMode),
+                (turnMessages, budget) -> completeWithBudgetFallback(config, turnMessages, budget, jsonMode, observer),
                 continuationLog);
     }
 

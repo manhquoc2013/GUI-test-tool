@@ -171,6 +171,30 @@ class OpenAiClientStreamingTest {
         assertEquals(5, reply.promptTokens());
     }
 
+    @Test
+    void streamedPiecesReachTheObserverInArrivalOrder() throws Exception {
+        server.createContext("/chat/completions", exchange -> {
+            readRequestBody(exchange);
+            exchange.getResponseHeaders().add(CONTENT_TYPE_HEADER, SSE_CONTENT_TYPE);
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream out = exchange.getResponseBody()) {
+                write(out, "data: {\"choices\":[{\"delta\":{\"content\":\"Dòng 1 của báo cáo \"}}]}\n\n");
+                write(out, "data: {\"choices\":[{\"delta\":{\"content\":\"rất dài.\"}}]}\n\n");
+                write(out, "data: {\"choices\":[{\"delta\":{\"content\":\"\\nDòng 2 của báo cáo rất dài.\"}}]}\n\n");
+                write(out, "data: [DONE]\n\n");
+            }
+        });
+        server.start();
+
+        List<String> pieces = new java.util.ArrayList<>();
+        OpenAiClient.Completion reply = new OpenAiClient()
+                .completeChat(config(), messages(), OpenAiClient.defaultOutputTokensFor(false), false, pieces::add);
+
+        assertEquals(List.of("Dòng 1 của báo cáo ", "rất dài.", "\nDòng 2 của báo cáo rất dài."), pieces,
+                "the live preview must receive the same deltas the accumulator saw, in order");
+        assertEquals(ANSWER, reply.content(), "observing must not change the accumulated answer");
+    }
+
     private static void write(OutputStream out, String text) throws IOException {
         out.write(text.getBytes(StandardCharsets.UTF_8));
         out.flush();

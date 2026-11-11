@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,6 +54,32 @@ class AiLlmAgentExecutorTest {
                 .buildMessages(rule(), "chấm điểm");
 
         assertTrue(messages.get(1).getContent().contains("SRS: 10 màn hình"));
+    }
+
+    @Test
+    void upstreamArtifactsReachTheUserTurnAfterTheSharedContext() {
+        List<AiChatMessage> messages = new AiLlmAgentExecutor(CONFIG, (c, m) -> "ok", "SRS: 10 màn hình")
+                .buildMessages(rule(), "chấm điểm bộ kịch bản",
+                        "\n\n--- Sản phẩm của tác nhân trước ---\nBỘ CASE CỦA TEST-ARCHITECT");
+
+        String user = messages.get(1).getContent();
+        assertTrue(user.contains("BỘ CASE CỦA TEST-ARCHITECT"),
+                "the checker must be able to read the artefact it was asked to review");
+        assertTrue(user.indexOf("SRS: 10 màn hình") < user.indexOf("BỘ CASE CỦA TEST-ARCHITECT"),
+                "documents first, then the artefact that refers to them");
+    }
+
+    @Test
+    void theOrchestratorSeamCarriesTheUpstreamBlockAndUsage() throws Exception {
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(CONFIG, (c, m) -> {
+            assertTrue(m.get(1).getContent().contains("BỘ CASE CỦA TEST-ARCHITECT"));
+            return new AiLlmAgentExecutor.MeasuredReply("đã chấm", new AiLlmAgentExecutor.AgentUsage(1, 900, 120));
+        }, "");
+
+        AiLlmAgentExecutor.MeasuredReply reply = executor.executeMeasured(rule(), "chấm điểm",
+                "\nBỘ CASE CỦA TEST-ARCHITECT");
+
+        assertEquals(900, reply.usage().promptTokens());
     }
 
     @Test

@@ -8,6 +8,8 @@ import com.studio.service.AiDelegationPolicy;
 import com.studio.service.AiCoordinatorAgent;
 import com.studio.service.AiLlmAgentExecutor;
 import com.studio.service.AiSubAgentOrchestrator;
+import com.studio.service.AiStreamAggregator;
+import com.studio.service.AiStreamObserver;
 import com.studio.service.OpenAiClient;
 import com.studio.service.AiLoggingService;
 import com.studio.service.AiTestGeneratorService;
@@ -59,6 +61,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import javafx.beans.property.SimpleStringProperty;
 
@@ -184,15 +187,35 @@ public class AiAssistantPageController implements Initializable {
     private HBox thinkingBubbleWrapper = null;
     private Timeline thinkingTimeline = null;
     private Label thinkingStatusLabel = null;
+    /** Live view of the reply being streamed: a counter line plus the newest text. */
+    private VBox thinkingPreviewBox = null;
+    private Label thinkingPreviewCounterLabel = null;
+    private Label thinkingPreviewLabel = null;
+    /**
+     * Collects streamed text for the preview. One turn can have several sub-agent streams at once,
+     * so the aggregator — not this controller — owns the per-source buffers.
+     */
+    private final AiStreamAggregator streamAggregator = new AiStreamAggregator();
+    /** Coalesces repaints: a fast stream would otherwise queue one FX job per token. */
+    private final AtomicBoolean previewPaintQueued = new AtomicBoolean(false);
+    /**
+     * Conversation whose bubble owns the preview. Volatile because model workers read it to reject
+     * deltas of another conversation; only the FX thread writes it.
+     */
+    private volatile String streamPreviewSessionId = null;
+    /** How much of the newest text the preview keeps visible; the rest stays in the buffer. */
+    private static final int PREVIEW_TAIL_CHARS = 900;
 
     /** Toolbar labels of the collapsible history rail. */
     private static final String HISTORY_TOGGLE_OPEN_LABEL = "Lịch sử";
     private static final String HISTORY_TOGGLE_COLLAPSE_LABEL = "Thu gọn";
-    /** Badges shown both on the rail rows and on the toolbar toggle. */
+    /** Badge and stream labels shared by the rail rows and the toolbar toggle. */
     private static final String RUNNING_GLYPH = "⏳";
     private static final String UNREAD_GLYPH = "●";
     private static final String RUNNING_BADGE_LABEL = RUNNING_GLYPH + " Đang chạy";
     private static final String UNREAD_BADGE_LABEL = UNREAD_GLYPH + " Kết quả mới";
+    /** Source label of the JSON artefact pass, shown in the live "receiving" counter. */
+    private static final String AI_STREAM_SOURCE_TEST_ARCHITECT = "Test Architect";
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -994,7 +1017,8 @@ public class AiAssistantPageController implements Initializable {
                         OpenAiClient.defaultOutputTokensFor(false),
                         AiContinuation.DocumentShape.JSON,
                         "Bộ lập kế hoạch",
-                        new ArrayList<>()).content();
+                        new ArrayList<>(),
+                        AiStreamObserver.none()).content();
             } catch (Exception e) {
                 // Returning null makes the coordinator surface an invalid plan, which the caller turns
                 // into the single-assistant fallback instead of losing the user's request.
@@ -1017,43 +1041,96 @@ public class AiAssistantPageController implements Initializable {
 
         AiLlmAgentExecutor agentExecutor = new AiLlmAgentExecutor(
                 aiConfig,
-                (AiConfig cfg, List<AiChatMessage> messages) -> {
-                    List<String> continuationLog = new ArrayList<>();
-                    OpenAiClient.Completion reply = completeUntilDone(client, cfg, List.of(
-                                    new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
-                                    new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
-                            OpenAiClient.defaultOutputTokensFor(generateScript),
-                            AiContinuation.DocumentShape.PROSE,
-                            "Sub-agent",
-                            continuationLog);
-                    // Report the real call count and summed provider usage, not a fixed "1 call, unknown tokens".
-                    return new AiLlmAgentExecutor.MeasuredReply(
-                            reply.content(),
-                            new AiLlmAgentExecutor.AgentUsage(1 + continuationLog.size(),
-                                    reply.promptTokens(), reply.completionTokens()));
+                new AiLlmAgentExecutor.Completion() {
+                    @Override
+                    public CharSequence complete(AiConfig cfg, List<AiChatMessage> messages) throws Exception {
+                        return runSubAgentCall(client, cfg, messages, AiStreamObserver.none(), null);
+                    }
+
+                    @Override
+                    public CharSequence complete(AiConfig cfg, List<AiChatMessage> messages, String streamLabel)
+                            throws Exception {
+                        return runSubAgentCall(client, cfg, messages,
+                                deltas -> publishStreamDelta(session, streamLabel, deltas, true),
+                                () -> publishStreamCompleted(session, streamLabel));
+                    }
                 },
                 grounding);
-        AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
 
         // The user's turn is already recorded by sendPrompt; adding it again duplicated every prompt.
         publishRunStatus(session, "🤖 Coordinator đang giao việc cho " + tasks.size() + " tác nhân...");
         AiSubAgentOrchestrator orchestrator = new AiSubAgentOrchestrator(
-                executor,
+                agentExecutor,
                 status -> publishRunStatus(session, status),
                 msg -> appendLiveTranscriptMessage(session, msg));
         AiSubAgentOrchestrator.OrchestrationResult orchestration = orchestrator.orchestrate(session, tasks);
 
-        // The agents design the solution; the artefact still has to be produced. Without this pass the
-        // turn ended in prose and the user received no test case at all.
+        // The agents design and review; the artefact still has to be produced. Without this pass the
+        // turn ended in prose and the user received no test case at all. Their conclusions travel with
+        // the request so the delivered suite reflects the review instead of ignoring it.
         publishRunStatus(session,
                 "🧪 [Test Architect] Đang sinh bộ Test Case có cấu trúc từ kết quả phân tích...");
+        String generatorContext = mergeGeneratorContext(suiteContext, orchestration.reviewDigestForGenerator());
         AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                aiConfig, prompt, docs, suiteContext, domJson,
+                aiConfig, prompt, docs, generatorContext, domJson,
                 historyWithoutAgentTurns(session),
                 status -> publishRunStatus(session, status),
-                skill, suiteDir, generateScript);
+                skill, suiteDir, generateScript,
+                // The artefact is JSON: raw deltas would be unreadable, so this stream only advances
+                // the received-character counter that proves the call is alive.
+                deltas -> publishStreamDelta(session, AI_STREAM_SOURCE_TEST_ARCHITECT, deltas, false));
         completeAggregateWithArtifacts(session, orchestration, result);
         return result;
+    }
+
+    /**
+     * Joins the suite context with the agents' digest, tolerating either being absent.
+     *
+     * <p>The generator treats this whole string as reference context, so the order matters: the suite
+     * context describes the project, and the digest describes what the specialists concluded about this
+     * request.</p>
+     */
+    static String mergeGeneratorContext(String suiteContext, String reviewDigest) {
+        boolean hasSuite = suiteContext != null && !suiteContext.isBlank();
+        boolean hasDigest = reviewDigest != null && !reviewDigest.isBlank();
+        if (hasSuite && hasDigest) {
+            return suiteContext + "\n\n" + reviewDigest;
+        }
+        if (hasSuite) {
+            return suiteContext;
+        }
+        return hasDigest ? reviewDigest : "";
+    }
+
+    /**
+     * One sub-agent model call. Prose agents were cut at 4096 output tokens and then resumed with the
+     * entire 15k-token prompt again, so the model's own ceiling is used instead: a few more output
+     * tokens costs less time than another full round trip.
+     */
+    private AiLlmAgentExecutor.MeasuredReply runSubAgentCall(OpenAiClient client, AiConfig cfg,
+                                                             List<AiChatMessage> messages,
+                                                             AiStreamObserver observer,
+                                                             Runnable onCompleted) throws Exception {
+        List<String> continuationLog = new ArrayList<>();
+        try {
+            OpenAiClient.Completion reply = completeUntilDone(client, cfg, List.of(
+                            new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
+                            new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
+                    AiModelCapabilities.resolveOutputCeiling(cfg),
+                    AiContinuation.DocumentShape.PROSE,
+                    "Sub-agent",
+                    continuationLog,
+                    observer);
+            // Report the real call count and summed provider usage, not a fixed "1 call, unknown tokens".
+            return new AiLlmAgentExecutor.MeasuredReply(
+                    reply.content(),
+                    new AiLlmAgentExecutor.AgentUsage(1 + continuationLog.size(),
+                            reply.promptTokens(), reply.completionTokens()));
+        } finally {
+            if (onCompleted != null) {
+                onCompleted.run();
+            }
+        }
     }
 
     /**
@@ -1071,6 +1148,94 @@ public class AiAssistantPageController implements Initializable {
                 updateThinkingStatus(status);
             }
         });
+    }
+
+    /**
+     * Feeds one streamed piece into the live preview. Called from model worker threads; the FX thread
+     * only paints a coalesced snapshot, so a fast stream never blocks the HTTP read loop.
+     *
+     * @param showText true for prose (the tail is readable); false for JSON contracts, where only the
+     *                 received-character counter is shown
+     */
+    private void publishStreamDelta(AiChatSession session, String source, String delta, boolean showText) {
+        if (session == null || delta == null || delta.isEmpty()) {
+            return;
+        }
+        String owningSession = streamPreviewSessionId;
+        if (owningSession == null || !owningSession.equals(session.getId())) {
+            // A background conversation must never paint into the bubble on screen.
+            return;
+        }
+        if (showText) {
+            streamAggregator.append(source, delta);
+        } else {
+            streamAggregator.count(delta);
+        }
+        schedulePreviewPaint();
+    }
+
+    /** Drops a finished agent's text so its siblings' preview becomes visible again. */
+    private void publishStreamCompleted(AiChatSession session, String source) {
+        if (session == null) {
+            return;
+        }
+        String owningSession = streamPreviewSessionId;
+        if (owningSession == null || !owningSession.equals(session.getId())) {
+            return;
+        }
+        streamAggregator.completeSource(source);
+        schedulePreviewPaint();
+    }
+
+    private void schedulePreviewPaint() {
+        if (!previewPaintQueued.compareAndSet(false, true)) {
+            return;
+        }
+        Platform.runLater(() -> {
+            previewPaintQueued.set(false);
+            paintStreamPreview();
+        });
+    }
+
+    /** Paints the newest buffer state; skipped entirely once the bubble is gone. */
+    private void paintStreamPreview() {
+        if (thinkingPreviewBox == null || thinkingPreviewCounterLabel == null || thinkingPreviewLabel == null) {
+            return;
+        }
+        AiStreamAggregator.Snapshot snapshot = streamAggregator.snapshot();
+        if (!snapshot.hasContent()) {
+            return;
+        }
+        thinkingPreviewBox.setVisible(true);
+        thinkingPreviewBox.setManaged(true);
+        thinkingPreviewCounterLabel.setText(previewCounterText(snapshot));
+        boolean singleStream = snapshot.textSources() == 1;
+        if (singleStream) {
+            thinkingPreviewLabel.setText(tail(snapshot.preview(), PREVIEW_TAIL_CHARS));
+        }
+        // Several agents writing at once: interleaving their text would merge unrelated answers, so the
+        // counter stays and only the tail is hidden.
+        thinkingPreviewLabel.setVisible(singleStream);
+        thinkingPreviewLabel.setManaged(singleStream);
+        chatScroll.setVvalue(1.0);
+    }
+
+    private static String previewCounterText(AiStreamAggregator.Snapshot snapshot) {
+        String chars = snapshot.receivedChars() >= 1_000
+                ? String.format(Locale.ROOT, "%.1fk", snapshot.receivedChars() / 1_000.0)
+                : String.valueOf(snapshot.receivedChars());
+        if (snapshot.textSources() > 1) {
+            return "⏳ " + snapshot.textSources() + " tác nhân đang nhận phản hồi song song… (" + chars + " ký tự)";
+        }
+        String who = snapshot.sourceName().isBlank() ? "" : snapshot.sourceName() + " • ";
+        return "⏳ " + who + "Đang nhận phản hồi… " + chars + " ký tự";
+    }
+
+    private static String tail(String text, int maxChars) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= maxChars ? text : "…" + text.substring(text.length() - maxChars);
     }
 
     /**
@@ -1183,17 +1348,18 @@ public class AiAssistantPageController implements Initializable {
                                                       int outputBudget,
                                                       AiContinuation.DocumentShape shape,
                                                       String label,
-                                                      List<String> continuationLog) throws Exception {
+                                                      List<String> continuationLog,
+                                                      AiStreamObserver observer) throws Exception {
         int ceiling = AiModelCapabilities.resolveOutputCeiling(cfg);
         int budget = outputBudget > 0 ? Math.min(outputBudget, ceiling) : ceiling;
-        OpenAiClient.Completion first = client.completeChat(cfg, messages, budget);
+        OpenAiClient.Completion first = client.completeChat(cfg, messages, budget, false, observer);
         if (!first.truncated()) {
             return first;
         }
         AiLoggingService.warn("AI-CONTINUE", label
                 + " chạm trần output tokens; nối tiếp để lấy trọn phản hồi (shape=" + shape + ")");
         return AiContinuation.continueUntilComplete(cfg, messages, first, budget, shape,
-                (turnMessages, turnBudget) -> client.completeChat(cfg, turnMessages, turnBudget),
+                (turnMessages, turnBudget) -> client.completeChat(cfg, turnMessages, turnBudget, false, observer),
                 continuationLog);
     }
 
@@ -1232,7 +1398,7 @@ public class AiAssistantPageController implements Initializable {
         if (run == null) {
             return;
         }
-        showThinkingBubble(resolveConfiguredModelName());
+        showThinkingBubble(resolveConfiguredModelName(), currentSession.getId());
         if (thinkingStatusLabel != null) {
             thinkingStatusLabel.setText(run.getStatus());
         }
@@ -1686,7 +1852,7 @@ public class AiAssistantPageController implements Initializable {
         refreshActivityIndicators();
         updateComposerRunState();
         if (isCurrentSession(targetSession)) {
-            showThinkingBubble(initialStatus);
+            showThinkingBubble(initialStatus, targetSession.getId());
         }
 
         String groupVal = targetGroupName.isBlank() ? "(Tự động tạo khi lưu)" : targetGroupName;
@@ -1786,13 +1952,18 @@ public class AiAssistantPageController implements Initializable {
                 }
 
                 if (result == null) {
+                    // A chat-advice answer is prose and can be previewed as it arrives; a JSON artefact
+                    // cannot, so that call only advances the received-character counter.
+                    boolean previewAsText = detectedIntent == AiAmbiguityAnalyzer.Intent.CHAT_ADVICE;
                     result = aiGenerator.generateTestCases(
                             effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
                             historyWithoutAgentTurns(targetSession),
                             status -> publishRunStatus(targetSession, status),
                             activeSkill,
                             suiteDir,
-                            effectiveGenerateScript);
+                            effectiveGenerateScript,
+                            deltas -> publishStreamDelta(targetSession, AI_STREAM_SOURCE_TEST_ARCHITECT,
+                                    deltas, previewAsText));
                 }
 
                 final AiTestGeneratorService.GenerationResult generationResult = result;
@@ -1868,35 +2039,57 @@ public class AiAssistantPageController implements Initializable {
                     }
                     refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                 });
+            } catch (LinkageError err) {
+                // A running JVM whose target/classes was recompiled or cleaned underneath it cannot load
+                // a class any more. This is a dev-loop accident, not a user error, but it must still end
+                // the turn: without this catch the Error escapes, the run stays RUNNING and the thinking
+                // bubble never clears.
+                AiLoggingService.error("AI-CHAT", "Lượt sinh kịch bản của phiên " + targetSessionId
+                        + " hỏng do lớp đã biên dịch bị thay đổi: " + err);
+                failRun(targetSession, targetSessionId,
+                        "Mã đã biên dịch bị thay đổi trong khi ứng dụng đang chạy ("
+                                + err.getClass().getSimpleName()
+                                + "). Khởi động lại ứng dụng rồi chạy lại lượt này.");
             } catch (Exception ex) {
                 AiLoggingService.error("AI-CHAT",
                         "Lượt sinh kịch bản của phiên " + targetSessionId + " thất bại: " + ex.getMessage());
-                Platform.runLater(() -> {
-                    finishRun(targetSession);
-
-                    AiChatMessage errorMsg = new AiChatMessage("assistant", "❌ Lỗi: " + ex.getMessage());
-                    errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
-                    targetSession.addMessage(errorMsg);
-                    try {
-                        chatHistoryStore.saveSession(targetSession);
-                    } catch (IOException saveFailure) {
-                        AiLoggingService.warn("AI-CHAT",
-                                "Không lưu được lỗi của phiên " + targetSessionId + ": " + saveFailure.getMessage());
-                    }
-
-                    if (isCurrentSession(targetSession)) {
-                        renderMessageBubble(errorMsg, true);
-                        updateTokenUsageDisplay();
-                        ToastService.error("Lỗi AI: " + ex.getMessage());
-                    } else {
-                        ToastService.error("Lỗi AI ở phiên \"" + targetSession.getTitle() + "\": " + ex.getMessage());
-                    }
-                    refreshSessionsList(currentSession != null ? currentSession.getId() : null);
-                });
+                failRun(targetSession, targetSessionId, ex.getMessage());
             }
         }, "AiAssistant-Worker-" + shortSessionId(targetSessionId));
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /**
+     * Ends a failed turn: clears the run, records one error message on the session and tells the user.
+     *
+     * <p>Kept separate from the worker lambda so both the {@code Exception} path and the
+     * {@code LinkageError} path finish the turn the same way instead of leaving a stuck spinner.</p>
+     */
+    private void failRun(AiChatSession targetSession, String targetSessionId, String message) {
+        String reason = message != null && !message.isBlank() ? message : "không rõ nguyên nhân";
+        Platform.runLater(() -> {
+            finishRun(targetSession);
+
+            AiChatMessage errorMsg = new AiChatMessage("assistant", "❌ Lỗi: " + reason);
+            errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
+            targetSession.addMessage(errorMsg);
+            try {
+                chatHistoryStore.saveSession(targetSession);
+            } catch (IOException saveFailure) {
+                AiLoggingService.warn("AI-CHAT",
+                        "Không lưu được lỗi của phiên " + targetSessionId + ": " + saveFailure.getMessage());
+            }
+
+            if (isCurrentSession(targetSession)) {
+                renderMessageBubble(errorMsg, true);
+                updateTokenUsageDisplay();
+                ToastService.error("Lỗi AI: " + reason);
+            } else {
+                ToastService.error("Lỗi AI ở phiên \"" + targetSession.getTitle() + "\": " + reason);
+            }
+            refreshSessionsList(currentSession != null ? currentSession.getId() : null);
+        });
     }
 
     /**
@@ -1967,8 +2160,11 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    private void showThinkingBubble(String statusText) {
+    private void showThinkingBubble(String statusText, String sessionId) {
         removeThinkingBubble();
+        // A new bubble starts a new preview; stale text from the previous turn must not flash first.
+        streamAggregator.reset();
+        previewPaintQueued.set(false);
 
         VBox bubble = new VBox(8);
         bubble.setMaxWidth(520);
@@ -2014,9 +2210,25 @@ public class AiAssistantPageController implements Initializable {
         body.getChildren().addAll(spinner, thinkingStatusLabel);
         bubble.getChildren().addAll(header, body);
 
+        // Live preview: counter line + newest streamed text. Hidden until the first delta arrives, so
+        // the bubble looks exactly as before while the model is still thinking.
+        thinkingPreviewCounterLabel = new Label();
+        thinkingPreviewCounterLabel.getStyleClass().add("ai-thinking-preview-counter");
+        thinkingPreviewLabel = new Label();
+        thinkingPreviewLabel.setWrapText(true);
+        thinkingPreviewLabel.setMaxWidth(480);
+        thinkingPreviewLabel.getStyleClass().add("ai-thinking-preview-text");
+        thinkingPreviewBox = new VBox(4, thinkingPreviewCounterLabel, thinkingPreviewLabel);
+        thinkingPreviewBox.getStyleClass().add("ai-thinking-preview-box");
+        thinkingPreviewBox.setVisible(false);
+        thinkingPreviewBox.setManaged(false);
+        bubble.getChildren().add(thinkingPreviewBox);
+
         thinkingBubbleWrapper = new HBox(bubble);
         thinkingBubbleWrapper.setAlignment(Pos.CENTER_LEFT);
         chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
+        // Publish only after the bubble exists, so the first delta cannot be dropped by a null check.
+        streamPreviewSessionId = sessionId;
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
 
         // Only the dots animate. Progress text is driven by the real run (publishRunStatus) — the old
@@ -2049,6 +2261,11 @@ public class AiAssistantPageController implements Initializable {
             thinkingBubbleWrapper = null;
         }
         thinkingStatusLabel = null;
+        thinkingPreviewBox = null;
+        thinkingPreviewCounterLabel = null;
+        thinkingPreviewLabel = null;
+        streamPreviewSessionId = null;
+        previewPaintQueued.set(false);
     }
 
     private void showCaseDetail(AiGeneratedCase c) {

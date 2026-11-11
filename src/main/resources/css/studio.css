@@ -2062,6 +2062,20 @@
 .ai-thinking-spinner {
     -fx-progress-color: #7aa2f7;
 }
+.ai-thinking-preview-box {
+    -fx-background-color: #16161e;
+    -fx-background-radius: 8;
+    -fx-padding: 8;
+}
+.ai-thinking-preview-counter {
+    -fx-font-size: 11px;
+    -fx-text-fill: #7dcfff;
+    -fx-font-weight: bold;
+}
+.ai-thinking-preview-text {
+    -fx-font-size: 11px;
+    -fx-text-fill: #a9b1d6;
+}
 .ai-attachments-box {
     -fx-background-color: #1f2335;
     -fx-background-radius: 8;

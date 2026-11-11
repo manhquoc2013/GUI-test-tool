@@ -54,6 +54,12 @@ The JavaFX Maven plugin (`org.openjfx:javafx-maven-plugin:0.0.8`) handles module
 
 In dev mode, `APP_HOME` resolves to the Maven project root (where `pom.xml` lives). All runtime data goes into `data/` and `work/` at that root.
 
+> **Never run `mvn clean` (or `mvn clean compile`) while `mvn javafx:run` is still alive.**
+> `clean` deletes `target/classes` under the running JVM; the next class load then fails with
+> `NoClassDefFoundError` — typically deep inside an AI turn, minutes after the build ran. Stop the
+> app first, then clean and rebuild. The controller now reports this as a failed turn instead of a
+> dead worker thread, but the class files are still gone: only a restart recovers them.
+
 ---
 
 ## Offline Installers (DMG & Setup EXE)

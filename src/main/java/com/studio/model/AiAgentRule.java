@@ -22,6 +22,16 @@ public class AiAgentRule {
     private List<String> prohibitions = new ArrayList<>();
     /** The output contract: what evidence the agent must return. */
     private List<String> requiredEvidence = new ArrayList<>();
+    /**
+     * Rule ids whose output this agent must read before it can work.
+     *
+     * <p>Declared here — in the fixed catalogue — rather than taken from the planner, because a
+     * model-authored edge could put a review before the artefact it reviews, or hide a handoff.
+     * The orchestrator turns these edges into execution waves and passes the upstream output into
+     * the dependent agent's prompt; an edge naming a rule that is not part of this plan is simply
+     * skipped, so a partial plan still runs.</p>
+     */
+    private List<String> dependsOn = new ArrayList<>();
 
     public AiAgentRule() {
     }
@@ -78,5 +88,14 @@ public class AiAgentRule {
 
     public void setRequiredEvidence(List<String> requiredEvidence) {
         this.requiredEvidence = requiredEvidence != null ? requiredEvidence : new ArrayList<>();
+    }
+
+    /** Rule ids whose output this agent must read first; empty when the agent starts from the brief. */
+    public List<String> getDependsOn() {
+        return dependsOn;
+    }
+
+    public void setDependsOn(List<String> dependsOn) {
+        this.dependsOn = dependsOn != null ? dependsOn : new ArrayList<>();
     }
 }

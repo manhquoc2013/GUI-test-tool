@@ -46,6 +46,8 @@ public final class AiAgentRuleCatalog {
         map.put(SPEC_MINER, specMiner);
 
         AiAgentRule testArchitect = new AiAgentRule(TEST_ARCHITECT, "TestArchitect", "Thiết kế test case");
+        // Design needs the extracted specification; without it the architect invents screens.
+        testArchitect.getDependsOn().add(SPEC_MINER);
         testArchitect.getObligations().add("Sinh test case từ đặc tả màn hình đã được cung cấp");
         testArchitect.getObligations().add("Mỗi case có bước thực hiện, dữ liệu kiểm thử và ít nhất một assertion");
         testArchitect.getObligations().add("Ghi rõ case nào truy vết tới yêu cầu nào");
@@ -56,6 +58,8 @@ public final class AiAgentRuleCatalog {
         map.put(TEST_ARCHITECT, testArchitect);
 
         AiAgentRule realityChecker = new AiAgentRule(REALITY_CHECKER, "RealityChecker", "Kiểm tra độc lập");
+        // The checker scores the architect's suite, so it must be handed that suite.
+        realityChecker.getDependsOn().add(TEST_ARCHITECT);
         realityChecker.getObligations().add("Chấm điểm đầu ra của agent khác theo tiêu chí nêu trong nhiệm vụ");
         realityChecker.getObligations().add("Phát hiện case thiếu bước, thiếu assertion hoặc assertion không kiểm tra gì");
         realityChecker.getObligations().add("Nêu finding kèm vị trí cụ thể; không sửa nội dung");
@@ -71,6 +75,9 @@ public final class AiAgentRuleCatalog {
         loopEngineer.getProhibitions().add("thêm test case không có trong finding");
         loopEngineer.getProhibitions().add("bỏ qua finding");
         loopEngineer.getRequiredEvidence().add("số finding đã đóng và số còn lại");
+        // It patches the reviewed suite using the findings, so it needs both artefacts.
+        loopEngineer.getDependsOn().add(REALITY_CHECKER);
+        loopEngineer.getDependsOn().add(TEST_ARCHITECT);
         map.put(LOOP_ENGINEER, loopEngineer);
 
         AiAgentRule coordinator = new AiAgentRule(COORDINATOR, "Coordinator", "Điều phối tác nhân");
@@ -120,6 +127,7 @@ public final class AiAgentRuleCatalog {
         c.getObligations().addAll(src.getObligations());
         c.getProhibitions().addAll(src.getProhibitions());
         c.getRequiredEvidence().addAll(src.getRequiredEvidence());
+        c.getDependsOn().addAll(src.getDependsOn());
         return c;
     }
 

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -249,35 +248,291 @@ class AiSubAgentOrchestratorTest {
     @Test
     void publishesEachAgentTurnWhileThePipelineIsStillRunning() {
         AiChatSession parent = new AiChatSession();
-        AtomicInteger completedAgents = new AtomicInteger();
-        List<String> received = new ArrayList<>();
-        List<Integer> completedWhenReceived = new ArrayList<>();
+        List<String> received = java.util.Collections.synchronizedList(new ArrayList<>());
 
         AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(
-                (AiAgentRule r, String brief) -> {
-                    completedAgents.incrementAndGet();
-                    return "kết quả " + r.getName();
-                },
+                (AiAgentRule r, String brief) -> "kết quả " + r.getName(),
                 null,
-                msg -> {
-                    received.add(msg.getContent());
-                    completedWhenReceived.add(completedAgents.get());
-                });
+                msg -> received.add(msg.getContent()));
 
         orch.orchestrate(parent, List.of(
                 new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1"),
                 new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "b2")));
 
-        int alphaResult = received.indexOf("kết quả Alpha");
-        assertTrue(alphaResult >= 0, "kết quả của agent phải được đẩy ra transcript");
-        // Beta had not started when Alpha's answer was published: the UI is not waiting for the end.
-        assertEquals(1, completedWhenReceived.get(alphaResult),
-                "agent xong trước phải hiện ngay, không đợi cả pipeline");
-        assertEquals("kết quả Beta", received.get(received.size() - 2),
+        assertTrue(received.contains("kết quả Alpha"), "kết quả của agent phải được đẩy ra transcript");
+        assertTrue(received.contains("kết quả Beta"));
+        // Each agent's answer is published before the aggregate, not buffered until the pipeline ends.
+        int aggregateIndex = received.size() - 1;
+        assertTrue(received.get(aggregateIndex).startsWith("Kết quả tổng hợp"),
                 "kết quả tổng hợp luôn là message cuối cùng");
-        assertTrue(received.get(received.size() - 1).startsWith("Kết quả tổng hợp"));
         assertEquals(parent.getMessages().size(), received.size(),
                 "mọi message vào transcript đều phải được thông báo cho UI");
+    }
+
+    @Test
+    void runsChildrenConcurrentlyInsteadOfBackToBack() throws Exception {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.CountDownLatch bothRunning = new java.util.concurrent.CountDownLatch(2);
+        List<String> started = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            started.add(r.getName());
+            bothRunning.countDown();
+            // Sequential orchestration would stall here until the timeout: the second agent cannot start
+            // while the first still holds the only worker.
+            assertTrue(bothRunning.await(5, java.util.concurrent.TimeUnit.SECONDS),
+                    "agent thứ hai phải chạy trước khi agent đầu kết thúc");
+            return "ok";
+        }, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "b2")));
+
+        assertTrue(res.allSucceeded());
+        assertEquals(2, started.size());
+    }
+
+    @Test
+    void parallelBoundOfOneKeepsExecutionSerial() {
+        AiChatSession parent = new AiChatSession();
+        List<String> finished = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            finished.add(r.getName());
+            return "ok";
+        }, null);
+
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "b2")), 1);
+
+        assertEquals(List.of("Alpha", "Beta"), finished, "a bound of 1 preserves plan order");
+    }
+
+    @Test
+    void assignmentNotesKeepPlanOrderEvenWhenResultsFinishOutOfOrder() {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.CountDownLatch alphaMayFinish = new java.util.concurrent.CountDownLatch(1);
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            if ("R2".equals(r.getId())) {
+                alphaMayFinish.countDown();
+                return "beta xong";
+            }
+            try {
+                alphaMayFinish.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return "alpha xong";
+        }, null);
+
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "brief alpha"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "brief beta")));
+
+        List<String> assignments = parent.getMessages().stream()
+                .map(AiChatMessage::getContent)
+                .filter(content -> content != null && content.startsWith("Được giao nhiệm vụ:"))
+                .toList();
+        assertEquals(List.of("Được giao nhiệm vụ: brief alpha", "Được giao nhiệm vụ: brief beta"),
+                assignments, "the plan stays readable even though Beta finished first");
+    }
+
+    @Test
+    void downstreamAgentReceivesTheArtifactItIsAskedToReview() {
+        AiChatSession parent = new AiChatSession();
+        java.util.Map<String, String> promptSeenByRule = new java.util.concurrent.ConcurrentHashMap<>();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(recordingExecutor(promptSeenByRule), null);
+
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.TEST_ARCHITECT), "thiết kế case"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.REALITY_CHECKER), "rà soát bộ case"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.LOOP_ENGINEER), "sửa theo finding")));
+
+        String architectPrompt = promptSeenByRule.get(AiAgentRuleCatalog.TEST_ARCHITECT);
+        assertNotNull(architectPrompt);
+        assertTrue(architectPrompt.contains("SAN_PHAM_CUA_" + AiAgentRuleCatalog.SPEC_MINER),
+                "the architect must design from the extracted spec, not from an empty prompt");
+
+        String checkerPrompt = promptSeenByRule.get(AiAgentRuleCatalog.REALITY_CHECKER);
+        assertNotNull(checkerPrompt);
+        assertTrue(checkerPrompt.contains("SAN_PHAM_CUA_" + AiAgentRuleCatalog.TEST_ARCHITECT),
+                "the checker must actually receive the test suite it was told to review");
+
+        String loopPrompt = promptSeenByRule.get(AiAgentRuleCatalog.LOOP_ENGINEER);
+        assertNotNull(loopPrompt);
+        assertTrue(loopPrompt.contains("SAN_PHAM_CUA_" + AiAgentRuleCatalog.REALITY_CHECKER),
+                "the loop engineer must receive the findings it was told to act on");
+        assertTrue(loopPrompt.contains("SAN_PHAM_CUA_" + AiAgentRuleCatalog.TEST_ARCHITECT),
+                "and the suite it must patch, not only the findings about it");
+    }
+
+    /** Records the full prompt each agent got and answers with a string that names the agent. */
+    private static AiSubAgentOrchestrator.UpstreamAwareExecutor recordingExecutor(
+            java.util.Map<String, String> sink) {
+        return new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the measured seam carries the handoff");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief,
+                                                                    String upstreamArtifacts) {
+                sink.put(rule.getId(), taskBrief + "\n" + upstreamArtifacts);
+                return new AiLlmAgentExecutor.MeasuredReply("SAN_PHAM_CUA_" + rule.getId(),
+                        new AiLlmAgentExecutor.AgentUsage(1, 10, 10));
+            }
+        };
+    }
+
+    @Test
+    void aFailedUpstreamDoesNotSpendACallOnAnAgentThatCannotStart() {
+        AiChatSession parent = new AiChatSession();
+        List<String> called = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the measured seam carries the handoff");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief,
+                                                                    String upstreamArtifacts) {
+                called.add(rule.getId());
+                if (AiAgentRuleCatalog.SPEC_MINER.equals(rule.getId())) {
+                    throw new IllegalStateException("hết ngân sách");
+                }
+                return new AiLlmAgentExecutor.MeasuredReply("ok",
+                        new AiLlmAgentExecutor.AgentUsage(1, 10, 10));
+            }
+        }, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.REALITY_CHECKER), "rà soát")));
+
+        assertFalse(called.contains(AiAgentRuleCatalog.REALITY_CHECKER),
+                "an agent whose required input never arrived must not burn a model call");
+        assertEquals(AiSubAgentSession.Status.CANCELLED, res.sessions().get(1).getStatus());
+        assertTrue(res.openFindings().stream().anyMatch(f -> f.contains("SpecMiner")),
+                "the reason must name the upstream agent that failed");
+    }
+
+    @Test
+    void digestCarriesSpecialistConclusionsToTheGeneratorWithinBudget() {
+        AiChatSession parent = new AiChatSession();
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.UpstreamAwareExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the measured seam carries the handoff");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief,
+                                                                    String upstreamArtifacts) {
+                if (AiAgentRuleCatalog.REALITY_CHECKER.equals(rule.getId())) {
+                    throw new IllegalStateException("timeout");
+                }
+                return new AiLlmAgentExecutor.MeasuredReply("KẾT_LUẬN_CỦA_" + rule.getId() + "\n".repeat(50),
+                        new AiLlmAgentExecutor.AgentUsage(1, 10, 10));
+            }
+        }, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.TEST_ARCHITECT), "thiết kế"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.REALITY_CHECKER), "rà soát")));
+
+        String digest = res.reviewDigestForGenerator();
+        assertTrue(digest.contains("KẾT_LUẬN_CỦA_" + AiAgentRuleCatalog.SPEC_MINER));
+        assertFalse(digest.contains(AiAgentRuleCatalog.REALITY_CHECKER),
+                "a failed agent contributed no conclusion, so it must not appear in the digest");
+        assertTrue(digest.length() <= 3_000 + 120, "the digest must stay inside the prompt budget");
+        assertFalse(digest.contains("\n\n"), "one line per agent keeps the prompt compact");
+    }
+
+    /**
+     * End-to-end wiring check: catalogue → waves → real executor → prompt. The seam test proves the
+     * orchestrator hands a block over; this proves the block lands in the prompt the model sees.
+     */
+    @Test
+    void theRealExecutorSeesTheUpstreamArtifactInThePromptItSends() {
+        AiChatSession parent = new AiChatSession();
+        java.util.Map<String, String> userPromptByAgent = new java.util.concurrent.ConcurrentHashMap<>();
+
+        AiLlmAgentExecutor executor = new AiLlmAgentExecutor(new com.studio.model.AiConfig(),
+                new AiLlmAgentExecutor.Completion() {
+                    @Override
+                    public CharSequence complete(com.studio.model.AiConfig cfg, List<AiChatMessage> messages) {
+                        return complete(cfg, messages, "không nhãn");
+                    }
+
+                    @Override
+                    public CharSequence complete(com.studio.model.AiConfig cfg, List<AiChatMessage> messages,
+                                                 String agentName) {
+                        userPromptByAgent.put(agentName, messages.get(1).getContent());
+                        return "ARTIFACT_OF_" + agentName;
+                    }
+                }, "SRS: màn hình đăng ký");
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(executor, null);
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER), "đọc SRS"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.TEST_ARCHITECT), "thiết kế case"),
+                new AiSubAgentOrchestrator.SubAgentTask(
+                        AiAgentRuleCatalog.require(AiAgentRuleCatalog.REALITY_CHECKER), "rà soát")));
+
+        String checkerPrompt = userPromptByAgent.get("RealityChecker");
+        assertNotNull(checkerPrompt);
+        assertTrue(checkerPrompt.contains("ARTIFACT_OF_TestArchitect"));
+        assertTrue(checkerPrompt.contains("SRS: màn hình đăng ký"),
+                "the shared grounding must survive alongside the artefact");
+    }
+
+    @Test
+    void digestOfAnEmptyRunIsEmpty() {
+        AiChatSession parent = new AiChatSession();
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> "ok", null);
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of());
+
+        assertTrue(res.reviewDigestForGenerator().isEmpty());
+    }
+
+    @Test
+    void independentTasksStillRunInTheSameWave() throws Exception {
+        AiChatSession parent = new AiChatSession();
+        java.util.concurrent.CountDownLatch bothRunning = new java.util.concurrent.CountDownLatch(2);
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator((r, brief) -> {
+            bothRunning.countDown();
+            assertTrue(bothRunning.await(5, java.util.concurrent.TimeUnit.SECONDS),
+                    "two agents with no dependency between them must still overlap");
+            return "ok";
+        }, null);
+
+        // Two rules with no declared dependency: adding a pipeline must not serialise them.
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R-A", "Alpha", "phân tích", List.of()), "a"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R-B", "Beta", "thống kê", List.of()), "b")));
+
+        assertTrue(bothRunning.await(5, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     @Test

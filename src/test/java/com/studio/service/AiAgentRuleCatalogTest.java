@@ -78,4 +78,36 @@ class AiAgentRuleCatalogTest {
         assertFalse(second.getProhibitions().isEmpty(), "rule trong catalog không được bị thay đổi từ ngoài");
         assertNotSame(first, second);
     }
+
+    /**
+     * The handoff lives on the rule, so a defensive copy that drops it would silently return the
+     * pipeline to "every agent runs blind" — the exact bug this edge exists to prevent.
+     */
+    @Test
+    void declaredDependenciesSurviveTheDefensiveCopy() {
+        assertTrue(AiAgentRuleCatalog.require(AiAgentRuleCatalog.TEST_ARCHITECT)
+                .getDependsOn().contains(AiAgentRuleCatalog.SPEC_MINER));
+        assertTrue(AiAgentRuleCatalog.require(AiAgentRuleCatalog.REALITY_CHECKER)
+                .getDependsOn().contains(AiAgentRuleCatalog.TEST_ARCHITECT));
+        assertTrue(AiAgentRuleCatalog.require(AiAgentRuleCatalog.LOOP_ENGINEER)
+                .getDependsOn().contains(AiAgentRuleCatalog.REALITY_CHECKER));
+        assertTrue(AiAgentRuleCatalog.require(AiAgentRuleCatalog.SPEC_MINER).getDependsOn().isEmpty(),
+                "the entry agent must not wait for anything");
+    }
+
+    @Test
+    void everyDependencyNamesARealRuleAndTheGraphIsAcyclic() {
+        for (AiAgentRule rule : AiAgentRuleCatalog.all()) {
+            for (String dependency : rule.getDependsOn()) {
+                assertTrue(AiAgentRuleCatalog.find(dependency).isPresent(),
+                        rule.getId() + " phụ thuộc rule không tồn tại: " + dependency);
+                assertFalse(dependency.equals(rule.getId()), rule.getId() + " không thể phụ thuộc chính nó");
+            }
+        }
+        // Ancestor sets must terminate; a cycle would make wave levels meaningless.
+        for (String ruleId : AiAgentRuleCatalog.delegableRuleIds()) {
+            Set<String> ancestors = AiSubAgentOrchestrator.ancestorRuleIds(AiAgentRuleCatalog.require(ruleId));
+            assertFalse(ancestors.contains(ruleId), "chu trình phụ thuộc tại " + ruleId);
+        }
+    }
 }

@@ -60,6 +60,18 @@ public class OpenAiClient {
     private static final int MAX_ERROR_BODY_CHARS = 8_192;
     private static final java.util.regex.Pattern WHITESPACE =
             java.util.regex.Pattern.compile("\\s+");
+
+    /**
+     * Hosts that answered an HTTP/2 request with a stream reset. Some OpenAI-compatible proxies accept
+     * the connection but break the multiplexed stream, and Java then reports {@code RST_STREAM} after a
+     * long wait. Such a host is switched to HTTP/1.1 for the rest of the process, so the failure costs
+     * one retry instead of one retry per call.
+     */
+    private static final java.util.Set<String> HTTP11_HOSTS =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Transport messages that mean "this proxy cannot carry HTTP/2", not "the network is down". */
+    private static final List<String> HTTP2_RESET_MARKERS = List.of(
+            "rst_stream", "stream reset", "refused_stream", "http/2 protocol error", "http2 protocol error");
     private static final ScheduledExecutorService STREAM_WATCHDOG = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "ai-stream-watchdog");
         thread.setDaemon(true);
@@ -294,7 +306,7 @@ public class OpenAiClient {
     }
 
     /**
-     * Same call as {@link #chatCompletion(AiConfig, List)} but also returns the stop reason, so a
+     * Same call as {@link #completeChat(AiConfig, List)} but also returns the stop reason, so a
      * reply cut off by the output limit can be salvaged or retried rather than dropped.
      */
     public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
@@ -308,7 +320,28 @@ public class OpenAiClient {
      */
     public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
                                    boolean jsonMode) throws IOException, InterruptedException {
-        return executeChat(config, messages, outputTokenOverride, jsonMode);
+        return executeChat(config, messages, outputTokenOverride, jsonMode, AiStreamObserver.none());
+    }
+
+    /**
+     * Same call that also reports each streamed piece to {@code observer} while it arrives, so the chat
+     * UI can show the answer building up instead of a frozen spinner. The accumulated completion is
+     * still returned unchanged; streaming is observability, not a different result.
+     */
+    public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
+                                   AiStreamObserver observer) throws IOException, InterruptedException {
+        return completeChat(config, messages, outputTokenOverride, false, observer);
+    }
+
+    /** Full form: JSON contract plus a live stream observer. */
+    public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
+                                   boolean jsonMode, AiStreamObserver observer)
+            throws IOException, InterruptedException {
+        if (AiStreamObserver.isNone(observer)) {
+            // Keep the classic overload as the single interception point for subclasses and test doubles.
+            return completeChat(config, messages, outputTokenOverride, jsonMode);
+        }
+        return executeChat(config, messages, outputTokenOverride, jsonMode, observer);
     }
 
     /**
@@ -317,7 +350,7 @@ public class OpenAiClient {
      * otherwise max_tokens is omitted (model default).
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) throws IOException, InterruptedException {
-        Completion completion = executeChat(config, messages, outputTokenOverride, false);
+        Completion completion = executeChat(config, messages, outputTokenOverride, false, AiStreamObserver.none());
         if (completion.truncated()) {
             // The caller asked for a plain string, so it cannot act on the stop reason. Retry once with a
             // larger budget here rather than handing back a half-written script as if it were complete.
@@ -339,7 +372,7 @@ public class OpenAiClient {
             if (escalated > budget) {
                 AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, chạy lại với max_tokens=" + escalated
                         + " (trước: " + (budget > 0 ? String.valueOf(budget) : "mặc định model") + ")");
-                Completion retry = executeChat(config, messages, escalated, false);
+                Completion retry = executeChat(config, messages, escalated, false, AiStreamObserver.none());
                 if (!retry.content().isBlank() && retry.content().length() >= completion.content().length()) {
                     return retry.content();
                 }
@@ -357,7 +390,7 @@ public class OpenAiClient {
     }
 
     private Completion executeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride,
-                                   boolean jsonMode) throws IOException, InterruptedException {
+                                   boolean jsonMode, AiStreamObserver observer) throws IOException, InterruptedException {
         String baseUrl = config.getEffectiveBaseUrl();
         String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
@@ -382,18 +415,19 @@ public class OpenAiClient {
 
         if (STREAMING_ENABLED) {
             Completion streamed = streamCompletion(config, provider, targetUrl, apiKey, messages,
-                    requestedMaxTokens, jsonMode);
+                    requestedMaxTokens, jsonMode, observer);
             if (streamed != null) {
                 return streamed;
             }
             AiLoggingService.warn("AI-STREAM", "Endpoint không dùng được SSE; chuyển sang phản hồi nguyên khối");
         }
-        return completeOnce(config, provider, targetUrl, apiKey, messages, requestedMaxTokens, jsonMode);
+        return completeOnce(config, provider, targetUrl, apiKey, messages, requestedMaxTokens, jsonMode, observer);
     }
 
     /** One non-streaming request with the json-mode fallback; the shared path for every endpoint. */
     private Completion completeOnce(AiConfig config, String provider, String targetUrl, String apiKey,
-                                    List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode)
+                                    List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode,
+                                    AiStreamObserver observer)
             throws IOException, InterruptedException {
         ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, jsonMode);
         String requestBody = mapper.writeValueAsString(root);
@@ -417,7 +451,10 @@ public class OpenAiClient {
             throw apiError(provider, apiKey, response.statusCode(), response.body());
         }
 
-        return parseChatResponse(config, response.body(), latency);
+        Completion completion = parseChatResponse(config, response.body(), latency);
+        // A non-streaming endpoint still deserves a live preview; the whole answer is one delta.
+        observer.onDelta(completion.content());
+        return completion;
     }
 
     /** Parses a non-streamed {@code /chat/completions} body into the shared {@link Completion} shape. */
@@ -492,7 +529,8 @@ public class OpenAiClient {
      * completion: the text already received is real and must not be thrown away.</p>
      */
     private Completion streamCompletion(AiConfig config, String provider, String targetUrl, String apiKey,
-                                        List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode)
+                                        List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode,
+                                        AiStreamObserver observer)
             throws IOException, InterruptedException {
         boolean useJsonMode = jsonMode;
         boolean jsonModeRetried = false;
@@ -509,9 +547,11 @@ public class OpenAiClient {
                     // The endpoint ignored stream=true (or the body is one JSON document): read it whole
                     // and reuse the normal parser rather than pretending the stream format was honoured.
                     AiLoggingService.info("AI-STREAM", "Phản hồi 200 không phải SSE; đọc nguyên khối");
-                    return parseChatResponse(config, readBodyText(response.body(), Integer.MAX_VALUE), 0);
+                    Completion whole = parseChatResponse(config, readBodyText(response.body(), Integer.MAX_VALUE), 0);
+                    observer.onDelta(whole.content());
+                    return whole;
                 }
-                return readSseCompletion(config, apiKey, response.body());
+                return readSseCompletion(config, apiKey, response.body(), observer);
             }
 
             String errorBody = readBodyText(response.body(), MAX_ERROR_BODY_CHARS);
@@ -540,13 +580,17 @@ public class OpenAiClient {
      *
      * @return the accumulated completion, or {@code null} when the stream produced nothing usable
      */
-    private Completion readSseCompletion(AiConfig config, String apiKey, InputStream stream) {
+    private Completion readSseCompletion(AiConfig config, String apiKey, InputStream stream,
+                                         AiStreamObserver observer) {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
         String finishReason = null;
         int promptTokens = -1;
         int completionTokens = -1;
         boolean doneMarkerSeen = false;
+        long startedNanos = System.nanoTime();
+        // -1 means "no token arrived yet": a real 0ms first token is impossible for a network reply.
+        long[] firstTokenMs = { -1 };
         AtomicLong lastActivity = new AtomicLong(System.nanoTime());
         ScheduledFuture<?> watchdog = STREAM_WATCHDOG.scheduleAtFixedRate(() -> {
             if (System.nanoTime() - lastActivity.get() > REQUEST_TIMEOUT.toNanos()) {
@@ -605,9 +649,25 @@ public class OpenAiClient {
                 }
                 JsonNode choice0 = choices.get(0);
                 JsonNode delta = choice0.path("delta");
-                appendDelta(content, delta.path("content"));
-                appendDelta(reasoning, delta.path("reasoning_content"));
-                appendDelta(reasoning, delta.path("reasoning"));
+                String contentPiece = textOfNode(delta.path("content"));
+                String reasoningPiece = textOfNode(delta.path("reasoning_content"));
+                if (reasoningPiece.isEmpty()) {
+                    reasoningPiece = textOfNode(delta.path("reasoning"));
+                }
+                if (!contentPiece.isEmpty()) {
+                    content.append(contentPiece);
+                    markFirstToken(firstTokenMs, startedNanos);
+                    observer.onDelta(contentPiece);
+                }
+                if (!reasoningPiece.isEmpty()) {
+                    reasoning.append(reasoningPiece);
+                    markFirstToken(firstTokenMs, startedNanos);
+                    // A reasoning-only model has no content yet, so its thinking is the only live text
+                    // the user can see. Once real content starts arriving the preview follows it.
+                    if (content.isEmpty()) {
+                        observer.onDelta(reasoningPiece);
+                    }
+                }
                 String reason = choice0.path("finish_reason").asText("");
                 if (!reason.isBlank()) {
                     finishReason = reason;
@@ -638,8 +698,15 @@ public class OpenAiClient {
         // No finish_reason and no [DONE] means the connection closed early; report "length" so the
         // caller keeps the text but also knows the answer may be incomplete.
         String resolvedFinish = finishReason != null ? finishReason : (doneMarkerSeen ? "stop" : "length");
+        long totalMs = elapsedMs(startedNanos);
         AiLoggingService.info("AI-RESPONSE", "Thành công HTTP 200 (stream) | finish_reason=" + resolvedFinish
                 + " | prompt_tokens=" + promptTokens + " | completion_tokens=" + completionTokens
+                + " | output_chars=" + text.length());
+        // Time-to-first-token is what a user actually feels as "the model is slow": it separates a slow
+        // provider from a large prompt instead of leaving only the total to guess from.
+        AiLoggingService.info("AI-TTFT", config.getEffectiveModel()
+                + " | first_token_ms=" + firstTokenMs[0]
+                + " | total_ms=" + totalMs
                 + " | output_chars=" + text.length());
         if ("length".equalsIgnoreCase(resolvedFinish)) {
             AiLoggingService.warn("AI-RESPONSE", "⚠️ Phản hồi bị CẮT NGANG do chạm giới hạn token (finish_reason=length)!");
@@ -652,14 +719,21 @@ public class OpenAiClient {
         return content.isEmpty() ? reasoning.toString() : content.toString();
     }
 
-    private static void appendDelta(StringBuilder target, JsonNode node) {
+    private static String textOfNode(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) {
-            return;
+            return "";
         }
-        String piece = node.asText("");
-        if (!piece.isEmpty()) {
-            target.append(piece);
+        return node.asText("");
+    }
+
+    private static void markFirstToken(long[] firstTokenMs, long startedNanos) {
+        if (firstTokenMs[0] < 0) {
+            firstTokenMs[0] = elapsedMs(startedNanos);
         }
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     /**
@@ -678,6 +752,7 @@ public class OpenAiClient {
             }
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
+                    .version(httpVersionFor(targetUrl))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("Accept", SSE_CONTENT_TYPE)
@@ -697,6 +772,11 @@ public class OpenAiClient {
                 return response;
             } catch (IOException e) {
                 lastFailure = e;
+                if (switchToHttp11(targetUrl, e) && attempt < MAX_NETWORK_RETRIES) {
+                    AiLoggingService.warn("AI-RETRY", "HTTP/2 bị reset bởi " + hostOf(targetUrl)
+                            + " (" + e.getMessage() + "); chuyển host này sang HTTP/1.1 và thử lại");
+                    continue;
+                }
                 AiLoggingService.warn("AI-RETRY", "Lỗi transport khi mở stream: " + e.getMessage());
             }
         }
@@ -829,6 +909,7 @@ public class OpenAiClient {
             }
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
+                    .version(httpVersionFor(targetUrl))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("User-Agent", "TestStudio/1.0")
@@ -848,11 +929,64 @@ public class OpenAiClient {
             } catch (IOException e) {
                 lastFailure = e;
                 latency = System.currentTimeMillis() - start;
+                if (switchToHttp11(targetUrl, e) && attempt < MAX_NETWORK_RETRIES) {
+                    AiLoggingService.warn("AI-RETRY", "HTTP/2 bị reset bởi " + hostOf(targetUrl)
+                            + " (" + e.getMessage() + "); chuyển host này sang HTTP/1.1 và thử lại");
+                    continue;
+                }
                 AiLoggingService.warn("AI-RETRY", "Lỗi transport sau " + latency + "ms: " + e.getMessage());
             }
         }
         throw lastFailure != null ? lastFailure
                 : new IOException("Không gửi được yêu cầu tới " + targetUrl + " sau " + MAX_NETWORK_RETRIES + " lần thử");
+    }
+
+    /** HTTP version for one request: HTTP/1.1 once a host has proven it cannot carry HTTP/2 streams. */
+    private static HttpClient.Version httpVersionFor(String targetUrl) {
+        return HTTP11_HOSTS.contains(hostOf(targetUrl))
+                ? HttpClient.Version.HTTP_1_1
+                : HttpClient.Version.HTTP_2;
+    }
+
+    /** The host of a request URL, or "" when it cannot be parsed (then no host preference exists). */
+    static String hostOf(String targetUrl) {
+        if (targetUrl == null || targetUrl.isBlank()) {
+            return "";
+        }
+        try {
+            String host = URI.create(targetUrl).getHost();
+            return host != null ? host : "";
+        } catch (IllegalArgumentException malformed) {
+            return "";
+        }
+    }
+
+    /**
+     * Marks the request host for HTTP/1.1 when the failure is an HTTP/2 stream reset.
+     *
+     * @return true only for the call that performed the switch, so the retry runs exactly once per host
+     *         instead of on every later failure
+     */
+    static boolean switchToHttp11(String targetUrl, IOException failure) {
+        if (!isHttp2ProtocolError(failure)) {
+            return false;
+        }
+        String host = hostOf(targetUrl);
+        return !host.isEmpty() && HTTP11_HOSTS.add(host);
+    }
+
+    /** Transport failures that mean the proxy reset the HTTP/2 stream rather than losing the network. */
+    static boolean isHttp2ProtocolError(IOException failure) {
+        if (failure == null || failure.getMessage() == null) {
+            return false;
+        }
+        String message = failure.getMessage().toLowerCase(Locale.ROOT);
+        for (String marker : HTTP2_RESET_MARKERS) {
+            if (message.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean looksLikeUnsupportedJsonMode(String responseBody) {

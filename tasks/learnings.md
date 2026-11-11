@@ -810,3 +810,17 @@
 
 ### 6. Repo Hygiene: Runtime Artifact không thuộc về Git
 - `docs/intel/_intake/*.json` (hàng đợi triage sinh tự động) và `**/.gradle/` (trạng thái build của dự án tham chiếu trong `docs/knowledge`) được bỏ track bằng `git rm --cached` và thêm vào `.gitignore`; file vẫn còn trên đĩa.
+
+## AI Latency Learnings (2026-11-11)
+1. **Đo trước khi đoán**: `curl -w dns/connect/tls/ttfb` tới `api.foza.ai` chỉ ~0,4–1,4s, nên "kết nối model chậm"
+   thực chất là thời gian sinh nội dung + số lượt gọi tuần tự. `AI-TTFT` (`first_token_ms`) trong `data/logs/ai.log`
+   tách bạch độ trễ provider khỏi prompt lớn.
+2. **Sub-agent phải chạy song song**: `AiSubAgentOrchestrator` chạy tuần tự làm 1 lượt = 4 × 20–60s. Nay chạy trên
+   pool giới hạn (`DEFAULT_MAX_PARALLEL_AGENTS = 4`), ghi chú "Được giao nhiệm vụ" theo thứ tự kế hoạch để transcript
+   vẫn đọc được, findings gộp theo thứ tự kế hoạch để kết quả deterministic.
+3. **Trần output 4096 gây vòng nối tiếp**: prose agent bị cắt liên tục rồi nối tiếp với lại toàn bộ prompt 15k token.
+   Dùng `AiModelCapabilities.resolveOutputCeiling` (DeepSeek 8192) rẻ hơn về thời gian.
+4. **Preview streaming là observability, không phải kết quả khác**: `AiStreamObserver` chỉ nhận delta; JSON contract
+   chỉ tăng bộ đếm ký tự để không dán JSON thô vào bubble.
+5. **Proxy có thể reset HTTP/2**: `RST_STREAM: Protocol error` từng tốn 55s retry. Host gặp lỗi được ghi nhớ và chuyển
+   sang HTTP/1.1 một lần cho cả process (`HTTP11_HOSTS`).
