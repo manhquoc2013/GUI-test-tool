@@ -19,6 +19,7 @@
 <?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Priority?>
+<?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
@@ -26,21 +27,28 @@
       fx:controller="com.studio.controller.AiAssistantPageController"
       styleClass="ai-assistant-page" spacing="0">
 
-    <!-- Top Toolbar. FlowPane so the title/badges/actions reflow onto a second
-         line on narrow windows instead of forcing the row past the window edge
-         (a plain HBox needed 1117px and was clipped below that). -->
-    <FlowPane styleClass="page-toolbar" hgap="10" vgap="6" alignment="CENTER_LEFT"
-              prefWrapLength="1100">
+    <!-- Top Toolbar: identity on the left, actions on the right, separated by a growing spacer.
+         Fixed-width groups mean a wider token/model badge or a "Lịch sử ⏳2" badge can never push the
+         action buttons onto a second line (the previous FlowPane did exactly that). -->
+    <HBox styleClass="page-toolbar" spacing="10" alignment="CENTER_LEFT">
         <padding><Insets top="8" right="14" bottom="8" left="14"/></padding>
-        <Button text="Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar" styleClass="icon-btn" minWidth="-Infinity"/>
-        <Label text="Trợ lý AI" styleClass="page-title" minWidth="-Infinity"/>
-        <Label fx:id="pageSubtitleLabel" text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
-        <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="-Infinity"/>
-        <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="-Infinity"/>
-        <Button text="Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
-        <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
-        <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
-    </FlowPane>
+        <Button text="Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar"
+                styleClass="icon-btn" minWidth="96" maxWidth="140" alignment="CENTER_LEFT"/>
+        <VBox spacing="1" HBox.hgrow="ALWAYS" minWidth="0">
+            <Label text="Trợ lý AI" styleClass="page-title" minWidth="0"/>
+            <Label fx:id="pageSubtitleLabel" text="— Tự động hóa kiểm thử thông minh với OpenAI"
+                   styleClass="page-subtitle" minWidth="0" maxWidth="Infinity"/>
+        </VBox>
+        <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-toolbar-status" minWidth="0">
+            <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="0" maxWidth="190"/>
+            <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="0" maxWidth="210"/>
+        </HBox>
+        <HBox spacing="6" alignment="CENTER_LEFT" styleClass="ai-toolbar-actions" minWidth="-Infinity">
+            <Button text="Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
+            <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
+            <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
+        </HBox>
+    </HBox>
 
     <!-- Main Content Area: History Sidebar + Chat/Preview SplitPane -->
     <HBox VBox.vgrow="ALWAYS" spacing="0">
@@ -106,20 +114,29 @@
                     <Button text="🛡️ Fuzzing Bảo Mật" onAction="#applyQuickSecurity" styleClass="ai-suggestion-btn" minWidth="-Infinity"/>
                 </HBox>
 
-                <!-- Input Box -->
+                <!-- Composer. The running state lives in its own strip so the footer row and the
+                     "Gửi" button never change width or move while a turn streams. -->
                 <VBox spacing="8" styleClass="ai-input-box">
+                    <HBox fx:id="runStatusStrip" spacing="8" alignment="CENTER_LEFT"
+                          styleClass="ai-run-status" visible="false" managed="false">
+                        <ProgressIndicator fx:id="generationProgress" prefWidth="16" prefHeight="16"
+                                           minWidth="16" minHeight="16" maxWidth="16" maxHeight="16"/>
+                        <Label fx:id="runStatusLabel" text="Đang sinh kịch bản..."
+                               styleClass="ai-run-status-text" minWidth="0" maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                        <Button text="Dừng" fx:id="stopRunBtn" onAction="#cancelCurrentRun"
+                                styleClass="ai-run-stop-btn" minWidth="-Infinity"/>
+                    </HBox>
                     <TextArea fx:id="promptInputArea" prefRowCount="3" wrapText="true"
                               promptText="Nhập yêu cầu kiểm thử hoặc kịch bản cần sinh (Enter để gửi, Shift+Enter để xuống dòng)..."
                               styleClass="ai-prompt-input"/>
-                    <!-- Wrapping footer: at compact widths this row used to squeeze
-                         "Tạo Test Script" into an ellipsis and push Send off-line. -->
-                    <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT">
+                    <HBox spacing="8" alignment="CENTER_LEFT" styleClass="ai-composer-footer">
                         <Button text="Đính kèm" fx:id="attachFileBtn" onAction="#attachFiles" styleClass="btn-secondary" minWidth="-Infinity"/>
                         <Button text="Xóa đính kèm" fx:id="clearAttachmentsBtn" onAction="#clearAttachments" styleClass="icon-btn" visible="false" managed="false" minWidth="-Infinity"/>
                         <CheckBox fx:id="autoGenerateScriptCheck" text="Tạo Test Script" selected="false" styleClass="field-label-small" minWidth="-Infinity"/>
-                        <ProgressIndicator fx:id="generationProgress" prefWidth="20" prefHeight="20" maxWidth="20" maxHeight="20" visible="false" managed="false"/>
-                        <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run" minWidth="-Infinity"/>
-                    </FlowPane>
+                        <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+                        <Button text="Gửi (Enter)" fx:id="sendBtn" onAction="#sendPrompt" styleClass="toolbar-btn-run"
+                                minWidth="120"/>
+                    </HBox>
                 </VBox>
             </VBox>
 

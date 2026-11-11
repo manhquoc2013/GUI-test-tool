@@ -12,6 +12,7 @@ import com.studio.service.AiStreamAggregator;
 import com.studio.service.AiStreamObserver;
 import com.studio.service.OpenAiClient;
 import com.studio.service.AiLoggingService;
+import com.studio.service.AiRunCancelledException;
 import com.studio.service.AiTestGeneratorService;
 import com.studio.service.AiTokenOptimizer;
 import com.studio.service.DocumentParserService;
@@ -37,12 +38,14 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.FileChooser;
 
 import java.io.File;
@@ -55,6 +58,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -125,6 +129,13 @@ public class AiAssistantPageController implements Initializable {
     private ProgressIndicator generationProgress;
     @FXML
     private Button sendBtn;
+    /** Composer strip that shows the live run state and its stop action. */
+    @FXML
+    private HBox runStatusStrip;
+    @FXML
+    private Label runStatusLabel;
+    @FXML
+    private Button stopRunBtn;
     @FXML
     private Label resultSummaryLabel;
     @FXML
@@ -196,15 +207,30 @@ public class AiAssistantPageController implements Initializable {
      * so the aggregator — not this controller — owns the per-source buffers.
      */
     private final AiStreamAggregator streamAggregator = new AiStreamAggregator();
-    /** Coalesces repaints: a fast stream would otherwise queue one FX job per token. */
-    private final AtomicBoolean previewPaintQueued = new AtomicBoolean(false);
+    /**
+     * Set by worker threads on every delta and drained by one throttled FX pass. Painting per token
+     * queued (and re-laid out the whole transcript) dozens of times per second.
+     */
+    private final AtomicBoolean previewDirty = new AtomicBoolean(false);
+    /** Coalesces the many "scroll to bottom" requests of one FX pulse into a single move. */
+    private final AtomicBoolean scrollToBottomQueued = new AtomicBoolean(false);
+    /** Throttled painter of the live preview; runs only while a thinking bubble is on screen. */
+    private Timeline previewTimeline = null;
+    /** The bubble currently on screen for each message, so a turn ends without re-rendering it all. */
+    private final Map<AiChatMessage, HBox> renderedBubbles = new IdentityHashMap<>();
     /**
      * Conversation whose bubble owns the preview. Volatile because model workers read it to reject
      * deltas of another conversation; only the FX thread writes it.
      */
     private volatile String streamPreviewSessionId = null;
     /** How much of the newest text the preview keeps visible; the rest stays in the buffer. */
-    private static final int PREVIEW_TAIL_CHARS = 900;
+    private static final int PREVIEW_TAIL_CHARS = 400;
+    /** 8 fps is fast enough to read as "live" and slow enough to keep layout off the FX critical path. */
+    private static final Duration PREVIEW_PAINT_INTERVAL = Duration.millis(120);
+    /** Height of the clipped preview viewport: about three lines of 11px text. */
+    private static final double PREVIEW_VIEWPORT_HEIGHT = 54;
+    /** How close to the bottom still counts as "following the stream". */
+    private static final double CHAT_BOTTOM_PIN_THRESHOLD = 0.02;
 
     /** Toolbar labels of the collapsible history rail. */
     private static final String HISTORY_TOGGLE_OPEN_LABEL = "Lịch sử";
@@ -216,6 +242,12 @@ public class AiAssistantPageController implements Initializable {
     private static final String UNREAD_BADGE_LABEL = UNREAD_GLYPH + " Kết quả mới";
     /** Source label of the JSON artefact pass, shown in the live "receiving" counter. */
     private static final String AI_STREAM_SOURCE_TEST_ARCHITECT = "Test Architect";
+    /** Composer run strip: shown while a turn runs, and while its stop request is being honoured. */
+    private static final String DEFAULT_RUN_STATUS = "Đang sinh kịch bản...";
+    private static final String CANCELLING_RUN_STATUS = "⏹ Đang dừng lượt này…";
+    /** Transcript note recorded for a turn the user stopped. */
+    private static final String CANCELLED_TURN_NOTE =
+            "⏹ Đã dừng lượt này theo yêu cầu. Phản hồi đang nhận đã bị huỷ.";
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -235,6 +267,10 @@ public class AiAssistantPageController implements Initializable {
         if (sendBtn != null) {
             UiIcons.setGraphic(sendBtn, UiIcons.PLAY, 12);
             UiTooltips.install(sendBtn, "Gửi yêu cầu sinh test case (Enter để gửi, Shift+Enter để xuống dòng)");
+        }
+        if (stopRunBtn != null) {
+            UiIcons.setGraphic(stopRunBtn, UiIcons.STOP, 11);
+            UiTooltips.install(stopRunBtn, "Dừng lượt sinh phản hồi đang chạy");
         }
         if (promptInputArea != null) {
             UiTooltips.install(promptInputArea, "Nhập nội dung (Enter để gửi, Shift+Enter để xuống dòng)");
@@ -999,6 +1035,7 @@ public class AiAssistantPageController implements Initializable {
                                      Path suiteDir) throws IOException, InterruptedException {
         boolean hasDocs = docs != null && !docs.isEmpty();
         boolean hasDom = domJson != null && !domJson.isBlank() && !"[]".equals(domJson);
+        ensureNotCancelled(session);
         if (!AiDelegationPolicy.shouldDelegate(intent, hasDocs, hasDom, prompt)) {
             AiLoggingService.info("AI-COORDINATOR", "Bỏ qua điều phối: intent=" + intent
                     + ", docs=" + hasDocs + ", dom=" + hasDom + " (dùng trợ lý đơn có grounding)");
@@ -1044,12 +1081,16 @@ public class AiAssistantPageController implements Initializable {
                 new AiLlmAgentExecutor.Completion() {
                     @Override
                     public CharSequence complete(AiConfig cfg, List<AiChatMessage> messages) throws Exception {
+                        ensureNotCancelled(session);
                         return runSubAgentCall(client, cfg, messages, AiStreamObserver.none(), null);
                     }
 
                     @Override
                     public CharSequence complete(AiConfig cfg, List<AiChatMessage> messages, String streamLabel)
                             throws Exception {
+                        // Checked before the call too: an agent that starts after a stop must not wait for
+                        // its first token to notice that the turn is over.
+                        ensureNotCancelled(session);
                         return runSubAgentCall(client, cfg, messages,
                                 deltas -> publishStreamDelta(session, streamLabel, deltas, true),
                                 () -> publishStreamCompleted(session, streamLabel));
@@ -1064,6 +1105,7 @@ public class AiAssistantPageController implements Initializable {
                 status -> publishRunStatus(session, status),
                 msg -> appendLiveTranscriptMessage(session, msg));
         AiSubAgentOrchestrator.OrchestrationResult orchestration = orchestrator.orchestrate(session, tasks);
+        ensureNotCancelled(session);
 
         // The agents design and review; the artefact still has to be produced. Without this pass the
         // turn ended in prose and the user received no test case at all. Their conclusions travel with
@@ -1145,14 +1187,19 @@ public class AiAssistantPageController implements Initializable {
         Platform.runLater(() -> {
             runRegistry.updateStatus(sessionId, status);
             if (isCurrentSession(session)) {
-                updateThinkingStatus(status);
+                // Once a stop is requested, later progress lines must not overwrite the "đang dừng" state.
+                updateThinkingStatus(runRegistry.isCancelRequested(sessionId) ? CANCELLING_RUN_STATUS : status);
             }
         });
     }
 
     /**
      * Feeds one streamed piece into the live preview. Called from model worker threads; the FX thread
-     * only paints a coalesced snapshot, so a fast stream never blocks the HTTP read loop.
+     * only paints a throttled snapshot, so a fast stream never blocks the HTTP read loop.
+     *
+     * <p>This is also the point where a stop request unwinds the turn: the provider read loop calls it
+     * for every token, so throwing here ends a running call within one delta instead of waiting for a
+     * whole 20–60s answer nobody is waiting for.</p>
      *
      * @param showText true for prose (the tail is readable); false for JSON contracts, where only the
      *                 received-character counter is shown
@@ -1160,6 +1207,9 @@ public class AiAssistantPageController implements Initializable {
     private void publishStreamDelta(AiChatSession session, String source, String delta, boolean showText) {
         if (session == null || delta == null || delta.isEmpty()) {
             return;
+        }
+        if (runRegistry.isCancelRequested(session.getId())) {
+            throw new AiRunCancelledException();
         }
         String owningSession = streamPreviewSessionId;
         if (owningSession == null || !owningSession.equals(session.getId())) {
@@ -1187,18 +1237,16 @@ public class AiAssistantPageController implements Initializable {
         schedulePreviewPaint();
     }
 
+    /** Marks the preview dirty; the running timeline turns that into at most one paint every 120ms. */
     private void schedulePreviewPaint() {
-        if (!previewPaintQueued.compareAndSet(false, true)) {
-            return;
-        }
-        Platform.runLater(() -> {
-            previewPaintQueued.set(false);
-            paintStreamPreview();
-        });
+        previewDirty.set(true);
     }
 
-    /** Paints the newest buffer state; skipped entirely once the bubble is gone. */
-    private void paintStreamPreview() {
+    /** Paints the newest buffer state once per interval; skipped entirely once the bubble is gone. */
+    private void paintStreamPreviewIfDirty() {
+        if (!previewDirty.getAndSet(false)) {
+            return;
+        }
         if (thinkingPreviewBox == null || thinkingPreviewCounterLabel == null || thinkingPreviewLabel == null) {
             return;
         }
@@ -1206,18 +1254,62 @@ public class AiAssistantPageController implements Initializable {
         if (!snapshot.hasContent()) {
             return;
         }
+        boolean pinned = isChatPinnedToBottom();
         thinkingPreviewBox.setVisible(true);
         thinkingPreviewBox.setManaged(true);
         thinkingPreviewCounterLabel.setText(previewCounterText(snapshot));
         boolean singleStream = snapshot.textSources() == 1;
-        if (singleStream) {
-            thinkingPreviewLabel.setText(tail(snapshot.preview(), PREVIEW_TAIL_CHARS));
-        }
         // Several agents writing at once: interleaving their text would merge unrelated answers, so the
         // counter stays and only the tail is hidden.
         thinkingPreviewLabel.setVisible(singleStream);
         thinkingPreviewLabel.setManaged(singleStream);
-        chatScroll.setVvalue(1.0);
+        if (singleStream) {
+            thinkingPreviewLabel.setText(tail(snapshot.preview(), PREVIEW_TAIL_CHARS));
+        }
+        if (pinned) {
+            requestChatScrollToBottom();
+        }
+    }
+
+    /** Starts the throttled preview painter for the turn that is about to stream. */
+    private void startPreviewPaintLoop() {
+        stopPreviewPaintLoop();
+        previewTimeline = new Timeline(new KeyFrame(PREVIEW_PAINT_INTERVAL, ev -> paintStreamPreviewIfDirty()));
+        previewTimeline.setCycleCount(Animation.INDEFINITE);
+        previewTimeline.play();
+    }
+
+    private void stopPreviewPaintLoop() {
+        if (previewTimeline != null) {
+            previewTimeline.stop();
+            previewTimeline = null;
+        }
+        previewDirty.set(false);
+    }
+
+    /** True when the user is reading the newest message rather than an earlier one. */
+    private boolean isChatPinnedToBottom() {
+        return chatScroll == null || chatScroll.getVvalue() >= 1.0 - CHAT_BOTTOM_PIN_THRESHOLD;
+    }
+
+    /**
+     * Scrolls to the newest message at most once per FX pulse. Calling {@code setVvalue(1.0)} from every
+     * paint was one of the reasons the viewport appeared to jump while text streamed in.
+     */
+    private void requestChatScrollToBottom() {
+        if (chatScroll == null || !scrollToBottomQueued.compareAndSet(false, true)) {
+            return;
+        }
+        Platform.runLater(() -> {
+            scrollToBottomQueued.set(false);
+            chatScroll.setVvalue(1.0);
+        });
+    }
+
+    private void scrollToBottomIfPinned(boolean pinned) {
+        if (pinned) {
+            requestChatScrollToBottom();
+        }
     }
 
     private static String previewCounterText(AiStreamAggregator.Snapshot snapshot) {
@@ -1251,16 +1343,11 @@ public class AiAssistantPageController implements Initializable {
             if (!isCurrentSession(session) || !session.getMessages().contains(msg)) {
                 return;
             }
-            // Keep the thinking indicator last so progress stays visible under the new bubble.
-            boolean bubbleAttached = thinkingBubbleWrapper != null
-                    && chatMessagesBox.getChildren().contains(thinkingBubbleWrapper);
-            if (bubbleAttached) {
-                chatMessagesBox.getChildren().remove(thinkingBubbleWrapper);
-            }
-            renderMessageBubble(msg, true);
-            if (bubbleAttached) {
-                chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
-            }
+            boolean pinned = isChatPinnedToBottom();
+            // Insert before the thinking indicator, so progress stays visible under the new bubble
+            // without detaching and re-attaching that bubble (two extra layout passes per message).
+            insertMessageBubbleBeforeThinking(msg);
+            scrollToBottomIfPinned(pinned);
         });
     }
 
@@ -1368,6 +1455,7 @@ public class AiAssistantPageController implements Initializable {
         // detached; a run still active in this session gets a fresh indicator at the end.
         removeThinkingBubble();
         chatMessagesBox.getChildren().clear();
+        renderedBubbles.clear();
 
         if (currentSession.getMessages().isEmpty()) {
             // Add default welcome message
@@ -1386,7 +1474,7 @@ public class AiAssistantPageController implements Initializable {
         }
 
         syncRunBubbleForCurrentSession();
-        Platform.runLater(() -> chatScroll.setVvalue(1.0));
+        requestChatScrollToBottom();
     }
 
     /** Recreates the "đang chạy" indicator for the open conversation after a re-render or a switch. */
@@ -1401,6 +1489,12 @@ public class AiAssistantPageController implements Initializable {
         showThinkingBubble(resolveConfiguredModelName(), currentSession.getId());
         if (thinkingStatusLabel != null) {
             thinkingStatusLabel.setText(run.getStatus());
+        }
+    }
+
+    private void ensureNotCancelled(AiChatSession session) {
+        if (session != null && runRegistry.isCancelRequested(session.getId())) {
+            throw new AiRunCancelledException();
         }
     }
 
@@ -1938,6 +2032,7 @@ public class AiAssistantPageController implements Initializable {
                 // Điều phối đa tác nhân (khi yêu cầu cần tài liệu và không phải lượt cần làm rõ): mỗi
                 // tác nhân hiện ngay khi xong, sau đó bộ sinh test case có cấu trúc vẫn chạy để trả về
                 // artefact thật thay vì chỉ văn xuôi.
+                ensureNotCancelled(targetSession);
                 boolean needsClarification = generationNeedsClarification(
                         prompt, docsSnapshot, activeDomContext, activeSkill, context);
                 AiTestGeneratorService.GenerationResult result = null;
@@ -1946,6 +2041,7 @@ public class AiAssistantPageController implements Initializable {
                     result = delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript,
                             docsSnapshot, activeDomContext, context, detectedIntent, activeSkill, suiteDir);
                     delegatedRun = result != null;
+                    ensureNotCancelled(targetSession);
                 } else {
                     AiLoggingService.info("AI-COORDINATOR",
                             "Bỏ qua điều phối: lượt này cần làm rõ phạm vi trước khi sinh artefact");
@@ -1968,8 +2064,13 @@ public class AiAssistantPageController implements Initializable {
 
                 final AiTestGeneratorService.GenerationResult generationResult = result;
                 final AiChatMessage delegatedAnswer = delegatedRun ? latestAggregate(targetSession) : null;
+                // A stop requested while the last call was finishing discards that result instead of
+                // publishing a turn the user already abandoned.
+                ensureNotCancelled(targetSession);
 
                 Platform.runLater(() -> {
+                    boolean delegatedAnswerWasRendered = delegatedAnswer != null
+                            && renderedBubbles.containsKey(delegatedAnswer);
                     finishRun(targetSession);
 
                     // The delegated pass already recorded exactly one aggregated answer and filled it with
@@ -1995,9 +2096,14 @@ public class AiAssistantPageController implements Initializable {
 
                     boolean isCurrentActive = isCurrentSession(targetSession);
                     if (isCurrentActive) {
-                        // Re-render instead of appending: the live agent bubbles are already on screen and
-                        // the aggregated answer was completed after they appeared.
-                        renderChatHistory();
+                        // Keep the bubbles already on screen; only the messages the transcript is still
+                        // missing (the final aggregated answer) are appended. Rebuilding the whole
+                        // transcript here cleared and repainted every earlier bubble — the end-of-turn
+                        // flash that made the page feel janky.
+                        appendMissingTranscriptBubbles();
+                        if (delegatedAnswerWasRendered) {
+                            refreshRenderedBubble(delegatedAnswer);
+                        }
                         updateTokenUsageDisplay();
 
                         resultSummaryLabel.setText(generationResult.getSummary());
@@ -2039,6 +2145,10 @@ public class AiAssistantPageController implements Initializable {
                     }
                     refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                 });
+            } catch (AiRunCancelledException cancelled) {
+                AiLoggingService.info("AI-CHAT", "Lượt của phiên " + targetSessionId
+                        + " đã dừng theo yêu cầu: " + AiRunCancelledException.MESSAGE);
+                handleCancelledRun(targetSession);
             } catch (LinkageError err) {
                 // A running JVM whose target/classes was recompiled or cleaned underneath it cannot load
                 // a class any more. This is a dev-loop accident, not a user error, but it must still end
@@ -2058,6 +2168,38 @@ public class AiAssistantPageController implements Initializable {
         }, "AiAssistant-Worker-" + shortSessionId(targetSessionId));
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /**
+     * Ends a stopped turn: closes the run, keeps the partial answers already on screen, and records one
+     * note so reopening the conversation explains why the turn ended.
+     */
+    private void handleCancelledRun(AiChatSession targetSession) {
+        if (targetSession == null) {
+            return;
+        }
+        String targetSessionId = targetSession.getId();
+        Platform.runLater(() -> {
+            finishRun(targetSession);
+
+            AiChatMessage cancelledMsg = new AiChatMessage("assistant", CANCELLED_TURN_NOTE);
+            cancelledMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(cancelledMsg));
+            targetSession.addMessage(cancelledMsg);
+            try {
+                chatHistoryStore.saveSession(targetSession);
+            } catch (IOException saveFailure) {
+                AiLoggingService.warn("AI-CHAT", "Không lưu được trạng thái dừng của phiên "
+                        + targetSessionId + ": " + saveFailure.getMessage());
+            }
+
+            if (isCurrentSession(targetSession)) {
+                appendMissingTranscriptBubbles();
+                updateTokenUsageDisplay();
+                requestChatScrollToBottom();
+                ToastService.info("⏹ Đã dừng lượt sinh phản hồi.");
+            }
+            refreshSessionsList(currentSession != null ? currentSession.getId() : null);
+        });
     }
 
     /**
@@ -2119,14 +2261,57 @@ public class AiAssistantPageController implements Initializable {
     /** Enables/disables the composer according to the run state of the conversation on screen. */
     private void updateComposerRunState() {
         boolean running = currentSession != null && isSessionRunning(currentSession.getId());
+        boolean cancelling = running && runRegistry.isCancelRequested(currentSession.getId());
+        // The send button keeps its label and width: swapping both on every turn re-flowed the whole
+        // composer and moved its footer around.
         if (sendBtn != null) {
             sendBtn.setDisable(running);
-            sendBtn.setText(running ? "Đang sinh kịch bản..." : "Gửi (Enter)");
+        }
+        setRunStatusStripVisible(running);
+        if (running && runStatusLabel != null) {
+            runStatusLabel.setText(cancelling ? CANCELLING_RUN_STATUS : currentRunStatusText());
+        }
+        if (stopRunBtn != null) {
+            stopRunBtn.setDisable(cancelling);
+        }
+    }
+
+    private void setRunStatusStripVisible(boolean visible) {
+        if (runStatusStrip != null) {
+            runStatusStrip.setVisible(visible);
+            runStatusStrip.setManaged(visible);
         }
         if (generationProgress != null) {
-            generationProgress.setVisible(running);
-            generationProgress.setManaged(running);
+            generationProgress.setVisible(visible);
+            generationProgress.setManaged(visible);
         }
+    }
+
+    private String currentRunStatusText() {
+        if (currentSession == null) {
+            return DEFAULT_RUN_STATUS;
+        }
+        AiChatRunRegistry.Run run = runRegistry.getRun(currentSession.getId());
+        String status = run != null ? run.getStatus() : null;
+        return status == null || status.isBlank() ? DEFAULT_RUN_STATUS : status;
+    }
+
+    /**
+     * Asks the running turn of the open conversation to stop. The worker unwinds at its next streamed
+     * token (see {@link #publishStreamDelta}), so the user does not wait for an answer being abandoned.
+     */
+    @FXML
+    public void cancelCurrentRun() {
+        if (currentSession == null) {
+            return;
+        }
+        String sessionId = currentSession.getId();
+        if (!runRegistry.isRunning(sessionId) || runRegistry.isCancelRequested(sessionId)) {
+            return;
+        }
+        runRegistry.requestCancel(sessionId);
+        updateThinkingStatus(CANCELLING_RUN_STATUS);
+        updateComposerRunState();
     }
 
     /** True while a worker of this conversation is generating (also drives the history badge). */
@@ -2164,7 +2349,6 @@ public class AiAssistantPageController implements Initializable {
         removeThinkingBubble();
         // A new bubble starts a new preview; stale text from the previous turn must not flash first.
         streamAggregator.reset();
-        previewPaintQueued.set(false);
 
         VBox bubble = new VBox(8);
         bubble.setMaxWidth(520);
@@ -2218,7 +2402,7 @@ public class AiAssistantPageController implements Initializable {
         thinkingPreviewLabel.setWrapText(true);
         thinkingPreviewLabel.setMaxWidth(480);
         thinkingPreviewLabel.getStyleClass().add("ai-thinking-preview-text");
-        thinkingPreviewBox = new VBox(4, thinkingPreviewCounterLabel, thinkingPreviewLabel);
+        thinkingPreviewBox = new VBox(4, thinkingPreviewCounterLabel, buildPreviewViewport());
         thinkingPreviewBox.getStyleClass().add("ai-thinking-preview-box");
         thinkingPreviewBox.setVisible(false);
         thinkingPreviewBox.setManaged(false);
@@ -2229,7 +2413,8 @@ public class AiAssistantPageController implements Initializable {
         chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
         // Publish only after the bubble exists, so the first delta cannot be dropped by a null check.
         streamPreviewSessionId = sessionId;
-        Platform.runLater(() -> chatScroll.setVvalue(1.0));
+        requestChatScrollToBottom();
+        startPreviewPaintLoop();
 
         // Only the dots animate. Progress text is driven by the real run (publishRunStatus) — the old
         // canned 4-agent rotation overwrote those live statuses after a couple of seconds.
@@ -2245,9 +2430,43 @@ public class AiAssistantPageController implements Initializable {
         thinkingTimeline.play();
     }
 
+    /**
+     * A fixed-height window over the newest preview text. The label itself grows with every wrapped
+     * line, so it is clipped by a viewport whose height never changes: streaming can add text without
+     * re-measuring the bubble (and therefore the whole transcript) on each paint.
+     */
+    private StackPane buildPreviewViewport() {
+        double textWidth = 460;
+        thinkingPreviewLabel.setPrefWidth(textWidth);
+        thinkingPreviewLabel.setMinWidth(textWidth);
+        thinkingPreviewLabel.setMaxWidth(textWidth);
+        // Height stays at the wrapped text's own preferred height (not stretched to the viewport), so
+        // the overflowing older lines sit above the clip and are hidden.
+        thinkingPreviewLabel.setMinHeight(Region.USE_PREF_SIZE);
+        thinkingPreviewLabel.setMaxHeight(Region.USE_PREF_SIZE);
+
+        StackPane viewport = new StackPane(thinkingPreviewLabel);
+        StackPane.setAlignment(thinkingPreviewLabel, Pos.BOTTOM_LEFT);
+        viewport.getStyleClass().add("ai-thinking-preview-viewport");
+        viewport.setMinHeight(PREVIEW_VIEWPORT_HEIGHT);
+        viewport.setPrefHeight(PREVIEW_VIEWPORT_HEIGHT);
+        viewport.setMaxHeight(PREVIEW_VIEWPORT_HEIGHT);
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(viewport.widthProperty());
+        clip.heightProperty().bind(viewport.heightProperty());
+        viewport.setClip(clip);
+        return viewport;
+    }
+
     private void updateThinkingStatus(String text) {
-        if (thinkingStatusLabel != null && text != null && !text.isBlank()) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (thinkingStatusLabel != null) {
             thinkingStatusLabel.setText(text);
+        }
+        if (runStatusLabel != null) {
+            runStatusLabel.setText(text);
         }
     }
 
@@ -2256,6 +2475,7 @@ public class AiAssistantPageController implements Initializable {
             thinkingTimeline.stop();
             thinkingTimeline = null;
         }
+        stopPreviewPaintLoop();
         if (thinkingBubbleWrapper != null) {
             chatMessagesBox.getChildren().remove(thinkingBubbleWrapper);
             thinkingBubbleWrapper = null;
@@ -2265,7 +2485,6 @@ public class AiAssistantPageController implements Initializable {
         thinkingPreviewCounterLabel = null;
         thinkingPreviewLabel = null;
         streamPreviewSessionId = null;
-        previewPaintQueued.set(false);
     }
 
     private void showCaseDetail(AiGeneratedCase c) {
@@ -2710,6 +2929,18 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
+        chatMessagesBox.getChildren().add(buildMessageBubble(msg));
+        if (scrollToBottom) {
+            requestChatScrollToBottom();
+        }
+    }
+
+    /**
+     * Builds one message bubble without attaching it. Callers decide where it goes: the transcript
+     * rebuild appends, a live agent message is inserted before the running indicator, and the end of a
+     * turn only appends the messages that are not on screen yet.
+     */
+    private HBox buildMessageBubble(AiChatMessage msg) {
         String role = msg.getRole();
         VBox bubble = new VBox(6);
         bubble.setMaxWidth(520);
@@ -2931,10 +3162,53 @@ public class AiAssistantPageController implements Initializable {
         } else {
             wrapper.setAlignment(Pos.CENTER_LEFT);
         }
+        renderedBubbles.put(msg, wrapper);
+        return wrapper;
+    }
 
-        chatMessagesBox.getChildren().add(wrapper);
-        if (scrollToBottom) {
-            Platform.runLater(() -> chatScroll.setVvalue(1.0));
+    /** Attaches a bubble above the running indicator, keeping the indicator as the last child. */
+    private void insertMessageBubbleBeforeThinking(AiChatMessage msg) {
+        HBox wrapper = buildMessageBubble(msg);
+        List<Node> children = chatMessagesBox.getChildren();
+        int indicatorIndex = thinkingBubbleWrapper != null ? children.indexOf(thinkingBubbleWrapper) : -1;
+        if (indicatorIndex >= 0) {
+            children.add(indicatorIndex, wrapper);
+        } else {
+            children.add(wrapper);
+        }
+    }
+
+    /**
+     * Appends bubbles for messages that are not on screen yet. This is what ends a turn: rebuilding the
+     * whole transcript cleared and repainted every earlier bubble, which read as a flash.
+     */
+    private void appendMissingTranscriptBubbles() {
+        if (currentSession == null) {
+            return;
+        }
+        boolean pinned = isChatPinnedToBottom();
+        for (AiChatMessage msg : currentSession.getMessages()) {
+            if (!renderedBubbles.containsKey(msg)) {
+                insertMessageBubbleBeforeThinking(msg);
+            }
+        }
+        scrollToBottomIfPinned(pinned);
+    }
+
+    /** Replaces an already-rendered bubble whose stored content changed after it was painted. */
+    private void refreshRenderedBubble(AiChatMessage msg) {
+        HBox previous = renderedBubbles.get(msg);
+        if (previous == null) {
+            return;
+        }
+        int index = chatMessagesBox.getChildren().indexOf(previous);
+        renderedBubbles.remove(msg);
+        chatMessagesBox.getChildren().remove(previous);
+        HBox fresh = buildMessageBubble(msg);
+        if (index >= 0 && index <= chatMessagesBox.getChildren().size()) {
+            chatMessagesBox.getChildren().add(index, fresh);
+        } else {
+            chatMessagesBox.getChildren().add(fresh);
         }
     }
 
@@ -2965,7 +3239,7 @@ public class AiAssistantPageController implements Initializable {
             expanded[0] = !expanded[0];
             contentLabel.setText(expanded[0] ? content : excerpt.text());
             toggle.setText(expanded[0] ? "Thu gọn" : "Xem thêm");
-            Platform.runLater(() -> chatScroll.setVvalue(1.0));
+            requestChatScrollToBottom();
         });
         box.getChildren().add(toggle);
         return box;

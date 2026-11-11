@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -406,7 +407,9 @@ public final class AiSubAgentOrchestrator {
                                                        List<Integer> wave,
                                                        Map<String, AgentArtifact> finishedArtifacts,
                                                        int maxParallelAgents) {
-        Map<String, AgentArtifact> produced = new LinkedHashMap<>();
+        // Written concurrently by the wave's workers, read after every future completes: a plain
+        // LinkedHashMap is not safe for those parallel puts.
+        Map<String, AgentArtifact> produced = new ConcurrentHashMap<>();
         int parallelism = Math.max(1, Math.min(maxParallelAgents, wave.size()));
         ExecutorService pool = Executors.newFixedThreadPool(parallelism, runnable -> {
             Thread worker = new Thread(runnable, SUB_AGENT_THREAD_NAME);
@@ -542,6 +545,12 @@ public final class AiSubAgentOrchestrator {
             applyUsage(child, recorded, reply.usage());
             child.setStatus(AiSubAgentSession.Status.COMPLETED);
             return output == null || output.isBlank() ? null : output;
+        } catch (AiRunCancelledException cancelled) {
+            // A stopped turn is not a failed agent: recording "không hoàn thành" for every sub-agent
+            // would fill the transcript with error bubbles after the user asked to stop.
+            child.setErrorMessage(AiRunCancelledException.MESSAGE);
+            child.setStatus(AiSubAgentSession.Status.CANCELLED);
+            return null;
         } catch (Exception e) {
             child.setErrorMessage(e.getMessage() != null ? e.getMessage() : e.toString());
             child.setStatus(AiSubAgentSession.Status.FAILED);

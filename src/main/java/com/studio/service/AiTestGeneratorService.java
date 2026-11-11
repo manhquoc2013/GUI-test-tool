@@ -853,6 +853,8 @@ public class AiTestGeneratorService {
                             res = retryRes;
                         }
                     }
+                } catch (AiRunCancelledException cancelled) {
+                    throw cancelled;
                 } catch (Exception ignored) {
                     // Keep initial result if retry fails
                 }
@@ -1090,6 +1092,10 @@ public class AiTestGeneratorService {
                         }
                     }
                 }
+            } catch (AiRunCancelledException cancelled) {
+                // A stop is not a transport failure: rethrowing ends the remaining batches immediately
+                // instead of listing every one of them as "lost" after the user already stopped.
+                throw cancelled;
             } catch (Exception e) {
                 // A transport failure keeps the remaining batches running; it is reported, not hidden.
                 lostBatches.add(batchNum);

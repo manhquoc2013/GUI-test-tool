@@ -123,4 +123,64 @@ public class AiChatRunRegistryTest {
         assertFalse(registry.isRunning(session.getId()));
         assertFalse(registry.isUnread(session.getId()));
     }
+
+    @Test
+    public void testCancelFlagBelongsToTheTurnItWasRaisedFor() {
+        AiChatRunRegistry registry = new AiChatRunRegistry();
+        AiChatSession session = new AiChatSession("global");
+        registry.startRun(session, "Bắt đầu");
+
+        assertFalse(registry.isCancelRequested(session.getId()),
+                "Một lượt mới chưa bị yêu cầu dừng");
+
+        registry.requestCancel(session.getId());
+        assertTrue(registry.isCancelRequested(session.getId()));
+
+        // Closing the turn drops the flag, so the next turn of the same conversation runs normally.
+        registry.finishRun(session.getId(), session.getId());
+        assertFalse(registry.isCancelRequested(session.getId()));
+
+        registry.startRun(session, "Lượt hai");
+        assertFalse(registry.isCancelRequested(session.getId()));
+    }
+
+    @Test
+    public void testStartingANewTurnClearsAStaleCancelRequest() {
+        AiChatRunRegistry registry = new AiChatRunRegistry();
+        AiChatSession session = new AiChatSession("global");
+        registry.startRun(session, "Bắt đầu");
+        registry.requestCancel(session.getId());
+
+        registry.startRun(session, "Lượt thay thế");
+
+        assertFalse(registry.isCancelRequested(session.getId()),
+                "Cờ dừng không được rò sang lượt kế tiếp");
+    }
+
+    @Test
+    public void testForgetDropsACancelRequest() {
+        AiChatRunRegistry registry = new AiChatRunRegistry();
+        AiChatSession session = new AiChatSession("global");
+        registry.startRun(session, "Bắt đầu");
+        registry.requestCancel(session.getId());
+
+        registry.forget(session.getId());
+
+        assertFalse(registry.isCancelRequested(session.getId()));
+    }
+
+    @Test
+    public void testCancelRequestsAreScopedToOneConversation() {
+        AiChatRunRegistry registry = new AiChatRunRegistry();
+        AiChatSession stopped = new AiChatSession("global");
+        AiChatSession untouched = new AiChatSession("global");
+        registry.startRun(stopped, "Bắt đầu");
+        registry.startRun(untouched, "Bắt đầu");
+
+        registry.requestCancel(stopped.getId());
+
+        assertTrue(registry.isCancelRequested(stopped.getId()));
+        assertFalse(registry.isCancelRequested(untouched.getId()));
+        assertFalse(registry.isCancelRequested(null));
+    }
 }

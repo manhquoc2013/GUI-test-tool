@@ -3,10 +3,10 @@ package com.studio.model;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * One delegated sub-agent session: an isolated unit of work that processes exactly one
@@ -42,7 +42,12 @@ public class AiSubAgentSession {
     /** Ordered transcript of this agent's own exchanges. */
     private List<AiChatMessage> messages = new ArrayList<>();
     /** Non-secret diagnostic metadata (tokens, durations). */
-    private Map<String, String> metrics = new LinkedHashMap<>();
+    /**
+     * Per-agent counters. Written by the agent worker while the token badge reads them on the FX
+     * thread, so it must be concurrent: a plain {@link java.util.LinkedHashMap} could corrupt its
+     * buckets and hang the UI thread mid-render.
+     */
+    private Map<String, String> metrics = new ConcurrentHashMap<>();
 
     public AiSubAgentSession() {
     }
@@ -186,7 +191,8 @@ public class AiSubAgentSession {
     }
 
     public void setMetrics(Map<String, String> metrics) {
-        this.metrics = metrics != null ? metrics : new LinkedHashMap<>();
+        // Wrapped, not stored as-is: deserialization (and callers) hand over a plain HashMap.
+        this.metrics = metrics != null ? new ConcurrentHashMap<>(metrics) : new ConcurrentHashMap<>();
     }
 
     /** Duration in ms for a finished agent; 0 while pending. */

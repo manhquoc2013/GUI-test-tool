@@ -29,6 +29,8 @@ public final class UiIcons {
 
     /** Double play triangle for Run Suite / Run All */
     public static final String RUN_ALL = "M 4 5 v 14 l 8 -7 Z M 12 5 v 14 l 8 -7 Z";
+    /** Square stop glyph used by the AI composer while a turn is running. */
+    public static final String STOP = "M 6 6 h 12 v 12 H 6 Z";
 
     /** Save floppy disk */
     public static final String SAVE = "M 19 21 H 5 a 2 2 0 0 1 -2 -2 V 5 a 2 2 0 0 1 2 -2 h 11 l 5 5 v 11 a 2 2 0 0 1 -2 2 Z M 7 3 v 5 h 8 V 3 Z M 7 21 h 10 v -8 H 7 Z";

@@ -45,6 +45,8 @@ public final class AiChatRunRegistry {
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
     /** Conversations that produced a result while the user was reading a different one. */
     private final Set<String> unread = ConcurrentHashMap.newKeySet();
+    /** Conversations whose in-flight turn the user asked to stop. */
+    private final Set<String> cancelRequested = ConcurrentHashMap.newKeySet();
 
     /** Registers the turn that is about to run for this conversation and returns its live state. */
     public Run startRun(AiChatSession session, String initialStatus) {
@@ -52,8 +54,22 @@ public final class AiChatRunRegistry {
             return null;
         }
         Run run = new Run(session, initialStatus);
+        // A new turn starts clean: a cancel flag belongs to the turn it was raised for.
+        cancelRequested.remove(session.getId());
         runs.put(session.getId(), run);
         return run;
+    }
+
+    /** Asks the worker of one conversation to stop at its next streamed token. */
+    public void requestCancel(String sessionId) {
+        if (sessionId != null) {
+            cancelRequested.add(sessionId);
+        }
+    }
+
+    /** True while the turn of this conversation must unwind instead of finishing. */
+    public boolean isCancelRequested(String sessionId) {
+        return sessionId != null && cancelRequested.contains(sessionId);
     }
 
     public Run getRun(String sessionId) {
@@ -83,7 +99,12 @@ public final class AiChatRunRegistry {
      * conversation leaves its result unread, so the workspace can flag it until it is opened.
      */
     public void finishRun(String sessionId, String viewedSessionId) {
-        if (sessionId == null || runs.remove(sessionId) == null) {
+        if (sessionId == null) {
+            return;
+        }
+        // The cancel flag always belongs to the turn being closed, whether or not it is still registered.
+        cancelRequested.remove(sessionId);
+        if (runs.remove(sessionId) == null) {
             return;
         }
         if (sessionId.equals(viewedSessionId)) {
@@ -126,5 +147,6 @@ public final class AiChatRunRegistry {
         }
         runs.remove(sessionId);
         unread.remove(sessionId);
+        cancelRequested.remove(sessionId);
     }
 }

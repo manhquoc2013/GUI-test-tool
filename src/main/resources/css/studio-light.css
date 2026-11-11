@@ -1620,6 +1620,54 @@
     -fx-text-fill: #475569;
 }
 
+/* Clipped, fixed-height window over the newest streamed lines: a token arriving never changes the
+   height of the transcript. */
+.ai-thinking-preview-viewport {
+    -fx-padding: 0;
+}
+/* Composer run strip: its own row, so the footer and "Gửi" keep their position while streaming. */
+.ai-run-status {
+    -fx-background-color: #eff6ff;
+    -fx-background-radius: 6;
+    -fx-border-color: #bfdbfe;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 6 10;
+}
+.ai-run-status .progress-indicator {
+    -fx-progress-color: #2563eb;
+}
+.ai-run-status-text {
+    -fx-font-size: 11px;
+    -fx-text-fill: #1d4ed8;
+    -fx-font-style: italic;
+}
+.ai-run-stop-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #dc2626;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 3 10;
+    -fx-background-radius: 4;
+    -fx-border-color: #dc2626;
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+.ai-run-stop-btn:hover {
+    -fx-background-color: #fee2e2;
+}
+.ai-run-stop-btn:disabled {
+    -fx-opacity: 0.55;
+}
+.ai-composer-footer {
+    -fx-padding: 2 0 0 0;
+}
+.ai-toolbar-status,
+.ai-toolbar-actions {
+    -fx-alignment: center-left;
+}
+
 .ai-suggestion-btn {
     -fx-background-color: #f1f5f9;
     -fx-text-fill: #475569;
