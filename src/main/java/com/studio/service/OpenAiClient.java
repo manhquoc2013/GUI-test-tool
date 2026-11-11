@@ -209,9 +209,27 @@ public class OpenAiClient {
     }
 
     /**
+     * Default output token budget when no explicit maxOutputTokens is configured.
+     * A generated Java script plus four full test cases is the largest single
+     * response, hence the larger budget for script generation.
+     */
+    public static int defaultOutputTokensFor(boolean generateScript) {
+        return generateScript ? 8192 : 4096;
+    }
+
+    /**
      * Call OpenAI Chat Completion API.
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages) throws IOException, InterruptedException {
+        return chatCompletion(config, messages, 0);
+    }
+
+    /**
+     * Call OpenAI Chat Completion API with an explicit output token budget override.
+     * Resolution order: config.maxOutputTokens (>0), then {@code outputTokenOverride} (>0),
+     * otherwise max_tokens is omitted (model default).
+     */
+    public String chatCompletion(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) throws IOException, InterruptedException {
         String baseUrl = config.getEffectiveBaseUrl();
         String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
@@ -221,7 +239,12 @@ public class OpenAiClient {
         }
 
         String targetUrl = baseUrl + "/chat/completions";
-        int requestedMaxTokens = config.getMaxTokens();
+        // Output budget is independent from the input context budget (config.maxTokens):
+        // explicit maxOutputTokens config > caller override > omit (model default).
+        int requestedMaxTokens = config.getMaxOutputTokens();
+        if (requestedMaxTokens <= 0) {
+            requestedMaxTokens = outputTokenOverride;
+        }
 
         ObjectNode root = mapper.createObjectNode();
         root.put("model", config.getEffectiveModel());
@@ -283,9 +306,6 @@ public class OpenAiClient {
         if (choices.isArray() && !choices.isEmpty()) {
             JsonNode choice0 = choices.get(0);
             String finishReason = choice0.path("finish_reason").asText("unknown");
-            JsonNode usage = resJson.path("usage");
-            int promptTokens = usage.path("prompt_tokens").asInt(0);
-            int compTokens = usage.path("completion_tokens").asInt(0);
             String content = choice0.path("message").path("content").asText("");
 
             // Xử lý các mô hình có suy luận (DeepSeek R1/V3/V4, Qwen, v.v.) khi nội dung nằm ở reasoning_content
@@ -302,6 +322,29 @@ public class OpenAiClient {
                         content = reasoning;
                     }
                 }
+            }
+
+            // Token usage: extracted in its own try/catch so a malformed or absent usage
+            // object can never fail the call. Only counts are logged — never the API key,
+            // prompt body or response body.
+            int promptTokens = 0;
+            int compTokens = 0;
+            try {
+                JsonNode usage = resJson.path("usage");
+                promptTokens = usage.path("prompt_tokens").asInt(0);
+                compTokens = usage.path("completion_tokens").asInt(0);
+                int totalTokens = usage.path("total_tokens").asInt(0);
+                int cachedTokens = usage.path("prompt_tokens_details").path("cached_tokens").asInt(-1);
+                String cachedDesc = cachedTokens >= 0 ? String.valueOf(cachedTokens) : "n/a";
+                AiLoggingService.info("AI-USAGE",
+                        "model=" + config.getEffectiveModel()
+                                + " | prompt_tokens=" + promptTokens
+                                + " | completion_tokens=" + compTokens
+                                + " | cached_tokens=" + cachedDesc
+                                + " | total_tokens=" + totalTokens
+                                + " | elapsed_ms=" + latency);
+            } catch (Exception e) {
+                AiLoggingService.debug("AI-USAGE", "Không thể đọc usage từ phản hồi (" + e.getClass().getSimpleName() + ").");
             }
 
             AiLoggingService.info("AI-RESPONSE", "Thành công HTTP 200 sau " + latency + "ms | finish_reason=" + finishReason

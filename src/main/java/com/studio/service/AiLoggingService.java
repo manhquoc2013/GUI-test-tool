@@ -65,6 +65,10 @@ public final class AiLoggingService {
         log("INFO", category, message);
     }
 
+    public static void debug(String category, String message) {
+        log("DEBUG", category, message);
+    }
+
     public static void warn(String category, String message) {
         log("WARN", category, message);
     }

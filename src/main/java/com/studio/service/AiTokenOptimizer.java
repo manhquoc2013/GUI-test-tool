@@ -185,6 +185,7 @@ public class AiTokenOptimizer {
 
         if (starts.size() <= 1) {
             String truncated = cleaned.substring(0, effectiveMax) + "\n... [Nội dung đã được lược bớt để tối ưu token]";
+            logDocTruncation(doc, raw.length(), truncated.length());
             return new ParsedDocument(doc.getFileName(), doc.getPath(), false, truncated, doc.getMimeType(), truncated.length());
         }
 
@@ -220,7 +221,24 @@ public class AiTokenOptimizer {
         }
 
         String result = sb.toString().trim();
+        logDocTruncation(doc, raw.length(), result.length());
         return new ParsedDocument(doc.getFileName(), doc.getPath(), false, result, doc.getMimeType(), result.length());
+    }
+
+    /**
+     * Logs the character loss when a document is truncated/compressed, so truncation is observable
+     * instead of silent. Includes the file name, requested vs delivered characters and percentage kept.
+     */
+    private static void logDocTruncation(ParsedDocument doc, int charsRequested, int charsDelivered) {
+        if (charsDelivered >= charsRequested) {
+            return;
+        }
+        double pctKept = charsRequested > 0 ? (charsDelivered * 100.0 / charsRequested) : 0.0;
+        AiLoggingService.warn("DOC-TRUNC",
+                "file=" + doc.getFileName()
+                        + ", charsRequested=" + charsRequested
+                        + ", charsDelivered=" + charsDelivered
+                        + ", pctKept=" + Math.round(pctKept) + "%");
     }
 
     /**
@@ -336,18 +354,72 @@ public class AiTokenOptimizer {
 
         List<String> imageUrls = new ArrayList<>();
         if (attachments != null && !attachments.isEmpty()) {
-            long textDocCount = attachments.stream().filter(d -> d != null && !d.isImage()).count();
+            List<ParsedDocument> textDocs = attachments.stream()
+                    .filter(d -> d != null && !d.isImage())
+                    .toList();
+            int textDocCount = textDocs.size();
             int totalDocCharBudget = Math.max(8000, Math.min(96000, contextLimit * 2));
-            int perDocMaxChars = textDocCount > 0 ? (int) Math.max(8000, totalDocCharBudget / textDocCount) : DEFAULT_MAX_DOC_CHARS;
+
+            // AG-9: two-pass water-filling document allowance instead of an equal split. A document
+            // shorter than its fair share only takes its own length, freeing the remainder for long
+            // documents; the total granted never exceeds totalDocCharBudget and no document is ever
+            // granted more than its own content length.
+            int[] docAllowances = new int[textDocCount];
+            if (textDocCount > 0) {
+                int fairShare = totalDocCharBudget / textDocCount;
+                long granted = 0;
+                // Pass 1: every document gets min(contentLength, fairShare).
+                for (int i = 0; i < textDocCount; i++) {
+                    int len = textDocs.get(i).getContent() != null ? textDocs.get(i).getContent().length() : 0;
+                    docAllowances[i] = Math.min(len, fairShare);
+                    granted += docAllowances[i];
+                }
+                // Pass 2: redistribute the unused remainder equally to documents still short of their
+                // full length, until the budget is exhausted or every document is fully covered.
+                long remaining = totalDocCharBudget - granted;
+                while (remaining > 0) {
+                    int stillShort = 0;
+                    for (int i = 0; i < textDocCount; i++) {
+                        int len = textDocs.get(i).getContent() != null ? textDocs.get(i).getContent().length() : 0;
+                        if (docAllowances[i] < len) {
+                            stillShort++;
+                        }
+                    }
+                    if (stillShort == 0) {
+                        break;
+                    }
+                    int share = (int) Math.max(1, remaining / stillShort);
+                    boolean progressed = false;
+                    for (int i = 0; i < textDocCount; i++) {
+                        int len = textDocs.get(i).getContent() != null ? textDocs.get(i).getContent().length() : 0;
+                        if (docAllowances[i] < len) {
+                            int grant = (int) Math.min(Math.min(len - docAllowances[i], share), remaining);
+                            if (grant > 0) {
+                                docAllowances[i] += grant;
+                                remaining -= grant;
+                                progressed = true;
+                            }
+                        }
+                    }
+                    if (!progressed) {
+                        break;
+                    }
+                }
+            }
 
             userContent.append("### Tài liệu đính kèm (đã tối ưu):\n");
+            int textIdx = 0;
             for (ParsedDocument doc : attachments) {
                 if (doc == null) continue;
                 if (doc.isImage()) {
                     imageUrls.add(doc.getContent());
                     userContent.append("- Hình ảnh UI: ").append(doc.getFileName()).append(" (đã đính kèm ảnh)\n");
                 } else {
-                    ParsedDocument compDoc = compressDocumentSmart(doc, perDocMaxChars);
+                    int allowance = DEFAULT_MAX_DOC_CHARS;
+                    if (textDocCount > 0) {
+                        allowance = docAllowances[textIdx++];
+                    }
+                    ParsedDocument compDoc = compressDocumentSmart(doc, allowance);
                     userContent.append("- Tên file: ").append(compDoc.getFileName()).append("\n");
                     userContent.append("```\n").append(compDoc.getContent()).append("\n```\n\n");
                 }

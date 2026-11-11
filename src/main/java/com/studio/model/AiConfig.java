@@ -16,6 +16,7 @@ public class AiConfig {
     private String model = DEFAULT_MODEL;
     private double temperature = DEFAULT_TEMPERATURE;
     private int maxTokens = DEFAULT_MAX_TOKENS;
+    private int maxOutputTokens = 0; // 0 = tự động chọn theo chế độ (resolve from mode)
 
     public AiConfig() {
     }
@@ -72,6 +73,18 @@ public class AiConfig {
 
     public void setMaxTokens(int maxTokens) {
         this.maxTokens = Math.max(0, maxTokens);
+    }
+
+    /**
+     * Output token budget for the provider's max_tokens parameter.
+     * 0 = resolve from mode (see OpenAiClient.defaultOutputTokensFor).
+     */
+    public int getMaxOutputTokens() {
+        return maxOutputTokens;
+    }
+
+    public void setMaxOutputTokens(int maxOutputTokens) {
+        this.maxOutputTokens = Math.max(0, maxOutputTokens);
     }
 
     @JsonIgnore

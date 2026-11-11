@@ -723,6 +723,42 @@ public class AiTestGeneratorService {
      * Groups screens into manageable batches (e.g. 2 screens per batch), calls the LLM per batch,
      * parses the responses, and aggregates test cases into a unified result.
      */
+    /**
+     * Average character length of the screen sections in this run; 0 when there is nothing to measure.
+     */
+    static int avgScreenChars(List<AiMultiAgentCoordinator.ScreenSpecSection> screens) {
+        if (screens == null || screens.isEmpty()) {
+            return 0;
+        }
+        long total = 0;
+        for (AiMultiAgentCoordinator.ScreenSpecSection s : screens) {
+            String c = s.sectionContent();
+            total += c != null ? c.length() : 0;
+        }
+        return (int) (total / screens.size());
+    }
+
+    /**
+     * AG-2: one screen per batch when generating scripts (largest response), otherwise the input
+     * budget divided by the average screen size, clamped to 1..3.
+     */
+    static int resolveBatchSize(AiConfig config,
+                                List<AiMultiAgentCoordinator.ScreenSpecSection> screens,
+                                boolean generateScript) {
+        if (generateScript) {
+            return 1;
+        }
+        int avg = avgScreenChars(screens);
+        if (avg <= 0) {
+            return 2;
+        }
+        int inputBudget = config != null && config.getMaxTokens() > 0
+                ? config.getMaxTokens()
+                : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        int computed = inputBudget / avg;
+        return Math.max(1, Math.min(3, computed));
+    }
+
     private GenerationResult orchestrateMultiScreenBatches(
             AiConfig config,
             String effectivePrompt,
@@ -734,9 +770,16 @@ public class AiTestGeneratorService {
             boolean effectiveGenerateScript,
             List<AiMultiAgentCoordinator.ScreenSpecSection> screens,
             java.util.function.Consumer<String> progressListener) {
-        int batchSize = 2; // 2 screens per LLM batch ensures sufficient output token capacity for 8-10 cases
         int totalScreens = screens.size();
+        // AG-2: batch size is derived, not guessed. A script-bearing batch is the largest single
+        // response (a Java script plus 4 full cases), so it runs one screen per batch; otherwise the
+        // size follows the input budget divided by the average screen size, clamped to 1..3.
+        int batchSize = resolveBatchSize(config, screens, effectiveGenerateScript);
         int totalBatches = (int) Math.ceil((double) totalScreens / batchSize);
+        AiLoggingService.info("AI-BATCH", "screens=" + totalScreens
+                + " | batchSize=" + batchSize
+                + " | avgScreenChars=" + avgScreenChars(screens)
+                + " | generateScript=" + effectiveGenerateScript);
 
         List<AiGeneratedCase> aggregatedCases = new ArrayList<>();
         String primaryGroup = null;
