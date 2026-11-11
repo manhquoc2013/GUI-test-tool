@@ -115,9 +115,9 @@ public class AiAgentIndexingAndOptimizationTest {
     public void testConciseChatSummaryWithoutRawCodeAndArtifactPersistence() throws Exception {
         OpenAiClient mockClient = new OpenAiClient() {
             @Override
-            public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
                 // Simulate LLM returning verbose markdown + code blocks inside summary and a single case
-                return """
+                return new Completion("""
                         ```json
                         {
                           "summary": "# Báo cáo chi tiết\\nĐây là bản phân tích chức năng Đặt phòng khách sạn.\\n```java\\npublic class RawDumpInChat {}\\n```\\n| Cột 1 | Cột 2 |\\n|---|---|\\n| A | B |",
@@ -138,7 +138,7 @@ public class AiAgentIndexingAndOptimizationTest {
                           ]
                         }
                         ```
-                        """;
+                        """, "stop");
             }
         };
 

@@ -208,6 +208,11 @@ public class OpenAiClient {
         }
     }
 
+    /** Hard ceiling for an escalated output budget: most chat models reject anything larger. */
+    public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
+    /** Floor used when a reply was cut while no explicit budget was configured. */
+    static final int MIN_OUTPUT_TOKENS_FOR_ESCALATION = 4096;
+
     /**
      * Default output token budget when no explicit maxOutputTokens is configured.
      * A generated Java script plus four full test cases is the largest single
@@ -218,10 +223,30 @@ public class OpenAiClient {
     }
 
     /**
+     * One completed model reply plus why it stopped. {@code truncated} is true when the provider
+     * stopped on the output token limit — the content may be cut mid-JSON, which must be handled by
+     * the caller instead of being treated as a malformed answer.
+     */
+    public record Completion(String content, String finishReason) {
+        public boolean truncated() {
+            return "length".equalsIgnoreCase(finishReason);
+        }
+    }
+
+    /**
      * Call OpenAI Chat Completion API.
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages) throws IOException, InterruptedException {
         return chatCompletion(config, messages, 0);
+    }
+
+    /**
+     * Same call as {@link #chatCompletion(AiConfig, List)} but also returns the stop reason, so a
+     * reply cut off by the output limit can be salvaged or retried rather than dropped.
+     */
+    public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+            throws IOException, InterruptedException {
+        return executeChat(config, messages, outputTokenOverride);
     }
 
     /**
@@ -230,6 +255,35 @@ public class OpenAiClient {
      * otherwise max_tokens is omitted (model default).
      */
     public String chatCompletion(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) throws IOException, InterruptedException {
+        Completion completion = executeChat(config, messages, outputTokenOverride);
+        if (completion.truncated()) {
+            // The caller asked for a plain string, so it cannot act on the stop reason. Retry once with a
+            // larger budget here rather than handing back a half-written script as if it were complete.
+            int budget = resolveOutputBudget(config, outputTokenOverride);
+            int escalated = Math.min(MAX_OUTPUT_TOKENS_CEILING,
+                    Math.max(budget, MIN_OUTPUT_TOKENS_FOR_ESCALATION) * 2);
+            if (escalated > budget) {
+                AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, chạy lại với max_tokens=" + escalated
+                        + " (trước: " + (budget > 0 ? String.valueOf(budget) : "mặc định model") + ")");
+                Completion retry = executeChat(config, messages, escalated);
+                if (!retry.content().isBlank() && retry.content().length() >= completion.content().length()) {
+                    return retry.content();
+                }
+            }
+        }
+        return completion.content();
+    }
+
+    /** The output budget a request would actually send, mirroring the resolution in executeChat. */
+    static int resolveOutputBudget(AiConfig config, int outputTokenOverride) {
+        if (config != null && config.getMaxOutputTokens() > 0) {
+            return config.getMaxOutputTokens();
+        }
+        return Math.max(0, outputTokenOverride);
+    }
+
+    private Completion executeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+            throws IOException, InterruptedException {
         String baseUrl = config.getEffectiveBaseUrl();
         String provider = resolveProviderName(baseUrl);
         String apiKey = config.getEffectiveApiKey();
@@ -353,10 +407,10 @@ public class OpenAiClient {
             if ("length".equalsIgnoreCase(finishReason)) {
                 AiLoggingService.warn("AI-RESPONSE", "⚠️ Phản hồi bị CẮT NGANG do chạm giới hạn token (finish_reason=length)! Hệ thống sẽ tự động kích hoạt cơ chế vá JSON để phục hồi kịch bản.");
             }
-            return content;
+            return new Completion(content, finishReason);
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi HTTP 200 nhưng không tìm thấy choices[] hợp lệ.");
-        return "";
+        return new Completion("", "missing");
     }
 
     public static String extractErrorMessage(String responseBody) {

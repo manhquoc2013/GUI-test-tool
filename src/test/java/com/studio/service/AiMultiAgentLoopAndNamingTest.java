@@ -90,14 +90,14 @@ public class AiMultiAgentLoopAndNamingTest {
         AtomicInteger callCount = new AtomicInteger(0);
         OpenAiClient mockClient = new OpenAiClient() {
             @Override
-            public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
                 int step = callCount.incrementAndGet();
                 if (step == 1) {
                     // First attempt returns unstructured text with 0 cases
-                    return "Tôi đã phân tích yêu cầu chức năng giỏ hàng của bạn.";
+                    return new Completion("Tôi đã phân tích yêu cầu chức năng giỏ hàng của bạn.", "stop");
                 }
                 // Second attempt (triggered by Loop Engineer self-correction) returns structured JSON
-                return """
+                return new Completion("""
                         ```json
                         {
                           "summary": "Bộ kịch bản kiểm thử chức năng Giỏ hàng & Thanh toán",
@@ -124,11 +124,20 @@ public class AiMultiAgentLoopAndNamingTest {
                           ]
                         }
                         ```
-                        """;
+                        """, "stop");
             }
         };
 
-        AiTestGeneratorService service = new AiTestGeneratorService(mockClient, new ObjectMapper());
+        // The generation path now calls completeChat directly (to read finish_reason); delegate so this
+        // mock keeps exercising the same scripted replies.
+        OpenAiClient delegating = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+                    throws java.io.IOException, InterruptedException {
+                return mockClient.completeChat(config, messages, outputTokenOverride);
+            }
+        };
+        AiTestGeneratorService service = new AiTestGeneratorService(delegating, new ObjectMapper());
         AiConfig config = new AiConfig();
         config.setApiKey("sk-test-key");
 

@@ -74,12 +74,12 @@ public class AiMultiAgentBatchRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public String chatCompletion(AiConfig config, List<OpenAiClient.ChatMessage> messages) {
+            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride) {
                 // First attempt of the very first batch answers with prose, exactly like the production log.
                 if (calls.getAndIncrement() == 0) {
-                    return "Tôi đã phân tích yêu cầu chức năng giỏ hàng của bạn.";
+                    return new Completion("Tôi đã phân tích yêu cầu chức năng giỏ hàng của bạn.", "stop");
                 }
-                return CASE_JSON;
+                return new Completion(CASE_JSON, "stop");
             }
         };
 
@@ -96,12 +96,12 @@ public class AiMultiAgentBatchRecoveryTest {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
             @Override
-            public String chatCompletion(AiConfig config, List<OpenAiClient.ChatMessage> messages) {
+            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages, int outputTokenOverride) {
                 // Every reply for the first batch stays prose; later batches answer correctly.
                 if (calls.getAndIncrement() < 2) {
-                    return "Tôi sẽ thiết kế kịch bản kiểm thử cho bạn ngay sau đây.";
+                    return new Completion("Tôi sẽ thiết kế kịch bản kiểm thử cho bạn ngay sau đây.", "stop");
                 }
-                return CASE_JSON;
+                return new Completion(CASE_JSON, "stop");
             }
         };
 

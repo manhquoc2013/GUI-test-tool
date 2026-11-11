@@ -199,10 +199,10 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
 
                 OpenAiClient mockBatchClient = new OpenAiClient() {
                         @Override
-                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
                                 int call = batchInvocations.incrementAndGet();
                                 // Return 8 cases per batch of 2 screens
-                                return """
+                                return new Completion("""
                                                 ```json
                                                 {
                                                   "summary": "Đã thiết kế các test case cho lô màn hình",
@@ -214,7 +214,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                                   ]
                                                 }
                                                 ```
-                                                """;
+                                                """, "stop");
                         }
                 };
 
@@ -265,8 +265,8 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
         void testScenarioOnlyPrompt_GeneratesScenariosWithoutAutomationScript() throws Exception {
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
-                                return """
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                                return new Completion("""
                                                 ```json
                                                 {
                                                   "summary": "Đã thiết kế 3 kịch bản kiểm thử chuẩn QA/ISTQB",
@@ -290,7 +290,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                                   ]
                                                 }
                                                 ```
-                                                """;
+                                                """, "stop");
                         }
                 };
 
@@ -324,8 +324,8 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
         void testTestCaseAndScriptPrompt_EnablesAutomationScript() throws Exception {
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
-                                return """
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                                return new Completion("""
                                                 ```json
                                                 {
                                                   "summary": "Đã sinh test case và test script runnable",
@@ -345,7 +345,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                                   ]
                                                 }
                                                 ```
-                                                """;
+                                                """, "stop");
                         }
                 };
 
@@ -381,8 +381,8 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
 
                 OpenAiClient mockClient = new OpenAiClient() {
                         @Override
-                        public String chatCompletion(AiConfig config, List<ChatMessage> messages) {
-                                return """
+                        public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                                return new Completion("""
                                                 ```json
                                                 {
                                                   "summary": "Đã thiết kế trọn gói cả 2: Kịch bản kiểm thử QA và Mã Playwright Java Automation",
@@ -405,7 +405,7 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                                   ]
                                                 }
                                                 ```
-                                                """;
+                                                """, "stop");
                         }
                 };
 

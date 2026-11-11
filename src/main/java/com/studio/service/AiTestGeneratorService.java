@@ -125,6 +125,7 @@ public class AiTestGeneratorService {
         private int batchRetries;
         private List<Integer> lostBatches = new ArrayList<>();
         private int totalScreensInRequest;
+        private boolean outputTruncated;
 
         public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse) {
             this(summary, cases, rawResponse, false, List.of(), "GENERATE_TESTS");
@@ -218,6 +219,21 @@ public class AiTestGeneratorService {
             return "⚠️ " + lostBatches.size() + " lô màn hình không trả về test case sau khi tự hiệu chỉnh (lô "
                     + lostBatches + " / tổng " + totalScreensInRequest + " màn hình). "
                     + "Bộ test case bên dưới CHƯA phủ đủ toàn bộ màn hình.";
+        }
+
+        /** True when the final reply still stopped on the output limit; the suite may be short. */
+        public void setOutputTruncated(boolean outputTruncated) {
+            this.outputTruncated = outputTruncated;
+        }
+
+        public boolean isOutputTruncated() {
+            return outputTruncated;
+        }
+
+        public String describeOutputTruncation() {
+            return outputTruncated
+                    ? "⚠️ Phản hồi bị cắt do chạm giới hạn output tokens; bộ test case có thể thiếu phần cuối (scriptCode dài nhất)."
+                    : "";
         }
 
         public AiMultiAgentCoordinator.AgentReviewReport getAgentReviewReport() {
@@ -692,6 +708,9 @@ public class AiTestGeneratorService {
                 && effectiveSkill != AiSkill.SECURITY_FUZZING);
 
         GenerationResult res = null;
+        // Set when the model stopped on the output limit: the suite may be missing a tail, which the
+        // user needs to see rather than receiving a silently short answer.
+        boolean outputTruncated = false;
         List<AiMultiAgentCoordinator.ScreenSpecSection> screens =
                 AiMultiAgentCoordinator.extractScreenSections(effectivePrompt, attachments);
         if (expectsTestCases && screens.size() >= 2) {
@@ -700,6 +719,9 @@ public class AiTestGeneratorService {
                     effectiveSkill, effectiveGenerateScript, screens, progressListener);
             if (multiBatchRes != null && multiBatchRes.getCases() != null && !multiBatchRes.getCases().isEmpty()) {
                 res = multiBatchRes;
+                // Multi-batch already reports its own per-batch losses; a truncated single reply is not
+                // the failure mode here, so do not claim one.
+                outputTruncated = false;
             }
         }
 
@@ -707,14 +729,43 @@ public class AiTestGeneratorService {
             if (progressListener != null) {
                 progressListener.accept("✍️ [Agent 2/4 - Test Architect] Đang thiết kế Test Case & Kịch bản [" + effectiveSkill.getDisplayName() + "] (" + config.getEffectiveModel() + ")...");
             }
-
-            String reply = openAiClient.chatCompletion(config, messages);
+            outputTruncated = false;
+            OpenAiClient.Completion completion = openAiClient.completeChat(config, messages,
+                    OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript));
+            String reply = completion.content();
 
             if (isChatAdvice) {
                 return new GenerationResult(reply.trim(), List.of(), reply, false, List.of(), "CHAT_ADVICE");
             }
 
             res = parseResponse(reply, effectiveSkill);
+
+            // A reply cut off at the output limit (“scriptCode” for four cases is the biggest single
+            // response) parses to nothing or to a half-written case. Treat it as recoverable: keep any
+            // cases that did parse, and ask once more with a larger, capped output budget.
+            if (completion.truncated()) {
+                outputTruncated = true;
+                AiLoggingService.warn("AI-PARSE", "Phản hồi chạm trần output_tokens (" + res.getCases().size()
+                        + " case còn đọc được); chạy lại với ngân sách output lớn hơn");
+                if (progressListener != null) {
+                    progressListener.accept("🔄 [Agent 4/4 - Loop Engineer] Phản hồi bị cắt do giới hạn token, đang chạy lại với ngân sách lớn hơn...");
+                }
+                try {
+                    OpenAiClient.Completion retry = completeChatWithTruncationRecovery(config, messages,
+                            Math.min(MAX_OUTPUT_TOKENS_CEILING,
+                                    Math.max(OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript),
+                                            requestedOutputBudget(config, effectiveGenerateScript)) * 2));
+                    if (retry.content() != null && !retry.content().isBlank()) {
+                        GenerationResult retryRes = parseResponse(retry.content(), effectiveSkill);
+                        if (retryRes.getCases() != null && retryRes.getCases().size() > res.getCases().size()) {
+                            res = retryRes;
+                            outputTruncated = retry.truncated();
+                        }
+                    }
+                } catch (Exception e) {
+                    AiLoggingService.warn("AI-PARSE", "Lượt chạy lại sau khi cắt token thất bại: " + e.getMessage());
+                }
+            }
 
             // Agent 4 (Loop Engineer): If LLM failed to produce any test cases on first pass for a JSON test skill,
             // execute 1 autonomous self-correction loop retry with explicit Reality Checker feedback.
@@ -728,7 +779,10 @@ public class AiTestGeneratorService {
                         "[LOOP ENGINEER SELF-CORRECTION]: Phản hồi trước chưa xuất đúng mảng JSON `cases`. "
                                 + "Hãy xuất NGAY đối tượng JSON hợp lệ chứa `summary`, `suggestedGroup`, `suggestedSuite` và mảng `cases` (tối thiểu 2-3 test cases đầy đủ `testSteps`, `testDataSets`, `assertions`)."));
                 try {
-                    String retryReply = openAiClient.chatCompletion(config, retryMessages);
+                    OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
+                            retryMessages,
+                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript));
+                    String retryReply = retryCompletion.content();
                     if (retryReply != null && !retryReply.isBlank()) {
                         GenerationResult retryRes = parseResponse(retryReply, effectiveSkill);
                         if (retryRes.getCases() != null && !retryRes.getCases().isEmpty()) {
@@ -754,6 +808,7 @@ public class AiTestGeneratorService {
         AiMultiAgentCoordinator.AgentReviewReport reviewReport = multiAgentCoordinator.reviewAndHealResult(
                 res, effectivePrompt, attachments, effectiveGenerateScript, this, progressListener);
         res.setAgentReviewReport(reviewReport);
+        res.setOutputTruncated(outputTruncated);
 
         // Persist full .md report, .json bundle, scripts/*.java, and assertions/*_assertions.json in data/ai_artifacts/
         // and replace the chat bubble summary with a concise, code-free executive summary
@@ -835,6 +890,8 @@ public class AiTestGeneratorService {
         StringBuilder combinedSummary = new StringBuilder();
         int batchRetryCount = 0;
         List<Integer> lostBatches = new ArrayList<>();
+        // A batch that stays cut even after the escalated retry loses its tail; carry that onto the result.
+        boolean outputTruncationNoted = false;
 
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
 
@@ -878,7 +935,15 @@ public class AiTestGeneratorService {
             );
 
             try {
-                String reply = openAiClient.chatCompletion(config, batchMessages);
+                OpenAiClient.Completion batchCompletion = completeChatWithTruncationRecovery(config, batchMessages,
+                        OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript));
+                String reply = batchCompletion.content();
+                if (batchCompletion.truncated()) {
+                    // A cut batch yields a half-written case list; say so instead of passing it off as complete.
+                    outputTruncationNoted = true;
+                    AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                            + " bị cắt do giới hạn output tokens dù đã thử lại với ngân sách lớn hơn");
+                }
                 // A model can answer a batch with prose instead of the JSON contract (observed in
                 // production: "Tôi đã phân tích yêu cầu..."). Retry that one batch once, exactly like
                 // the single-shot path does, and count the batch as lost only if the retry fails too.
@@ -886,7 +951,13 @@ public class AiTestGeneratorService {
                     batchRetryCount++;
                     AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
                             + " không trả JSON cases, chạy lại một lượt tự hiệu chỉnh");
-                    String retryReply = openAiClient.chatCompletion(config, buildBatchRetryMessages(batchMessages, reply));
+                    OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
+                            buildBatchRetryMessages(batchMessages, reply),
+                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript));
+                    String retryReply = retryCompletion.content();
+                    if (retryCompletion.truncated()) {
+                        outputTruncationNoted = true;
+                    }
                     if (containsExtractableCases(retryReply)) {
                         reply = retryReply;
                     } else {
@@ -931,6 +1002,7 @@ public class AiTestGeneratorService {
         // The Reality Checker and the user both need to see a batch that never produced cases:
         // a silently short suite looks complete while an entire screen group is missing.
         result.setLostBatchReport(batchRetryCount, List.copyOf(lostBatches), totalScreens);
+        result.setOutputTruncated(outputTruncationNoted);
         result.setSuggestedGroup(primaryGroup);
         result.setSuggestedSuite(primarySuite);
         return result;
@@ -1055,6 +1127,37 @@ public class AiTestGeneratorService {
         }
         String flat = reply.replaceAll("\\s+", " ").trim();
         return flat.length() > 160 ? flat.substring(0, 157) + "..." : flat;
+    }
+
+    /** Hard ceiling for an output budget increase: models beyond this reject the request outright. */
+    static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
+
+    /**
+     * One model call with output-limit recovery. When the reply stopped on {@code length} the client
+     * itself retries once with a doubled, capped budget; this wrapper covers only a client that overrides
+     * {@code completeChat} (tests, alternative transports) so callers always get a recovery attempt.
+     */
+    OpenAiClient.Completion completeChatWithTruncationRecovery(AiConfig config,
+                                                               List<OpenAiClient.ChatMessage> messages,
+                                                               int outputBudget) throws IOException, InterruptedException {
+        OpenAiClient.Completion completion = openAiClient.completeChat(config, messages, outputBudget);
+        if (!completion.truncated()) {
+            return completion;
+        }
+        int escalated = Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(outputBudget, outputBudget * 2));
+        if (escalated <= outputBudget) {
+            return completion;
+        }
+        AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, thử lại với max_tokens=" + escalated);
+        OpenAiClient.Completion retry = openAiClient.completeChat(config, messages, escalated);
+        return retry.content() == null || retry.content().length() < completion.content().length()
+                ? completion : retry;
+    }
+
+    /** The output budget actually in force for this request (explicit config wins over the mode default). */
+    static int requestedOutputBudget(AiConfig config, boolean generateScript) {
+        int configured = config != null ? config.getMaxOutputTokens() : 0;
+        return configured > 0 ? configured : OpenAiClient.defaultOutputTokensFor(generateScript);
     }
 
     /** Replace the definition source (tests point it at a fixture directory; production uses the app home). */
