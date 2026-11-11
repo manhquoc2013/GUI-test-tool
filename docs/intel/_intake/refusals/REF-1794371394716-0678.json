@@ -1,8 +1,0 @@
-{
-  "at": 1794371394715,
-  "kind": "target_module_not_found",
-  "change_class": "C1",
-  "shape": "scaffolded",
-  "candidate_files": 7,
-  "detail": "target_module M-003 has no folder under docs/modules"
-}

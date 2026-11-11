@@ -1,8 +1,0 @@
-{
-  "at": 1794116249348,
-  "kind": "target_module_not_found",
-  "change_class": "C3",
-  "shape": "scaffolded",
-  "candidate_files": 5,
-  "detail": "target_module M-001-Explorer-Suite-Workspace has no folder under docs/modules"
-}
