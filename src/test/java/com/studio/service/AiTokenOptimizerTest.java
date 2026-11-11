@@ -1,6 +1,7 @@
 package com.studio.service;
 
 import com.studio.model.AiChatMessage;
+import com.studio.model.AiGeneratedCase;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -71,10 +72,13 @@ public class AiTokenOptimizerTest {
         // Second message should be summary of pruned turns
         assertTrue(optimized.get(1).getTextContent().contains("Ngữ cảnh tóm tắt"));
 
-        // Last message should be current user prompt
-        OpenAiClient.ChatMessage last = optimized.get(optimized.size() - 1);
-        assertEquals("user", last.getRole());
-        assertTrue(last.getTextContent().contains("Current prompt"));
+        // The user's current prompt is the last user message; retained conversation state (if any)
+        // follows it as a trailing system note so trimming can never drop it.
+        OpenAiClient.ChatMessage lastUser = optimized.stream()
+                .filter(m -> "user".equals(m.getRole()))
+                .reduce((a, b) -> b)
+                .orElseThrow();
+        assertTrue(lastUser.getTextContent().contains("Current prompt"));
 
         // Check that older message #1 is not directly in the list, but message #20 is
         boolean hasMsg1 = optimized.stream().anyMatch(m -> "Message #1".equals(m.getTextContent()));
@@ -201,6 +205,67 @@ public class AiTokenOptimizerTest {
 
         assertTrue(totalTokens <= maxTokensBudget + 500,
                 "Optimized context must strictly respect token budget. Expected <= " + (maxTokensBudget + 500) + ", got: " + totalTokens);
+    }
+
+    /**
+     * A follow-up turn in the same conversation must still know what earlier turns established:
+     * the screens already covered, the generated case names (so nothing is duplicated) and the
+     * business group/suite being refined. These facts used to vanish with the sliding window.
+     */
+    @Test
+    public void retainedConversationStateSurvivesTheSlidingWindow() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+        List<AiChatMessage> history = new ArrayList<>();
+
+        AiChatMessage first = new AiChatMessage("user",
+                "Thiết kế test case cho 2 màn hình Đăng nhập và Giỏ hàng");
+        first.setRawPrompt("Thiết kế test case cho 2 màn hình Đăng nhập và Giỏ hàng");
+        history.add(first);
+
+        AiChatMessage answer = new AiChatMessage("assistant", "Đã tạo 2 test case.");
+        answer.setSuggestedGroup("MuaHang");
+        answer.setSuggestedSuite("KiemThu_MuaHang");
+        AiGeneratedCase existing = new AiGeneratedCase();
+        existing.setName("TC01_DangNhap_HappyPath");
+        answer.setGeneratedCasesSnapshot(List.of(existing));
+        history.add(answer);
+
+        // Push the first turn well past the sliding window with filler turns.
+        for (int i = 0; i < 20; i++) {
+            history.add(new AiChatMessage(i % 2 == 0 ? "user" : "assistant", "lượt trung gian #" + i));
+        }
+
+        List<OpenAiClient.ChatMessage> messages = optimizer.buildOptimizedMessages(
+                "You are an expert QA tester.",
+                history,
+                "Thêm case cho màn Giỏ hàng",
+                List.of(),
+                "Suite Info",
+                null,
+                20000,
+                2);
+
+        String retained = messages.stream()
+                .filter(m -> "system".equals(m.getRole()))
+                .map(OpenAiClient.ChatMessage::getTextContent)
+                .reduce("", String::concat);
+
+        assertTrue(retained.contains("MuaHang"), "business group must survive trimming");
+        assertTrue(retained.contains("KiemThu_MuaHang"), "suite name must survive trimming");
+        assertTrue(retained.contains("TC01_DangNhap_HappyPath"),
+                "already-generated case names must survive so new cases do not duplicate them");
+        assertTrue(retained.contains("Giỏ hàng"), "screens named in earlier turns must survive trimming");
+        assertEquals("system", messages.get(messages.size() - 1).getRole(),
+                "retained state must be the last thing the model reads before answering");
+    }
+
+    @Test
+    public void retainedStateIsEmptyForTheFirstTurn() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+
+        String retained = optimizer.buildRetainedConversationState(List.of(), "Tạo test case", List.of());
+
+        assertEquals("", retained);
     }
 }
 

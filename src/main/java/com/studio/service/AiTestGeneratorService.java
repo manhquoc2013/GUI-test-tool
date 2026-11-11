@@ -73,6 +73,8 @@ public class AiTestGeneratorService {
     private final AiProjectAdvisorService advisorService;
     private final AiMultiAgentCoordinator multiAgentCoordinator;
     private final AiAgentIndexService agentIndexService;
+    /** Definitions from .agents/*.md and skills/<name>/SKILL.md that now reach the model prompt. */
+    private AiAgentDefinitionLoader definitionLoader = AiAgentDefinitionLoader.defaultInstance();
 
     public AiTestGeneratorService() {
         this(new OpenAiClient(), new ObjectMapper(), new AiTokenOptimizer(), new AiAmbiguityAnalyzer(), new AiProjectAdvisorService(), new AiMultiAgentCoordinator(), new AiAgentIndexService());
@@ -120,6 +122,9 @@ public class AiTestGeneratorService {
         private String suggestedSuite;
         private AiMultiAgentCoordinator.AgentReviewReport agentReviewReport;
         private Path artifactDir;
+        private int batchRetries;
+        private List<Integer> lostBatches = new ArrayList<>();
+        private int totalScreensInRequest;
 
         public GenerationResult(String summary, List<AiGeneratedCase> cases, String rawResponse) {
             this(summary, cases, rawResponse, false, List.of(), "GENERATE_TESTS");
@@ -177,6 +182,42 @@ public class AiTestGeneratorService {
 
         public void setSuggestedSuite(String suggestedSuite) {
             this.suggestedSuite = suggestedSuite;
+        }
+
+        /**
+         * Records which multi-batch slices never produced cases even after the self-correction
+         * retry, so a short suite is visible instead of silently missing a screen group.
+         */
+        public void setLostBatchReport(int retriedBatches, List<Integer> lostBatchNumbers, int totalScreens) {
+            this.batchRetries = retriedBatches;
+            this.lostBatches = lostBatchNumbers != null ? new ArrayList<>(lostBatchNumbers) : new ArrayList<>();
+            this.totalScreensInRequest = totalScreens;
+        }
+
+        public int getBatchRetries() {
+            return batchRetries;
+        }
+
+        public List<Integer> getLostBatches() {
+            return lostBatches;
+        }
+
+        public int getTotalScreensInRequest() {
+            return totalScreensInRequest;
+        }
+
+        /** True when at least one batch was lost even after retrying it. */
+        public boolean hasLostBatches() {
+            return !lostBatches.isEmpty();
+        }
+
+        public String describeLostBatches() {
+            if (lostBatches.isEmpty()) {
+                return "";
+            }
+            return "⚠️ " + lostBatches.size() + " lô màn hình không trả về test case sau khi tự hiệu chỉnh (lô "
+                    + lostBatches + " / tổng " + totalScreensInRequest + " màn hình). "
+                    + "Bộ test case bên dưới CHƯA phủ đủ toàn bộ màn hình.";
         }
 
         public AiMultiAgentCoordinator.AgentReviewReport getAgentReviewReport() {
@@ -563,6 +604,13 @@ public class AiTestGeneratorService {
             }
             systemPrompt = systemPrompt + "\n\n" + multiAgentCoordinator.buildMultiAgentPipelineDirective(
                     effectivePrompt, effectiveSkill, attachments, effectiveGenerateScript);
+            // Agent/skill definitions from .agents/*.md and skills/<name>/SKILL.md now reach the model;
+            // they were documentation only before. Rules stay in-code, so guidance cannot widen scope.
+            String definitionSection = AiAgentDefinitionLoader.toPromptSection(
+                    definitionLoader.selectFor(effectivePrompt, effectiveSkill.getId()));
+            if (!definitionSection.isBlank()) {
+                systemPrompt = systemPrompt + "\n\n" + definitionSection;
+            }
         }
 
         if (!isChatAdvice && isBothScenariosAndScripts) {
@@ -785,6 +833,8 @@ public class AiTestGeneratorService {
         String primaryGroup = null;
         String primarySuite = null;
         StringBuilder combinedSummary = new StringBuilder();
+        int batchRetryCount = 0;
+        List<Integer> lostBatches = new ArrayList<>();
 
         int maxTokens = config.getMaxTokens() > 0 ? config.getMaxTokens() : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
 
@@ -804,6 +854,11 @@ public class AiTestGeneratorService {
 
             String batchSystemPrompt = SYSTEM_PROMPT + "\n\n" + multiAgentCoordinator.buildMultiAgentPipelineDirective(
                     batchPrompt, effectiveSkill, attachments, effectiveGenerateScript);
+            String batchDefinitions = AiAgentDefinitionLoader.toPromptSection(
+                    definitionLoader.selectFor(batchPrompt, effectiveSkill.getId()));
+            if (!batchDefinitions.isBlank()) {
+                batchSystemPrompt = batchSystemPrompt + "\n\n" + batchDefinitions;
+            }
 
             if (!effectiveGenerateScript) {
                 batchSystemPrompt = batchSystemPrompt + "\n\n" + """
@@ -824,6 +879,23 @@ public class AiTestGeneratorService {
 
             try {
                 String reply = openAiClient.chatCompletion(config, batchMessages);
+                // A model can answer a batch with prose instead of the JSON contract (observed in
+                // production: "Tôi đã phân tích yêu cầu..."). Retry that one batch once, exactly like
+                // the single-shot path does, and count the batch as lost only if the retry fails too.
+                if (!containsExtractableCases(reply)) {
+                    batchRetryCount++;
+                    AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                            + " không trả JSON cases, chạy lại một lượt tự hiệu chỉnh");
+                    String retryReply = openAiClient.chatCompletion(config, buildBatchRetryMessages(batchMessages, reply));
+                    if (containsExtractableCases(retryReply)) {
+                        reply = retryReply;
+                    } else {
+                        lostBatches.add(batchNum);
+                        AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " mất sau lượt tự hiệu chỉnh: " + describeReply(reply));
+                        continue;
+                    }
+                }
                 if (reply != null && !reply.isBlank()) {
                     GenerationResult batchRes = parseResponse(reply, effectiveSkill);
                     if (batchRes != null && batchRes.getCases() != null && !batchRes.getCases().isEmpty()) {
@@ -841,7 +913,9 @@ public class AiTestGeneratorService {
                     }
                 }
             } catch (Exception e) {
-                // If a batch fails, continue with remaining batches or fallback to expansion
+                // A transport failure keeps the remaining batches running; it is reported, not hidden.
+                lostBatches.add(batchNum);
+                AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches + " lỗi: " + e.getMessage());
             }
         }
 
@@ -854,6 +928,9 @@ public class AiTestGeneratorService {
                 aggregatedCases,
                 ""
         );
+        // The Reality Checker and the user both need to see a batch that never produced cases:
+        // a silently short suite looks complete while an entire screen group is missing.
+        result.setLostBatchReport(batchRetryCount, List.copyOf(lostBatches), totalScreens);
         result.setSuggestedGroup(primaryGroup);
         result.setSuggestedSuite(primarySuite);
         return result;
@@ -888,8 +965,7 @@ public class AiTestGeneratorService {
         return ambiguityAnalyzer;
     }
 
-    public AiProjectAdvisorService getAdvisorService() {
-        return advisorService;
+    public AiProjectAdvisorService getAdvisorService() {        return advisorService;
     }
 
     public AiMultiAgentCoordinator getMultiAgentCoordinator() {
@@ -941,6 +1017,49 @@ public class AiTestGeneratorService {
                                                        List<ParsedDocument> attachments,
                                                        TestCase currentCase, String currentScript) throws IOException, InterruptedException {
         return generateOrUpdateSingleCase(config, userPrompt, attachments, currentCase, currentScript, AiSkill.PLAYWRIGHT_E2E);
+    }
+
+    /**
+     * True when the model's reply still yields at least one test case. Used before accepting a batch:
+     * a prose answer ("Tôi đã phân tích yêu cầu...") parses to zero cases, and accepting it silently
+     * drops that whole screen group from the suite.
+     */
+    boolean containsExtractableCases(String reply) {
+        if (reply == null || reply.isBlank()) {
+            return false;
+        }
+        GenerationResult parsed = parseResponse(reply, AiSkill.PLAYWRIGHT_E2E);
+        return parsed != null && parsed.getCases() != null && !parsed.getCases().isEmpty();
+    }
+
+    /**
+     * Follow-up turn for a batch that answered with prose: it carries the rejected reply back as an
+     * assistant turn so the model re-emits the same JSON contract instead of restarting the analysis.
+     */
+    List<OpenAiClient.ChatMessage> buildBatchRetryMessages(List<OpenAiClient.ChatMessage> batchMessages, String rejectedReply) {
+        List<OpenAiClient.ChatMessage> retryMessages = new ArrayList<>(batchMessages);
+        retryMessages.add(new OpenAiClient.ChatMessage("assistant",
+                rejectedReply != null ? rejectedReply : ""));
+        retryMessages.add(new OpenAiClient.ChatMessage("user",
+                "[LOOP ENGINEER SELF-CORRECTION]: Phản hồi trước không phải JSON hợp lệ cho lô màn hình này. "
+                        + "Hãy xuất NGAY một đối tượng JSON duy nhất chứa `summary`, `suggestedGroup`, `suggestedSuite` và mảng `cases` "
+                        + "cho các màn hình đã giao (mỗi màn tối thiểu 4 case đầy đủ `testSteps`, `testDataSets`, `assertions`). "
+                        + "Không viết lời dẫn, không giải thích, không dùng markdown ngoài khối JSON."));
+        return retryMessages;
+    }
+
+    /** Short, log-safe excerpt of a rejected model reply. */
+    static String describeReply(String reply) {
+        if (reply == null || reply.isBlank()) {
+            return "phản hồi rỗng";
+        }
+        String flat = reply.replaceAll("\\s+", " ").trim();
+        return flat.length() > 160 ? flat.substring(0, 157) + "..." : flat;
+    }
+
+    /** Replace the definition source (tests point it at a fixture directory; production uses the app home). */
+    public void setDefinitionLoader(AiAgentDefinitionLoader definitionLoader) {
+        this.definitionLoader = definitionLoader != null ? definitionLoader : AiAgentDefinitionLoader.defaultInstance();
     }
 
     /**

@@ -284,6 +284,12 @@ public class AiMultiAgentCoordinator {
         }
 
         List<AiGeneratedCase> cases = result.getCases();
+        // A batch lost to a non-JSON reply means part of the requested suite is simply missing; the
+        // Reality Checker must see that, or a short suite scores as a complete one.
+        if (result.hasLostBatches()) {
+            report.getAgentStagesExecuted().add("TestArchitect: " + result.getLostBatches().size()
+                    + " lô màn hình mất sau tự hiệu chỉnh");
+        }
         int initialScore = evaluateQualityScore(result, generateScript);
         report.setInitialQualityScore(initialScore);
 

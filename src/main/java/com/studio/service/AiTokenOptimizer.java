@@ -18,6 +18,10 @@ public class AiTokenOptimizer {
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 32768;
     public static final int DEFAULT_MAX_DOC_CHARS = 48000;
     public static final int DEFAULT_SLIDING_WINDOW_TURNS = 6; // last 6 turns (user+assistant pairs)
+    /** How many earlier user turns the retained-conversation-state block keeps in full. */
+    public static final int MAX_RETAINED_USER_TURNS = 8;
+    /** Cap on case names kept in that block, so a long session cannot flood the prompt. */
+    public static final int MAX_RETAINED_CASE_NAMES = 40;
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
@@ -472,7 +476,119 @@ public class AiTokenOptimizer {
         result.addAll(historyMessages);
         result.add(new OpenAiClient.ChatMessage("user", userMessageText, imageUrls));
 
+        // A trimmed conversation still needs its load-bearing facts: which screens, groups and suites the
+        // user already asked about, and which attachments are still in play on a follow-up turn. Sliding
+        // window and prose summaries both lose them, and a follow-up like "thêm case cho màn thanh toán"
+        // then fails the screen/dependency half of the request.
+        String retained = buildRetainedConversationState(history, currentUserPrompt, attachments);
+        if (!retained.isBlank()) {
+            result.add(new OpenAiClient.ChatMessage("system", retained));
+        }
+
         return result;
+    }
+
+    /**
+     * Distils the facts a follow-up turn must not lose from earlier turns: generated case names,
+     * suggested group/suite, already-referenced screens and the attachment filenames still in play.
+     * Appended as a trailing system message so it cannot be pushed out by the sliding window.
+     */
+    String buildRetainedConversationState(List<AiChatMessage> history, String currentUserPrompt,
+                                          List<ParsedDocument> attachments) {
+        if (history == null || history.isEmpty()) {
+            return "";
+        }
+        java.util.LinkedHashSet<String> caseNames = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> screens = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> docNames = new java.util.LinkedHashSet<>();
+        String group = null;
+        String suite = null;
+        StringBuilder priorUserTurns = new StringBuilder();
+
+        int userTurns = 0;
+        // Walk the whole history, not only the last few turns: the facts that must survive trimming are
+        // the FIRST things established in the conversation (group/suite, first screens), and they are
+        // exactly what a sliding window drops. The per-list caps below bound the output size.
+        for (int i = 0; i < history.size(); i++) {
+            AiChatMessage msg = history.get(i);
+            if ("user".equalsIgnoreCase(msg.getRole())) {
+                String text = msg.getRawPrompt() != null && !msg.getRawPrompt().isBlank()
+                        ? msg.getRawPrompt()
+                        : msg.getContent();
+                if (text != null && !text.isBlank()) {
+                    userTurns++;
+                    String flat = text.replaceAll("\\s+", " " ).trim();
+                    if (flat.length() > 200) {
+                        flat = flat.substring(0, 197) + "...";
+                    }
+                    priorUserTurns.append("- ").append(flat).append("\n");
+                    screens.addAll(AiMultiAgentCoordinator.extractScreenSections(text, null).stream()
+                            .map(AiMultiAgentCoordinator.ScreenSpecSection::featureToken)
+                            .filter(t -> t != null && !t.isBlank())
+                            .toList());
+                }
+                for (String path : msg.getAttachedFiles()) {
+                    if (path != null && !path.isBlank()) {
+                        docNames.add(path);
+                    }
+                }
+            } else if ("assistant".equalsIgnoreCase(msg.getRole())) {
+                if (group == null && msg.getSuggestedGroup() != null) {
+                    group = msg.getSuggestedGroup();
+                }
+                if (suite == null && msg.getSuggestedSuite() != null) {
+                    suite = msg.getSuggestedSuite();
+                }
+                if (msg.getGeneratedCasesSnapshot() != null) {
+                    for (com.studio.model.AiGeneratedCase gc : msg.getGeneratedCasesSnapshot()) {
+                        if (gc.getName() != null && !gc.getName().isBlank()) {
+                            caseNames.add(gc.getName());
+                        }
+                    }
+                }
+            }
+        }
+
+        if (attachments != null) {
+            for (ParsedDocument doc : attachments) {
+                if (doc != null && doc.getFileName() != null && !doc.getFileName().isBlank()) {
+                    docNames.add(doc.getFileName());
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("### Trạng thái hội thoại phải giữ nguyên (cùng một phiên chat)\n")
+                .append("Đây là cùng một cuộc hội thoại; yêu cầu mới nhất là phần bổ sung/điều chỉnh, KHÔNG phải khởi tạo lại.\n");
+        if (priorUserTurns.length() > 0) {
+            sb.append("• Các yêu cầu trước đó (gần nhất ở trên):\n").append(priorUserTurns);
+        }
+        if (group != null || suite != null) {
+            sb.append("• Nhóm/bộ kịch bản đang dùng: group=").append(group != null ? group : "(chưa chốt)")
+                    .append(", suite=").append(suite != null ? suite : "(chưa chốt)")
+                    .append(" — giữ nguyên trừ khi yêu cầu mới đổi tên.\n");
+        }
+        if (!screens.isEmpty()) {
+            sb.append("• Màn hình/chức năng đã đề cập: ").append(String.join(", ", screens)).append("\n");
+        }
+        if (!caseNames.isEmpty()) {
+            List<String> firstOnes = new ArrayList<>(caseNames);
+            if (firstOnes.size() > MAX_RETAINED_CASE_NAMES) {
+                firstOnes = firstOnes.subList(0, MAX_RETAINED_CASE_NAMES);
+            }
+            sb.append("• Test case đã sinh: ").append(String.join(", ", firstOnes));
+            if (caseNames.size() > firstOnes.size()) {
+                sb.append(" … (+" ).append(caseNames.size() - firstOnes.size()).append(" case)");
+            }
+            sb.append("\n  → Không tạo trùng tên; case mới phải nối tiếp và phủ phần còn thiếu.\n" );
+        }
+        if (!docNames.isEmpty()) {
+            sb.append("• Tài liệu/hình ảnh đã đính kèm trong phiên: ").append(String.join(", ", docNames)).append("\n");
+        }
+        if (currentUserPrompt != null && !currentUserPrompt.isBlank()) {
+            sb.append("• Yêu cầu hiện tại: ").append(currentUserPrompt.replaceAll("\\s+", " " ).trim()).append("\n");
+        }
+        return sb.toString().trim();
     }
 
     /**
