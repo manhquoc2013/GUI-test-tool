@@ -188,6 +188,61 @@ class AiSubAgentOrchestratorTest {
     }
 
     @Test
+    void measuredUsageLandsOnChildMetricsAndTranscriptMessage() {
+        AiChatSession parent = new AiChatSession();
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(
+                (AiAgentRule r, String brief) -> "kết quả " + r.getName(), null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+        AiChatMessage msg = parent.getMessages().stream()
+                .filter(m -> m.isAgentMessage() && ("kết quả " + "Alpha").equals(m.getContent()))
+                .findFirst()
+                .orElseThrow();
+
+        // A fake executor reports one call and nothing about usage: the count is known, the tokens are not.
+        assertEquals("1", res.sessions().get(0).getMetrics().get("llmCalls"), "call count is always known");
+        assertFalse(msg.hasReportedTokens(), "an executor that cannot report usage must not invent it");
+        assertEquals(0, msg.getReportedTotalTokens());
+    }
+
+    @Test
+    void reportedUsageIsRecordedOnChildAndMessage() {
+        AiChatSession parent = new AiChatSession();
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(new AiSubAgentOrchestrator.AgentExecutor() {
+            @Override
+            public String execute(AiAgentRule rule, String taskBrief) {
+                throw new AssertionError("the orchestrator must prefer executeMeasured");
+            }
+
+            @Override
+            public AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief) {
+                return new AiLlmAgentExecutor.MeasuredReply("kết quả đo",
+                        new AiLlmAgentExecutor.AgentUsage(1, 1200, 340));
+            }
+        }, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1")));
+
+        AiSubAgentSession child = res.sessions().get(0);
+        assertEquals("1", child.getMetrics().get("llmCalls"));
+        assertEquals("1200", child.getMetrics().get("promptTokens"));
+        assertEquals("340", child.getMetrics().get("completionTokens"));
+        assertEquals("true", child.getMetrics().get("reportedUsage"));
+
+        AiChatMessage msg = parent.getMessages().stream()
+                .filter(m -> m.isAgentMessage() && "kết quả đo".equals(m.getContent()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(msg.hasReportedTokens());
+        assertEquals(1200, msg.getPromptTokens());
+        assertEquals(340, msg.getCompletionTokens());
+        assertEquals(1540, msg.getReportedTotalTokens());
+        assertEquals(1540, msg.getEstimatedTokens(), "a reported total supersedes the heuristic");
+    }
+
+    @Test
     void childTranscriptIsIsolatedFromSiblings() {
         AiChatSession parent = new AiChatSession();
         AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(

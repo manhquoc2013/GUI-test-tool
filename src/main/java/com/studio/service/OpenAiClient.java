@@ -228,10 +228,23 @@ public class OpenAiClient {
      * One completed model reply plus why it stopped. {@code truncated} is true when the provider
      * stopped on the output token limit — the content may be cut mid-JSON, which must be handled by
      * the caller instead of being treated as a malformed answer.
+     *
+     * <p>{@code promptTokens}/{@code completionTokens} are the provider's own usage figures. They are
+     * -1 when the response carried no usable {@code usage} object, so a caller can always tell a real
+     * zero from "not reported" instead of displaying a measured 0 as if it were fact.
      */
-    public record Completion(String content, String finishReason) {
+    public record Completion(String content, String finishReason, int promptTokens, int completionTokens) {
+        /** A reply whose usage was not reported (hand-built in tests, or a provider that omits usage). */
+        public Completion(String content, String finishReason) {
+            this(content, finishReason, -1, -1);
+        }
+
         public boolean truncated() {
             return "length".equalsIgnoreCase(finishReason);
+        }
+
+        public boolean hasUsage() {
+            return promptTokens >= 0 || completionTokens >= 0;
         }
     }
 
@@ -394,13 +407,16 @@ public class OpenAiClient {
 
             // Token usage: extracted in its own try/catch so a malformed or absent usage
             // object can never fail the call. Only counts are logged — never the API key,
-            // prompt body or response body.
-            int promptTokens = 0;
-            int compTokens = 0;
+            // prompt body or response body. The counts also travel on the Completion record so the
+            // UI can show real usage instead of a heuristic estimate; -1 means "not reported".
+            int promptTokens = -1;
+            int compTokens = -1;
             try {
                 JsonNode usage = resJson.path("usage");
-                promptTokens = usage.path("prompt_tokens").asInt(0);
-                compTokens = usage.path("completion_tokens").asInt(0);
+                if (usage.isObject()) {
+                    promptTokens = usage.path("prompt_tokens").asInt(-1);
+                    compTokens = usage.path("completion_tokens").asInt(-1);
+                }
                 int totalTokens = usage.path("total_tokens").asInt(0);
                 int cachedTokens = usage.path("prompt_tokens_details").path("cached_tokens").asInt(-1);
                 String cachedDesc = cachedTokens >= 0 ? String.valueOf(cachedTokens) : "n/a";
@@ -421,7 +437,7 @@ public class OpenAiClient {
             if ("length".equalsIgnoreCase(finishReason)) {
                 AiLoggingService.warn("AI-RESPONSE", "⚠️ Phản hồi bị CẮT NGANG do chạm giới hạn token (finish_reason=length)! Hệ thống sẽ tự động kích hoạt cơ chế vá JSON để phục hồi kịch bản.");
             }
-            return new Completion(content, finishReason);
+            return new Completion(content, finishReason, promptTokens, compTokens);
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi HTTP 200 nhưng không tìm thấy choices[] hợp lệ.");
         return new Completion("", "missing");

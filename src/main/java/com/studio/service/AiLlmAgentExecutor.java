@@ -12,12 +12,60 @@ import java.util.List;
  * The prompt is built from that agent's OWN catalogue rule, so the boundary an agent is held to
  * comes from the fixed rule set rather than from whatever the planner wrote. An agent therefore
  * cannot be talked into a wider job by a task brief that contradicts its rule.
+ *
+ * Each run also reports what it actually cost — how many model calls it took and the provider's own
+ * input/output token counts — so the parent session can show measured usage instead of guessing from
+ * character counts.
  */
 public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.AgentExecutor {
 
-    /** Minimal LLM seam, so the prompt construction is testable without a network call. */
+    /** Token usage one agent run reported; -1 on a field means the provider did not report it. */
+    public record AgentUsage(int llmCalls, int promptTokens, int completionTokens) {
+        public boolean hasReportedTokens() {
+            return promptTokens >= 0 || completionTokens >= 0;
+        }
+
+        public int totalTokens() {
+            return hasReportedTokens() ? Math.max(0, promptTokens) + Math.max(0, completionTokens) : 0;
+        }
+    }
+
+    /**
+     * Minimal LLM seam, so the prompt construction is testable without a network call. A fake returns
+     * the plain reply and reports no usage; the real adapter returns a {@link MeasuredReply}.
+     */
     public interface Completion {
-        String complete(AiConfig config, List<AiChatMessage> messages) throws Exception;
+        /**
+         * Returns a {@link MeasuredReply} to report usage, or a plain {@code String} when the caller has
+         * nothing to measure; {@link #run} accepts either.
+         */
+        CharSequence complete(AiConfig config, List<AiChatMessage> messages) throws Exception;
+    }
+
+    /**
+     * A reply that also knows its usage. {@code OpenAiClient.Completion} cannot be used directly here
+     * because this seam has to stay independent of the transport.
+     */
+    public record MeasuredReply(String content, AgentUsage usage) implements CharSequence {
+        @Override
+        public int length() {
+            return content != null ? content.length() : 0;
+        }
+
+        @Override
+        public char charAt(int index) {
+            return content.charAt(index);
+        }
+
+        @Override
+        public CharSequence subSequence(int start, int end) {
+            return content.subSequence(start, end);
+        }
+
+        @Override
+        public String toString() {
+            return content;
+        }
     }
 
     private final AiConfig config;
@@ -32,12 +80,24 @@ public final class AiLlmAgentExecutor implements AiSubAgentOrchestrator.AgentExe
 
     @Override
     public String execute(AiAgentRule rule, String taskBrief) throws Exception {
+        return run(rule, taskBrief).content();
+    }
+
+    /**
+     * Same run as {@link #execute}, plus what it cost. One {@code complete} call is one model call and
+     * one tool-less turn, which is what the call count reports.
+     */
+    public MeasuredReply run(AiAgentRule rule, String taskBrief) throws Exception {
         List<AiChatMessage> messages = buildMessages(rule, taskBrief);
-        String raw = completion.complete(config, messages);
-        if (raw == null || raw.isBlank()) {
+        CharSequence raw = completion.complete(config, messages);
+        AgentUsage usage = raw instanceof MeasuredReply measured
+                ? measured.usage()
+                : new AgentUsage(1, -1, -1);
+        String content = raw != null ? raw.toString().trim() : "";
+        if (content.isBlank()) {
             throw new IllegalStateException("Agent " + rule.getName() + " trả về nội dung rỗng");
         }
-        return raw.trim();
+        return new MeasuredReply(content, usage != null ? usage : new AgentUsage(1, -1, -1));
     }
 
     /** System prompt = the agent's own rule; user prompt = brief plus shared context. */

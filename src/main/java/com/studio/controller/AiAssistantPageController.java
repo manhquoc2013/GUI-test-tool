@@ -771,13 +771,19 @@ public class AiAssistantPageController implements Initializable {
             return false;
         }
 
-        AiSubAgentOrchestrator.AgentExecutor executor = new AiLlmAgentExecutor(
+        AiLlmAgentExecutor agentExecutor = new AiLlmAgentExecutor(
                 aiConfig,
-                (cfg, messages) -> client.chatCompletion(cfg, List.of(
-                        new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
-                        new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
-                        OpenAiClient.defaultOutputTokensFor(generateScript)),
+                (AiConfig cfg, List<AiChatMessage> messages) -> {
+                    OpenAiClient.Completion reply = client.completeChat(cfg, List.of(
+                            new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
+                            new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
+                            OpenAiClient.defaultOutputTokensFor(generateScript));
+                    return new AiLlmAgentExecutor.MeasuredReply(
+                            reply.content(),
+                            new AiLlmAgentExecutor.AgentUsage(1, reply.promptTokens(), reply.completionTokens()));
+                },
                 "");
+        AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
 
         // Parent turn recorded first so the transcript reads request -> agents -> one answer.
         session.addMessage(new AiChatMessage("user", prompt));
@@ -862,7 +868,45 @@ public class AiAssistantPageController implements Initializable {
         } catch (Exception ignored) {
         }
         String limitStr = maxLimit > 0 ? " / " + String.format("%,d", maxLimit) : " / ∞";
-        tokenUsageBadge.setText("Tokens: ~" + total + limitStr + " (Prompt: ~" + promptTokens + ")");
+        tokenUsageBadge.setText("Tokens: ~" + total + limitStr + " (Prompt: ~" + promptTokens + ")"
+                + orchestrationUsageSuffix(currentSession));
+    }
+
+    /**
+     * Real cost of the session's orchestration: how many agents ran, how many model calls they made and
+     * the provider-reported input/output tokens. Empty for a session with no sub-agents, so a plain
+     * chat keeps its existing badge.
+     */
+    static String orchestrationUsageSuffix(AiChatSession session) {
+        if (session == null || !session.hasSubAgents()) {
+            return "";
+        }
+        int agents = 0;
+        int calls = 0;
+        int in = 0;
+        int out = 0;
+        for (AiSubAgentSession child : session.getSubAgents()) {
+            if (child == null) continue;
+            agents++;
+            calls += parseIntOrZero(child.getMetrics().get("llmCalls"));
+            in += Math.max(0, parseIntOrZero(child.getMetrics().get("promptTokens")));
+            out += Math.max(0, parseIntOrZero(child.getMetrics().get("completionTokens")));
+        }
+        if (agents == 0) {
+            return "";
+        }
+        return "  •  " + agents + " agent · " + calls + " LLM call · ↑" + in + " / ↓" + out + " tokens";
+    }
+
+    private static int parseIntOrZero(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     @FXML
@@ -1875,7 +1919,23 @@ public class AiAssistantPageController implements Initializable {
         } else {
             speaker = "Trợ lý AI";
         }
+        // Sub-agent turns also carry the real cost of the run that produced them.
+        if (msg.isAgentMessage()) {
+            speaker += usageSuffix(msg);
+        }
         return speaker + "  •  " + formattedTime + "  •  ~" + msg.getEstimatedTokens() + " tokens";
+    }
+
+    /**
+     * Provider-reported usage for one agent turn, or a note that the provider reported none. The "~"
+     * on the bubble's own token count marks a heuristic; these figures have no "~" because they are
+     * what the API actually billed.
+     */
+    private static String usageSuffix(AiChatMessage msg) {
+        if (!msg.hasReportedTokens()) {
+            return "";
+        }
+        return "  •  ↑" + msg.getPromptTokens() + " / ↓" + msg.getCompletionTokens() + " tokens";
     }
 
     /**

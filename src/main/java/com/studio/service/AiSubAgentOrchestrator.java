@@ -30,6 +30,15 @@ public final class AiSubAgentOrchestrator {
     /** Turns a rule plus a task brief into that agent's raw output. */
     public interface AgentExecutor {
         String execute(AiAgentRule rule, String taskBrief) throws Exception;
+
+        /**
+         * Same run as {@link #execute}, but also reports this agent's measured cost. The default keeps
+         * every existing executor working and reports the one call it makes with no provider usage.
+         */
+        default AiLlmAgentExecutor.MeasuredReply executeMeasured(AiAgentRule rule, String taskBrief) throws Exception {
+            String out = execute(rule, taskBrief);
+            return new AiLlmAgentExecutor.MeasuredReply(out, new AiLlmAgentExecutor.AgentUsage(1, -1, -1));
+        }
     }
 
     /** One dispatchable unit of work: a rule plus the brief for it. */
@@ -104,9 +113,11 @@ public final class AiSubAgentOrchestrator {
         progress("🤖 [" + child.getAgentName() + "] Đang xử lý…");
 
         try {
-            String output = executor.execute(task.rule(), task.taskBrief());
+            AiLlmAgentExecutor.MeasuredReply reply = runMeasured(parent, child, task);
+            String output = reply.content();
             child.setResultSummary(output);
-            record(parent, child, "assistant", safe(output));
+            AiChatMessage recorded = record(parent, child, "assistant", safe(output));
+            applyUsage(child, recorded, reply.usage());
             child.setStatus(AiSubAgentSession.Status.COMPLETED);
             return true;
         } catch (Exception e) {
@@ -118,6 +129,48 @@ public final class AiSubAgentOrchestrator {
             child.setFinishedAt(System.currentTimeMillis());
             child.getMetrics().put("durationMs", String.valueOf(child.getDurationMs()));
         }
+    }
+
+    /**
+     * Runs the task through the richest executor the injected one supports. An executor that only
+     * implements {@link AgentExecutor#execute} still works; it just reports no provider usage.
+     */
+    private AiLlmAgentExecutor.MeasuredReply runMeasured(AiChatSession parent, AiSubAgentSession child,
+                                                         SubAgentTask task) throws Exception {
+        return executor.executeMeasured(task.rule(), task.taskBrief());
+    }
+
+    /**
+     * Records what the run cost on both the child session and the transcript message, so the bubble
+     * header and the session token badge can show measured usage instead of the character heuristic.
+     * A "not reported" usage still records the call count, which the executor always knows.
+     */
+    private void applyUsage(AiSubAgentSession child, AiChatMessage msg,
+                            AiLlmAgentExecutor.AgentUsage usage) {
+        AiLlmAgentExecutor.AgentUsage safe = usage != null
+                ? usage
+                : new AiLlmAgentExecutor.AgentUsage(1, -1, -1);
+        child.getMetrics().put("llmCalls", String.valueOf(safe.llmCalls()));
+        child.getMetrics().put("promptTokens", String.valueOf(safe.promptTokens()));
+        child.getMetrics().put("completionTokens", String.valueOf(safe.completionTokens()));
+        child.getMetrics().put("reportedUsage", String.valueOf(safe.hasReportedTokens()));
+        if (msg != null) {
+            msg.setPromptTokens(safe.promptTokens());
+            msg.setCompletionTokens(safe.completionTokens());
+            // The heuristic total stays as the fallback for a provider that reported nothing; a
+            // reported total supersedes it so the badge never double-counts a measured turn.
+            msg.setEstimatedTokens(safe.hasReportedTokens()
+                    ? safe.totalTokens()
+                    : estimateContentTokens(msg.getContent()));
+        }
+    }
+
+    /** Fallback estimate for a provider that omitted usage: same shape as the chat page's heuristic. */
+    private static int estimateContentTokens(String content) {
+        if (content == null || content.isBlank()) {
+            return 0;
+        }
+        return Math.max(1, Math.round(content.length() / 3.0f));
     }
 
     /**
@@ -212,7 +265,7 @@ public final class AiSubAgentOrchestrator {
         progress("✅ [Điều phối] Đã tổng hợp kết quả cuối cùng" + (allSucceeded ? "" : " (một phần)"));
     }
 
-    private void record(AiChatSession parent, AiSubAgentSession child, String role, String content) {
+    private AiChatMessage record(AiChatSession parent, AiSubAgentSession child, String role, String content) {
         AiChatMessage msg = new AiChatMessage(role, content);
         msg.setAgentId(child.getId());
         msg.setAgentName(child.getAgentName());
@@ -221,6 +274,7 @@ public final class AiSubAgentOrchestrator {
             parent.getMessages().add(msg);
         }
         child.getMessages().add(msg);
+        return msg;
     }
 
     private static String safe(String s) {

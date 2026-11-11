@@ -19,6 +19,13 @@ public class AiChatMessage {
     private String content;
     private long timestamp;
     private int estimatedTokens;
+    /**
+     * Provider-reported usage for a message produced by one model call (sub-agent turns). -1 means
+     * "not reported" — the bubble then falls back to the {@link #estimatedTokens} heuristic, which is
+     * why the header prints a real count without "~" and an estimate with it.
+     */
+    private int promptTokens = -1;
+    private int completionTokens = -1;
     private List<String> attachedFiles = new ArrayList<>();
     private List<String> attachedFilePaths = new ArrayList<>();
     private List<AttachedDocSnapshot> attachedDocsSnapshot = new ArrayList<>();
@@ -140,6 +147,34 @@ public class AiChatMessage {
 
     public void setEstimatedTokens(int estimatedTokens) {
         this.estimatedTokens = estimatedTokens;
+    }
+
+    public int getPromptTokens() {
+        return promptTokens;
+    }
+
+    public void setPromptTokens(int promptTokens) {
+        this.promptTokens = promptTokens;
+    }
+
+    public int getCompletionTokens() {
+        return completionTokens;
+    }
+
+    public void setCompletionTokens(int completionTokens) {
+        this.completionTokens = completionTokens;
+    }
+
+    /** True when this message carries provider-reported usage rather than a heuristic estimate. */
+    public boolean hasReportedTokens() {
+        return promptTokens >= 0 || completionTokens >= 0;
+    }
+
+    /** Input + output tokens as reported by the provider, 0 when it reported none. */
+    public int getReportedTotalTokens() {
+        return hasReportedTokens()
+                ? Math.max(0, promptTokens) + Math.max(0, completionTokens)
+                : 0;
     }
 
     public List<String> getAttachedFiles() {
