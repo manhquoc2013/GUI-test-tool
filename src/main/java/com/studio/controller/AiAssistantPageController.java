@@ -29,6 +29,8 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.StringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
@@ -192,6 +194,11 @@ public class AiAssistantPageController implements Initializable {
     private String currentSuggestedSuite = null;
     /** Density used to render assistant/agent bubbles; user prompts are always shown in full. */
     private ChatDisplayMode chatDisplayMode = ChatDisplayMode.SUMMARY;
+    /**
+     * Source of the result header text. The label is bound to a bounded excerpt of this value, so no
+     * caller can put raw answer text into that fixed row and stretch the page with it.
+     */
+    private final StringProperty resultSummaryText = new SimpleStringProperty(RESULT_SUMMARY_EMPTY);
 
     private HBox thinkingBubbleWrapper = null;
     private Timeline thinkingTimeline = null;
@@ -229,6 +236,20 @@ public class AiAssistantPageController implements Initializable {
     private static final double PREVIEW_VIEWPORT_HEIGHT = 54;
     /** How close to the bottom still counts as "following the stream". */
     private static final double CHAT_BOTTOM_PIN_THRESHOLD = 0.02;
+
+    /**
+     * The right-hand result header is a fixed row of the page, not a reading surface. A full
+     * multi-thousand-character answer rendered there wrapped into a label taller than the window, and
+     * that stretched the whole content row far above the viewport: the composer, the transcript
+     * scrollbar and every control below the fold became unreachable. The header therefore shows a
+     * bounded excerpt of the answer while the chat bubble keeps the complete text.
+     */
+    private static final int RESULT_SUMMARY_MAX_CHARS = 120;
+    private static final int RESULT_SUMMARY_MAX_LINES = 3;
+    /** Head of the answer inspected for the excerpt: a huge response must not cost a full scan. */
+    private static final int RESULT_SUMMARY_SCAN_CHARS = 4_096;
+    private static final String RESULT_SUMMARY_EMPTY =
+            "Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái.";
 
     /** Toolbar labels of the collapsible history rail. */
     private static final String HISTORY_TOGGLE_OPEN_LABEL = "Lịch sử";
@@ -393,6 +414,12 @@ public class AiAssistantPageController implements Initializable {
 
         // Dynamic token estimation listener as user types
         promptInputArea.textProperty().addListener((obs, oldVal, newVal) -> updateTokenUsageDisplay());
+
+        // The result header renders a bounded excerpt only. Binding it (instead of writing the label
+        // from every call site) is what stops a long answer from sizing that fixed row to its own
+        // length and dragging the whole page above its viewport.
+        resultSummaryLabel.textProperty().bind(Bindings.createStringBinding(
+                () -> resultSummaryExcerpt(resultSummaryText.get()), resultSummaryText));
 
         // Load initial chat history for the default target suite
         loadChatHistoryForSuite();
@@ -1517,7 +1544,7 @@ public class AiAssistantPageController implements Initializable {
                 currentSuggestedGroup = m.getSuggestedGroup();
                 currentSuggestedSuite = m.getSuggestedSuite();
                 generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                resultSummaryLabel.setText(m.getContent());
+                showResultSummary(m.getContent());
                 applyToSuiteBtn.setDisable(false);
                 if (exportCasesMenuBtn != null) {
                     exportCasesMenuBtn.setDisable(false);
@@ -1529,12 +1556,72 @@ public class AiAssistantPageController implements Initializable {
         clearPreviewArea();
     }
 
+    /**
+     * Puts the answer behind the result header. Only a bounded excerpt reaches the label; the whole
+     * text stays in the chat bubble, which is the surface meant for reading a long answer.
+     */
+    void showResultSummary(String fullAnswer) {
+        resultSummaryText.set(fullAnswer == null || fullAnswer.isBlank()
+                ? RESULT_SUMMARY_EMPTY
+                : fullAnswer);
+    }
+
+    /**
+     * Head of an answer, cut to {@link #RESULT_SUMMARY_MAX_LINES} lines and
+     * {@link #RESULT_SUMMARY_MAX_CHARS} characters. Only the first
+     * {@link #RESULT_SUMMARY_SCAN_CHARS} characters are inspected, so the excerpt of a multi-megabyte
+     * answer costs the same as a short one.
+     *
+     * <p>Package-private so the layout contract can be pinned by a test: whatever text reaches the
+     * header, its height must stay bounded.</p>
+     */
+    static String resultSummaryExcerpt(String content) {
+        if (content == null || content.isBlank()) {
+            return RESULT_SUMMARY_EMPTY;
+        }
+        boolean clipped = content.length() > RESULT_SUMMARY_SCAN_CHARS;
+        String head = clipped ? content.substring(0, RESULT_SUMMARY_SCAN_CHARS) : content;
+
+        StringBuilder excerpt = new StringBuilder(RESULT_SUMMARY_MAX_CHARS);
+        int keptLines = 0;
+        for (String rawLine : head.split("\\R")) {
+            String line = rawLine.strip();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (keptLines == RESULT_SUMMARY_MAX_LINES) {
+                clipped = true;
+                break;
+            }
+            int separator = excerpt.isEmpty() ? 0 : 1;
+            int room = RESULT_SUMMARY_MAX_CHARS - excerpt.length() - separator;
+            if (room <= 0) {
+                clipped = true;
+                break;
+            }
+            if (separator > 0) {
+                excerpt.append('\n');
+            }
+            if (line.length() > room) {
+                excerpt.append(line, 0, room);
+                clipped = true;
+                break;
+            }
+            excerpt.append(line);
+            keptLines++;
+        }
+        if (excerpt.isEmpty()) {
+            return RESULT_SUMMARY_EMPTY;
+        }
+        return clipped ? excerpt + ChatDisplayMode.ELLIPSIS : excerpt.toString();
+    }
+
     private void clearPreviewArea() {
         currentGeneratedCases.clear();
         currentSuggestedGroup = null;
         currentSuggestedSuite = null;
         generatedCasesListView.getItems().clear();
-        resultSummaryLabel.setText("Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái.");
+        showResultSummary(null);
         applyToSuiteBtn.setDisable(true);
         if (exportCasesMenuBtn != null) {
             exportCasesMenuBtn.setDisable(true);
@@ -2104,7 +2191,7 @@ public class AiAssistantPageController implements Initializable {
                         }
                         updateTokenUsageDisplay();
 
-                        resultSummaryLabel.setText(generationResult.getSummary());
+                        showResultSummary(generationResult.getSummary());
 
                         currentGeneratedCases.clear();
                         currentGeneratedCases.addAll(generationResult.getCases());
@@ -3073,7 +3160,7 @@ public class AiAssistantPageController implements Initializable {
                     currentSuggestedGroup = msg.getSuggestedGroup();
                     currentSuggestedSuite = msg.getSuggestedSuite();
                     generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                    resultSummaryLabel.setText(msg.getContent());
+                    showResultSummary(msg.getContent());
                     applyToSuiteBtn.setDisable(false);
                     if (exportCasesMenuBtn != null) {
                         exportCasesMenuBtn.setDisable(false);
@@ -3129,7 +3216,7 @@ public class AiAssistantPageController implements Initializable {
                     currentSuggestedGroup = msg.getSuggestedGroup();
                     currentSuggestedSuite = msg.getSuggestedSuite();
                     generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                    resultSummaryLabel.setText(msg.getContent());
+                    showResultSummary(msg.getContent());
                     applyToSuiteBtn.setDisable(false);
                     if (exportCasesMenuBtn != null) {
                         exportCasesMenuBtn.setDisable(false);
