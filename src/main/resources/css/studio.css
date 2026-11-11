@@ -448,6 +448,12 @@
     -fx-font-weight: bold;
     -fx-font-size: 14px;
 }
+/* Secondary line beside a page title (e.g. the AI assistant strapline).
+   Kept one size down and muted so the title stays the focus. */
+.page-subtitle {
+    -fx-text-fill: #9aa5ce;
+    -fx-font-size: 12px;
+}
 .breadcrumb {
     -fx-text-fill: #7aa2f7;
     -fx-font-weight: bold;

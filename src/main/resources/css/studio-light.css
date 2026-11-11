@@ -42,6 +42,19 @@
     -fx-text-fill: #0f172a;
 }
 
+/* Page heading shown inside a page toolbar (dark theme defines the same two
+   classes; they were missing here, so titles fell back to the default label
+   size and lost their emphasis in light mode). */
+.page-title {
+    -fx-text-fill: #0f172a;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+.page-subtitle {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+}
+
 .breadcrumb {
     -fx-text-fill: #64748b;
 }
