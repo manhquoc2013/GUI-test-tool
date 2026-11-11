@@ -267,5 +267,60 @@ public class AiTokenOptimizerTest {
 
         assertEquals("", retained);
     }
+
+    /**
+     * Compaction: only the necessary facts travel, not the transcript. A 60-turn conversation must
+     * still send a handful of prior requests (newest first), a bounded case list, and nothing more.
+     */
+    @Test
+    public void retainedBlockIsBoundedForALongConversation() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+        List<AiChatMessage> history = new ArrayList<>();
+
+        for (int i = 0; i < 30; i++) {
+            history.add(new AiChatMessage("user", "yêu cầu số " + i + " cho màn hình Đăng nhập và Giỏ hàng"));
+            AiChatMessage answer = new AiChatMessage("assistant", "đã xử lý " + i);
+            List<AiGeneratedCase> cases = new ArrayList<>();
+            for (int c = 0; c < 5; c++) {
+                AiGeneratedCase gc = new AiGeneratedCase();
+                gc.setName("TC" + (i * 5 + c) + "_Case_" + i + "_" + c);
+                cases.add(gc);
+            }
+            answer.setGeneratedCasesSnapshot(cases);
+            history.add(answer);
+        }
+
+        String retained = optimizer.buildRetainedConversationState(history, "thêm case", List.of(), 0);
+
+        long requestLines = retained.lines().filter(l -> l.startsWith("- yêu cầu số")).count();
+        assertEquals(AiTokenOptimizer.MAX_RETAINED_USER_TURNS, requestLines,
+                "only the most recent requests are retained, not the whole transcript");
+        assertTrue(retained.contains("yêu cầu số 29"), "newest request must be kept");
+        assertFalse(retained.contains("yêu cầu số 0 "), "oldest requests fall out of the retained block");
+        // The retained block never re-sends the full 150 case names.
+        String caseLine = retained.lines().filter(l -> l.startsWith("• Test case đã sinh")).findFirst().orElse("");
+        assertTrue(caseLine.contains("… (+"), "case list must be capped and the remainder counted");
+        assertTrue(retained.length() < 4000, "retained block must stay small, got: " + retained.length());
+    }
+
+    @Test
+    public void retainedBlockDegradesToDigestUnderTightBudget() {
+        AiTokenOptimizer optimizer = new AiTokenOptimizer();
+        List<AiChatMessage> history = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            history.add(new AiChatMessage("user", "yêu cầu số " + i + " cho màn hình Đăng nhập"));
+            AiChatMessage answer = new AiChatMessage("assistant", "đã xử lý");
+            answer.setSuggestedGroup("QuanLyDangNhap");
+            answer.setSuggestedSuite("KiemThu_DangNhap");
+            history.add(answer);
+        }
+
+        String full = optimizer.buildRetainedConversationState(history, "thêm case", List.of(), 0);
+        String tight = optimizer.buildRetainedConversationState(history, "thêm case", List.of(), 500);
+
+        assertTrue(full.length() > tight.length(), "a tight budget must produce a smaller block");
+        assertTrue(tight.contains("Hội thoại nối tiếp"), "tight budget falls back to the one-line digest");
+        assertTrue(tight.contains("QuanLyDangNhap"), "the digest must still carry group/suite");
+    }
 }
 

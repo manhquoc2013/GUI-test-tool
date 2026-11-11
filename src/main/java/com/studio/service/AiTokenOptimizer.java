@@ -21,7 +21,9 @@ public class AiTokenOptimizer {
     /** How many earlier user turns the retained-conversation-state block keeps in full. */
     public static final int MAX_RETAINED_USER_TURNS = 8;
     /** Cap on case names kept in that block, so a long session cannot flood the prompt. */
-    public static final int MAX_RETAINED_CASE_NAMES = 40;
+    public static final int MAX_RETAINED_CASE_NAMES = 15;
+    /** The retained block may use at most 1/N of the context budget before it degrades to a digest. */
+    private static final int RETAINED_BUDGET_DIVISOR = 8;
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
@@ -480,7 +482,7 @@ public class AiTokenOptimizer {
         // user already asked about, and which attachments are still in play on a follow-up turn. Sliding
         // window and prose summaries both lose them, and a follow-up like "thêm case cho màn thanh toán"
         // then fails the screen/dependency half of the request.
-        String retained = buildRetainedConversationState(history, currentUserPrompt, attachments);
+        String retained = buildRetainedConversationState(history, currentUserPrompt, attachments, contextLimit);
         if (!retained.isBlank()) {
             result.add(new OpenAiClient.ChatMessage("system", retained));
         }
@@ -495,6 +497,16 @@ public class AiTokenOptimizer {
      */
     String buildRetainedConversationState(List<AiChatMessage> history, String currentUserPrompt,
                                           List<ParsedDocument> attachments) {
+        return buildRetainedConversationState(history, currentUserPrompt, attachments, 0);
+    }
+
+    /**
+     * Compact form of the conversation's load-bearing facts. Everything here is derived from history
+     * that the sliding window is about to drop, never a copy of the history itself, and the output is
+     * bounded twice: by per-list caps and by {@code tokenBudget} when the call site supplies one.
+     */
+    String buildRetainedConversationState(List<AiChatMessage> history, String currentUserPrompt,
+                                          List<ParsedDocument> attachments, int tokenBudget) {
         if (history == null || history.isEmpty()) {
             return "";
         }
@@ -503,12 +515,12 @@ public class AiTokenOptimizer {
         java.util.LinkedHashSet<String> docNames = new java.util.LinkedHashSet<>();
         String group = null;
         String suite = null;
-        StringBuilder priorUserTurns = new StringBuilder();
 
-        int userTurns = 0;
-        // Walk the whole history, not only the last few turns: the facts that must survive trimming are
-        // the FIRST things established in the conversation (group/suite, first screens), and they are
-        // exactly what a sliding window drops. The per-list caps below bound the output size.
+        // Newest request first: the most recent instruction is what a follow-up most likely extends.
+        java.util.LinkedList<String> recentRequests = new java.util.LinkedList<>();
+        // Walk the whole history: the facts that must survive trimming are the FIRST things established
+        // in the conversation (group/suite, first screens) — exactly what a sliding window drops. The
+        // per-list caps bound the output, so walking everything costs CPU, not context.
         for (int i = 0; i < history.size(); i++) {
             AiChatMessage msg = history.get(i);
             if ("user".equalsIgnoreCase(msg.getRole())) {
@@ -516,12 +528,14 @@ public class AiTokenOptimizer {
                         ? msg.getRawPrompt()
                         : msg.getContent();
                 if (text != null && !text.isBlank()) {
-                    userTurns++;
                     String flat = text.replaceAll("\\s+", " " ).trim();
-                    if (flat.length() > 200) {
-                        flat = flat.substring(0, 197) + "...";
+                    if (flat.length() > 160) {
+                        flat = flat.substring(0, 157) + "...";
                     }
-                    priorUserTurns.append("- ").append(flat).append("\n");
+                    recentRequests.addFirst(flat);
+                    while (recentRequests.size() > MAX_RETAINED_USER_TURNS) {
+                        recentRequests.removeLast();
+                    }
                     screens.addAll(AiMultiAgentCoordinator.extractScreenSections(text, null).stream()
                             .map(AiMultiAgentCoordinator.ScreenSpecSection::featureToken)
                             .filter(t -> t != null && !t.isBlank())
@@ -560,8 +574,11 @@ public class AiTokenOptimizer {
         StringBuilder sb = new StringBuilder();
         sb.append("### Trạng thái hội thoại phải giữ nguyên (cùng một phiên chat)\n")
                 .append("Đây là cùng một cuộc hội thoại; yêu cầu mới nhất là phần bổ sung/điều chỉnh, KHÔNG phải khởi tạo lại.\n");
-        if (priorUserTurns.length() > 0) {
-            sb.append("• Các yêu cầu trước đó (gần nhất ở trên):\n").append(priorUserTurns);
+        if (!recentRequests.isEmpty()) {
+            sb.append("• Các yêu cầu trước đó (mới nhất ở trên):\n");
+            for (String req : recentRequests) {
+                sb.append("- ").append(req).append("\n");
+            }
         }
         if (group != null || suite != null) {
             sb.append("• Nhóm/bộ kịch bản đang dùng: group=").append(group != null ? group : "(chưa chốt)")
@@ -588,7 +605,36 @@ public class AiTokenOptimizer {
         if (currentUserPrompt != null && !currentUserPrompt.isBlank()) {
             sb.append("• Yêu cầu hiện tại: ").append(currentUserPrompt.replaceAll("\\s+", " " ).trim()).append("\n");
         }
-        return sb.toString().trim();
+        String block = sb.toString().trim();
+        // Budget guard: under pressure send the facts as a one-line digest instead of a section. When
+        // even that does not fit, drop the block — the sliding window still carries the last turns.
+        if (tokenBudget > 0 && estimateTokens(block) > tokenBudget / RETAINED_BUDGET_DIVISOR) {
+            String digest = compactDigest(group, suite, screens, caseNames, docNames);
+            if (estimateTokens(digest) <= tokenBudget / RETAINED_BUDGET_DIVISOR) {
+                return digest;
+            }
+            return "";
+        }
+        return block;
+    }
+
+    /** One-paragraph fallback used when the full retained block does not fit the remaining budget. */
+    private String compactDigest(String group, String suite, java.util.Set<String> screens,
+                                 java.util.Set<String> caseNames, java.util.Set<String> docNames) {
+        List<String> parts = new ArrayList<>();
+        if (group != null || suite != null) {
+            parts.add("group=" + (group != null ? group : "?") + ", suite=" + (suite != null ? suite : "?"));
+        }
+        if (!screens.isEmpty()) {
+            parts.add("màn hình: " + String.join(", ", screens));
+        }
+        if (!caseNames.isEmpty()) {
+            parts.add(caseNames.size() + " case đã sinh (không tạo trùng)");
+        }
+        if (!docNames.isEmpty()) {
+            parts.add("tài liệu: " + String.join(", ", docNames));
+        }
+        return parts.isEmpty() ? "" : "[Hội thoại nối tiếp] " + String.join("; ", parts);
     }
 
     /**
