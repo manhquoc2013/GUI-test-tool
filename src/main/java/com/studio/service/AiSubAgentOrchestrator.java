@@ -6,9 +6,7 @@ import com.studio.model.AiChatSession;
 import com.studio.model.AiSubAgentSession;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -18,8 +16,8 @@ import java.util.function.Consumer;
  * - An agent executes only its assigned rule; work outside that rule is reported as a
  *   finding, never performed. {@link #validateResult} is the gate for that.
  * - The parent receives exactly one aggregated answer, always last, flagged
- *   {@code aggregatedResult}. Individual agent outputs stay visible in the transcript but
- *   are never presented as the final deliverable.
+ *   {@code aggregatedResult}. That answer summarises each child's outcome in one line; the child's
+ *   full text stays in its own transcript bubble instead of being copied into the summary.
  * - Every child reaches a terminal state: orchestration is sequential, so a failed child is marked
  *   FAILED and a completed one COMPLETED before the next starts.
  *
@@ -55,10 +53,24 @@ public final class AiSubAgentOrchestrator {
 
     private final AgentExecutor executor;
     private final Consumer<String> progressListener;
+    private final Consumer<AiChatMessage> transcriptListener;
+    /** Longest one-line outcome kept in the aggregated answer; the full text stays in the agent bubble. */
+    private static final int OUTCOME_SNIPPET_CHARS = 200;
 
     public AiSubAgentOrchestrator(AgentExecutor executor, Consumer<String> progressListener) {
+        this(executor, progressListener, null);
+    }
+
+    /**
+     * @param transcriptListener notified on the thread that runs the orchestration each time a message
+     *                           reaches the parent transcript, so the UI can show an agent's turn as soon
+     *                           as it finishes instead of waiting for the whole pipeline
+     */
+    public AiSubAgentOrchestrator(AgentExecutor executor, Consumer<String> progressListener,
+                                  Consumer<AiChatMessage> transcriptListener) {
         this.executor = executor;
         this.progressListener = progressListener;
+        this.transcriptListener = transcriptListener;
     }
 
     /**
@@ -227,24 +239,51 @@ public final class AiSubAgentOrchestrator {
         return sb.toString().trim();
     }
 
-    /** Merges child outputs into exactly one answer. Failed children are named, never hidden. */
+    /**
+     * Merges child outcomes into exactly one answer. Each child contributes one line — its status and
+     * the gist of its result — because the child's full answer already has its own bubble in the
+     * transcript; copying that prose here duplicated every agent's text in the conversation.
+     */
     public String aggregate(List<AiSubAgentSession> sessions) {
-        Map<String, String> byAgent = new LinkedHashMap<>();
         List<String> failed = new ArrayList<>();
+        StringBuilder sb = new StringBuilder("Kết quả tổng hợp từ ").append(sessions.size()).append(" tác nhân:");
         for (AiSubAgentSession s : sessions) {
             if (s.getStatus() == AiSubAgentSession.Status.COMPLETED) {
-                byAgent.put(s.getAgentName(), safe(s.getResultSummary()));
+                sb.append("\n• **").append(s.getAgentName()).append("** — ")
+                        .append(outcomeSnippet(s.getResultSummary()));
             } else if (s.getStatus() != AiSubAgentSession.Status.CANCELLED) {
                 failed.add(s.getAgentName());
             }
         }
-        StringBuilder sb = new StringBuilder("Kết quả tổng hợp từ ").append(sessions.size()).append(" tác nhân:\n");
-        byAgent.forEach((agent, result) -> sb.append("\n**").append(agent).append("**\n")
-                .append(result.length() > 600 ? result.substring(0, 597) + "..." : result).append('\n'));
         if (!failed.isEmpty()) {
-            sb.append("\nKhông hoàn thành: ").append(String.join(", ", failed)).append('\n');
+            sb.append("\n\nKhông hoàn thành: ").append(String.join(", ", failed)).append('\n');
         }
         return sb.toString().trim();
+    }
+
+    /** First meaningful line of an agent answer, stripped of markdown markers and length-capped. */
+    static String outcomeSnippet(String result) {
+        if (result == null || result.isBlank()) {
+            return "(không có kết quả)";
+        }
+        for (String rawLine : result.split("\\r?\\n")) {
+            String line = rawLine.trim();
+            if (line.isEmpty() || line.startsWith("```") || line.startsWith("---")) {
+                continue;
+            }
+            line = line.replaceFirst("^#{1,6}\\s*", "")
+                    .replace("**", "")
+                    .replace("`", "")
+                    .trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (line.length() > OUTCOME_SNIPPET_CHARS) {
+                return line.substring(0, OUTCOME_SNIPPET_CHARS - 1) + "…";
+            }
+            return line;
+        }
+        return "(không có kết quả)";
     }
 
     private void publishAggregate(AiChatSession parent, String summary, boolean allSucceeded) {
@@ -254,9 +293,9 @@ public final class AiSubAgentOrchestrator {
             msg.setAgentRole("partial");
         }
         if (parent != null) {
-            parent.getMessages().add(msg);
-            parent.setLastUpdated(System.currentTimeMillis());
+            parent.addMessage(msg);
         }
+        publishTranscript(msg);
         progress("✅ [Điều phối] Đã tổng hợp kết quả cuối cùng" + (allSucceeded ? "" : " (một phần)"));
     }
 
@@ -266,10 +305,18 @@ public final class AiSubAgentOrchestrator {
         msg.setAgentName(child.getAgentName());
         msg.setAgentRole(child.getAgentRole());
         if (parent != null) {
-            parent.getMessages().add(msg);
+            parent.addMessage(msg);
         }
         child.getMessages().add(msg);
+        publishTranscript(msg);
         return msg;
+    }
+
+    /** Hands one freshly recorded message to the UI so a finished agent turn is visible immediately. */
+    private void publishTranscript(AiChatMessage msg) {
+        if (transcriptListener != null && msg != null) {
+            transcriptListener.accept(msg);
+        }
     }
 
     private static String safe(String s) {

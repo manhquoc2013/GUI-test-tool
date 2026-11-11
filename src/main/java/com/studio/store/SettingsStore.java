@@ -30,6 +30,8 @@ public class SettingsStore {
         private boolean shareContextDefault = true;
         private boolean stopOnFirstFailureDefault = false;
         private String theme = "dark";
+        /** How much of each assistant/agent bubble is shown: compact / summary / detail. */
+        private String aiChatDisplayMode = "summary";
         private AiConfig aiConfig = new AiConfig();
 
         public Settings() {
@@ -78,6 +80,15 @@ public class SettingsStore {
         @JsonIgnore
         public boolean isDarkTheme() {
             return !"light".equalsIgnoreCase(theme);
+        }
+
+        /** Persisted key of the chat display mode, normalised on read so a bad file cannot break rendering. */
+        public String getAiChatDisplayMode() {
+            return com.studio.model.ChatDisplayMode.fromKey(aiChatDisplayMode).key();
+        }
+
+        public void setAiChatDisplayMode(String aiChatDisplayMode) {
+            this.aiChatDisplayMode = com.studio.model.ChatDisplayMode.fromKey(aiChatDisplayMode).key();
         }
 
         public AiConfig getAiConfig() {
@@ -269,6 +280,7 @@ public class SettingsStore {
         copy.setShareContextDefault(source.isShareContextDefault());
         copy.setStopOnFirstFailureDefault(source.isStopOnFirstFailureDefault());
         copy.setTheme(source.getTheme());
+        copy.setAiChatDisplayMode(source.getAiChatDisplayMode());
         if (source.getAiConfig() != null) {
             AiConfig srcAi = source.getAiConfig();
             String plainKey = srcAi.getApiKey();

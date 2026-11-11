@@ -6,8 +6,10 @@ import com.studio.model.AiChatSession;
 import com.studio.model.AiSubAgentSession;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -242,5 +244,68 @@ class AiSubAgentOrchestratorTest {
         assertTrue(beta.getMessages().stream().allMatch(m -> "Beta".equals(m.getAgentName())));
         assertNull(alpha.getMessages().stream()
                 .filter(m -> "Beta".equals(m.getAgentName())).findFirst().orElse(null));
+    }
+
+    @Test
+    void publishesEachAgentTurnWhileThePipelineIsStillRunning() {
+        AiChatSession parent = new AiChatSession();
+        AtomicInteger completedAgents = new AtomicInteger();
+        List<String> received = new ArrayList<>();
+        List<Integer> completedWhenReceived = new ArrayList<>();
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(
+                (AiAgentRule r, String brief) -> {
+                    completedAgents.incrementAndGet();
+                    return "kết quả " + r.getName();
+                },
+                null,
+                msg -> {
+                    received.add(msg.getContent());
+                    completedWhenReceived.add(completedAgents.get());
+                });
+
+        orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "b2")));
+
+        int alphaResult = received.indexOf("kết quả Alpha");
+        assertTrue(alphaResult >= 0, "kết quả của agent phải được đẩy ra transcript");
+        // Beta had not started when Alpha's answer was published: the UI is not waiting for the end.
+        assertEquals(1, completedWhenReceived.get(alphaResult),
+                "agent xong trước phải hiện ngay, không đợi cả pipeline");
+        assertEquals("kết quả Beta", received.get(received.size() - 2),
+                "kết quả tổng hợp luôn là message cuối cùng");
+        assertTrue(received.get(received.size() - 1).startsWith("Kết quả tổng hợp"));
+        assertEquals(parent.getMessages().size(), received.size(),
+                "mọi message vào transcript đều phải được thông báo cho UI");
+    }
+
+    @Test
+    void aggregateSummarisesEachAgentInOneLineInsteadOfCopyingProse() {
+        AiChatSession parent = new AiChatSession();
+        String alphaProse = "Mở đầu của Alpha\nThân bài rất dài của Alpha\nKết luận của Alpha";
+        String betaProse = "Mở đầu của Beta\nThân bài rất dài của Beta";
+
+        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(
+                (AiAgentRule r, String brief) -> "Alpha".equals(r.getName()) ? alphaProse : betaProse, null);
+
+        AiSubAgentOrchestrator.OrchestrationResult res = orch.orchestrate(parent, List.of(
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R1", "Alpha", "r1", List.of()), "b1"),
+                new AiSubAgentOrchestrator.SubAgentTask(rule("R2", "Beta", "r2", List.of()), "b2")));
+
+        String aggregate = parent.getMessages().get(parent.getMessages().size() - 1).getContent();
+        assertTrue(aggregate.contains("• **Alpha**"), "mỗi agent đóng góp một dòng tổng hợp");
+        assertTrue(aggregate.contains("• **Beta**"));
+        assertFalse(aggregate.contains("Thân bài rất dài của Alpha"),
+                "văn xuôi của agent không được lặp lại trong bản tổng hợp");
+        assertFalse(aggregate.contains("Thân bài rất dài của Beta"));
+        assertEquals(2, aggregate.lines().filter(l -> l.startsWith("• ")).count());
+        assertEquals(res.aggregatedSummary(), aggregate);
+
+        // The full text still exists exactly once, in the agent's own bubble.
+        long alphaCopies = parent.getMessages().stream()
+                .filter(m -> m.getContent() != null && m.getContent().contains("Thân bài rất dài của Alpha"))
+                .count();
+        assertEquals(1, alphaCopies, "nội dung dài chỉ được xuất hiện một lần");
     }
 }

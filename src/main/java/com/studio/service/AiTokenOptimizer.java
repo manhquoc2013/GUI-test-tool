@@ -43,6 +43,8 @@ public class AiTokenOptimizer {
     private static final Pattern MULTI_NEWLINES = Pattern.compile("(\\r?\\n){3,}");
     private static final Pattern MULTI_SPACES = Pattern.compile("[ \\t]{3,}");
     private static final Pattern PDF_PAGE_MARKER = Pattern.compile("(?m)^#{1,4}\\s+Trang\\s+\\d+\\s*$\\r?\\n?");
+    /** Floor for one section slice; the previous 350 floor overshot the budget and cut later sections. */
+    private static final int MIN_SECTION_CHARS = 120;
     private static final Pattern SECTION_SPLIT_PATTERN = Pattern.compile("(?m)^(#{1,4}\\s+[^\\r\\n]+|(?:\\*\\*)?(?:Màn\\s+hình|Screen|Chức\\s+năng|Module|Phân\\s+hệ|UC-?\\d+|FR-?\\d+|\\d+\\.\\d+)[^\\r\\n]{2,90})$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```([a-zA-Z0-9_-]*)\\r?\\n([\\s\\S]*?)\\r?\\n```");
 
@@ -233,7 +235,7 @@ public class AiTokenOptimizer {
         sb.append("\n");
 
         int remainingBudget = Math.max(2000, effectiveMax - sb.length());
-        int perSectionBudget = Math.max(350, remainingBudget / starts.size());
+        int perSectionBudget = Math.max(MIN_SECTION_CHARS, remainingBudget / starts.size());
 
         // Include preamble if present
         if (starts.get(0) > 0) {

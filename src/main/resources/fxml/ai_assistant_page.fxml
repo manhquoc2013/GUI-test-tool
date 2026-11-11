@@ -78,6 +78,10 @@
                         <ComboBox fx:id="targetSuiteCombo" promptText="Chọn Suite..." prefWidth="140" minWidth="110" HBox.hgrow="ALWAYS"/>
                         <Button text="Làm mới" fx:id="refreshTargetsBtn" onAction="#reloadTargets" styleClass="btn-secondary" minWidth="-Infinity"/>
                     </HBox>
+                    <HBox spacing="8" alignment="CENTER_LEFT">
+                        <Label text="Hiển thị tin nhắn:" styleClass="field-label-dim" minWidth="-Infinity"/>
+                        <ComboBox fx:id="chatDisplayModeCombo" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                    </HBox>
                 </VBox>
 
                 <!-- Chat History Area -->

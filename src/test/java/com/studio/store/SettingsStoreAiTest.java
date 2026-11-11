@@ -53,4 +53,23 @@ class SettingsStoreAiTest {
         assertEquals(48000, loaded.getAiConfig().getOutputTokenCeiling(),
                 "the configured ceiling must survive a save");
     }
+
+    /**
+     * The transcript density is a user preference: it must default to Tổng hợp, survive the storage copy
+     * and normalise a corrupt value instead of breaking the chat page.
+     */
+    @Test
+    void chatDisplayModeDefaultsPersistsAndNormalises() throws IOException {
+        SettingsStore store = new SettingsStore(tempDir);
+        assertEquals("summary", new SettingsStore.Settings().getAiChatDisplayMode());
+
+        SettingsStore.Settings settings = new SettingsStore.Settings();
+        settings.setAiChatDisplayMode("COMPACT");
+        store.save(settings);
+        assertEquals("compact", store.load().getAiChatDisplayMode(), "the choice must survive a save");
+
+        SettingsStore.Settings corrupt = new SettingsStore.Settings();
+        corrupt.setAiChatDisplayMode("khong-ton-tai");
+        assertEquals("summary", corrupt.getAiChatDisplayMode(), "an unknown key falls back to Tổng hợp");
+    }
 }

@@ -493,5 +493,39 @@ class AiTestGeneratorServiceTest {
         assertEquals("", service.validateAndFixScript(null, "TestCase_02", "about:blank"));
         assertEquals("", service.validateAndFixScript("", "TestCase_03", "https://example.com"));
     }
+
+    @Test
+    void subAgentDocAllowanceScalesWithTheContextWindow() {
+        // Floor: a tiny window must not starve a document below the smallest useful slice.
+        assertEquals(2500, AiTestGeneratorService.resolveSubAgentDocAllowance(2000, 1));
+        // Cap: a huge window must not push one document past the useful extraction limit.
+        assertEquals(16000, AiTestGeneratorService.resolveSubAgentDocAllowance(32768, 1));
+        // An unknown window falls back to the default instead of returning a zero budget.
+        assertEquals(16000, AiTestGeneratorService.resolveSubAgentDocAllowance(0, 1));
+        // Several documents share the same budget rather than each claiming the full window.
+        assertEquals(14933, AiTestGeneratorService.resolveSubAgentDocAllowance(128000, 6));
+        assertEquals(2500, AiTestGeneratorService.resolveSubAgentDocAllowance(4000, 4));
+    }
+
+    @Test
+    void subAgentGroundingKeepsTheLaterSectionsOfALargeSrs() {
+        StringBuilder content = new StringBuilder("# Tài liệu SRS\n\n");
+        for (int i = 1; i <= 23; i++) {
+            content.append("## 3.").append(i).append(" Màn hình số ").append(i).append('\n');
+            content.append("MARKER-").append(i).append(' ')
+                    .append("Yêu cầu chức năng chi tiết cho màn hình. ".repeat(20))
+                    .append("\n\n");
+        }
+        DocumentParserService.ParsedDocument srs = new DocumentParserService.ParsedDocument(
+                "srs.docx", null, false, content.toString(), "docx", content.length());
+
+        String grounding = service.buildSubAgentGrounding("tạo test case cho tài liệu srs", List.of(srs), null,
+                "Suite X", 32768);
+
+        assertTrue(grounding.contains("MARKER-23"),
+                "mục cuối của SRS phải tới được tác nhân, không chỉ mục lục");
+        assertTrue(grounding.length() > 9000,
+                "ngân sách cố định 9.000 ký tự cũ làm mất các mục sau, got: " + grounding.length());
+    }
 }
 

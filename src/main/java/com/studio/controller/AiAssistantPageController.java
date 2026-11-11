@@ -4,7 +4,6 @@ import com.studio.model.*;
 import com.studio.service.AiAmbiguityAnalyzer;
 import com.studio.service.AiContinuation;
 import com.studio.service.AiDelegationPolicy;
-import com.studio.service.AiAgentPlanParser;
 import com.studio.service.AiCoordinatorAgent;
 import com.studio.service.AiLlmAgentExecutor;
 import com.studio.service.AiSubAgentOrchestrator;
@@ -29,6 +28,7 @@ import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
+import javafx.util.Callback;
 import javafx.util.Duration;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -99,6 +99,8 @@ public class AiAssistantPageController implements Initializable {
     @FXML
     private ComboBox<com.studio.model.AiSkill> skillComboBox;
     @FXML
+    private ComboBox<com.studio.model.ChatDisplayMode> chatDisplayModeCombo;
+    @FXML
     private ScrollPane chatScroll;
     @FXML
     private VBox chatMessagesBox;
@@ -167,6 +169,8 @@ public class AiAssistantPageController implements Initializable {
     private String liveDomJson = null;
     private String currentSuggestedGroup = null;
     private String currentSuggestedSuite = null;
+    /** Density used to render assistant/agent bubbles; user prompts are always shown in full. */
+    private ChatDisplayMode chatDisplayMode = ChatDisplayMode.SUMMARY;
 
     private HBox thinkingBubbleWrapper = null;
     private Timeline thinkingTimeline = null;
@@ -256,6 +260,8 @@ public class AiAssistantPageController implements Initializable {
             UiTooltips.install(skillComboBox, "Chọn kỹ năng chuyên sâu của AI hoặc để Tự động nhận diện");
         }
 
+        setupChatDisplayModeCombo();
+
         // Setup case list cell factory
         // Fixed row height: single-line cells, so VirtualFlow can skip per-cell
         // measurement while scrolling.
@@ -317,6 +323,63 @@ public class AiAssistantPageController implements Initializable {
             modelIndicatorLabel.setText("Mô hình: " + s.getAiConfig().getEffectiveModel());
         } catch (Exception ignored) {
             modelIndicatorLabel.setText("Mô hình: " + AiConfig.DEFAULT_MODEL);
+        }
+    }
+
+    /**
+     * Wires the transcript density selector (Gọn / Tổng hợp / Chi tiết). The choice is persisted in
+     * settings and re-renders the open transcript, so a dense agent answer can be collapsed to its gist
+     * without losing the full text.
+     */
+    private void setupChatDisplayModeCombo() {
+        if (chatDisplayModeCombo == null) {
+            return;
+        }
+        chatDisplayModeCombo.getItems().setAll(ChatDisplayMode.values());
+        chatDisplayMode = loadChatDisplayMode();
+        chatDisplayModeCombo.setValue(chatDisplayMode);
+        Callback<ListView<ChatDisplayMode>, ListCell<ChatDisplayMode>> cellFactory = lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(ChatDisplayMode item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.getLabel());
+            }
+        };
+        chatDisplayModeCombo.setCellFactory(cellFactory);
+        chatDisplayModeCombo.setButtonCell(cellFactory.call(null));
+        UiTooltips.install(chatDisplayModeCombo,
+                "Mức hiển thị tin nhắn trong khung chat. Nội dung dài luôn xem được đầy đủ bằng nút \"Xem thêm\".");
+        chatDisplayModeCombo.setOnAction(e -> {
+            ChatDisplayMode selected = chatDisplayModeCombo.getValue();
+            if (selected == null || selected == chatDisplayMode) {
+                return;
+            }
+            chatDisplayMode = selected;
+            persistChatDisplayMode(selected);
+            // Never wipe the live agent bubbles of a turn that is still running; the end-of-turn
+            // render already applies the new mode.
+            if (sendBtn == null || !sendBtn.isDisabled()) {
+                renderChatHistory();
+            }
+        });
+    }
+
+    private ChatDisplayMode loadChatDisplayMode() {
+        try {
+            return ChatDisplayMode.fromKey(settingsStore.load().getAiChatDisplayMode());
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-CHAT", "Không đọc được chế độ hiển thị tin nhắn: " + e.getMessage());
+            return ChatDisplayMode.SUMMARY;
+        }
+    }
+
+    private void persistChatDisplayMode(ChatDisplayMode mode) {
+        try {
+            SettingsStore.Settings settings = settingsStore.load();
+            settings.setAiChatDisplayMode(mode.key());
+            settingsStore.save(settings);
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-CHAT", "Không lưu được chế độ hiển thị tin nhắn: " + e.getMessage());
         }
     }
 
@@ -737,28 +800,31 @@ public class AiAssistantPageController implements Initializable {
     }
 
     /**
-     * Delegates a request to rule-bound sub-agents through the coordinator, publishing each
-     * agent's exchange and exactly one aggregated answer into the session.
+     * Delegates a request to rule-bound sub-agents and then still produces the artefact the user asked
+     * for: each agent's turn lands in the transcript as it finishes, and the structured generator runs
+     * afterwards so the single aggregated answer carries real test cases instead of prose alone.
      *
-     * Returns false when the request should keep the single-assistant path (no plan could be
-     * produced, or the request is not delegable) — delegation must never swallow a request a
-     * user could otherwise have answered.
+     * @return the generation result attached to the aggregated answer, or {@code null} when the request
+     *         should keep the single-assistant path (not delegable, or no plan could be produced) —
+     *         delegation must never swallow a request a user could otherwise have answered
      */
-    private boolean delegateToAgents(AiChatSession session, String prompt,
+    private AiTestGeneratorService.GenerationResult delegateToAgents(AiChatSession session, String prompt,
                                      AiConfig aiConfig, boolean generateScript,
                                      List<DocumentParserService.ParsedDocument> docs,
                                      String domJson, String suiteContext,
-                                     AiAmbiguityAnalyzer.Intent intent) {
+                                     AiAmbiguityAnalyzer.Intent intent,
+                                     AiSkill skill,
+                                     Path suiteDir) throws IOException, InterruptedException {
         boolean hasDocs = docs != null && !docs.isEmpty();
         boolean hasDom = domJson != null && !domJson.isBlank() && !"[]".equals(domJson);
         if (!AiDelegationPolicy.shouldDelegate(intent, hasDocs, hasDom, prompt)) {
             AiLoggingService.info("AI-COORDINATOR", "Bỏ qua điều phối: intent=" + intent
                     + ", docs=" + hasDocs + ", dom=" + hasDom + " (dùng trợ lý đơn có grounding)");
-            return false;
+            return null;
         }
-        String grounding = aiGenerator.buildSubAgentGrounding(prompt, docs, domJson, suiteContext);
+        String grounding = aiGenerator.buildSubAgentGrounding(prompt, docs, domJson, suiteContext,
+                aiConfig.getMaxTokens());
         OpenAiClient client = new OpenAiClient();
-        AiAgentPlanParser.InvalidPlanException[] planFailure = new AiAgentPlanParser.InvalidPlanException[1];
 
         AiCoordinatorAgent coordinator = new AiCoordinatorAgent(userRequest -> {
             try {
@@ -771,7 +837,9 @@ public class AiAssistantPageController implements Initializable {
                         "Bộ lập kế hoạch",
                         new ArrayList<>()).content();
             } catch (Exception e) {
-                planFailure[0] = new AiAgentPlanParser.InvalidPlanException(
+                // Returning null makes the coordinator surface an invalid plan, which the caller turns
+                // into the single-assistant fallback instead of losing the user's request.
+                AiLoggingService.warn("AI-COORDINATOR",
                         "Không gọi được bộ lập kế hoạch: " + e.getMessage());
                 return null;
             }
@@ -782,10 +850,10 @@ public class AiAssistantPageController implements Initializable {
             tasks = coordinator.toTasks(coordinator.plan(prompt));
         } catch (Exception e) {
             AiLoggingService.info("AI-COORDINATOR", "Bỏ qua điều phối, dùng trợ lý đơn: " + e.getMessage());
-            return false;
+            return null;
         }
         if (tasks.isEmpty()) {
-            return false;
+            return null;
         }
 
         AiLlmAgentExecutor agentExecutor = new AiLlmAgentExecutor(
@@ -808,15 +876,117 @@ public class AiAssistantPageController implements Initializable {
                 grounding);
         AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
 
-        // Parent turn recorded first so the transcript reads request -> agents -> one answer.
-        session.addMessage(new AiChatMessage("user", prompt));
-
+        // The user's turn is already recorded by sendPrompt; adding it again duplicated every prompt.
         Platform.runLater(() -> updateThinkingStatus("🤖 Coordinator đang giao việc cho "
                 + tasks.size() + " tác nhân..."));
         AiSubAgentOrchestrator orchestrator = new AiSubAgentOrchestrator(
-                executor, status -> Platform.runLater(() -> updateThinkingStatus(status)));
-        orchestrator.orchestrate(session, tasks);
-        return true;
+                executor,
+                status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                this::appendLiveTranscriptMessage);
+        AiSubAgentOrchestrator.OrchestrationResult orchestration = orchestrator.orchestrate(session, tasks);
+
+        // The agents design the solution; the artefact still has to be produced. Without this pass the
+        // turn ended in prose and the user received no test case at all.
+        Platform.runLater(() -> updateThinkingStatus(
+                "🧪 [Test Architect] Đang sinh bộ Test Case có cấu trúc từ kết quả phân tích..."));
+        AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
+                aiConfig, prompt, docs, suiteContext, domJson,
+                historyWithoutAgentTurns(session),
+                status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                skill, suiteDir, generateScript);
+        completeAggregateWithArtifacts(session, orchestration, result);
+        return result;
+    }
+
+    /**
+     * Shows one agent message as soon as it is recorded. The final aggregated answer is skipped: it is
+     * still being completed with the generated cases and is rendered once at end of turn.
+     */
+    private void appendLiveTranscriptMessage(AiChatMessage msg) {
+        if (msg == null || msg.isAggregatedResult()) {
+            return;
+        }
+        Platform.runLater(() -> {
+            if (currentSession == null || msg.getId() == null || sendBtn == null || !sendBtn.isDisabled()) {
+                return;
+            }
+            if (!currentSession.getMessages().contains(msg)) {
+                return;
+            }
+            // Keep the thinking indicator last so progress stays visible under the new bubble.
+            if (thinkingBubbleWrapper != null) {
+                chatMessagesBox.getChildren().remove(thinkingBubbleWrapper);
+            }
+            renderMessageBubble(msg, true);
+            if (thinkingBubbleWrapper != null) {
+                chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
+            }
+        });
+    }
+
+    /** History handed to the generator: the agent transcript is evidence, not conversation context. */
+    private static List<AiChatMessage> historyWithoutAgentTurns(AiChatSession session) {
+        List<AiChatMessage> history = new ArrayList<>();
+        if (session == null) {
+            return history;
+        }
+        for (AiChatMessage m : session.getMessages()) {
+            if (m != null && !m.isAgentMessage() && !m.isAggregatedResult()) {
+                history.add(m);
+            }
+        }
+        return history;
+    }
+
+    /**
+     * Replaces the aggregated answer's prose summary with the real deliverable: the generated cases, the
+     * functional group/suite, the clarification questions (when the turn asked for scope) and any
+     * orchestration findings. Keeping it as ONE message is what makes the final answer unambiguous.
+     */
+    private void completeAggregateWithArtifacts(AiChatSession session,
+                                                AiSubAgentOrchestrator.OrchestrationResult orchestration,
+                                                AiTestGeneratorService.GenerationResult result) {
+        if (session == null || result == null) {
+            return;
+        }
+        AiChatMessage aggregate = latestAggregate(session);
+        if (aggregate == null) {
+            aggregate = new AiChatMessage("assistant", "");
+            aggregate.setAggregatedResult(true);
+            session.addMessage(aggregate);
+        }
+        aggregate.setContent(result.getSummary());
+        applyGenerationResult(aggregate, result);
+
+        String warning = completenessWarningOf(result);
+        if (orchestration != null && !orchestration.openFindings().isEmpty()) {
+            String findings = "⚠️ Ghi chú điều phối:\n- " + String.join("\n- ", orchestration.openFindings());
+            warning = warning == null || warning.isBlank() ? findings : warning + "\n" + findings;
+        }
+        aggregate.setCompletenessWarning(warning);
+        aggregate.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(aggregate));
+    }
+
+    private static AiChatMessage latestAggregate(AiChatSession session) {
+        List<AiChatMessage> msgs = session.getMessages();
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            AiChatMessage m = msgs.get(i);
+            if (m != null && m.isAggregatedResult()) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /** Copies the artefact-bearing fields of a generation result onto its chat message. */
+    private void applyGenerationResult(AiChatMessage msg, AiTestGeneratorService.GenerationResult result) {
+        if (result.isClarification()) {
+            msg.setClarificationQuestions(result.getQuestions());
+        }
+        msg.setGeneratedCasesSnapshot(result.getCases());
+        msg.setSuggestedGroup(result.getSuggestedGroup());
+        msg.setSuggestedSuite(result.getSuggestedSuite());
+        msg.setIntent(result.getIntent());
     }
 
     /**
@@ -1353,35 +1523,34 @@ public class AiAssistantPageController implements Initializable {
                     }
                 }
 
-                // Điều phối đa tác nhân: coordinator phân rã yêu cầu, mỗi tác nhân con chạy theo
-                // rule cố định của nó, rồi một kết quả tổng hợp duy nhất được phát về chat.
-                if (delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript,
-                        docsSnapshot, activeDomContext, context, detectedIntent)) {
-                    Platform.runLater(() -> {
-                        removeThinkingBubble();
-                        sendBtn.setDisable(false);
-                        sendBtn.setText("Gửi (Enter)");
-                        generationProgress.setVisible(false);
-                        generationProgress.setManaged(false);
-                        if (targetSessionId.equals(currentSession != null ? currentSession.getId() : null)) {
-                            renderChatHistory();
-                        }
-                        try {
-                            chatHistoryStore.saveSession(suiteDir, targetSession);
-                            refreshSessionsList(targetSession.getId());
-                        } catch (IOException ignored) {
-                        }
-                    });
-                    return;
+                // Điều phối đa tác nhân (khi yêu cầu cần tài liệu và không phải lượt cần làm rõ): mỗi
+                // tác nhân hiện ngay khi xong, sau đó bộ sinh test case có cấu trúc vẫn chạy để trả về
+                // artefact thật thay vì chỉ văn xuôi.
+                boolean needsClarification = generationNeedsClarification(
+                        prompt, docsSnapshot, activeDomContext, activeSkill, context);
+                AiTestGeneratorService.GenerationResult result = null;
+                boolean delegatedRun = false;
+                if (!needsClarification) {
+                    result = delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript,
+                            docsSnapshot, activeDomContext, context, detectedIntent, activeSkill, suiteDir);
+                    delegatedRun = result != null;
+                } else {
+                    AiLoggingService.info("AI-COORDINATOR",
+                            "Bỏ qua điều phối: lượt này cần làm rõ phạm vi trước khi sinh artefact");
                 }
 
-                AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
-                        effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
-                        targetSession.getMessages(),
-                        status -> Platform.runLater(() -> updateThinkingStatus(status)),
-                        activeSkill,
-                        suiteDir,
-                        effectiveGenerateScript);
+                if (result == null) {
+                    result = aiGenerator.generateTestCases(
+                            effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
+                            historyWithoutAgentTurns(targetSession),
+                            status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                            activeSkill,
+                            suiteDir,
+                            effectiveGenerateScript);
+                }
+
+                final AiTestGeneratorService.GenerationResult generationResult = result;
+                final AiChatMessage delegatedAnswer = delegatedRun ? latestAggregate(targetSession) : null;
 
                 Platform.runLater(() -> {
                     removeThinkingBubble();
@@ -1390,16 +1559,18 @@ public class AiAssistantPageController implements Initializable {
                     generationProgress.setVisible(false);
                     generationProgress.setManaged(false);
 
-                    AiChatMessage assistantMsg = new AiChatMessage("assistant", result.getSummary());
-                    if (result.isClarification()) {
-                        assistantMsg.setClarificationQuestions(result.getQuestions());
+                    // The delegated pass already recorded exactly one aggregated answer and filled it with
+                    // the generated cases; adding a second one duplicated the final deliverable.
+                    AiChatMessage assistantMsg;
+                    if (delegatedAnswer != null) {
+                        assistantMsg = delegatedAnswer;
+                    } else {
+                        assistantMsg = new AiChatMessage("assistant", generationResult.getSummary());
+                        assistantMsg.setCompletenessWarning(completenessWarningOf(generationResult));
+                        applyGenerationResult(assistantMsg, generationResult);
+                        assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
+                        targetSession.addMessage(assistantMsg);
                     }
-                    assistantMsg.setGeneratedCasesSnapshot(result.getCases());
-                    assistantMsg.setSuggestedGroup(result.getSuggestedGroup());
-                    assistantMsg.setSuggestedSuite(result.getSuggestedSuite());
-                    assistantMsg.setCompletenessWarning(completenessWarningOf(result));
-                    assistantMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(assistantMsg));
-                    targetSession.addMessage(assistantMsg);
 
                     // Persist updated history
                     try {
@@ -1410,18 +1581,20 @@ public class AiAssistantPageController implements Initializable {
 
                     boolean isCurrentActive = currentSession != null && targetSessionId.equals(currentSession.getId());
                     if (isCurrentActive) {
-                        renderMessageBubble(assistantMsg, true);
+                        // Re-render instead of appending: the live agent bubbles are already on screen and
+                        // the aggregated answer was completed after they appeared.
+                        renderChatHistory();
                         updateTokenUsageDisplay();
 
-                        resultSummaryLabel.setText(result.getSummary());
+                        resultSummaryLabel.setText(generationResult.getSummary());
 
                         currentGeneratedCases.clear();
-                        currentGeneratedCases.addAll(result.getCases());
-                        currentSuggestedGroup = result.getSuggestedGroup();
-                        currentSuggestedSuite = result.getSuggestedSuite();
+                        currentGeneratedCases.addAll(generationResult.getCases());
+                        currentSuggestedGroup = generationResult.getSuggestedGroup();
+                        currentSuggestedSuite = generationResult.getSuggestedSuite();
 
                         generatedCasesListView.getItems().setAll(currentGeneratedCases);
-                        rawResponseViewer.setText(result.getRawResponse());
+                        rawResponseViewer.setText(generationResult.getRawResponse());
 
                         if (!currentGeneratedCases.isEmpty()) {
                             applyToSuiteBtn.setDisable(false);
@@ -1439,11 +1612,11 @@ public class AiAssistantPageController implements Initializable {
                                 exportCasesMenuBtn.setDisable(true);
                             }
                             showCaseDetail(null);
-                            if (!result.isClarification()) {
-                                ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(result.getIntent())
+                            if (!generationResult.isClarification()) {
+                                ToastService.info("💬 Trợ lý AI: " + ("SEARCH_TESTS".equals(generationResult.getIntent())
                                         ? "Đã tìm thấy test cases phù hợp."
-                                        : "EVALUATE_TEST".equals(result.getIntent()) ? "Đã phân tích đánh giá test case."
-                                                : "CHAT_ADVICE".equals(result.getIntent()) ? "Đã phản hồi tư vấn kỹ thuật."
+                                        : "EVALUATE_TEST".equals(generationResult.getIntent()) ? "Đã phân tích đánh giá test case."
+                                                : "CHAT_ADVICE".equals(generationResult.getIntent()) ? "Đã phản hồi tư vấn kỹ thuật."
                                                         : "Đã phản hồi yêu cầu."));
                             }
                         }
@@ -1481,6 +1654,32 @@ public class AiAssistantPageController implements Initializable {
         }, "AiAssistant-Worker");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /**
+     * Mirrors the generator's own clarification gate. A turn that must ask the user about scope is never
+     * delegated: running four agents first only to end with a question wastes the user's tokens.
+     */
+    private boolean generationNeedsClarification(String prompt,
+                                                 List<DocumentParserService.ParsedDocument> docs,
+                                                 String domJson,
+                                                 AiSkill skill,
+                                                 String contextInfo) {
+        boolean hasDocs = docs != null && !docs.isEmpty();
+        boolean hasDom = domJson != null && !domJson.isBlank() && !"[]".equals(domJson);
+        boolean hasExplicitSkillOrUrl = (skill != null && skill != AiSkill.AUTO)
+                || AiTestGeneratorService.containsTargetUrl(prompt, docs, domJson, contextInfo);
+        if (hasExplicitSkillOrUrl) {
+            return false;
+        }
+        try {
+            return aiGenerator.getAmbiguityAnalyzer()
+                    .analyze(prompt, hasDocs, hasDom, docs)
+                    .needsClarification();
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-COORDINATOR", "Không phân tích được yêu cầu: " + e.getMessage());
+            return false;
+        }
     }
 
     private void showThinkingBubble(String modelName) {
@@ -2013,7 +2212,8 @@ public class AiAssistantPageController implements Initializable {
         return warning.toString();
     }
 
-    private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {        String role = msg.getRole();
+    private void renderMessageBubble(AiChatMessage msg, boolean scrollToBottom) {
+        String role = msg.getRole();
         VBox bubble = new VBox(6);
         bubble.setMaxWidth(520);
         bubble.getStyleClass().add("ai-chat-bubble");
@@ -2060,12 +2260,9 @@ public class AiAssistantPageController implements Initializable {
             header.getChildren().add(undoBtn);
         }
 
-        // Content
-        Label contentLabel = new Label(msg.getContent());
-        contentLabel.setWrapText(true);
-        contentLabel.getStyleClass().add("ai-chat-bubble-content");
-
-        bubble.getChildren().addAll(header, contentLabel);
+        // Content: user prompts stay verbatim, assistant/agent turns follow the density setting and
+        // keep any hidden text behind a "Xem thêm" toggle.
+        bubble.getChildren().addAll(header, buildContentBox(msg));
 
         if (msg.hasClarificationQuestions()) {
             VBox clarificationCard = buildClarificationCard(msg);
@@ -2242,6 +2439,39 @@ public class AiAssistantPageController implements Initializable {
         if (scrollToBottom) {
             Platform.runLater(() -> chatScroll.setVvalue(1.0));
         }
+    }
+
+    /**
+     * Bubble body. The stored message is never rewritten: a long assistant/agent turn shows an excerpt
+     * in Gọn/Tổng hợp mode and keeps the full text one click away. User prompts are shown verbatim
+     * because hiding what the user typed is surprising.
+     */
+    private VBox buildContentBox(AiChatMessage msg) {
+        String content = msg.getContent() != null ? msg.getContent() : "";
+        ChatDisplayMode mode = "user".equalsIgnoreCase(msg.getRole()) ? ChatDisplayMode.DETAIL : chatDisplayMode;
+        ChatDisplayMode.Excerpt excerpt = mode.excerpt(content);
+
+        Label contentLabel = new Label(excerpt.text());
+        contentLabel.setWrapText(true);
+        contentLabel.getStyleClass().add("ai-chat-bubble-content");
+
+        VBox box = new VBox(4);
+        box.getChildren().add(contentLabel);
+        if (!excerpt.truncated()) {
+            return box;
+        }
+
+        Button toggle = new Button("Xem thêm");
+        toggle.getStyleClass().add("chat-action-btn");
+        boolean[] expanded = {false};
+        toggle.setOnAction(e -> {
+            expanded[0] = !expanded[0];
+            contentLabel.setText(expanded[0] ? content : excerpt.text());
+            toggle.setText(expanded[0] ? "Thu gọn" : "Xem thêm");
+            Platform.runLater(() -> chatScroll.setVvalue(1.0));
+        });
+        box.getChildren().add(toggle);
+        return box;
     }
 
     private VBox buildClarificationCard(AiChatMessage msg) {

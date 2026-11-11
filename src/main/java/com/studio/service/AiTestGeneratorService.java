@@ -92,10 +92,14 @@ public class AiTestGeneratorService {
     /** Definitions from .agents/*.md and skills/<name>/SKILL.md that now reach the model prompt. */
     private AiAgentDefinitionLoader definitionLoader = AiAgentDefinitionLoader.defaultInstance();
 
-    /** Per-document cap when a sub-agent receives grounding; the full SRS belongs to the generator path. */
-    private static final int SUB_AGENT_DOC_CHARS = 2500;
-    /** Total document budget shared by all sub-agent runs in one turn. */
-    private static final int SUB_AGENT_DOCS_TOTAL_CHARS = 9000;
+    /**
+     * Share of the model's input window that sub-agent grounding may take, and the bounds of one
+     * document's slice. A fixed 2 500-character cap used to reduce a 23-section SRS to its table of
+     * contents, which made every agent answer "không xác định được từ tài liệu".
+     */
+    private static final double SUB_AGENT_DOC_BUDGET_RATIO = 0.35;
+    private static final int SUB_AGENT_MIN_DOC_CHARS = 2500;
+    private static final int SUB_AGENT_MAX_DOC_CHARS = 16000;
     private static final int SUB_AGENT_MAX_DOCS = 6;
     private static final int SUB_AGENT_DOM_ELEMENTS = 40;
     private static final int SUB_AGENT_RAG_CHARS = 1500;
@@ -1129,7 +1133,8 @@ public class AiTestGeneratorService {
     public String buildSubAgentGrounding(String prompt,
                                          List<ParsedDocument> attachments,
                                          String domJson,
-                                         String suiteContext) {
+                                         String suiteContext,
+                                         int contextTokens) {
         StringBuilder sb = new StringBuilder();
         if (suiteContext != null && !suiteContext.isBlank()) {
             sb.append("### Ngữ cảnh bộ kiểm thử\n").append(suiteContext.trim()).append("\n\n");
@@ -1141,15 +1146,22 @@ public class AiTestGeneratorService {
         }
 
         if (attachments != null && !attachments.isEmpty()) {
-            int remaining = SUB_AGENT_DOCS_TOTAL_CHARS;
+            int documentCount = 0;
+            for (ParsedDocument doc : attachments) {
+                if (doc != null && !doc.isImage() && doc.getContent() != null && !doc.getContent().isBlank()) {
+                    documentCount++;
+                }
+            }
+            int allowance = resolveSubAgentDocAllowance(contextTokens, documentCount);
+            int remaining = allowance * Math.max(1, documentCount);
             int used = 0;
-            sb.append("### Tài liệu đính kèm (trích xuất có giới hạn)\n");
+            sb.append("### Tài liệu đính kèm (trích xuất theo ngân sách ngữ cảnh)\n");
             for (ParsedDocument doc : attachments) {
                 if (doc == null || doc.isImage() || remaining <= 0 || used >= SUB_AGENT_MAX_DOCS) {
                     continue;
                 }
-                int allowance = Math.min(SUB_AGENT_DOC_CHARS, remaining);
-                ParsedDocument compressed = tokenOptimizer.compressDocumentSmart(doc, allowance);
+                int perDoc = Math.min(allowance, remaining);
+                ParsedDocument compressed = tokenOptimizer.compressDocumentSmart(doc, perDoc);
                 if (compressed == null || compressed.getContent() == null || compressed.getContent().isBlank()) {
                     continue;
                 }
@@ -1171,6 +1183,17 @@ public class AiTestGeneratorService {
         }
 
         return sb.toString().trim();
+    }
+
+    /**
+     * Characters one attached document may use in a sub-agent prompt, derived from the model's window
+     * rather than a hard-coded cap so a larger-context model sees more of the specification.
+     */
+    static int resolveSubAgentDocAllowance(int contextTokens, int documentCount) {
+        int windowTokens = contextTokens > 0 ? contextTokens : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        long totalChars = (long) (windowTokens * AiTokenOptimizer.CHARS_PER_TOKEN * SUB_AGENT_DOC_BUDGET_RATIO);
+        long shared = totalChars / Math.max(1, documentCount);
+        return (int) Math.max(SUB_AGENT_MIN_DOC_CHARS, Math.min(SUB_AGENT_MAX_DOC_CHARS, shared));
     }
 
     public AiAmbiguityAnalyzer getAmbiguityAnalyzer() {
