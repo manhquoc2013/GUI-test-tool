@@ -188,8 +188,17 @@ public class AiAssistantChatKeyBindingsTest {
             // Clear prompt area and simulate user having typed something else
             promptArea.setText("temporary draft text");
 
-            // Act: trigger undo on assistant message
+            // Act: an assistant message is not an undoable target on its own
             controller.handleUndoMessage(assistantMsg);
+
+            // Assert: nothing is removed and no prompt is pulled back into the composer
+            assertEquals(2, controller.getCurrentSession().getMessages().size(),
+                    "An assistant message must not be undone independently");
+            assertEquals("temporary draft text", promptArea.getText(),
+                    "Rejected assistant undo must not touch the composer");
+
+            // Act: undo the user prompt - the assistant reply it produced goes with it
+            controller.handleUndoMessage(userMsg);
 
             // Assert: messages removed from session, prompt and files restored to input area
             assertEquals(0, controller.getCurrentSession().getMessages().size(), "Both messages should be removed on undo");

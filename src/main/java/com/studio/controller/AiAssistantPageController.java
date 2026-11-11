@@ -1916,7 +1916,7 @@ public class AiAssistantPageController implements Initializable {
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(msg.getTimestamp()), ZoneId.systemDefault());
         String formattedTime = time.format(DateTimeFormatter.ofPattern("HH:mm"));
 
-        // Header Row: Label + Spacer + Copy Button + Undo Button
+        // Header Row: Label + Spacer + Copy Button + Undo Button (user bubbles only)
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
@@ -1936,13 +1936,17 @@ public class AiAssistantPageController implements Initializable {
             ToastService.success("Đã sao chép nội dung tin nhắn!");
         });
 
-        // Undo Button
-        Button undoBtn = new Button("Hoàn tác");
-        undoBtn.getStyleClass().addAll("chat-action-btn", "chat-action-btn-danger");
-        UiIcons.setGraphic(undoBtn, UiIcons.UNDO, 10);
-        undoBtn.setOnAction(e -> handleUndoMessage(msg));
-
-        header.getChildren().addAll(headerLabel, copyBtn, undoBtn);
+        // Undo Button. Only a user message carries it: undoing is "take back the prompt", and the
+        // assistant turns it produced are removed with it (handleUndoMessage). An assistant bubble on
+        // its own has nothing a user can take back.
+        header.getChildren().addAll(headerLabel, copyBtn);
+        if ("user".equalsIgnoreCase(role)) {
+            Button undoBtn = new Button("Hoàn tác");
+            undoBtn.getStyleClass().addAll("chat-action-btn", "chat-action-btn-danger");
+            UiIcons.setGraphic(undoBtn, UiIcons.UNDO, 10);
+            undoBtn.setOnAction(e -> handleUndoMessage(msg));
+            header.getChildren().add(undoBtn);
+        }
 
         // Content
         Label contentLabel = new Label(msg.getContent());
@@ -2273,23 +2277,61 @@ public class AiAssistantPageController implements Initializable {
         return card;
     }
 
+    /**
+     * The assistant reply that carries the suite snapshot an undo of {@code targetMsg} must roll back.
+     * Undo works forward from the prompt: every assistant turn after the undone user message belongs to
+     * that undo scope, so the LAST applied reply in the scope wins — its snapshot is the state before the
+     * first apply of the scope, which also undoes the applies stacked on top of it.
+     */
     public static AiChatMessage resolveAppliedSnapshotMessage(List<AiChatMessage> msgs, AiChatMessage targetMsg) {
         if (targetMsg == null) return null;
         if (targetMsg.isAppliedToSuite() && targetMsg.getSuiteSnapshotJson() != null) {
             return targetMsg;
         }
-        if (msgs != null && "user".equalsIgnoreCase(targetMsg.getRole())) {
-            int idx = msgs.indexOf(targetMsg);
-            if (idx >= 0 && idx + 1 < msgs.size()) {
-                AiChatMessage next = msgs.get(idx + 1);
-                if ("assistant".equalsIgnoreCase(next.getRole())
-                        && next.isAppliedToSuite()
-                        && next.getSuiteSnapshotJson() != null) {
-                    return next;
-                }
+        if (msgs == null || !"user".equalsIgnoreCase(targetMsg.getRole())) {
+            return null;
+        }
+        int idx = msgs.indexOf(targetMsg);
+        if (idx < 0) {
+            return null;
+        }
+        AiChatMessage applied = null;
+        for (int i = idx + 1; i < msgs.size(); i++) {
+            AiChatMessage m = msgs.get(i);
+            if ("user".equalsIgnoreCase(m.getRole())) {
+                break;
+            }
+            if ("assistant".equalsIgnoreCase(m.getRole())
+                    && m.isAppliedToSuite()
+                    && m.getSuiteSnapshotJson() != null) {
+                applied = m;
             }
         }
-        return null;
+        return applied;
+    }
+
+    /**
+     * Undo scope of a user message: it plus every message after it, up to (not including) the next user
+     * message. Messages before the undone prompt are never touched. Returns an empty list for anything
+     * that is not a user message — assistant turns cannot be undone on their own.
+     */
+    public static List<AiChatMessage> undoScopeOf(List<AiChatMessage> msgs, AiChatMessage targetMsg) {
+        List<AiChatMessage> scope = new ArrayList<>();
+        if (msgs == null || targetMsg == null || !"user".equalsIgnoreCase(targetMsg.getRole())) {
+            return scope;
+        }
+        int idx = msgs.indexOf(targetMsg);
+        if (idx < 0) {
+            return scope;
+        }
+        for (int i = idx; i < msgs.size(); i++) {
+            AiChatMessage m = msgs.get(i);
+            if (i > idx && "user".equalsIgnoreCase(m.getRole())) {
+                break;
+            }
+            scope.add(m);
+        }
+        return scope;
     }
 
     public static Path resolveRollbackSuiteDir(AiChatMessage appliedMsg, Path fallbackSelectedSuiteDir) {
@@ -2303,12 +2345,22 @@ public class AiAssistantPageController implements Initializable {
         if (targetMsg == null)
             return;
 
+        // Undo is the user taking a prompt back: only a user message can be undone, and everything the
+        // assistant produced after it goes with it (undoScopeOf). An assistant turn has no undo of its own.
+        if (!"user".equalsIgnoreCase(targetMsg.getRole())) {
+            ToastService.warn("Chỉ có thể hoàn tác tin nhắn bạn đã gửi. Tin nhắn của Trợ lý AI được hoàn tác cùng với tin nhắn đã sinh ra nó.");
+            return;
+        }
+
         if (sendBtn != null && sendBtn.isDisabled()) {
             ToastService.warn("⚠️ AI đang sinh kịch bản. Vui lòng đợi hoàn tất trước khi hoàn tác.");
             return;
         }
 
         List<AiChatMessage> msgs = currentSession.getMessages();
+        if (!msgs.contains(targetMsg)) {
+            return;
+        }
         AiChatMessage appliedMsg = resolveAppliedSnapshotMessage(msgs, targetMsg);
 
         // 1. If applied to suite, ask for confirmation to rollback files
@@ -2338,35 +2390,11 @@ public class AiAssistantPageController implements Initializable {
             }
         }
 
-        // 2. Identify user message to restore
-        int idx = msgs.indexOf(targetMsg);
-        AiChatMessage userMsgToRestore = null;
-        if (idx >= 0) {
-            if ("user".equalsIgnoreCase(targetMsg.getRole())) {
-                userMsgToRestore = targetMsg;
-                // If user message is undone, also remove the subsequent assistant reply if
-                // present
-                if (idx + 1 < msgs.size() && "assistant".equalsIgnoreCase(msgs.get(idx + 1).getRole())) {
-                    msgs.remove(idx + 1);
-                }
-                msgs.remove(idx);
-            } else {
-                // If assistant message is undone, remove this assistant message and prior user
-                // prompt
-                if (idx - 1 >= 0 && "user".equalsIgnoreCase(msgs.get(idx - 1).getRole())) {
-                    userMsgToRestore = msgs.get(idx - 1);
-                    msgs.remove(idx);
-                    msgs.remove(idx - 1);
-                } else {
-                    msgs.remove(idx);
-                }
-            }
-        }
+        // 2. Remove the prompt and every assistant turn after it; earlier history stays untouched.
+        msgs.removeAll(undoScopeOf(msgs, targetMsg));
 
         // Restore prompt content and attachments back to the chat composer
-        if (userMsgToRestore != null) {
-            restoreToInputArea(userMsgToRestore);
-        }
+        restoreToInputArea(targetMsg);
 
         // 3. Persist and re-render
         Path suiteDir = getSelectedSuiteDir();
@@ -2379,7 +2407,7 @@ public class AiAssistantPageController implements Initializable {
         renderChatHistory();
         restoreLatestPreviewCases();
         updateTokenUsageDisplay();
-        ToastService.info("Đã hoàn tác và khôi phục nội dung vào ô nhập chat.");
+        ToastService.info("Đã hoàn tác tin nhắn và các phản hồi của Trợ lý AI sau đó.");
     }
 
     public AiChatSession getCurrentSession() {

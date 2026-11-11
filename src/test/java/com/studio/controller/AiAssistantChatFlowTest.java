@@ -19,35 +19,81 @@ import static org.junit.jupiter.api.Assertions.*;
 public class AiAssistantChatFlowTest {
 
     @Test
-    public void testUndoMessagePairRemoval() {
+    public void testUndoScopeIsThePromptAndEveryAssistantTurnAfterIt() {
         AiChatSession session = new AiChatSession("suite-1");
 
         AiChatMessage user1 = new AiChatMessage("user", "Yêu cầu 1");
         AiChatMessage ai1 = new AiChatMessage("assistant", "Trả lời 1");
-
         AiChatMessage user2 = new AiChatMessage("user", "Yêu cầu 2");
         AiChatMessage ai2 = new AiChatMessage("assistant", "Trả lời 2");
+        AiChatMessage ai2b = new AiChatMessage("assistant", "Trả lời bổ sung 2");
+        AiChatMessage user3 = new AiChatMessage("user", "Yêu cầu 3");
 
         session.addMessage(user1);
         session.addMessage(ai1);
         session.addMessage(user2);
         session.addMessage(ai2);
+        session.addMessage(ai2b);
+        session.addMessage(user3);
 
-        assertEquals(4, session.getMessages().size());
+        // Undoing "Yêu cầu 2" takes the prompt plus both assistant turns it produced, and stops at the
+        // next user prompt.
+        List<AiChatMessage> scope = AiAssistantPageController.undoScopeOf(session.getMessages(), user2);
+        assertEquals(List.of(user2, ai2, ai2b), scope);
 
-        // Simulate undo on assistant 2: both user2 and ai2 should be removed
+        // Earlier history is outside every later scope.
+        List<AiChatMessage> scopeOfLast = AiAssistantPageController.undoScopeOf(session.getMessages(), user3);
+        assertEquals(List.of(user3), scopeOfLast);
+
+        // An assistant turn has no undo of its own.
+        assertTrue(AiAssistantPageController.undoScopeOf(session.getMessages(), ai1).isEmpty());
+    }
+
+    @Test
+    public void testUndoingUserMessageKeepsEarlierHistoryAndDropsEveryLaterAssistantTurn() {
+        AiChatSession session = new AiChatSession("suite-1");
+        AiChatMessage user1 = new AiChatMessage("user", "Yêu cầu 1");
+        AiChatMessage ai1 = new AiChatMessage("assistant", "Trả lời 1");
+        AiChatMessage user2 = new AiChatMessage("user", "Yêu cầu 2");
+        AiChatMessage ai2 = new AiChatMessage("assistant", "Trả lời 2");
+        AiChatMessage ai2b = new AiChatMessage("assistant", "Trả lời bổ sung 2");
+        session.addMessage(user1);
+        session.addMessage(ai1);
+        session.addMessage(user2);
+        session.addMessage(ai2);
+        session.addMessage(ai2b);
+
         List<AiChatMessage> msgs = session.getMessages();
-        int idx = msgs.indexOf(ai2);
-        assertEquals(3, idx);
-
-        msgs.remove(idx); // removes ai2
-        if (idx - 1 >= 0 && "user".equalsIgnoreCase(msgs.get(idx - 1).getRole())) {
-            msgs.remove(idx - 1); // removes user2
-        }
+        msgs.removeAll(AiAssistantPageController.undoScopeOf(msgs, user2));
 
         assertEquals(2, session.getMessages().size());
         assertEquals("Yêu cầu 1", session.getMessages().get(0).getContent());
         assertEquals("Trả lời 1", session.getMessages().get(1).getContent());
+    }
+
+    @Test
+    public void testUndoOfUserMessageResolvesLastAppliedReplyInItsScope() {
+        AiChatMessage user1 = new AiChatMessage("user", "Sinh kịch bản");
+        AiChatMessage ai1 = new AiChatMessage("assistant", "Tóm tắt 1");
+        AiChatMessage ai1b = new AiChatMessage("assistant", "Đã áp dụng lần 2");
+        AiChatMessage user2 = new AiChatMessage("user", "Yêu cầu tiếp theo");
+        AiChatMessage ai2 = new AiChatMessage("assistant", "Đã áp dụng ở lượt sau");
+
+        ai1.setAppliedToSuite(true);
+        ai1.setSuiteSnapshotJson("{\"pre\":1}");
+        ai1b.setAppliedToSuite(true);
+        // The later apply of the same scope captured the state before that apply, which already contains
+        // the first apply — rolling it back undoes the whole scope.
+        ai1b.setSuiteSnapshotJson("{\"pre\":2}");
+        ai2.setAppliedToSuite(true);
+        ai2.setSuiteSnapshotJson("{\"pre\":3}");
+
+        List<AiChatMessage> msgs = List.of(user1, ai1, ai1b, user2, ai2);
+
+        assertSame(ai1b, AiAssistantPageController.resolveAppliedSnapshotMessage(msgs, user1),
+                "Undo must roll back the last applied reply of the undone prompt's scope");
+        assertSame(ai2, AiAssistantPageController.resolveAppliedSnapshotMessage(msgs, user2),
+                "A later prompt's apply must not leak into an earlier prompt's undo");
     }
 
     @Test
@@ -69,43 +115,67 @@ public class AiAssistantChatFlowTest {
         assertEquals("PAGE_TITLE_CONTAINS", msg.getGeneratedCasesSnapshot().get(0).getAssertions().get(0).getType());
     }
 
+    /**
+     * The user-facing contracts of undo are proven together: only a user prompt undoes, it removes every
+     * assistant turn after it while keeping earlier history, and the suite files those turns wrote are
+     * rolled back to the snapshot captured before the scope's first apply.
+     */
     @Test
-    public void testUndoWithSuiteRollback(@TempDir Path suiteDir) throws IOException {
+    public void testUndoRejectsAssistantTurnAndRestoresHistoryAndSuite(@TempDir Path suiteDir) throws IOException {
         AiChatHistoryStore store = new AiChatHistoryStore();
 
-        // 1. Initial Suite on disk
+        // 1. Earlier conversation, before the prompt that will be undone
+        AiChatMessage earlierUser = new AiChatMessage("user", "Yêu cầu trước");
+        AiChatMessage earlierAi = new AiChatMessage("assistant", "Trả lời trước");
+
+        // 2. The undone prompt, its two assistant turns, and a later prompt that must survive
+        AiChatMessage undoUser = new AiChatMessage("user", "Sinh kịch bản thanh toán");
+        AiChatMessage appliedAi = new AiChatMessage("assistant", "Đã sinh NewAiCase");
+        AiChatMessage followUpAi = new AiChatMessage("assistant", "Ghi chú bổ sung");
+        AiChatMessage laterUser = new AiChatMessage("user", "Yêu cầu sau");
+        AiChatMessage laterAi = new AiChatMessage("assistant", "Trả lời sau");
+
+        AiChatSession session = new AiChatSession("suite-1");
+        for (AiChatMessage m : List.of(earlierUser, earlierAi, undoUser, appliedAi, followUpAi, laterUser, laterAi)) {
+            session.addMessage(m);
+        }
+
+        // 3. Suite on disk: snapshot captured before the apply, then the apply wrote a new case file
         Path suiteJson = suiteDir.resolve("suite.json");
         Files.writeString(suiteJson, "{\"cases\":[{\"name\":\"ExistingCase\"}]}", StandardCharsets.UTF_8);
-
         Path existingCase = suiteDir.resolve("ExistingCase.java");
         Files.writeString(existingCase, "// Existing case", StandardCharsets.UTF_8);
 
-        // 2. Snapshot captured before applying
         String snapshot = store.createSuiteSnapshot(suiteDir);
-
-        // 3. AI generated cases applied to suite
         Files.writeString(suiteJson, "{\"cases\":[{\"name\":\"ExistingCase\"},{\"name\":\"NewAiCase\"}]}",
                 StandardCharsets.UTF_8);
         Path newAiCase = suiteDir.resolve("NewAiCase.java");
         Files.writeString(newAiCase, "// New Playwright code", StandardCharsets.UTF_8);
+        appliedAi.setAppliedToSuite(true);
+        appliedAi.setSuiteSnapshotJson(snapshot);
+        appliedAi.setSuiteSnapshotDir(suiteDir.toString());
 
-        AiChatMessage assistantMsg = new AiChatMessage("assistant", "Đã sinh NewAiCase");
-        assistantMsg.setSuiteSnapshotJson(snapshot);
-        assistantMsg.setSuiteSnapshotDir(suiteDir.toString());
-        assistantMsg.setAppliedToSuite(true);
+        // 4. An assistant turn cannot be undone on its own: no scope, no applied reply resolved
+        assertTrue(AiAssistantPageController.undoScopeOf(session.getMessages(), appliedAi).isEmpty(),
+                "An assistant message must not be an undoable target");
+        assertEquals(List.of(undoUser, appliedAi, followUpAi),
+                AiAssistantPageController.undoScopeOf(session.getMessages(), undoUser));
 
-        assertTrue(assistantMsg.isAppliedToSuite());
-        assertTrue(Files.exists(newAiCase));
+        AiChatMessage appliedMsg = AiAssistantPageController.resolveAppliedSnapshotMessage(session.getMessages(), undoUser);
+        assertSame(appliedAi, appliedMsg);
+        Path rollbackDir = AiAssistantPageController.resolveRollbackSuiteDir(appliedMsg, null);
+        assertEquals(suiteDir, rollbackDir);
 
-        // 4. User triggers Undo on assistantMsg
-        boolean rolledBack = store.rollbackSuiteSnapshot(suiteDir, assistantMsg.getSuiteSnapshotJson());
-        assertTrue(rolledBack);
+        // 5. Undo: roll back the files, then drop the scope from the transcript
+        assertTrue(store.rollbackSuiteSnapshot(rollbackDir, appliedMsg.getSuiteSnapshotJson()));
+        session.getMessages().removeAll(AiAssistantPageController.undoScopeOf(session.getMessages(), undoUser));
 
-        // 5. Verify suite returned to pristine original state
+        // 6. Suite is back to the state before the apply; earlier and later prompts are untouched
         assertFalse(Files.exists(newAiCase), "NewAiCase.java must be deleted on undo");
-        assertTrue(Files.exists(existingCase));
         assertEquals("// Existing case", Files.readString(existingCase));
         assertFalse(Files.readString(suiteJson).contains("NewAiCase"));
+        assertEquals(List.of("Yêu cầu trước", "Trả lời trước", "Yêu cầu sau", "Trả lời sau"),
+                session.getMessages().stream().map(AiChatMessage::getContent).toList());
     }
 
     @Test
