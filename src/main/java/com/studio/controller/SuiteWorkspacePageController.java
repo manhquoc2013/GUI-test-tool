@@ -20,6 +20,7 @@ import com.studio.util.StatusDisplay;
 import com.studio.util.StudioPaths;
 import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
+import com.studio.util.UiTooltips;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
@@ -1668,7 +1669,11 @@ public class SuiteWorkspacePageController {
                 row.getStyleClass().add("assert-row");
                 infoLabel.getStyleClass().add("assert-row-label");
                 infoLabel.setMaxWidth(Double.MAX_VALUE);
-                infoLabel.setWrapText(true);
+                // One line per row: wrap made the row height jump around while
+                // scrolling and still overflowed in a narrow panel. Ellipsis keeps
+                // the list rhythm even and the tooltip carries the full text.
+                infoLabel.setWrapText(false);
+                infoLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
                 HBox.setHgrow(infoLabel, Priority.ALWAYS);
                 editBtn.getStyleClass().add("assert-row-edit-btn");
                 deleteBtn.getStyleClass().add("assert-row-delete-btn");
@@ -1698,6 +1703,7 @@ public class SuiteWorkspacePageController {
                     return;
                 }
                 infoLabel.setText(formatAssertLine(a));
+                UiTooltips.install(infoLabel, infoLabel.getText());
                 String sc = StatusDisplay.styleClass(a.getStatus());
                 infoLabel.getStyleClass().removeAll(
                         "status-active", "status-draft", "status-inactive", "status-ready",
