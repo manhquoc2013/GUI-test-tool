@@ -160,6 +160,54 @@
     -fx-font-weight: bold;
 }
 
+/* Sidebar suite strip. All of these exist in the dark theme only, so in light
+   mode the "suite đang mở" caption, its clear button and the run CTA fell back
+   to unstyled defaults. Ported from the light palette. */
+.sidebar-section-label {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
+.sidebar-active-label {
+    -fx-text-fill: #15803d;
+    -fx-font-size: 12px;
+    -fx-wrap-text: true;
+}
+.sidebar-active-label.has-suite {
+    -fx-cursor: hand;
+}
+.sidebar-active-label.has-suite:hover {
+    -fx-text-fill: #166534;
+    -fx-underline: true;
+}
+.sidebar-clear-suite-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+}
+.sidebar-clear-suite-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #dc2626;
+}
+.sidebar-run-btn {
+    -fx-background-color: #16a34a;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-background-radius: 8;
+    -fx-border-width: 0;
+}
+.sidebar-run-btn:hover {
+    -fx-background-color: #15803d;
+}
+.sidebar-run-btn:disabled {
+    -fx-opacity: 0.65;
+}
+.sidebar-separator {
+    -fx-background-color: #e2e8f0;
+}
+
 .sidebar-section-header {
     -fx-text-fill: #94a3b8;
 }
@@ -970,6 +1018,61 @@
 .popup-subtitle {
     -fx-text-fill: #475569;
     -fx-font-size: 12px;
+}
+
+/* Assertion rows in the report detail table and the assert builder dialog.
+   Row geometry exists in the dark theme only; ported here so the edit/delete
+   pair keeps the same 28px height and 6px radius as every other small control. */
+.assert-row {
+    -fx-alignment: center-left;
+    -fx-padding: 2 0;
+}
+.assert-row-label {
+    -fx-text-fill: #0f172a;
+}
+.assert-row-edit-btn,
+.assert-row-delete-btn {
+    -fx-background-radius: 6;
+    -fx-padding: 4 10;
+    -fx-cursor: hand;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-min-width: 52;
+    -fx-min-height: 28;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+.assert-row-edit-btn {
+    -fx-background-color: #eff6ff;
+    -fx-text-fill: #2563eb;
+    -fx-border-color: #bfdbfe;
+}
+.assert-row-edit-btn:hover {
+    -fx-background-color: #dbeafe;
+}
+.assert-row-delete-btn {
+    -fx-background-color: #fef2f2;
+    -fx-text-fill: #dc2626;
+    -fx-border-color: #fecaca;
+}
+.assert-row-delete-btn:hover {
+    -fx-background-color: #fee2e2;
+}
+.asserts-header-row {
+    -fx-padding: 2 0;
+}
+/* Alignment-only rows: labels sit against their inputs, app-wide. */
+.field-row,
+.assert-add-row,
+.assert-options-row {
+    -fx-alignment: center-left;
+}
+.filter-chips-box {
+    -fx-padding: 2 4;
+}
+.preview-scroll,
+.preview-scroll > .viewport {
+    -fx-background-color: transparent;
 }
 
 .section-header {
