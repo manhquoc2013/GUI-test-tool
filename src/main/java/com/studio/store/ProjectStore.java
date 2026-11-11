@@ -20,7 +20,17 @@ public class ProjectStore {
     private static final ObjectMapper mapper = DEFAULT_MAPPER;
     private static final String GROUP_JSON = "group.json";
     private static final String SUITE_JSON = "suite.json";
+    /** Suffix used to stage a script while its case is being removed, so a failed write can be undone. */
+    private static final String DELETING_SUFFIX = ".deleting";
+    /** Path separators and characters Windows forbids in a directory name. */
+    private static final java.util.regex.Pattern INVALID_DIR_NAME_CHARS =
+            java.util.regex.Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
     private final com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
+
+    /** H2 index identity of the group that contains {@code dir}: relative path, not leaf name. */
+    private static String groupKeyFor(Path dir) {
+        return com.studio.db.LocalDataIndexService.resolveGroupKey(dir);
+    }
 
     public ProjectStore() {
     }
@@ -152,6 +162,70 @@ public class ProjectStore {
         }
     }
 
+    // ---- name safety ----
+
+    /**
+     * Coerces an auto-generated label (AI group/suite name) into a safe single-segment directory
+     * name. Used where failing is not acceptable: the name is derived, not typed by the user.
+     */
+    public static String sanitizeDirectoryName(String raw) {
+        String safe = com.studio.util.StringEscapeUtil.safeFileName(raw, "noi-dung");
+        if (safe.isBlank() || ".".equals(safe) || "..".equals(safe)) {
+            return "noi-dung";
+        }
+        return safe;
+    }
+
+    /**
+     * Validates a group/suite directory name and returns it trimmed.
+     *
+     * <p>The name becomes a real directory under {@code parentDir}, so a separator, {@code ..},
+     * or a Windows-reserved character would let a create/rename escape the project tree — and the
+     * matching delete then walks whatever path it produced. The check is a directory-name
+     * whitelist plus a proof that the resolved child stays a direct child of its parent.</p>
+     *
+     * @throws IOException when the name is blank, reserved, contains a path/forbidden character,
+     *                     or would resolve outside {@code parentDir}
+     */
+    public static String requireChildDirectoryName(Path parentDir, String name) throws IOException {
+        if (name == null || name.isBlank()) {
+            throw new IOException("Tên không được để trống");
+        }
+        String trimmed = name.trim();
+        if (".".equals(trimmed) || "..".equals(trimmed)) {
+            throw new IOException("Tên không hợp lệ: \"" + trimmed + "\"");
+        }
+        if (INVALID_DIR_NAME_CHARS.matcher(trimmed).find()) {
+            throw new IOException("Tên không được chứa ký tự đường dẫn hoặc ký tự cấm: \"" + trimmed + "\"");
+        }
+        if (parentDir != null) {
+            Path parent = parentDir.toAbsolutePath().normalize();
+            Path target = parent.resolve(trimmed).normalize();
+            if (!parent.equals(target.getParent())) {
+                throw new IOException("Tên không hợp lệ: \"" + trimmed + "\"");
+            }
+        }
+        return trimmed;
+    }
+
+    /**
+     * Refuses to delete the project root or any path outside it, so a corrupted tree name can never
+     * turn a node deletion into a recursive delete elsewhere on disk.
+     */
+    private static void requireDeletable(Path dir) throws IOException {
+        if (dir == null) {
+            throw new IOException("Đường dẫn không hợp lệ");
+        }
+        Path abs = dir.toAbsolutePath().normalize();
+        Path project = StudioPaths.getProjectDir().toAbsolutePath().normalize();
+        if (abs.equals(project)) {
+            throw new IOException("Không thể xoá thư mục gốc của project");
+        }
+        if (!abs.startsWith(project)) {
+            throw new IOException("Đường dẫn nằm ngoài project: " + abs);
+        }
+    }
+
     public void saveGroup(TestGroup group, Path groupDir) throws IOException {
         Files.createDirectories(groupDir);
         writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
@@ -164,7 +238,7 @@ public class ProjectStore {
         suite.clearLegacyAssertions();
         backfillSuiteTimestamps(suite);
         writeJsonAtomic(suiteDir.resolve(SUITE_JSON), suite);
-        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        String groupName = groupKeyFor(suiteDir.getParent());
         indexService.indexSuite(suite, suiteDir, groupName);
     }
 
@@ -233,9 +307,10 @@ public class ProjectStore {
     }
 
     public TestGroup createGroup(Path parentDir, String name, String description) throws IOException {
-        Path groupDir = parentDir.resolve(name);
+        String safeName = requireChildDirectoryName(parentDir, name);
+        Path groupDir = parentDir.resolve(safeName);
         Files.createDirectories(groupDir);
-        TestGroup group = new TestGroup(name, description != null ? description : "");
+        TestGroup group = new TestGroup(safeName, description != null ? description : "");
         group.setType("group");
         writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
         indexService.indexGroup(group, groupDir);
@@ -248,7 +323,8 @@ public class ProjectStore {
 
     public TestSuite createSuite(Path groupDir, String name, String description,
                                  String status, String browser, Boolean headless) throws IOException {
-        Path suiteDir = groupDir.resolve(name);
+        String safeName = requireChildDirectoryName(groupDir, name);
+        Path suiteDir = groupDir.resolve(safeName);
         Files.createDirectories(suiteDir);
         TestSuite suite = new TestSuite(name, description != null ? description : "");
         suite.setStatus(status != null && !status.isBlank() ? status : "DRAFT");
@@ -258,7 +334,7 @@ public class ProjectStore {
         suite.setCreatedAt(now);
         suite.setUpdatedAt(now);
         writeJsonAtomic(suiteDir.resolve(SUITE_JSON), suite);
-        String groupName = groupDir != null && groupDir.getFileName() != null ? groupDir.getFileName().toString() : "";
+        String groupName = groupKeyFor(groupDir);
         indexService.indexSuite(suite, suiteDir, groupName);
         return suite;
     }
@@ -286,27 +362,37 @@ public class ProjectStore {
         String now = EntityTime.nowIso();
         tc.setCreatedAt(now);
         tc.setUpdatedAt(now);
-        suite.getCases().add(tc);
-        suite.setUpdatedAt(now);
-        backfillSuiteTimestamps(suite);
-        writeJsonAtomic(suiteJson, suite);
 
+        // The script is written before the suite records the case: a failed write must not leave a
+        // case whose script does not exist (readCaseScript would then fail on every later run).
         String safeClass = ScriptHarnessTransformer.sanitizeClassName(name);
         String stub = String.format(
                 "package com.test;\n\nimport com.microsoft.playwright.*;\n\npublic class %s {\n    public static void main(String[] args) {\n        // Test case: %s\n    }\n}\n",
                 safeClass, name);
-        writeTextAtomic(suiteDir.resolve(scriptFileName), stub);
+        Path scriptPath = suiteDir.resolve(scriptFileName);
+        writeTextAtomic(scriptPath, stub);
+        try {
+            suite.getCases().add(tc);
+            suite.setUpdatedAt(now);
+            backfillSuiteTimestamps(suite);
+            writeJsonAtomic(suiteJson, suite);
+        } catch (IOException e) {
+            try {
+                Files.deleteIfExists(scriptPath);
+            } catch (IOException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw e;
+        }
 
-        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
-                ? suiteDir.getParent().getFileName().toString() : "";
+        String groupName = groupKeyFor(suiteDir.getParent());
         indexService.indexCase(tc, groupName, suite.getName(), stub);
         return tc;
     }
 
     private void syncSuiteIndex(Path suiteDir, TestSuite suite) {
         if (suite == null || suiteDir == null) return;
-        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
-                ? suiteDir.getParent().getFileName().toString() : "";
+        String groupName = groupKeyFor(suiteDir.getParent());
         indexService.indexSuite(suite, suiteDir, groupName);
     }
 
@@ -360,7 +446,8 @@ public class ProjectStore {
 
     /** Deletes group directory and all nested groups / suites / cases on disk. */
     public void deleteGroup(Path groupDir) throws IOException {
-        if (groupDir != null && Files.exists(groupDir)) {
+        requireDeletable(groupDir);
+        if (Files.exists(groupDir)) {
             try (var walk = Files.walk(groupDir)) {
                 walk.sorted(Comparator.reverseOrder())
                         .forEach(p -> {
@@ -368,11 +455,12 @@ public class ProjectStore {
                         });
             }
         }
-        indexService.deleteGroup(groupDir.getFileName().toString());
+        indexService.deleteGroup(groupKeyFor(groupDir));
     }
 
     public void deleteSuite(Path suiteDir) throws IOException {
-        if (suiteDir != null && Files.exists(suiteDir)) {
+        requireDeletable(suiteDir);
+        if (Files.exists(suiteDir)) {
             try (var walk = Files.walk(suiteDir)) {
                 walk.sorted(Comparator.reverseOrder())
                         .forEach(p -> {
@@ -380,7 +468,7 @@ public class ProjectStore {
                         });
             }
         }
-        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        String groupName = groupKeyFor(suiteDir.getParent());
         indexService.deleteSuite(groupName, suiteDir.getFileName().toString());
     }
 
@@ -393,15 +481,36 @@ public class ProjectStore {
             .filter(c -> c.getId().equals(caseId))
             .findFirst().orElse(null);
 
-        suite.setCases(suite.getCases().stream()
-                .filter(c -> !c.getId().equals(caseId))
-                .collect(Collectors.toList()));
-        writeJsonAtomic(suiteJson, suite);
+        // Stage the script first: if the suite write below fails, the script is moved back, so the
+        // JSON and the file on disk never disagree (an orphan .java would be re-added as a Draft).
+        Path scriptFile = null;
+        Path stagedFile = null;
+        if (target != null && target.getScriptFile() != null && !target.getScriptFile().isBlank()) {
+            scriptFile = suiteDir.resolve(target.getScriptFile());
+            if (Files.exists(scriptFile)) {
+                stagedFile = scriptFile.resolveSibling(scriptFile.getFileName() + DELETING_SUFFIX);
+                Files.move(scriptFile, stagedFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
 
-        // Delete .java file using the captured target
-        if (target != null && target.getScriptFile() != null) {
-            Path javaFile = suiteDir.resolve(target.getScriptFile());
-            Files.deleteIfExists(javaFile);
+        try {
+            suite.setCases(suite.getCases().stream()
+                    .filter(c -> !c.getId().equals(caseId))
+                    .collect(Collectors.toList()));
+            writeJsonAtomic(suiteJson, suite);
+        } catch (IOException e) {
+            if (stagedFile != null) {
+                try {
+                    Files.move(stagedFile, scriptFile, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException restoreFailure) {
+                    e.addSuppressed(restoreFailure);
+                }
+            }
+            throw e;
+        }
+
+        if (stagedFile != null) {
+            Files.deleteIfExists(stagedFile);
         }
         indexService.deleteCase(caseId);
     }
@@ -409,24 +518,27 @@ public class ProjectStore {
     // ---- rename ----
 
     public void renameGroup(Path groupDir, String newName) throws IOException {
-        String oldName = groupDir.getFileName().toString();
-        Path newDir = groupDir.resolveSibling(newName);
+        String safeName = requireChildDirectoryName(groupDir.getParent(), newName);
+        // Capture the old identity before the folder moves: the leaf name alone no longer matches
+        // the path-keyed index rows for a nested group.
+        String oldGroupKey = groupKeyFor(groupDir);
+        Path newDir = groupDir.resolveSibling(safeName);
         Files.move(groupDir, newDir, StandardCopyOption.REPLACE_EXISTING);
         TestGroup group = mapper.readValue(newDir.resolve(GROUP_JSON).toFile(), TestGroup.class);
-        group.setName(newName);
+        group.setName(safeName);
         writeJsonAtomic(newDir.resolve(GROUP_JSON), group);
-        indexService.deleteGroup(oldName);
-        indexService.syncGroupDirectory(newDir, newName);
+        indexService.deleteGroup(oldGroupKey);
+        indexService.syncGroupDirectory(newDir, groupKeyFor(newDir));
     }
 
     public void renameSuite(Path suiteDir, String newName) throws IOException {
+        String safeName = requireChildDirectoryName(suiteDir.getParent(), newName);
         String oldSuiteName = suiteDir.getFileName().toString();
-        String groupName = suiteDir.getParent() != null && suiteDir.getParent().getFileName() != null
-                ? suiteDir.getParent().getFileName().toString() : "";
-        Path newDir = suiteDir.resolveSibling(newName);
+        String groupName = groupKeyFor(suiteDir.getParent());
+        Path newDir = suiteDir.resolveSibling(safeName);
         Files.move(suiteDir, newDir, StandardCopyOption.REPLACE_EXISTING);
         TestSuite suite = mapper.readValue(newDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
-        suite.setName(newName);
+        suite.setName(safeName);
         writeJsonAtomic(newDir.resolve(SUITE_JSON), suite);
         indexService.deleteSuite(groupName, oldSuiteName);
         indexService.indexSuite(suite, newDir, groupName);
@@ -469,8 +581,7 @@ public class ProjectStore {
 
     public void moveSuite(Path fromDir, Path toGroupDir) throws IOException {
         String suiteName = fromDir.getFileName().toString();
-        String oldGroup = fromDir.getParent() != null && fromDir.getParent().getFileName() != null
-                ? fromDir.getParent().getFileName().toString() : "";
+        String oldGroup = groupKeyFor(fromDir.getParent());
         Path dest = toGroupDir.resolve(fromDir.getFileName());
         if (Files.exists(dest)) {
             throw new IOException("Suite '" + fromDir.getFileName() + "' đã tồn tại trong nhóm đích");
@@ -666,13 +777,41 @@ public class ProjectStore {
         syncSuiteIndex(suiteDir, suite);
     }
 
-    public void deleteAssertion(Path suiteDir, String caseId, int index) throws IOException {
+    /**
+     * Removes the assertion that matches {@code expected} by value from the freshly loaded suite.
+     * Position-based deletion removed whatever happened to sit at that index once the file had
+     * been changed by another window, so the wrong assertion disappeared.
+     */
+    public void deleteAssertion(Path suiteDir, String caseId, Assertion expected) throws IOException {
+        if (expected == null) {
+            throw new IOException("Thiếu assertion cần xoá");
+        }
         Path suiteJson = suiteDir.resolve(SUITE_JSON);
         TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
-        requireCase(suite, caseId).getAssertions().remove(index);
+        List<Assertion> assertions = requireCase(suite, caseId).getAssertions();
+        int index = indexOfMatchingAssertion(assertions, expected);
+        if (index < 0) {
+            throw new IOException("Không tìm thấy assertion cần xoá trong suite.json");
+        }
+        assertions.remove(index);
         suite.clearLegacyAssertions();
         writeJsonAtomic(suiteJson, suite);
         syncSuiteIndex(suiteDir, suite);
+    }
+
+    private static int indexOfMatchingAssertion(List<Assertion> assertions, Assertion expected) {
+        for (int i = 0; i < assertions.size(); i++) {
+            Assertion candidate = assertions.get(i);
+            if (Objects.equals(candidate.getType(), expected.getType())
+                    && Objects.equals(candidate.getValue(), expected.getValue())
+                    && Objects.equals(candidate.getLocator(), expected.getLocator())
+                    && Objects.equals(candidate.getAttribute(), expected.getAttribute())
+                    && Objects.equals(candidate.getExpectedValue(), expected.getExpectedValue())
+                    && Objects.equals(candidate.getStatus(), expected.getStatus())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void replaceAssertions(Path suiteDir, String caseId, List<Assertion> assertions) throws IOException {
@@ -740,7 +879,7 @@ public class ProjectStore {
             matched.setStatus("Ready");
         }
         writeJsonAtomic(suiteJson, suite);
-        String groupName = suiteDir.getParent() != null ? suiteDir.getParent().getFileName().toString() : "";
+        String groupName = groupKeyFor(suiteDir.getParent());
         indexService.indexCase(matched, groupName, suite.getName(), javaCode);
     }
 

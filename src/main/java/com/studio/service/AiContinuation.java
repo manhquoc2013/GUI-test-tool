@@ -34,6 +34,12 @@ public final class AiContinuation {
     private static final int RESTART_PROBE_CHARS = 120;
     private static final int RESTART_PROBE_MIN_CHARS = 24;
     private static final int OVERLAP_MIN_CHARS = 16;
+    /**
+     * How much of the head is compared against the piece's prefix. A model can only replay what it was
+     * shown (the last 300–400 characters) plus its own opening, so scanning the full head made the
+     * merge O(n·m) per turn — quadratic on a long document.
+     */
+    private static final int OVERLAP_WINDOW_CHARS = 2048;
 
     /** What shape the answer has, which decides how "complete" can be judged. */
     public enum DocumentShape {
@@ -255,7 +261,9 @@ public final class AiContinuation {
         if (add.isBlank()) {
             return head;
         }
-        int maxOverlap = Math.min(head.length(), add.length());
+        // Only the tail can overlap: the model was shown a short tail, and a longer replay is caught
+        // earlier by isDocumentRestart. Bounding this keeps the join linear in the piece length.
+        int maxOverlap = Math.min(Math.min(head.length(), add.length()), OVERLAP_WINDOW_CHARS);
         for (int len = maxOverlap; len >= OVERLAP_MIN_CHARS; len--) {
             if (head.regionMatches(head.length() - len, add, 0, len)) {
                 return head + add.substring(len);

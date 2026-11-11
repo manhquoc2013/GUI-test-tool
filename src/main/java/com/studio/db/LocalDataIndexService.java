@@ -100,14 +100,14 @@ public class LocalDataIndexService {
         try {
             Path groupJson = groupDir.resolve("group.json");
             if (Files.exists(groupJson)) {
-                String groupName = groupDir.getFileName().toString();
+                String groupCacheKey = groupDir.toAbsolutePath().normalize().toString();
                 long fileMtime = Files.getLastModifiedTime(groupJson).toMillis();
-                Long cached = groupMtimes.get(groupName);
+                Long cached = groupMtimes.get(groupCacheKey);
                 if (cached == null || fileMtime > cached) {
                     try {
                         TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
                         indexGroup(group, groupDir);
-                        groupMtimes.put(groupName, System.currentTimeMillis());
+                        groupMtimes.put(groupCacheKey, System.currentTimeMillis());
                     } catch (Exception ignored) {
                     }
                 }
@@ -194,11 +194,16 @@ public class LocalDataIndexService {
 
     private Map<String, Long> loadGroupMtimes() {
         Map<String, Long> map = new HashMap<>();
+        // Keyed by the stored absolute path: two groups sharing a leaf name must not share one
+        // cache slot, or the second is judged "unchanged" and never re-indexed.
         try (Connection conn = dbManager.getConnection();
                 Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT name, updated_at FROM test_groups")) {
+                ResultSet rs = stmt.executeQuery("SELECT path, updated_at FROM test_groups")) {
             while (rs.next()) {
-                map.put(rs.getString(1), rs.getLong(2));
+                String path = rs.getString(1);
+                if (path != null && !path.isBlank()) {
+                    map.put(Path.of(path).toAbsolutePath().normalize().toString(), rs.getLong(2));
+                }
             }
         } catch (Exception ignored) {
         }
@@ -233,14 +238,35 @@ public class LocalDataIndexService {
 
     // ── Group Indexing ──
 
+    /**
+     * Group identity is its path relative to the project, so two nested groups with the same leaf
+     * name ({@code A/Common} and {@code B/Common}) stay distinct rows instead of overwriting each
+     * other through a name-keyed MERGE. A root group resolves to its own name.
+     */
+    public static String resolveGroupKey(Path groupDir) {
+        if (groupDir == null) {
+            return "";
+        }
+        Path project = StudioPaths.getProjectDir().toAbsolutePath().normalize();
+        Path abs = groupDir.toAbsolutePath().normalize();
+        if (abs.startsWith(project) && !abs.equals(project)) {
+            return project.relativize(abs).toString().replace('\\', '/');
+        }
+        return abs.getFileName() != null ? abs.getFileName().toString() : "";
+    }
+
     public void indexGroup(TestGroup group, Path groupPath) {
         if (group == null || group.getName() == null)
             return;
+        String key = resolveGroupKey(groupPath);
+        if (key.isBlank()) {
+            key = group.getName();
+        }
         String sql = "MERGE INTO test_groups (name, description, path, updated_at) KEY(name) VALUES (?, ?, ?, ?)";
         try (Connection conn = dbManager.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, group.getName());
+            ps.setString(1, key);
             ps.setString(2, group.getDescription());
-            ps.setString(3, groupPath != null ? groupPath.toString() : "");
+            ps.setString(3, groupPath != null ? groupPath.toAbsolutePath().normalize().toString() : "");
             ps.setLong(4, System.currentTimeMillis());
             ps.executeUpdate();
         } catch (SQLException ignored) {
@@ -279,17 +305,21 @@ public class LocalDataIndexService {
         if (suite == null)
             return;
         String sql = "MERGE INTO test_suites (id, group_name, name, description, browser, headless, path, updated_at) KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-        String suiteId = (groupName != null ? groupName : "") + "/" + suite.getName();
+        // The caller owns the identity: the recursive disk sync passes the group path relative to
+        // the scanned root, ProjectStore passes the project-relative key. Deriving it here from the
+        // global project dir would mis-key any tree rooted elsewhere (tests, imported projects).
+        String groupKey = groupName != null ? groupName : "";
+        String suiteId = groupKey + "/" + suite.getName();
 
         try (Connection conn = dbManager.getConnection()) {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, suiteId);
-                ps.setString(2, groupName != null ? groupName : "");
+                ps.setString(2, groupKey);
                 ps.setString(3, suite.getName());
                 ps.setString(4, suite.getDescription());
                 ps.setString(5, suite.getBrowser());
                 ps.setBoolean(6, suite.getHeadless() != null && suite.getHeadless());
-                ps.setString(7, suitePath != null ? suitePath.toString() : "");
+                ps.setString(7, suitePath != null ? suitePath.toAbsolutePath().normalize().toString() : "");
                 ps.setLong(8, System.currentTimeMillis());
                 ps.executeUpdate();
             }
@@ -310,7 +340,7 @@ public class LocalDataIndexService {
                             scriptContent = Files.readString(scriptPath, StandardCharsets.UTF_8);
                         }
                     }
-                    indexCaseInternal(conn, tc, groupName, suite.getName(), suiteId, scriptContent);
+                    indexCaseInternal(conn, tc, groupKey, suite.getName(), suiteId, scriptContent);
                 }
             }
 

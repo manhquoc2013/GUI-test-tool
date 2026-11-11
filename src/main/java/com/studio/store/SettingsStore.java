@@ -2,6 +2,7 @@ package com.studio.store;
 
 import com.studio.db.DatabaseManager;
 import com.studio.model.AiConfig;
+import com.studio.service.AiLoggingService;
 import com.studio.util.StudioPaths;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -19,6 +20,7 @@ public class SettingsStore {
 
     private static final ObjectMapper mapper = ProjectStore.DEFAULT_MAPPER;
     private static final String SETTINGS_JSON = "settings.json";
+    private static final String CORRUPT_SUFFIX = ".corrupt-";
     private static final String DB_SETTINGS_KEY = "app_settings";
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -115,11 +117,19 @@ public class SettingsStore {
                 Settings s = mapper.readValue(settingsFile.toFile(), Settings.class);
                 decryptInMemory(s);
                 if (!hasDatabaseSettings()) {
-                    saveToDatabase(prepareForStorage(s)); // Seed DB mirror only if missing
+                    // Seeding must never make an otherwise valid settings file unloadable.
+                    try {
+                        saveToDatabase(prepareForStorage(s));
+                    } catch (RuntimeException seedFailure) {
+                        AiLoggingService.error("SETTINGS",
+                                "Không thể seed cài đặt vào DB: " + seedFailure.getMessage(), seedFailure);
+                    }
                 }
                 return s;
-            } catch (Exception ignored) {
-                // Disk file corrupted, proceed to DB fallback
+            } catch (Exception corrupt) {
+                // Never overwrite a readable-but-corrupt file silently: keep it for recovery and say
+                // so, otherwise the defaults written below would destroy the user's API key/config.
+                quarantineCorruptFile(settingsFile, corrupt);
             }
         }
 
@@ -130,9 +140,10 @@ public class SettingsStore {
             // Restore disk file from database mirror
             try {
                 Files.createDirectories(configDir);
-                mapper.writeValue(settingsFile.toFile(), prepareForStorage(fromDb));
+                ProjectStore.writeJsonAtomic(settingsFile, prepareForStorage(fromDb));
             } catch (Exception e) {
-                System.err.println("[SettingsStore] Không thể khôi phục file settings từ DB: " + e.getMessage());
+                AiLoggingService.error("SETTINGS",
+                        "Không thể khôi phục file settings từ DB: " + e.getMessage(), e);
             }
             return fromDb;
         }
@@ -148,10 +159,28 @@ public class SettingsStore {
         try {
             save(defaults);
         } catch (Exception e) {
-            System.err.println("[SettingsStore] Không thể lưu cài đặt mặc định: " + e.getMessage());
+            AiLoggingService.error("SETTINGS", "Không thể lưu cài đặt mặc định: " + e.getMessage(), e);
         }
 
         return defaults;
+    }
+
+    /**
+     * Keeps an unreadable {@code settings.json} instead of letting the default-settings path
+     * overwrite it, and reports the location so the user can recover the file by hand.
+     */
+    private void quarantineCorruptFile(Path settingsFile, Exception cause) {
+        Path quarantine = settingsFile.resolveSibling(
+                SETTINGS_JSON + CORRUPT_SUFFIX + System.currentTimeMillis());
+        try {
+            Files.move(settingsFile, quarantine,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            AiLoggingService.error("SETTINGS", "settings.json không đọc được (" + cause.getClass().getSimpleName()
+                    + "). Đã giữ bản lỗi tại " + quarantine.getFileName() + " và thử khôi phục từ DB.", cause);
+        } catch (Exception moveFailure) {
+            AiLoggingService.error("SETTINGS", "settings.json không đọc được và không thể di chuyển ("
+                    + moveFailure.getMessage() + "). Sẽ thử khôi phục từ DB.", cause);
+        }
     }
 
     /**
@@ -161,12 +190,19 @@ public class SettingsStore {
         if (s == null)
             return;
 
-        Settings persistent = prepareForStorage(s);
+        Settings persistent;
+        try {
+            persistent = prepareForStorage(s);
+        } catch (IllegalStateException cipherFailure) {
+            // Refuse to persist rather than store the API key as plaintext.
+            throw new IOException("Không thể mã hoá API key — cài đặt chưa được lưu: "
+                    + cipherFailure.getMessage(), cipherFailure);
+        }
 
-        // 1. Save to disk
+        // 1. Save to disk (atomic: a kill mid-write must not truncate the file)
         Files.createDirectories(configDir);
         Path settingsFile = configDir.resolve(SETTINGS_JSON);
-        mapper.writeValue(settingsFile.toFile(), persistent);
+        ProjectStore.writeJsonAtomic(settingsFile, persistent);
 
         // 2. Mirror into H2 database
         saveToDatabase(persistent);
@@ -256,7 +292,7 @@ public class SettingsStore {
             if (rawKey != null && !rawKey.isBlank()) {
                 String decrypted = com.studio.util.ApiKeyCipher.decrypt(rawKey);
                 if (decrypted.isEmpty() && com.studio.util.ApiKeyCipher.isEncrypted(rawKey)) {
-                    System.err.println("[SettingsStore] Cảnh báo: Không thể giải mã API key đã lưu trữ (sai máy hoặc dữ liệu bị thay đổi).");
+                    AiLoggingService.error("SETTINGS", "Không thể giải mã API key đã lưu trữ (sai máy hoặc dữ liệu bị thay đổi).");
                 } else {
                     s.getAiConfig().setApiKey(decrypted);
                 }
@@ -274,7 +310,7 @@ public class SettingsStore {
             ps.setLong(3, System.currentTimeMillis());
             ps.executeUpdate();
         } catch (Exception e) {
-            System.err.println("[SettingsStore] Không thể lưu cài đặt vào database: " + e.getMessage());
+            AiLoggingService.error("SETTINGS", "Không thể lưu cài đặt vào database: " + e.getMessage(), e);
         }
     }
 
@@ -305,7 +341,7 @@ public class SettingsStore {
                 }
             }
         } catch (Exception e) {
-            System.err.println("[SettingsStore] Không thể đọc cài đặt từ database: " + e.getMessage());
+            AiLoggingService.warn("SETTINGS", "Không thể đọc cài đặt từ database: " + e.getMessage());
         }
         return null;
     }

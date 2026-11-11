@@ -2,9 +2,9 @@ package com.studio.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Encapsulates the persistent chat history and context for a specific test suite or workspace.
@@ -16,12 +16,16 @@ public class AiChatSession {
     private String suiteKey;
     private String title;
     private String summary;
-    private List<AiChatMessage> messages = new ArrayList<>();
+    /**
+     * Copy-on-write: the AI worker thread appends while the JavaFX thread iterates to render the
+     * transcript and token badge. A plain ArrayList threw ConcurrentModificationException there.
+     */
+    private List<AiChatMessage> messages = new CopyOnWriteArrayList<>();
     private long createdAt;
     private long lastUpdated;
     private boolean pinned;
     /** Sub-agent sessions spawned from this session, in dispatch order. */
-    private List<AiSubAgentSession> subAgents = new ArrayList<>();
+    private List<AiSubAgentSession> subAgents = new CopyOnWriteArrayList<>();
 
     public AiChatSession() {
         this.id = UUID.randomUUID().toString();
@@ -94,7 +98,7 @@ public class AiChatSession {
     }
 
     public void setSubAgents(List<AiSubAgentSession> subAgents) {
-        this.subAgents = subAgents != null ? subAgents : new ArrayList<>();
+        this.subAgents = subAgents != null ? new CopyOnWriteArrayList<>(subAgents) : new CopyOnWriteArrayList<>();
     }
 
     public boolean hasSubAgents() {
@@ -102,7 +106,7 @@ public class AiChatSession {
     }
 
     public void setMessages(List<AiChatMessage> messages) {
-        this.messages = messages != null ? messages : new ArrayList<>();
+        this.messages = messages != null ? new CopyOnWriteArrayList<>(messages) : new CopyOnWriteArrayList<>();
     }
 
     public long getCreatedAt() {

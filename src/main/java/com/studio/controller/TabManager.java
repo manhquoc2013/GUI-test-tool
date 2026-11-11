@@ -27,11 +27,11 @@ public class TabManager {
         private final String id;
         private String title;
         private final String icon;
-        private final Node content;
+        private Node content;
         private final boolean closable;
         private boolean dirty;
         private final Runnable onClose;
-        private final Object controller;
+        private Object controller;
 
         // UI nodes
         private HBox tabNode;
@@ -93,8 +93,14 @@ public class TabManager {
     public void openTab(String id, String title, String icon, Node content,
             boolean closable, Runnable onClose, Object controller) {
         if (tabs.containsKey(id)) {
-            // Already open, select it
             StudioTab existing = tabs.get(id);
+            // A caller that re-loaded the page (e.g. Reports invalidated to refresh its data) hands
+            // over a new node/controller. Swap it in, otherwise the fresh controller would stay
+            // detached while the stale node keeps rendering the old data.
+            if (content != null && existing.content != content) {
+                existing.content = content;
+                existing.controller = controller;
+            }
             if (title != null && !title.equals(existing.title)) {
                 updateTitle(id, title);
             }

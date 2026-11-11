@@ -1667,8 +1667,8 @@ public class AiAssistantPageController implements Initializable {
             suite = resolveAutoSuiteName();
         }
 
-        group = group.trim();
-        suite = suite.trim();
+        group = ProjectStore.sanitizeDirectoryName(group != null ? group.trim() : "");
+        suite = ProjectStore.sanitizeDirectoryName(suite != null ? suite.trim() : "");
 
         Path projectDir = StudioPaths.getProjectDir();
         Path groupDir = projectDir.resolve(group);
@@ -2335,6 +2335,14 @@ public class AiAssistantPageController implements Initializable {
             Button confirmBtn = new Button("⚡ Xác nhận & Sinh Test Cases chi tiết");
             confirmBtn.getStyleClass().add("clarification-confirm-btn");
             confirmBtn.setOnAction(e -> {
+                // One generation at a time: a second click while a run is alive used to start a
+                // parallel generation that raced on the same session file.
+                if (sendBtn.isDisabled()) {
+                    ToastService.warn("⚠️ Đang sinh kịch bản — vui lòng chờ lượt hiện tại hoàn tất.");
+                    return;
+                }
+                confirmBtn.setDisable(true);
+
                 Map<String, String> collected = new LinkedHashMap<>();
                 valueSuppliers.forEach((id, sup) -> {
                     String v = sup.get();
@@ -2361,7 +2369,8 @@ public class AiAssistantPageController implements Initializable {
                 try {
                     chatHistoryStore.saveSession(suiteDir, currentSession);
                     refreshSessionsList(currentSession.getId());
-                } catch (IOException ignored) {
+                } catch (IOException saveFailure) {
+                    ToastService.error("Không lưu được câu trả lời làm rõ: " + saveFailure.getMessage());
                 }
 
                 String augmented = aiGenerator.getAmbiguityAnalyzer().buildAugmentedPrompt(originalPrompt, collected);

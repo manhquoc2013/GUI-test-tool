@@ -34,6 +34,9 @@ public class AiTokenOptimizer {
     public static final int MAX_RETAINED_USER_TURNS = 8;
     /** Cap on case names kept in that block, so a long session cannot flood the prompt. */
     public static final int MAX_RETAINED_CASE_NAMES = 15;
+    /** Bounds for the pruned-history digest; the scan continues past these caps. */
+    private static final int MAX_SUMMARY_USER_REQUESTS = 6;
+    private static final int MAX_SUMMARY_CASE_NAMES = 8;
     /** The retained block may use at most 1/N of the context budget before it degrades to a digest. */
     private static final int RETAINED_BUDGET_DIVISOR = 8;
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -784,20 +787,26 @@ public class AiTokenOptimizer {
 
         List<String> userRequests = new ArrayList<>();
         List<String> generatedCases = new ArrayList<>();
-        int countUser = 0;
 
         for (AiChatMessage m : prunedMessages) {
             if ("user".equalsIgnoreCase(m.getRole())) {
+                // Cap the user-request list but keep scanning: breaking here dropped every
+                // generated-cases snapshot that appeared after the sixth user turn.
+                if (userRequests.size() >= MAX_SUMMARY_USER_REQUESTS) {
+                    continue;
+                }
                 String snippet = m.getContent() != null ? m.getContent().trim() : "";
                 if (!snippet.isBlank()) {
                     if (snippet.length() > 100) snippet = snippet.substring(0, 97) + "...";
                     userRequests.add(snippet);
-                    countUser++;
-                    if (countUser >= 6) break;
                 }
             } else if ("assistant".equalsIgnoreCase(m.getRole())) {
+                if (generatedCases.size() >= MAX_SUMMARY_CASE_NAMES) {
+                    continue;
+                }
                 if (m.getGeneratedCasesSnapshot() != null && !m.getGeneratedCasesSnapshot().isEmpty()) {
                     for (com.studio.model.AiGeneratedCase gc : m.getGeneratedCasesSnapshot()) {
+                        if (generatedCases.size() >= MAX_SUMMARY_CASE_NAMES) break;
                         if (gc.getName() != null && !gc.getName().isBlank()) {
                             generatedCases.add(gc.getName().trim());
                         }
@@ -808,7 +817,7 @@ public class AiTokenOptimizer {
                         if (trimmed.startsWith("TC") || trimmed.contains("Ca kiểm thử") || trimmed.startsWith("- TC")) {
                             if (trimmed.length() > 80) trimmed = trimmed.substring(0, 77) + "...";
                             generatedCases.add(trimmed);
-                            if (generatedCases.size() >= 5) break;
+                            if (generatedCases.size() >= MAX_SUMMARY_CASE_NAMES) break;
                         }
                     }
                 }

@@ -39,11 +39,26 @@ public class AiTestGeneratorService {
     private static final java.util.regex.Pattern BROWSER_LAUNCH_PATTERN = java.util.regex.Pattern.compile(
             "(?m)^\\s*Browser\\s+\\w+\\s*=\\s*\\w+\\.\\w+\\(\\)\\.launch\\([^)]*\\);?");
     private static final java.util.regex.Pattern CLOSE_CALL_PATTERN = java.util.regex.Pattern.compile(
-            "(?m)^\\s*\\w+\\.close\\(\\);?");
+            "(?m)^[ \\t]*(?:page|context|browser|playwright"
+            + "|[A-Za-z_]\\w*(?:Page|Context|Browser|Playwright))\\s*\\.close\\s*\\(\\s*\\)\\s*;?[ \\t]*$");
     private static final java.util.regex.Pattern THREAD_SLEEP_PATTERN = java.util.regex.Pattern.compile(
             "Thread\\.sleep\\s*\\([^)]*\\)\\s*;?");
+    /** Variables declared with a Playwright life-cycle type; their close() calls are stripped. */
+    private static final java.util.regex.Pattern PW_TYPED_VAR_DECL = java.util.regex.Pattern.compile(
+            "\\b(?:BrowserContext|Playwright|Browser|Page)\\s+([A-Za-z_$][\\w$]*)\\s*=");
     private static final java.util.regex.Pattern WAIT_FOR_TIMEOUT_PATTERN = java.util.regex.Pattern.compile(
             "\\w+\\.waitForTimeout\\s*\\([^)]*\\)\\s*;?");
+    /**
+     * Statement that replaces a removed hard sleep. It ends with a semicolon so it stays valid in
+     * every statement position: {@code if (row == null) Thread.sleep(1);} must not leave the next
+     * line as the if-body.
+     */
+    private static final String REPLACEMENT_WAIT = "page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE);";
+    /**
+     * Empty statement rather than a bare comment: a comment in an if-body leaves the following
+     * line as the body, which silently changes control flow.
+     */
+    private static final String REPLACEMENT_LIFECYCLE_NOOP = "; /* Studio manages page/browser lifecycle */";
     private static final java.util.regex.Pattern HAS_URL_CONTAINS_LAMBDA = java.util.regex.Pattern.compile(
             "hasURL\\s*\\(\\s*\\(?\\s*\\w+\\s*\\)?\\s*->\\s*\\w+\\.contains\\s*\\(\\s*(\"(?:\\\\\"|[^\"])*\")\\s*\\)\\s*\\)");
     private static final java.util.regex.Pattern HAS_URL_ENDS_WITH_LAMBDA = java.util.regex.Pattern.compile(
@@ -1729,10 +1744,11 @@ public class AiTestGeneratorService {
         // Strip illegal Playwright lifecycle calls using pre-compiled patterns
         cleaned = PW_CREATE_PATTERN.matcher(cleaned).replaceAll("");
         cleaned = BROWSER_LAUNCH_PATTERN.matcher(cleaned).replaceAll("");
-        cleaned = CLOSE_CALL_PATTERN.matcher(cleaned).replaceAll("// Studio manages page/browser lifecycle");
-        // Agency-Agents standard: eliminate flaky hard sleeps (both standalone and inline inside try/catch)
-        cleaned = THREAD_SLEEP_PATTERN.matcher(cleaned).replaceAll("/* Eliminated hard sleep */");
-        cleaned = WAIT_FOR_TIMEOUT_PATTERN.matcher(cleaned).replaceAll("page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE);");
+        cleaned = CLOSE_CALL_PATTERN.matcher(cleaned).replaceAll(REPLACEMENT_LIFECYCLE_NOOP);
+        cleaned = stripTypedCloseCalls(scriptCode, cleaned);
+        // Agency-Agents standard: eliminate flaky hard sleeps without breaking the surrounding block
+        cleaned = THREAD_SLEEP_PATTERN.matcher(cleaned).replaceAll(REPLACEMENT_WAIT);
+        cleaned = WAIT_FOR_TIMEOUT_PATTERN.matcher(cleaned).replaceAll(REPLACEMENT_WAIT);
 
         // Normalize invalid hasURL lambda to valid Java Pattern
         cleaned = HAS_URL_CONTAINS_LAMBDA.matcher(cleaned).replaceAll(
@@ -1773,6 +1789,30 @@ public class AiTestGeneratorService {
         }
 
         return cleaned;
+    }
+
+    /**
+     * Strips {@code <handle>.close()} calls for handles whose type is Playwright-managed but whose
+     * variable name is short or arbitrary ({@code Browser br = ...; br.close();}). The conventional
+     * names are already covered by {@link #CLOSE_CALL_PATTERN}; this pass only understands real
+     * declarations, so an unrelated stream called {@code out} is never touched.
+     *
+     * @param original the script as generated (declarations still present)
+     * @param cleaned  the script after the lifecycle statement removals
+     */
+    private static String stripTypedCloseCalls(String original, String cleaned) {
+        java.util.regex.Matcher m = PW_TYPED_VAR_DECL.matcher(original);
+        java.util.Set<String> handles = new java.util.LinkedHashSet<>();
+        while (m.find()) {
+            handles.add(m.group(1));
+        }
+        String result = cleaned;
+        for (String handle : handles) {
+            java.util.regex.Pattern closeCall = java.util.regex.Pattern.compile(
+                    "(?m)^[ \\t]*" + java.util.regex.Pattern.quote(handle) + "\\s*\\.close\\s*\\(\\s*\\)\\s*;?[ \\t]*$");
+            result = closeCall.matcher(result).replaceAll(REPLACEMENT_LIFECYCLE_NOOP);
+        }
+        return result;
     }
 
     private String indentScript(String code, String indent) {

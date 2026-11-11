@@ -141,7 +141,8 @@ public class ViewNavigator {
             SuiteWorkspacePageController ctrl = loader.getController();
 
             if (tabManager != null) {
-                tabManager.openTab(tabId, suiteName, "", node, true, null, ctrl);
+                tabManager.openTab(tabId, suiteName, "", node, true,
+                        ctrl::detachRunProgressListener, ctrl);
             } else {
                 showPage(node);
             }

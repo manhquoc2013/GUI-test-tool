@@ -784,3 +784,29 @@
    - `Assertion.getEffectiveValue()`, `resolveAttribute()`, và `resolveExpectedValue()` thống nhất cách biểu diễn các assertion hai tham số (`ATTRIBUTE_EQUALS`, `ATTRIBUTE_NOT_EQUALS`, `CSS_CONTAINS`, `CSS_PROPERTY_EQUALS`, `COOKIE_VALUE_EQUALS`, `LOCAL_STORAGE_EQUALS`, `SESSION_STORAGE_EQUALS`) giữa AI (`attribute` + `expectedValue`), giao diện UI (`key=expected`) và cột `expected_val` trong bảng H2 `test_assertions`.
    - `AssertTypeDisplay.ALL_TYPES` và `AssertCodeGenerator` hỗ trợ đầy đủ toàn bộ danh mục 68 loại assertion nâng cao (bao gồm `ELEMENT_FOCUSED`, `ELEMENT_READONLY`, `ELEMENT_IN_VIEWPORT`, `ELEMENT_BBOX_VISIBLE`, `IMAGE_BROKEN`, `SELECT_SELECTED_TEXT`, `TOAST_VISIBLE`, `MODAL_VISIBLE`, `MODAL_HIDDEN`, `BREADCRUMB_CONTAINS`, `BADGE_COUNT_EQUALS`, `PAGE_LOAD_TIME_MAX`, `AI_SEMANTIC_ASSERT`, v.v.).
    - `ProjectStore.renameGroup` gọi `LocalDataIndexService.syncGroupDirectory(newDir, newName)` và `deleteGroup` hỗ trợ tiền tố `groupName + "/%"` để đồng bộ đệ quy mọi nhóm con và suite lồng nhau.
+
+## 20. Review Remediation Round: Atomic Persistence, Index Keys & Shell Verification Discipline
+
+### 1. `mvn ... | tail` Hides the Real Exit Code
+- `mvn -q compile 2>&1 | tail -20; echo $?` prints **tail's** status, not Maven's, so a broken build looks green and tests then run against stale `target/classes`.
+- Luôn ghi log ra file rồi kiểm tra trực tiếp: `mvn -B -o compile > /tmp/c.log 2>&1; echo "MVN_EXIT=$?"` (zsh dùng `$pipestatus[1]`, không phải `${PIPESTATUS[0]}`).
+- Chỉ `mvn clean compile` mới chứng minh được không còn lỗi biên dịch; `compile` thường báo "Nothing to compile" và giữ nguyên class cũ.
+
+### 2. Checked Exception ở Helper Mới (`OptimizedSelfHealingExecutor`)
+- `persistSuiteMutation` gọi `ProjectStore.saveSuite` (throws `IOException`) nhưng helper không khai báo `throws` và không bắt → lỗi biên dịch bị che bởi bước trên.
+- Nguyên tắc: helper ghi đĩa khai báo `throws IOException`, còn `persistMutation` (đã có `try/catch`) là nơi duy nhất nuốt lỗi và ghi log. Mutation budget chỉ tăng khi **đã ghi được xuống đĩa** (`persisted && caseKey != null`).
+
+### 3. Strip `close()` theo Kiểu Khai Báo, Không theo Tên Biến (`AiTestGeneratorService`)
+- Regex tên cố định (`page|context|browser|playwright`) bỏ sót `Browser br = ...; br.close();` nhưng nới rộng thành `\w+\.close\(\)` sẽ xoá luôn `out.close()` của `StringWriter` và phá kịch bản.
+- Giải pháp hai pha: (1) regex hẹp cho tên quy ước; (2) thu thập biến khai báo với kiểu Playwright (`(?:BrowserContext|Playwright|Browser|Page)\s+(\w+)\s*=`) **trước khi** xoá dòng khởi tạo, rồi chỉ xoá `close()` của đúng các biến đó, thay bằng câu lệnh rỗng `;` (comment trần trong if-body sẽ nuốt dòng kế tiếp).
+
+### 4. Group Identity Phải do Caller Quyết Định (`LocalDataIndexService`)
+- Suy ra group key từ `StudioPaths.getProjectDir()` bên trong `indexSuite` làm sai lệch mọi cây thư mục không nằm dưới project dir (test dùng `@TempDir`, dự án import) → `ChildGroup` thay vì `ParentGroup/ChildGroup`.
+- `indexSuite(suite, path, groupName)` tin vào `groupName` do caller truyền; `ProjectStore` truyền key tương đối (`groupKeyFor`), sync đệ quy truyền `parent + "/" + child`. Chỉ `resolveGroupKey(Path)` (dùng cho đăng ký group và xoá) mới đọc project dir.
+
+### 5. Ghi File Cấu Hình: Atomic + Cách Ly, Không Bao Giờ Ghi Đè Im Lặng
+- `SettingsStore` dùng `ProjectStore.writeJsonAtomic`; file hỏng được chuyển sang `settings.json.corrupt-<timestamp>` thay vì bị ghi đè — mất API key/theme của người dùng là lỗi không thể phục hồi.
+- `ApiKeyCipher.encrypt` fail-closed: ném `IllegalStateException` để `SettingsStore.save()` huỷ lần lưu, tuyệt đối không lưu plaintext key khi cipher lỗi.
+
+### 6. Repo Hygiene: Runtime Artifact không thuộc về Git
+- `docs/intel/_intake/*.json` (hàng đợi triage sinh tự động) và `**/.gradle/` (trạng thái build của dự án tham chiếu trong `docs/knowledge`) được bỏ track bằng `git rm --cached` và thêm vào `.gitignore`; file vẫn còn trên đĩa.

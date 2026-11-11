@@ -374,21 +374,31 @@ public class HtmlReportService {
         // Cases List
         List<CaseResult> cases = report.getCases() != null ? report.getCases() : List.of();
         for (CaseResult cr : cases) {
-            String status = cr.getStatus() != null ? cr.getStatus().toUpperCase() : "UNKNOWN";
+            // Whitelist instead of reflecting raw data: status/priority land in CSS classes and
+            // attributes, so an unescaped value from a report file becomes stored XSS.
+            String rawStatus = cr.getStatus() != null ? cr.getStatus().trim().toUpperCase(java.util.Locale.ROOT) : "";
+            String status = switch (rawStatus) {
+                case "PASSED", "FAILED", "SKIPPED", "ERROR" -> rawStatus;
+                default -> "ERROR";
+            };
             String badgeClass = switch (status) {
                 case "PASSED" -> "passed";
                 case "FAILED" -> "failed";
                 case "SKIPPED" -> "skipped";
                 default -> "error";
             };
-            String priority = cr.getPriority() != null ? cr.getPriority().toUpperCase() : "P1";
+            String rawPriority = cr.getPriority() != null ? cr.getPriority().trim() : "";
+            String priority = rawPriority.matches("(?i)P[0-3]")
+                    ? rawPriority.toUpperCase(java.util.Locale.ROOT)
+                    : "P1";
 
-            sb.append("<div class=\"case-card\" data-status=\"").append(status.toLowerCase())
-              .append("\" data-priority=\"").append(priority.toLowerCase()).append("\">\n");
+            sb.append("<div class=\"case-card\" data-status=\"").append(status.toLowerCase(java.util.Locale.ROOT))
+              .append("\" data-priority=\"").append(priority.toLowerCase(java.util.Locale.ROOT)).append("\">\n");
             sb.append("<div class=\"case-header\" onclick=\"toggleCaseBody(this)\">\n");
             sb.append("<div class=\"case-title-row\">\n");
-            sb.append("<span class=\"badge ").append(badgeClass).append("\">").append(status).append("</span>\n");
-            sb.append("<span class=\"badge ").append(priority.toLowerCase()).append("\">").append(priority).append("</span>\n");
+            sb.append("<span class=\"badge ").append(badgeClass).append("\">").append(escapeHtml(status)).append("</span>\n");
+            sb.append("<span class=\"badge ").append(priority.toLowerCase(java.util.Locale.ROOT))
+              .append("\">").append(escapeHtml(priority)).append("</span>\n");
             if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
                 sb.append("<span class=\"badge\" style=\"background:#0284c7; color:#fff;\">✨ Auto-Healed (")
                   .append(cr.getHealedSteps().size()).append(")</span>\n");

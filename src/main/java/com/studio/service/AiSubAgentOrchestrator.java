@@ -20,8 +20,8 @@ import java.util.function.Consumer;
  * - The parent receives exactly one aggregated answer, always last, flagged
  *   {@code aggregatedResult}. Individual agent outputs stay visible in the transcript but
  *   are never presented as the final deliverable.
- * - Every child reaches a terminal state; a cancelled or failed child can never be left
- *   RUNNING (see {@link #cancelAll}).
+ * - Every child reaches a terminal state: orchestration is sequential, so a failed child is marked
+ *   FAILED and a completed one COMPLETED before the next starts.
  *
  * The executor is injected so the orchestration can be tested without a live LLM.
  */
@@ -92,6 +92,12 @@ public final class AiSubAgentOrchestrator {
         }
 
         String aggregated = aggregate(sessions);
+        // Surface rule-boundary findings on the single aggregated answer: the gate is worthless if
+        // its findings only exist in a return value nobody reads.
+        if (!openFindings.isEmpty()) {
+            aggregated = aggregated + "\n\n⚠️ Phát hiện cần xử lý:\n- "
+                    + String.join("\n- ", openFindings);
+        }
         publishAggregate(parent, aggregated, allSucceeded);
         parent.setSubAgents(sessions);
         return new OrchestrationResult(sessions, aggregated, openFindings, allSucceeded);
@@ -239,17 +245,6 @@ public final class AiSubAgentOrchestrator {
             sb.append("\nKhông hoàn thành: ").append(String.join(", ", failed)).append('\n');
         }
         return sb.toString().trim();
-    }
-
-    /** Cancels every non-terminal child so none is ever left RUNNING. */
-    public void cancelAll(List<AiSubAgentSession> sessions) {
-        if (sessions == null) return;
-        for (AiSubAgentSession s : sessions) {
-            if (!s.isTerminal()) {
-                s.setStatus(AiSubAgentSession.Status.CANCELLED);
-                s.setFinishedAt(System.currentTimeMillis());
-            }
-        }
     }
 
     private void publishAggregate(AiChatSession parent, String summary, boolean allSucceeded) {

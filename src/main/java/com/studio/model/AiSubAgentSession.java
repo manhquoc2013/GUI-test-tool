@@ -125,11 +125,6 @@ public class AiSubAgentSession {
         this.status = status;
     }
 
-    public boolean isTerminal() {
-        Status s = getStatus();
-        return s == Status.COMPLETED || s == Status.FAILED || s == Status.CANCELLED;
-    }
-
     public String getResultSummary() {
         return resultSummary;
     }

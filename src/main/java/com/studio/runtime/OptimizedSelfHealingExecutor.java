@@ -16,6 +16,7 @@ import com.studio.service.AiLoggingService;
 import com.studio.service.OpenAiClient;
 import com.studio.store.ProjectStore;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -450,20 +451,17 @@ public class OptimizedSelfHealingExecutor {
 
         // Anti-Thrashing Guard: halt speculative mutations if a case is patched more than 3 times
         String caseKey = currentCase.getId() != null ? currentCase.getId() : currentCase.getName();
-        if (caseKey != null) {
-            int currentCount = MUTATION_COUNTS.getOrDefault(caseKey, 0);
-            if (currentCount >= MAX_MUTATIONS_PER_CASE) {
-                AiLoggingService.warn("SELF-HEAL", "Anti-thrashing guard: case '" + caseKey
-                        + "' reached the max patch limit (" + MAX_MUTATIONS_PER_CASE
-                        + "); halting speculative mutations");
-                String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-                auditLogs.add(new HealedStepMeta(caseKey, "ANTI_THRASHING_HALT", oldSelector, newSelector,
-                        "ANTI_THRASHING_GUARD", 0.0, now));
-                return;
-            }
-            MUTATION_COUNTS.put(caseKey, currentCount + 1);
+        if (caseKey != null && MUTATION_COUNTS.getOrDefault(caseKey, 0) >= MAX_MUTATIONS_PER_CASE) {
+            AiLoggingService.warn("SELF-HEAL", "Anti-thrashing guard: case '" + caseKey
+                    + "' reached the max patch limit (" + MAX_MUTATIONS_PER_CASE
+                    + "); halting speculative mutations");
+            String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            auditLogs.add(new HealedStepMeta(caseKey, "ANTI_THRASHING_HALT", oldSelector, newSelector,
+                    "ANTI_THRASHING_GUARD", 0.0, now));
+            return;
         }
 
+        boolean persisted = false;
         try {
             // 1. Persist mutation into script file (strictly targeting quoted string literals to protect Java code)
             String scriptFileName = currentCase.getScriptFile() != null && !currentCase.getScriptFile().isBlank()
@@ -480,46 +478,118 @@ public class OptimizedSelfHealingExecutor {
 
                 if (content.contains(quotedOldEsc)) {
                     ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldEsc, quotedNew));
+                    persisted = true;
                     AiLoggingService.info("SELF-HEAL",
                             "Persisted " + scriptFileName + " with new selector '" + newSelector + "'");
                 } else if (content.contains(quotedOldRaw)) {
                     ProjectStore.writeTextAtomic(scriptPath, content.replace(quotedOldRaw, quotedNew));
+                    persisted = true;
                     AiLoggingService.info("SELF-HEAL",
                             "Persisted " + scriptFileName + " with new selector '" + newSelector + "'");
                 }
             }
 
             // 2. Persist mutation in suite.json assertions & test steps if applicable
-            if (projectStore != null && currentSuite != null) {
-                boolean suiteModified = false;
-                if (currentCase.getAssertions() != null) {
-                    for (Assertion a : currentCase.getAssertions()) {
-                        if (oldSelector.equals(a.getLocator())) {
-                            a.setLocator(newSelector);
-                            suiteModified = true;
-                        }
-                        if (oldSelector.equals(a.getValue())) {
-                            a.setValue(newSelector);
-                            suiteModified = true;
-                        }
-                    }
-                }
-                if (currentCase.getTestSteps() != null) {
-                    for (com.studio.model.TestStep step : currentCase.getTestSteps()) {
-                        if (oldSelector.equals(step.getTarget())) {
-                            step.setTarget(newSelector);
-                            suiteModified = true;
-                        }
-                    }
-                }
-                if (suiteModified) {
-                    projectStore.saveSuite(currentSuite, suiteDir);
-                    AiLoggingService.info("SELF-HEAL", "Persisted suite.json assertions and test steps.");
-                }
-            }
+            persisted |= persistSuiteMutation(oldSelector, newSelector);
         } catch (Exception e) {
             AiLoggingService.error("SELF-HEAL", "Persist error: " + e.getMessage(), e);
         }
+
+        // Count only mutations that actually reached disk: a failed write must not burn the budget.
+        if (persisted && caseKey != null) {
+            MUTATION_COUNTS.merge(caseKey, 1, Integer::sum);
+        }
+    }
+
+    /**
+     * Patches selectors in the <em>current</em> {@code suite.json}, not in the snapshot loaded when
+     * the run started. Another process may have renamed the suite or the case while the run was in
+     * flight; saving the stale snapshot would silently revert that edit.
+     *
+     * @return {@code true} when a change was written to disk
+     */
+    private boolean persistSuiteMutation(String oldSelector, String newSelector) throws IOException {
+        if (projectStore == null) {
+            return false;
+        }
+        // Keep the executor's own copy in sync so later steps in this case see the new selector.
+        boolean inMemoryChanged = applySelectorToCase(currentCase, oldSelector, newSelector);
+
+        TestSuite fresh = reloadSuiteFromDisk();
+        if (fresh == null) {
+            // Disk copy unreadable: fall back to the in-memory suite rather than losing the heal.
+            if (inMemoryChanged && currentSuite != null) {
+                projectStore.saveSuite(currentSuite, suiteDir);
+                AiLoggingService.info("SELF-HEAL", "Persisted suite.json assertions and test steps (in-memory fallback).");
+                return true;
+            }
+            return false;
+        }
+
+        TestCase diskCase = findCase(fresh, currentCase);
+        if (diskCase == null || !applySelectorToCase(diskCase, oldSelector, newSelector)) {
+            return false; // already patched by someone else, or the case is gone
+        }
+        projectStore.saveSuite(fresh, suiteDir);
+        AiLoggingService.info("SELF-HEAL", "Persisted suite.json assertions and test steps.");
+        return true;
+    }
+
+    private TestSuite reloadSuiteFromDisk() {
+        try {
+            Path suiteJson = suiteDir.resolve("suite.json");
+            if (!Files.exists(suiteJson)) {
+                return null;
+            }
+            return MAPPER.readValue(suiteJson.toFile(), TestSuite.class);
+        } catch (Exception reloadFailure) {
+            AiLoggingService.warn("SELF-HEAL",
+                    "Không đọc lại được suite.json trước khi persist: " + reloadFailure.getMessage());
+            return null;
+        }
+    }
+
+    private static TestCase findCase(TestSuite suite, TestCase wanted) {
+        if (suite == null || wanted == null || suite.getCases() == null) {
+            return null;
+        }
+        for (TestCase candidate : suite.getCases()) {
+            if (wanted.getId() != null && wanted.getId().equals(candidate.getId())) {
+                return candidate;
+            }
+            if (wanted.getName() != null && wanted.getName().equals(candidate.getName())) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static boolean applySelectorToCase(TestCase target, String oldSelector, String newSelector) {
+        if (target == null) {
+            return false;
+        }
+        boolean changed = false;
+        if (target.getAssertions() != null) {
+            for (Assertion a : target.getAssertions()) {
+                if (oldSelector.equals(a.getLocator())) {
+                    a.setLocator(newSelector);
+                    changed = true;
+                }
+                if (oldSelector.equals(a.getValue())) {
+                    a.setValue(newSelector);
+                    changed = true;
+                }
+            }
+        }
+        if (target.getTestSteps() != null) {
+            for (com.studio.model.TestStep step : target.getTestSteps()) {
+                if (oldSelector.equals(step.getTarget())) {
+                    step.setTarget(newSelector);
+                    changed = true;
+                }
+            }
+        }
+        return changed;
     }
 
     /**

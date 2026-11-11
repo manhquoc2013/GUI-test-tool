@@ -166,6 +166,19 @@ public class TestRunnerService {
 
         RunCancelService.beginRun();
         RunProgressService.beginRun(scope, scopePath);
+        // Per-run, not per-case: settings and suite JSON were being re-read for every case, which
+        // for a 50-case suite meant 100+ file reads and a JSON parse each time. Settings are a
+        // user-config snapshot taken at run start; the suite cache is shared by case, so a heal
+        // performed in case N is visible to case N+1 of the same suite.
+        OptimizedSelfHealingExecutor.resetMutationCounts();
+        AiConfig runAiConfig = null;
+        try {
+            runAiConfig = settingsStore.load().getAiConfig();
+        } catch (Exception settingsFailure) {
+            AiLoggingService.warn("TEST-RUN",
+                    "Không đọc được cấu hình AI cho run này: " + settingsFailure.getMessage());
+        }
+        Map<Path, TestSuite> suiteCache = new HashMap<>();
         for (CaseResult cr : allCases) {
             if ("SKIPPED".equals(cr.getStatus())) {
                 RunProgressService.caseFinished(cr);
@@ -218,8 +231,8 @@ public class TestRunnerService {
                     continue;
                 }
 
-                // Load suite.json for assertions
-                TestSuite suite = loadSuite(suiteDir);
+                // Load suite.json for assertions (cached per suite for the whole run)
+                TestSuite suite = loadSuiteCached(suiteDir, suiteCache);
                 if (suite == null) {
                     cr.setStatus("ERROR");
                     cr.setFailureReason("Cannot load suite.json");
@@ -366,10 +379,7 @@ public class TestRunnerService {
                     System.setProperty("studio.assertResults", assertResultsFile.toString());
                     StudioRuntime.clearRecordedAsserts();
 
-                    AiConfig aiConfig = null;
-                    try {
-                        aiConfig = settingsStore.load().getAiConfig();
-                    } catch (Exception ignored) {}
+                    AiConfig aiConfig = runAiConfig;
 
                     if (!useShared) {
                         // Per-case: start own browser session
@@ -711,6 +721,23 @@ public class TestRunnerService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * One parse per suite per run. The returned instance is shared, so a self-heal applied to a
+     * case in this suite is seen by the following cases instead of being overwritten from a stale
+     * re-read.
+     */
+    private TestSuite loadSuiteCached(Path suiteDir, Map<Path, TestSuite> cache) {
+        TestSuite cached = cache.get(suiteDir);
+        if (cached != null) {
+            return cached;
+        }
+        TestSuite loaded = loadSuite(suiteDir);
+        if (loaded != null) {
+            cache.put(suiteDir, loaded);
+        }
+        return loaded;
     }
 
     /** Inject soft-assert block inside the screenshot try, before its finally. */

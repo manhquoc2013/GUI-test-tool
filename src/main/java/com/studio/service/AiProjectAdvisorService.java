@@ -22,6 +22,10 @@ import java.util.regex.Pattern;
  */
 public class AiProjectAdvisorService {
 
+    /** Detects hard sleeps and the waitForTimeout replacement target. */
+    private static final Pattern HARD_SLEEP_PATTERN =
+            Pattern.compile("Thread\\.sleep|waitForTimeout");
+
     private final ProjectStore projectStore;
 
     public AiProjectAdvisorService() {
@@ -170,8 +174,8 @@ public class AiProjectAdvisorService {
 
         // Check inside script code if exists
         try {
-            Path scriptFile = suiteDir.resolve(tc.getName() + ".java");
-            if (Files.exists(scriptFile)) {
+            Path scriptFile = resolveScriptPath(suiteDir, tc);
+            if (scriptFile != null && Files.exists(scriptFile)) {
                 String code = Files.readString(scriptFile).toLowerCase(Locale.ROOT);
                 if (code.contains(query)) {
                     return "Mã kịch bản Java khớp";
@@ -181,6 +185,23 @@ public class AiProjectAdvisorService {
         }
 
         return null;
+    }
+
+    /**
+     * Resolves the script of a case from its recorded {@code scriptFile}. Deriving the name from
+     * {@code tc.getName()} missed every case whose name contains characters that were sanitised for
+     * the file name, so the auditor scored an empty script.
+     */
+    private static Path resolveScriptPath(Path suiteDir, TestCase tc) {
+        if (suiteDir == null || tc == null) {
+            return null;
+        }
+        String scriptFile = tc.getScriptFile();
+        if (scriptFile != null && !scriptFile.isBlank()) {
+            return suiteDir.resolve(scriptFile);
+        }
+        return suiteDir.resolve(
+                com.studio.util.StringEscapeUtil.safeFileName(tc.getName(), "case") + ".java");
     }
 
     // ── 2. Evaluate & Audit Test Case ──
@@ -238,8 +259,8 @@ public class AiProjectAdvisorService {
         // Read script code
         if (targetSuiteDir != null) {
             try {
-                Path javaFile = targetSuiteDir.resolve(foundCase.getName() + ".java");
-                if (Files.exists(javaFile)) {
+                Path javaFile = resolveScriptPath(targetSuiteDir, foundCase);
+                if (javaFile != null && Files.exists(javaFile)) {
                     scriptCode = Files.readString(javaFile);
                 }
             } catch (Exception ignored) {
@@ -296,10 +317,12 @@ public class AiProjectAdvisorService {
         StringBuilder fixBuilder = new StringBuilder();
 
         // Check 1: Hard sleep check (Agency-Agents Rule #1)
-        if (Pattern.compile("Thread\\.sleep|waitForTimeout").matcher(code).find()) {
+        if (HARD_SLEEP_PATTERN.matcher(code).find()) {
             score -= 30;
             criticalFlaws.add(
                     "Phát hiện `Thread.sleep` hoặc `page.waitForTimeout(...)`. Đây là nguyên nhân hàng đầu gây flaky test! Hãy thay bằng `waitForLoadState` hoặc auto-waiting locators.");
+            fixBuilder.append(
+                    "- Xoá `Thread.sleep(...)` / `page.waitForTimeout(...)`; thay bằng `page.waitForLoadState(LoadState.NETWORKIDLE)` hoặc `assertThat(locator).isVisible()`.\n");
         } else {
             strengths.add(
                     "Không sử dụng hard sleep (`Thread.sleep` / `waitForTimeout`). Tuân thủ chuẩn Deterministic Playwright.");
@@ -312,10 +335,14 @@ public class AiProjectAdvisorService {
             score -= 30;
             criticalFlaws.add(
                     "Test case hoàn toàn KHÔNG CÓ assertion nào! Test case không có kiểm tra kết quả thì không có giá trị bảo vệ hồi quy.");
+            fixBuilder.append(
+                    "- Thêm tối thiểu 2 assertion: một kiểm tra trạng thái/URL sau hành động, một kiểm tra phần tử hiển thị (`assertThat(page.locator(...)).isVisible()`).\n");
         } else if (assertCount == 1 && codeAssertCount <= 1) {
             score -= 10;
             warnings.add(
                     "Chỉ có 1 assertion duy nhất. Khuyến nghị bổ sung đa chiều: kiểm tra cả URL/State lẫn phần tử hiển thị.");
+            fixBuilder.append(
+                    "- Bổ sung assertion thứ hai cho URL/State (`assertThat(page).hasURL(...)` hoặc `page.url()`) bên cạnh assertion phần tử.\n");
         } else {
             strengths.add(
                     "Có " + Math.max(assertCount, (int) codeAssertCount) + " assertions kiểm thử kết quả đa điểm.");
@@ -326,6 +353,8 @@ public class AiProjectAdvisorService {
             score -= 15;
             warnings.add(
                     "Bộ chọn DOM mong manh (`nth-child` / đường dẫn tag sâu). Khi UI thay đổi nhẹ, kịch bản sẽ gãy. Hãy thay bằng `getByRole`, `getByLabel` hoặc `data-testid`.");
+            fixBuilder.append(
+                    "- Thay bộ chọn `nth-child` / chuỗi tag sâu bằng `getByRole(...)`, `getByLabel(...)` hoặc `data-testid`.\n");
         } else if (code.contains("getByRole") || code.contains("getByLabel") || code.contains("getByTestId")
                 || code.contains("healLocator")) {
             strengths.add(
@@ -337,6 +366,8 @@ public class AiProjectAdvisorService {
             score -= 10;
             warnings.add(
                     "Bộ chọn `has-text(...)` có thể khớp nhiều phần tử cùng lúc dẫn đến lỗi Playwright Strict Mode Violation. Khuyến nghị bổ sung `.first()` hoặc gán selector phạm vi cụ thể.");
+            fixBuilder.append(
+                    "- Với bộ chọn `has-text(...)`, thêm `.first()` hoặc thu hẹp phạm vi bằng `data-testid` để tránh Strict Mode Violation.\n");
         }
 
         // Check 5: Steps definition
@@ -345,6 +376,8 @@ public class AiProjectAdvisorService {
             strengths.add("Đầy đủ " + stepCount + " bước kịch bản NLP declarative (Arrange-Act-Assert rõ ràng).");
         } else {
             warnings.add("Chưa có danh sách NLP test steps; chỉ có mã nguồn Java thuần.");
+            fixBuilder.append(
+                    "- Bổ sung danh sách test steps (Arrange-Act-Assert) để kịch bản đọc được và bảo trì được.\n");
         }
 
         // Grade calculation
@@ -394,7 +427,9 @@ public class AiProjectAdvisorService {
         }
 
         md.append("### 💡 ĐỀ XUẤT CẢI THIỆN (ACTIONABLE RECOMMENDATION)\n");
-        if (score >= 85) {
+        if (fixBuilder.length() > 0) {
+            md.append(fixBuilder);
+        } else if (score >= 85) {
             md.append(
                     "Kịch bản đạt chuẩn cao theo tiêu chuẩn Agency-Agents! Có thể tự tin chạy trong CI/CD pipeline.\n");
         } else {

@@ -75,7 +75,10 @@ public final class AiCoverageAnalyzer {
             String token = normalize(screen.featureToken());
             String title = normalize(screen.screenTitle());
 
+            // Coverage may only be credited to cases that carry a full trace (test id, screen and
+            // SRS clause). Otherwise an untraceable case would make a screen look covered.
             List<AiGeneratedCase> matching = usable.stream()
+                    .filter(AiGeneratedCase::hasTraceability)
                     .filter(c -> matchesScreen(c, token, title))
                     .toList();
             Set<String> kinds = new LinkedHashSet<>();
@@ -101,41 +104,102 @@ public final class AiCoverageAnalyzer {
     /**
      * Scenario kind inferred from the case's own name/description. Only the four kinds the pipeline
      * requires map to a bucket; anything else becomes {@code Other} and does not satisfy a slot.
+     *
+     * <p>Matching is on whole tokens after diacritics are stripped: substring matching made
+     * {@code "admin"} look like boundary value analysis ({@code min}) and {@code "trong"}
+     * ("inside") look like an empty-field case.</p>
      */
     static String detectKind(AiGeneratedCase c) {
-        String text = ((c.getName() != null ? c.getName() : "") + " "
-                + (c.getDescription() != null ? c.getDescription() : "")).toLowerCase(Locale.ROOT);
-        if (text.matches(".*(happy|thanhcong|thanh cong|luongchinh|luong chinh|success).*")) {
+        String text = normalize((c.getName() != null ? c.getName() : "") + " "
+                + (c.getDescription() != null ? c.getDescription() : ""));
+        Set<String> tokens = tokenize(text);
+        if (matchesKind(text, tokens, HAPPY_TERMS, HAPPY_PHRASES)) {
             return "HappyPath";
         }
-        if (text.matches(".*(negative|validation|hopl|hợp lệ|sai|invalid|empty|trong|required|batbuoc).*")) {
+        if (matchesKind(text, tokens, NEGATIVE_TERMS, NEGATIVE_PHRASES)) {
             return "NegativeValidation";
         }
-        if (text.matches(".*(boundary|bva|bien|biên|gioihan|giới hạn|max|min|edge).*")) {
+        if (matchesKind(text, tokens, BOUNDARY_TERMS, BOUNDARY_PHRASES)) {
             return "BoundaryBVA";
         }
-        if (text.matches(".*(business|rule|quyen|quyền|phanquyen|phân quyền|nghiepvu|nghiệp vụ|permission).*")) {
+        if (matchesKind(text, tokens, BUSINESS_TERMS, BUSINESS_PHRASES)) {
             return "BusinessRule";
         }
         return "Other";
     }
 
-    private static boolean matchesScreen(AiGeneratedCase c, String token, String title) {
-        if (!c.getScreenId().isBlank()) {
-            String caseScreen = normalize(c.getScreenId());
-            return caseScreen.equals(token) || caseScreen.contains(token) || token.contains(caseScreen);
+    /** Terms that appear as a single normalised token. */
+    private static final Set<String> HAPPY_TERMS = Set.of(
+            "happy", "success", "thanhcong", "successful", "happycase");
+    /** Multi-word phrases, matched on the normalised string so word order is preserved. */
+    private static final List<String> HAPPY_PHRASES = List.of("happy path", "thanh cong", "luong chinh");
+
+    private static final Set<String> NEGATIVE_TERMS = Set.of(
+            "negative", "validation", "invalid", "empty", "required", "sai", "batbuoc");
+    private static final List<String> NEGATIVE_PHRASES = List.of(
+            "khong hop le", "hop le", "de trong", "bo trong", "khong nhap", "truong bat buoc");
+
+    private static final Set<String> BOUNDARY_TERMS = Set.of(
+            "boundary", "bva", "edge", "bien", "max", "min", "toida", "toithieu");
+    private static final List<String> BOUNDARY_PHRASES = List.of(
+            "gia tri bien", "gioi han", "toi da", "toi thieu", "boundary value");
+
+    private static final Set<String> BUSINESS_TERMS = Set.of(
+            "business", "rule", "permission", "quyen", "nghiepvu", "phanquyen");
+    private static final List<String> BUSINESS_PHRASES = List.of(
+            "business rule", "nghiep vu", "phan quyen", "quy tac nghiep vu");
+
+    private static boolean matchesKind(String text, Set<String> tokens,
+                                       Set<String> terms, List<String> phrases) {
+        for (String term : terms) {
+            if (tokens.contains(term)) {
+                return true;
+            }
         }
-        // Older cases may not have screenId; fall back to the case name/description containing the title.
-        String haystack = normalize(c.getName() + " " + c.getDescription());
-        return !title.isBlank() && haystack.contains(title);
+        for (String phrase : phrases) {
+            if (containsPhrase(text, phrase)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private static String normalize(String value) {
+    private static boolean matchesScreen(AiGeneratedCase c, String token, String title) {
+        String caseScreen = normalize(c.getScreenId());
+        if (!caseScreen.isBlank() && !token.isBlank()) {
+            return caseScreen.equals(token)
+                    || containsPhrase(caseScreen, token)
+                    || containsPhrase(token, caseScreen);
+        }
+        // Older cases may not have screenId; fall back to the title appearing in the text.
+        String haystack = normalize(c.getName() + " " + c.getDescription());
+        return !title.isBlank() && containsPhrase(haystack, title);
+    }
+
+    /** Whole-token containment, so "min" does not match "admin". */
+    private static boolean containsPhrase(String haystack, String needle) {
+        if (haystack == null || needle == null || needle.isBlank()) {
+            return false;
+        }
+        return (" " + haystack + " ").contains(" " + needle + " ");
+    }
+
+    /** Lower-cases, strips diacritics and collapses every non-alphanumeric run to one space. */
+    static String normalize(String value) {
         if (value == null) {
             return "";
         }
-        return value.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9à-ỹ]+", " ")
+        String decomposed = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
+        return decomposed.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", " ")
                 .trim();
+    }
+
+    private static Set<String> tokenize(String normalized) {
+        if (normalized.isBlank()) {
+            return Set.of();
+        }
+        return Set.of(normalized.split(" "));
     }
 }

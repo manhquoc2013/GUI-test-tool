@@ -101,6 +101,8 @@ public class SuiteWorkspacePageController {
     private String contextCaseName;
 
     private static final java.util.concurrent.atomic.AtomicReference<Process> activeCodegenProcess = new java.util.concurrent.atomic.AtomicReference<>();
+    /** Registered once per controller so it can be unregistered when the tab closes. */
+    private Runnable runProgressListener;
 
     static {
         ResourceReleaseService.registerCleanupTask("codegen-abort", SuiteWorkspacePageController::abortActiveCodegen);
@@ -113,6 +115,18 @@ public class SuiteWorkspacePageController {
                 p.toHandle().descendants().forEach(ProcessHandle::destroyForcibly);
                 p.destroyForcibly();
             } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Unregisters the run-progress listener. Called when the workspace tab closes so a discarded
+     * controller is not retained (and refreshed) for the rest of the session.
+     */
+    public void detachRunProgressListener() {
+        Runnable listener = runProgressListener;
+        if (listener != null) {
+            RunProgressService.removeListener(listener);
+            runProgressListener = null;
         }
     }
 
@@ -202,11 +216,12 @@ public class SuiteWorkspacePageController {
             if (assertSearchField != null) {
                 assertSearchField.textProperty().addListener((obs, o, n) -> refreshAssertsList());
             }
-            RunProgressService.addListener(() -> {
+            runProgressListener = () -> {
                 if (caseListView != null) {
                     caseListView.refresh();
                 }
-            });
+            };
+            RunProgressService.addListener(runProgressListener);
             caseListView.getSelectionModel().selectedItemProperty().addListener(
                     (obs, oldVal, newVal) -> {
                         if (suppressCaseSelection) return;
@@ -1051,7 +1066,8 @@ public class SuiteWorkspacePageController {
                 ex -> {
                     StatusBarService.ready();
                     if (ex instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
+                        // This handler runs on the JavaFX Application Thread: interrupting it would
+                        // leave the toolkit thread's interrupt flag set and break its internal waits.
                         terminalAppend("Codegen bị ngắt");
                         ToastService.warn("⏹️ Codegen bị ngắt");
                     } else {
@@ -1640,18 +1656,25 @@ public class SuiteWorkspacePageController {
                 ? preferSelect
                 : caseListView.getSelectionModel().getSelectedItem();
         String query = caseSearchField != null ? caseSearchField.getText() : "";
-        caseListView.getItems().clear();
-        if (suite != null && suite.getCases() != null) {
-            for (TestCase tc : suite.getCases()) {
-                if (nameContains(tc.getName(), query)) {
-                    caseListView.getItems().add(tc.getName());
+        // Rebuild under suppression: clearing the items fires the selection listener with null,
+        // which used to blank the editor and drop the active case every time the user typed in the
+        // search box. Deletion clears the editor explicitly in deleteCaseFromRow instead.
+        boolean previousSuppress = suppressCaseSelection;
+        suppressCaseSelection = true;
+        try {
+            caseListView.getItems().clear();
+            if (suite != null && suite.getCases() != null) {
+                for (TestCase tc : suite.getCases()) {
+                    if (nameContains(tc.getName(), query)) {
+                        caseListView.getItems().add(tc.getName());
+                    }
                 }
             }
-        }
-        if (selected != null && caseListView.getItems().contains(selected)) {
-            suppressCaseSelection = true;
-            caseListView.getSelectionModel().select(selected);
-            suppressCaseSelection = false;
+            if (selected != null && caseListView.getItems().contains(selected)) {
+                caseListView.getSelectionModel().select(selected);
+            }
+        } finally {
+            suppressCaseSelection = previousSuppress;
         }
     }
 
@@ -1761,7 +1784,7 @@ public class SuiteWorkspacePageController {
             return;
         }
         try {
-            projectStore.deleteAssertion(suitePath, selectedCase.getId(), index);
+            projectStore.deleteAssertion(suitePath, selectedCase.getId(), assertion);
             selectedCase.getAssertions().remove(index);
             refreshAssertsList();
             ToastService.success("🗑️ Đã xóa assertion");

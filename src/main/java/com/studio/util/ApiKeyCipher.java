@@ -84,8 +84,10 @@ public final class ApiKeyCipher {
             String encoded = Base64.getEncoder().encodeToString(byteBuffer.array());
             return ENVELOPE_PREFIX + encoded;
         } catch (Exception ex) {
-            // In case of an unexpected cipher failure, return plain text as fallback
-            return plainText.trim();
+            // Fail closed: returning the plaintext key here would silently write a secret to
+            // settings.json in the clear. The caller must abort the save instead.
+            throw new IllegalStateException(
+                    "Không thể mã hoá API key bằng AES-256-GCM: " + ex.getMessage(), ex);
         }
     }
 

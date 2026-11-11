@@ -242,7 +242,71 @@ class AiTestGeneratorServiceTest {
         String fixed = service.validateAndFixScript(illegalScript, "TestIllegal", "https://example.com");
         assertFalse(fixed.contains("Playwright.create()"));
         assertFalse(fixed.contains(".launch()"));
-        assertTrue(fixed.contains("// Studio manages page/browser lifecycle"));
+        assertTrue(fixed.contains("Studio manages page/browser lifecycle"));
+        assertFalse(fixed.contains("page.close();"), "Playwright page.close() must be removed");
+        assertFalse(fixed.contains("br.close();"), "Playwright browser.close() must be removed");
+    }
+
+    @Test
+    void testValidateAndFixScriptKeepsUnrelatedCloseCalls() {
+        String script = """
+            package com.test;
+            import com.microsoft.playwright.*;
+            import java.io.StringWriter;
+            public class TestUnrelatedClose {
+                public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    StringWriter out = new StringWriter();
+                    page.navigate("https://example.com");
+                    out.close();
+                }
+            }
+            """;
+
+        String fixed = service.validateAndFixScript(script, "TestUnrelatedClose", "https://example.com");
+        assertTrue(fixed.contains("out.close();"), "A non-Playwright close() call must be preserved");
+    }
+
+    @Test
+    void testValidateAndFixScriptKeepsControlFlowWhenRemovingSleep() {
+        String script = """
+            package com.test;
+            import com.microsoft.playwright.*;
+            public class TestSleep {
+                public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    if (page.url().isEmpty()) Thread.sleep(1000);
+                    page.navigate("https://example.com");
+                }
+            }
+            """;
+
+        String fixed = service.validateAndFixScript(script, "TestSleep", "https://example.com");
+        assertFalse(fixed.contains("Thread.sleep"), "Hard sleep phải bị loại bỏ");
+        assertTrue(fixed.contains("if (page.url().isEmpty()) page.waitForLoadState"),
+                "Câu lệnh thay thế phải giữ nguyên vị trí thân if, không nuốt dòng kế tiếp");
+        assertTrue(fixed.contains("page.navigate(\"https://example.com\");"),
+                "Dòng sau khối if không được trở thành thân if");
+    }
+
+    @Test
+    void testValidateAndFixScriptLeavesUnrelatedCloseCalls() {
+        String script = """
+            package com.test;
+            import com.microsoft.playwright.*;
+            public class TestClose {
+                public static void main(String[] args) {
+                    Page page = com.studio.runtime.StudioRuntime.page();
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    out.close();
+                    page.close();
+                }
+            }
+            """;
+
+        String fixed = service.validateAndFixScript(script, "TestClose", "https://example.com");
+        assertTrue(fixed.contains("out.close();"), "close() ngoài Playwright phải được giữ nguyên");
+        assertFalse(fixed.contains("page.close();"), "Chỉ close() của Playwright mới bị loại bỏ");
     }
 
     @Test

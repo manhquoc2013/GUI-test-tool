@@ -6,7 +6,6 @@ import com.studio.model.AiChatSession;
 import com.studio.model.AiSubAgentSession;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -157,22 +156,6 @@ class AiSubAgentOrchestratorTest {
 
         assertEquals(1, res.openFindings().size());
         assertTrue(res.openFindings().get(0).contains("không trả về kết quả"));
-    }
-
-    @Test
-    void cancelAllNeverLeavesChildRunning() {
-        AiSubAgentOrchestrator orch = new AiSubAgentOrchestrator(fixedOutput("x"), null);
-        AiSubAgentSession running = new AiSubAgentSession("p", "A", "r", "R", "", "b");
-        running.setStatus(AiSubAgentSession.Status.RUNNING);
-        AiSubAgentSession done = new AiSubAgentSession("p", "B", "r", "R", "", "b");
-        done.setStatus(AiSubAgentSession.Status.COMPLETED);
-
-        List<AiSubAgentSession> list = new ArrayList<>(List.of(running, done));
-        orch.cancelAll(list);
-
-        assertEquals(AiSubAgentSession.Status.CANCELLED, running.getStatus());
-        assertEquals(AiSubAgentSession.Status.COMPLETED, done.getStatus(), "không được đổi trạng thái đã kết thúc");
-        assertTrue(list.stream().allMatch(AiSubAgentSession::isTerminal));
     }
 
     @Test

@@ -244,15 +244,39 @@ sequenceDiagram
 
 ## Multi-Tier Self-Healing Engine
 
-Playwright Automation Studio integrates an autonomous 5-tier Self-Healing Engine (see full technical specification in [docs/SELF_HEALING_DESIGN.md](file:///Users/tranquoc/Developer/tools/GUI-test-tool/docs/SELF_HEALING_DESIGN.md)):
+Playwright Automation Studio integrates an autonomous 5-tier Self-Healing Engine (see full technical specification in [docs/SELF_HEALING_DESIGN.md](file:///Users/tranquoc/Developer/tools/GUI-test-tool/docs/SELF_HEALING_DESIGN.md)). The tiers are implemented by `OptimizedSelfHealingExecutor` (orchestration, per-step retry and mutation budget) together with `HeuristicHealer`, `EnhancedDomExtractor`, `MultiLocatorCascade`, `LocateCache`, `HealedLocatorWrapper`, and `ActionDeltaVerifier`:
 
 1. **Tier 0 (Smart Wait Buffer)**: 350-400ms buffer absorbing hydration delays before declaring failure.
 2. **Tier 1 (LocateCache)**: In-memory session cache ensuring sub-millisecond reuse of previously healed selectors across repeated steps.
-3. **Tier 2 (Fast Heuristics)**: Zero-cost rule-based browser repair (<30ms) stripping dynamic ID suffixes, hash classes, and mapping semantic attributes (`data-testid`, `aria-label`, placeholder, role with text).
-4. **Tier 3 (Multimodal VLM)**: `EnhancedDomExtractor` traverses Shadow DOM & IFrames, paired with compressed JPEG viewport screenshots sent to vision LLM via `OpenAiClient`.
-5. **Tier 4 (Sandbox Verification)**: Enforces `count == 1 && isVisible() && isEnabled()` before accepting any candidate.
+3. **Tier 2 (Fast Heuristics)**: Zero-cost rule-based browser repair (<30ms) stripping dynamic ID suffixes, hash classes, and mapping semantic attributes (`data-testid`, `aria-label`, placeholder, role with text). Implemented in `HeuristicHealer`, ranked by `MultiLocatorCascade`.
+4. **Tier 3 (Multimodal VLM)**: `EnhancedDomExtractor` traverses Shadow DOM & IFrames, paired with compressed JPEG viewport screenshots sent to vision LLM via `OpenAiClient`. Skipped entirely when the configured model is not vision-capable.
+5. **Tier 4 (Sandbox Verification)**: Enforces `count == 1 && isVisible() && isEnabled()` before accepting any candidate; `ActionDeltaVerifier` rejects a heal whose action produced no observable page change.
 6. **Lazy Dynamic Proxy**: Transformed scripts call `StudioRuntime.healLocator(...)` which delegates via `java.lang.reflect.Proxy`, preserving 100% of native Playwright Auto-Waiting.
-7. **Persistent Mutation**: Safely updates quoted string literals in `.java` test scripts and `suite.json` assertions, preventing repeat repair costs in future runs.
+7. **Persistent Mutation**: Safely updates quoted string literals in `.java` test scripts and `suite.json` assertions, preventing repeat repair costs in future runs. Mutations are re-read from disk and re-applied to the *current* `suite.json` before saving, and a per-case mutation budget (`resetMutationCounts()` per run) halts anti-thrashing loops.
+
+---
+
+## Local Data Index (H2)
+
+Persistence is **dual**: the filesystem tree above is the source of truth, and an embedded H2 database (`h2` 2.2.224) is a rebuildable index over it for fast search, run history and AI chat recall. Losing or corrupting the index is never data loss — `LocalDataIndexService.syncProjectDirectory` re-indexes from disk, and `ReportStore.listReports` always merges DB rows with a full `report.json` scan.
+
+```
+${APP_HOME}/data/studio.mv.db      # jdbc:h2:file:...;AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+```
+
+| Table | Contents |
+| :--- | :--- |
+| `test_groups` | Group path + name/description |
+| `test_suites` | Suite identity (`group/name`), browser, headless, absolute path |
+| `test_cases` | Case id, name, status, script file, owning suite |
+| `test_assertions` | Per-case assertions with order |
+| `run_reports` | Run summaries, counts, timestamps |
+| `ai_chat_sessions` / `ai_chat_messages` | Chat history + token accounting per suite |
+| `system_settings` | Key/value settings mirror |
+| `ai_documents_index` / `ai_document_chunks` | Knowledge documents and chunk text for prompt context |
+| `ai_exports_index` | Generated export artifacts |
+
+Group identity is the **relative path** from the project root (`ParentGroup/ChildGroup`), never the leaf directory name, so two `Login` groups at different depths cannot collide.
 
 ---
 

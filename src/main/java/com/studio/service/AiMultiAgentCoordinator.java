@@ -395,6 +395,16 @@ public class AiMultiAgentCoordinator {
                     }
                 }
 
+                // 1b. Keep the traceability id in step with the (possibly renamed) case. bindTraceability
+                // runs before this pass, so a renamed case used to keep pointing at its old generic name,
+                // and every report/manifest referenced a case that no longer exists.
+                String healedName = tc.getName();
+                String testId = tc.getTestId();
+                if (healedName != null && !healedName.isBlank()
+                        && (testId == null || testId.isBlank() || testId.equals(origName))) {
+                    tc.setTestId(healedName);
+                }
+
                 // 2. Heal Priority if missing or invalid
                 String prio = tc.getPriority();
                 if (prio == null || !prio.matches("P[0-3]")) {
