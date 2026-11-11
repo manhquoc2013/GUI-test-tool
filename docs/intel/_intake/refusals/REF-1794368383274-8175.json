@@ -1,0 +1,12 @@
+{
+  "at": 1794368383273,
+  "kind": "tripwire_breach",
+  "change_class": "C1",
+  "breach_kind": "undeclared_path",
+  "triage_id": "TRI-1794368345371-b6ee",
+  "loc_changed": 54,
+  "files_touched": 2,
+  "detail": "[undeclared_path] Intake tripwire — undeclared path: writing \"src/main/resources/css/studio-light.css\" was REFUSED and this C1 lane is now LOCKED — do NOT retry this write. FIX: add \"src/main/resources/css/studio-light.css\" to your candidate_files, re-run intake_triage, then FOLLOW the routing directive the new record returns (pipeline dispatch or build-owned). PREPARE BEFORE RE-TRIAGING: a C2 rou…",
+  "provider_id": "etc-ai",
+  "model_id": "deepseek-flash"
+}

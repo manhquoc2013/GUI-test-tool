@@ -1,0 +1,111 @@
+{
+  "request_id": "ses_e376cc8c5ffeNcBV9EqcY8YUrG/msg_1c8b76332001CDM8Rq3kC3QJRK/call_00_L9arOnypQQfujP21gJgi0226",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 5,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794368826580-1b3e",
+  "created_at": 1794368826580,
+  "request_summary": "Add a fixed in-code agent rule catalogue plus a coordinator agent that decomposes a user request into a validated sub-agent task plan.",
+  "change_class": "C1",
+  "handling": "inline_declared_scope",
+  "evidence": {
+    "edit_target_files": [
+      "src/main/java/com/studio/service/AiAgentPlanParser.java",
+      "src/main/java/com/studio/service/AiAgentRuleCatalog.java",
+      "src/main/java/com/studio/service/AiCoordinatorAgent.java",
+      "src/test/java/com/studio/service/AiAgentRuleCatalogTest.java",
+      "src/test/java/com/studio/service/AiCoordinatorAgentTest.java"
+    ],
+    "impact_files": [
+      "src/main/java/com/studio/service/AiAgentPlanParser.java",
+      "src/main/java/com/studio/service/AiAgentRuleCatalog.java",
+      "src/main/java/com/studio/service/AiCoordinatorAgent.java",
+      "src/test/java/com/studio/service/AiAgentRuleCatalogTest.java",
+      "src/test/java/com/studio/service/AiCoordinatorAgentTest.java"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "risk_effects": [],
+    "dev_footprint": "backend"
+  },
+  "rationale": "C1: 5 edit-target files in one package, no one-way door — pre-declared write scope required; prior C1 undeclared_path breach is re-measured on the corrected footprint, floored at C1 and never escalated twice (5 edit-target files / 0 package(s) / 1 write-scope clusters / co-change unassessed / shape=scaffolded)",
+  "entry_point": "AI Assistant chat: the coordinator agent receives the user request and produces the delegated sub-agent task list that the orchestrator then executes.",
+  "blast_radius": 5,
+  "done_oracle": "A fixed in-code rule catalogue defines every agent's obligations, prohibitions and required evidence; a coordinator agent turns a user request into a delegated task list whose every ruleId exists in the catalogue and is not the coordinator itself, and any unknown or self-referential ruleId is rejected rather than dispatched. The coordinator never performs specialist work itself. Tests cover: catalogue immutability and uniqueness, rejection of unknown ruleId, rejection of delegating to the coordinator rule, and acceptance of a valid multi-task plan.",
+  "verification_commands": [
+    {
+      "command": "mvn -o test -Dtest=AiAgentRuleCatalogTest",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 420000
+    },
+    {
+      "command": "mvn -o test -Dtest=AiCoordinatorAgentTest",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 420000
+    }
+  ],
+  "change_type": "architecture",
+  "declared_write_scope": [
+    "src/main/java/com/studio/service/AiAgentPlanParser.java",
+    "src/main/java/com/studio/service/AiAgentRuleCatalog.java",
+    "src/main/java/com/studio/service/AiCoordinatorAgent.java",
+    "src/test/java/com/studio/service/AiAgentRuleCatalogTest.java",
+    "src/test/java/com/studio/service/AiCoordinatorAgentTest.java"
+  ],
+  "seam_claims": [
+    {
+      "file": "src/main/java/com/studio/service/AiSubAgentOrchestrator.java",
+      "line": 40,
+      "quote": "public record SubAgentTask(AiAgentRule rule, String taskBrief) {",
+      "source_hash": "e2952853d1f74725ab9d62979e011c9d200232740570300727b50aa31f148a89",
+      "quote_hash": "e71fb50dede2936410d7b825abe831d199ab0cbca6f29d651db3536cd24afd7f",
+      "note": "The orchestrator already accepts a caller-supplied task list, so the coordinator plugs in here as its planner rather than changing orchestration itself."
+    },
+    {
+      "file": "src/main/java/com/studio/model/AiAgentRule.java",
+      "line": 17,
+      "quote": "private List<String> obligations = new ArrayList<>();",
+      "source_hash": "1fad6b017781f8c7965cb324e16ac8069d7236ee84a701e7c2ae479a0d293a0f",
+      "quote_hash": "0b717b24b6164b4599e190498632707ffd6aea48c622878e2f1f2196a35c1a9d",
+      "note": "Rule object already models obligations, prohibitions and required evidence, so a catalogue can be built without changing the model."
+    }
+  ],
+  "escalated_from": {
+    "triage_id": "TRI-1794368476383-9b8e",
+    "breach_kind": "undeclared_path",
+    "change_class": "C1",
+    "loc_changed": 17,
+    "files_touched": 2
+  },
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "9693ca47472b514444c901b8471c180b3e750ea4",
+    "dirty": true,
+    "captured_at": 1794368826982
+  },
+  "budget": {
+    "wall_clock_ms": 2280000,
+    "turns": 96,
+    "turns_used": 0
+  },
+  "risk_facts_source": "declared"
+}

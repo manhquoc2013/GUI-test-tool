@@ -1,0 +1,137 @@
+{
+  "request_id": "ses_e3734f6b4ffe0eAJTvK8WoFjdx/msg_1c8f27600001vvWw01s2piXCEl/call_00_NmaGorFGHaggFZDX8OZn9288",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 10,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794372697515-d97a",
+  "created_at": 1794372697515,
+  "request_summary": "Slim scroll bars to 10px app-wide (pinned in code because VirtualFlow overrides CSS), fix list-scroll stutter with fixed cell size, and give the Explorer tree heading a real heading style instead of the muted helper class.",
+  "change_class": "C2",
+  "handling": "solo_lane",
+  "evidence": {
+    "edit_target_files": [
+      "src/main/java/com/studio/App.java",
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/controller/ExplorerPageController.java",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/controller/SuiteWorkspacePageController.java",
+      "src/main/java/com/studio/util/CompactScrollBars.java",
+      "src/main/java/com/studio/util/UiResponsive.java",
+      "src/main/resources/css/studio-light.css",
+      "src/main/resources/css/studio.css",
+      "src/main/resources/fxml/explorer_page.fxml"
+    ],
+    "impact_files": [
+      "src/main/java/com/studio/App.java",
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/controller/ExplorerPageController.java",
+      "src/main/java/com/studio/controller/MainShellController.java",
+      "src/main/java/com/studio/controller/SuiteWorkspacePageController.java",
+      "src/main/java/com/studio/util/CompactScrollBars.java",
+      "src/main/java/com/studio/util/UiResponsive.java",
+      "src/main/resources/css/studio-light.css",
+      "src/main/resources/css/studio.css",
+      "src/main/resources/fxml/explorer_page.fxml"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "risk_effects": [],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 14,
+      "areas": 5,
+      "judged_pairs": 0,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0
+    },
+    "dev_footprint": "mixed"
+  },
+  "rationale": "C2: 10 edit-target files exceed the inline gate; prior C2 undeclared_path breach is re-measured on the corrected footprint, floored at C2 and never escalated twice (10 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0 (0/0 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "ScrollBars app-wide + Explorer project-tree panel heading",
+  "blast_radius": 10,
+  "done_oracle": "Scroll bars render at 10px in both themes, single-line lists use a fixed cell size, and the Explorer panel heading is legible at >=4.5:1 contrast in both themes; all screens still load.",
+  "verification_commands": [
+    {
+      "command": "mvn -o test -Dtest=FxmlLoadTest -DfailIfNoTests=false",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 480000
+    }
+  ],
+  "declared_write_scope": [
+    "src/main/java/com/studio/App.java",
+    "src/main/java/com/studio/controller/AiAssistantPageController.java",
+    "src/main/java/com/studio/controller/ExplorerPageController.java",
+    "src/main/java/com/studio/controller/MainShellController.java",
+    "src/main/java/com/studio/controller/SuiteWorkspacePageController.java",
+    "src/main/java/com/studio/util/CompactScrollBars.java",
+    "src/main/java/com/studio/util/UiResponsive.java",
+    "src/main/resources/css/studio-light.css",
+    "src/main/resources/css/studio.css",
+    "src/main/resources/fxml/explorer_page.fxml"
+  ],
+  "seam_claims": [
+    {
+      "file": "src/main/resources/fxml/explorer_page.fxml",
+      "line": 34,
+      "quote": "<Label text=\"Cây dự án\" styleClass=\"tree-hint\" HBox.hgrow=\"ALWAYS\" maxWidth=\"Infinity\"/>",
+      "source_hash": "058f0e63ed76a3ea33a63ab1e5ac954687d70e8ad835d073a6647eee8b4c2cbc",
+      "quote_hash": "a49e3d3b33e0311dee86ce68dc2d2b4947e2a8df0bbca294ae229ad066b50778"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/SuiteWorkspacePageController.java",
+      "line": 401,
+      "quote": "caseListView.setFixedCellSize(34);",
+      "source_hash": "fb7db52f4a37e4d0246d4413ca5bd568b087bd074b36d2abf360162eb7d367a3",
+      "quote_hash": "a5d0916375f572fdda11394f1a2716cd4f87027890f107e1fc83c1eea7095947"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "line": 261,
+      "quote": "generatedCasesListView.setFixedCellSize(30);",
+      "source_hash": "f4754e2bd3598a92d2a5d8ee4401ad53912cb02640a93db37b20d4a4c030882b",
+      "quote_hash": "e69ab9c63e9692fab489e50b4751f1ccefcb122096aeb8a45a6d9c1b6380c794"
+    }
+  ],
+  "escalated_from": {
+    "triage_id": "TRI-1794372572225-1544",
+    "breach_kind": "undeclared_path",
+    "change_class": "C2",
+    "loc_changed": 97,
+    "files_touched": 5
+  },
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "91c4e665111b9e8fd8877585b04bdf4d888831d3",
+    "dirty": true,
+    "captured_at": 1794372697844
+  },
+  "target_module": "M-001",
+  "budget": {
+    "wall_clock_ms": 6180000,
+    "turns": 346,
+    "turns_used": 0
+  },
+  "risk_facts": [],
+  "risk_facts_source": "declared"
+}

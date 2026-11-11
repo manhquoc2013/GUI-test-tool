@@ -1,0 +1,112 @@
+{
+  "request_id": "ses_e376cc8c5ffeNcBV9EqcY8YUrG/msg_1c8b20b9f00146XbmmqBrOTtrO/call_00_s9wIhbTNidUaOA97CYuC5658",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 6,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794368476383-9b8e",
+  "created_at": 1794368476383,
+  "request_summary": "Apply agent optimizations AG-8 (usage logging), AG-3 (explicit output token budget in AiConfig), AG-2 (dynamic batching) and AG-9 (water-filling document allocation with truncation logging).",
+  "change_class": "C1",
+  "handling": "inline_declared_scope",
+  "evidence": {
+    "edit_target_files": [
+      "src/main/java/com/studio/model/AiConfig.java",
+      "src/main/java/com/studio/service/AiLoggingService.java",
+      "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+      "src/main/java/com/studio/service/AiTestGeneratorService.java",
+      "src/main/java/com/studio/service/AiTokenOptimizer.java",
+      "src/main/java/com/studio/service/OpenAiClient.java"
+    ],
+    "impact_files": [
+      "src/main/java/com/studio/model/AiConfig.java",
+      "src/main/java/com/studio/service/AiLoggingService.java",
+      "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+      "src/main/java/com/studio/service/AiTestGeneratorService.java",
+      "src/main/java/com/studio/service/AiTokenOptimizer.java",
+      "src/main/java/com/studio/service/OpenAiClient.java"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "risk_effects": [],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 1,
+      "areas": 2,
+      "judged_pairs": 0,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0
+    },
+    "dev_footprint": "backend"
+  },
+  "rationale": "C1: 6 edit-target files in one package, no one-way door — pre-declared write scope required (6 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0 (0/0 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "AI test generation from the Assistant chat: sending a request with an attached SRS produces cases while data/logs records per-call token usage, and no batch silently exceeds the model output budget.",
+  "blast_radius": 6,
+  "done_oracle": "Each chatCompletion logs prompt/completion/cached tokens (AG-8); output token budget is explicit and separate from the context window so max_tokens is always sent (AG-3); batch size derives from the token budget instead of the hard-coded 2 (AG-2); document allocation uses water-filling with truncation logging (AG-9). Existing AI tests stay green and no assertion is weakened.",
+  "verification_commands": [
+    {
+      "command": "mvn -o test -Dtest='AiTokenOptimizerTest,AiTestGeneratorServiceTest,AiMultiAgentLoopAndNamingTest'",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 420000
+    }
+  ],
+  "change_type": "implementation",
+  "declared_write_scope": [
+    "src/main/java/com/studio/model/AiConfig.java",
+    "src/main/java/com/studio/service/AiLoggingService.java",
+    "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+    "src/main/java/com/studio/service/AiTestGeneratorService.java",
+    "src/main/java/com/studio/service/AiTokenOptimizer.java",
+    "src/main/java/com/studio/service/OpenAiClient.java"
+  ],
+  "seam_claims": [
+    {
+      "file": "src/main/java/com/studio/service/OpenAiClient.java",
+      "line": 229,
+      "quote": "if (requestedMaxTokens > 0) {",
+      "source_hash": "b5506c1d1c0edf8d5d5b73dd5ccad510e0815f2fd7fa02b776a6ef3e2a7a307b",
+      "quote_hash": "06fbde9833949886c4bbc07b59b710111757e26bb9bbdeb07897f367ff980e0d",
+      "note": "max_tokens is only sent when configured above zero, so with the shipped maxTokens=0 the output budget is whatever the provider defaults to."
+    },
+    {
+      "file": "src/main/java/com/studio/service/AiTestGeneratorService.java",
+      "line": 737,
+      "quote": "int batchSize = 2; // 2 screens per LLM batch ensures sufficient output token capacity for 8-10 cases",
+      "source_hash": "48714d72e38c9279396815db4593b0970533271a158f915efbb191c31e30be08",
+      "quote_hash": "c321010e8b1b0d9d660e6f52837b49fa1dc58df52fb2926921e45dc7610d4bee",
+      "note": "Batch size is hard-coded to 2 regardless of budget or script generation."
+    }
+  ],
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "9693ca47472b514444c901b8471c180b3e750ea4",
+    "dirty": true,
+    "captured_at": 1794368476746
+  },
+  "budget": {
+    "wall_clock_ms": 2340000,
+    "turns": 98,
+    "turns_used": 0
+  },
+  "risk_facts_source": "declared"
+}

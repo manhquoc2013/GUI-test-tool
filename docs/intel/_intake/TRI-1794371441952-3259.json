@@ -1,0 +1,100 @@
+{
+  "request_id": "ses_e372c73bfffeW2VgKq0spqG3Qe/msg_1c8df4c98001fK0fcSCdKiZqcn/call_00_7eX926npcQ4ULJ5W4n8r4797",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 8,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794371441952-3259",
+  "created_at": 1794371441952,
+  "request_summary": "Recover non-JSON model replies per batch in multi-batch orchestration (no silent swallow), load .agents/*.md and skills/*/SKILL.md definitions into the AI prompt, and keep conversation context complete across turns in one chat session",
+  "change_class": "C1",
+  "handling": "inline_declared_scope",
+  "evidence": {
+    "edit_target_files": [
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/service/AiAgentDefinitionLoader.java",
+      "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+      "src/main/java/com/studio/service/AiTestGeneratorService.java",
+      "src/main/java/com/studio/service/AiTokenOptimizer.java",
+      "src/test/java/com/studio/service/AiAgentDefinitionLoaderTest.java",
+      "src/test/java/com/studio/service/AiMultiAgentBatchRecoveryTest.java",
+      "src/test/java/com/studio/service/AiTokenOptimizerTest.java"
+    ],
+    "impact_files": [
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/service/AiAgentDefinitionLoader.java",
+      "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+      "src/main/java/com/studio/service/AiTestGeneratorService.java",
+      "src/main/java/com/studio/service/AiTokenOptimizer.java",
+      "src/test/java/com/studio/service/AiAgentDefinitionLoaderTest.java",
+      "src/test/java/com/studio/service/AiMultiAgentBatchRecoveryTest.java",
+      "src/test/java/com/studio/service/AiTokenOptimizerTest.java"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 8,
+      "areas": 2,
+      "judged_pairs": 0,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0
+    },
+    "dev_footprint": "backend"
+  },
+  "rationale": "C1: 8 edit-target files in one package, no one-way door — pre-declared write scope required (8 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0 (0/0 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "AI Assistant send flow (AiAssistantPageController -> AiTestGeneratorService.generateTestCases) for a JSON generation skill such as Multi-Agent Loop / Playwright E2E",
+  "blast_radius": 8,
+  "done_oracle": "A multi-batch generation whose first batch replies with prose still yields cases after the self-correction retry, a permanently failing batch is surfaced instead of silently dropped; agent/skill markdown definitions appear in the system prompt built by the orchestrator; a follow-up turn in the same session carries earlier screens, generated case names and attachments instead of losing them to the sliding window; existing agent/skill tests stay green.",
+  "verification_commands": [
+    {
+      "command": "mvn -o -Dtest=AiMultiAgentLargeSrsMultiScreenTest,AiMultiAgentLoopAndNamingTest,AiTokenOptimizerTest,AiAgentRuleCatalogTest,AiSkillTest,AiAgentDefinitionLoaderTest,AiMultiAgentBatchRecoveryTest -DfailIfNoTests=false test",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 480000
+    }
+  ],
+  "change_type": "implementation",
+  "declared_write_scope": [
+    "src/main/java/com/studio/controller/AiAssistantPageController.java",
+    "src/main/java/com/studio/service/AiAgentDefinitionLoader.java",
+    "src/main/java/com/studio/service/AiMultiAgentCoordinator.java",
+    "src/main/java/com/studio/service/AiTestGeneratorService.java",
+    "src/main/java/com/studio/service/AiTokenOptimizer.java",
+    "src/test/java/com/studio/service/AiAgentDefinitionLoaderTest.java",
+    "src/test/java/com/studio/service/AiMultiAgentBatchRecoveryTest.java",
+    "src/test/java/com/studio/service/AiTokenOptimizerTest.java"
+  ],
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "f3d3389e26d64ae6d79b71253bca727e061daa5b",
+    "dirty": true,
+    "captured_at": 1794371442358
+  },
+  "budget": {
+    "wall_clock_ms": 2460000,
+    "turns": 102,
+    "turns_used": 0
+  },
+  "risk_facts": [],
+  "risk_facts_source": "declared"
+}

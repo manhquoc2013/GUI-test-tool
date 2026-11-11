@@ -1,0 +1,12 @@
+{
+  "at": 1794370420776,
+  "kind": "tripwire_breach",
+  "change_class": "C2",
+  "breach_kind": "undeclared_path",
+  "triage_id": "TRI-1794370334867-98ca",
+  "loc_changed": 272,
+  "files_touched": 5,
+  "detail": "[undeclared_path] Intake tripwire — undeclared path: writing \"src/main/resources/fxml/reports_page.fxml\" was REFUSED and this C2 lane is now LOCKED — do NOT retry this write. FIX: add \"src/main/resources/fxml/reports_page.fxml\" to your candidate_files, re-run intake_triage, then FOLLOW the routing directive the new record returns (pipeline dispatch or build-owned). PREPARE BEFORE RE-TRIAGING: a C3…",
+  "provider_id": "etc-ai",
+  "model_id": "deepseek-flash"
+}
