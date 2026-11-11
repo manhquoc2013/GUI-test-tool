@@ -1,6 +1,7 @@
 package com.studio.controller;
 
 import com.studio.model.AiConfig;
+import com.studio.model.AiModelCapabilities;
 import com.studio.service.OpenAiClient;
 import com.studio.service.ThemeService;
 import com.studio.service.ToastService;
@@ -386,6 +387,21 @@ public class AiSettingsDialog {
         aiGrid.add(maxTokensBox, 1, aiRow);
         aiRow++;
 
+        // Output ceiling per reply
+        Label ceilingLabel = new Label("Trần output mỗi lượt:");
+        ceilingLabel.getStyleClass().add("field-label");
+        Spinner<Integer> ceilingSpinner = new Spinner<>(0, AiModelCapabilities.ABSOLUTE_OUTPUT_CEILING,
+                Math.max(0, aiConfig.getOutputTokenCeiling()), 1024);
+        ceilingSpinner.setEditable(true);
+        HBox.setHgrow(ceilingSpinner, Priority.ALWAYS);
+        Label ceilingHint = new Label("0 = Tự động theo model (" + AiModelCapabilities.DEFAULT_OUTPUT_CEILING
+                + " cho model chưa biết). Đây là mức tối đa một lượt được phép sinh khi phản hồi bị cắt.");
+        ceilingHint.getStyleClass().add("settings-hint-label");
+        VBox ceilingBox = new VBox(4, ceilingSpinner, ceilingHint);
+        aiGrid.add(ceilingLabel, 0, aiRow);
+        aiGrid.add(ceilingBox, 1, aiRow);
+        aiRow++;
+
         // Test connection
         Label testLabel = new Label("Kiểm tra:");
         testLabel.getStyleClass().add("field-label");
@@ -526,6 +542,12 @@ public class AiSettingsDialog {
                     } catch (Exception ignored) {}
                     Integer tokens = maxTokensSpinner.getValue();
                     cfg.setMaxTokens(tokens != null && tokens >= 0 ? tokens : 0);
+
+                    try {
+                        ceilingSpinner.commitValue();
+                    } catch (Exception ignored) {}
+                    Integer ceiling = ceilingSpinner.getValue();
+                    cfg.setOutputTokenCeiling(ceiling != null && ceiling >= 0 ? ceiling : 0);
 
                     store.save(finalSettings);
                     if (!selectedTheme.equalsIgnoreCase(ThemeService.getCurrentTheme())) {

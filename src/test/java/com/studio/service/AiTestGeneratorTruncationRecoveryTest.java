@@ -74,8 +74,8 @@ public class AiTestGeneratorTruncationRecoveryTest {
         assertEquals("", result.describeOutputTruncation());
         assertTrue(budgets.size() >= 2);
         assertTrue(budgets.get(1) > budgets.get(0), "the retry must ask for a larger output budget");
-        assertTrue(budgets.get(1) <= AiTestGeneratorService.MAX_OUTPUT_TOKENS_CEILING,
-                "the retry budget must stay under the model ceiling");
+        assertTrue(budgets.get(1) <= config().getEffectiveOutputTokenCeiling(),
+                "the retry budget must stay under the model's own output ceiling");
     }
 
     // --- continuation ---

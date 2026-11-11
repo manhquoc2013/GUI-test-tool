@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studio.model.AiConfig;
 import com.studio.model.AiGeneratedCase;
+import com.studio.model.AiModelCapabilities;
 import com.studio.model.AiSkill;
 import com.studio.model.Assertion;
 import com.studio.model.TestCase;
@@ -1253,23 +1254,20 @@ public class AiTestGeneratorService {
         return flat.length() > 160 ? flat.substring(0, 157) + "..." : flat;
     }
 
-    /** Hard ceiling for an output budget increase: models beyond this reject the request outright. */
-    static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
     /**
-     * How many continuation turns may be appended to one reply. A response that is still cut after this
-     * many rounds is reported as truncated instead of looping: each turn costs tokens and latency, and a
-     * model that keeps overflowing is producing more than one suite's worth of content anyway.
+     * How many continuation turns may be appended to one reply. Kept as a service-level alias so the
+     * recovery path and its tests read in one place; the loop itself lives in {@link AiContinuation}.
      */
-    static final int MAX_CONTINUATION_TURNS = 3;
+    static final int MAX_CONTINUATION_TURNS = AiContinuation.DEFAULT_MAX_TURNS;
 
     /**
      * Retries a continuation turn whose fragment restarted the document instead of resuming it. Separate from
      * {@link #MAX_CONTINUATION_TURNS} on purpose: a model that keeps rewriting would otherwise loop forever on
      * retries alone. After this many refusals the caller stops continuing and keeps the prefix that was good.
      */
-    static final int MAX_RESTART_RETRIES = 1;
+    static final int MAX_RESTART_RETRIES = AiContinuation.DEFAULT_MAX_RESTART_RETRIES;
     /** Headroom kept free in the model's context window for token-estimate drift. */
-    static final int CONTEXT_SAFETY_MARGIN_TOKENS = 1024;
+    static final int CONTEXT_SAFETY_MARGIN_TOKENS = AiContinuation.CONTEXT_SAFETY_MARGIN_TOKENS;
 
     /**
      * One model call with output-limit recovery. The output budget is first clamped to what the model's context
@@ -1292,7 +1290,8 @@ public class AiTestGeneratorService {
             return completion;
         }
         int escalated = clampOutputBudget(config, messages,
-                Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(safeBudget, safeBudget * 2)), "");
+                Math.min(AiModelCapabilities.resolveOutputCeiling(config),
+                        Math.max(safeBudget, safeBudget * 2)), "");
         if (escalated <= safeBudget) {
             return continueCompletion(config, messages, completion.content(), safeBudget,
                     new java.util.ArrayList<>(), jsonMode);
@@ -1362,19 +1361,7 @@ public class AiTestGeneratorService {
      * previous fixed 16384 ignored both, so a small-context model rejected the request outright.
      */
     int clampOutputBudget(AiConfig config, List<OpenAiClient.ChatMessage> messages, int wished, String accumulated) {
-        int contextWindow = config != null && config.getMaxTokens() > 0
-                ? config.getMaxTokens()
-                : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
-        int promptTokens = 0;
-        if (messages != null) {
-            for (OpenAiClient.ChatMessage m : messages) {
-                promptTokens += tokenOptimizer.estimateTokens(m.getTextContent()) + 4;
-            }
-        }
-        promptTokens += tokenOptimizer.estimateTokens(accumulated);
-        int room = contextWindow - promptTokens - CONTEXT_SAFETY_MARGIN_TOKENS;
-        int ceiling = Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(0, room));
-        return Math.max(0, Math.min(wished, ceiling));
+        return AiContinuation.clampOutputBudget(config, messages, wished, accumulated, tokenOptimizer);
     }
 
     /**
@@ -1384,25 +1371,7 @@ public class AiTestGeneratorService {
      * its prefix and retries the turn with a firmer instruction.
      */
     static boolean isDocumentRestart(String accumulated, String piece) {
-        if (accumulated == null || accumulated.isBlank() || piece == null || piece.isBlank()) {
-            return false;
-        }
-        String head = accumulated.stripTrailing();
-        String add = piece.strip();
-        if (!head.isEmpty()) {
-            char last = head.charAt(head.length() - 1);
-            boolean insideDocument = last != '}' && last != ']' && last != '`';
-            if (insideDocument && (add.startsWith("```") || add.startsWith("{"))) {
-                return true;
-            }
-        }
-        // Replaying an earlier run of the document (a rewritten opening) is a restart even without a brace.
-        String probe = add.length() > 120 ? add.substring(0, 120) : add;
-        if (probe.length() < 24) {
-            return false;
-        }
-        int earlier = accumulated.indexOf(probe.substring(0, 24));
-        return earlier >= 0 && earlier < accumulated.length() - probe.substring(0, 24).length();
+        return AiContinuation.isDocumentRestart(accumulated, piece, AiContinuation.DocumentShape.JSON);
     }
 
     /**
@@ -1425,57 +1394,11 @@ public class AiTestGeneratorService {
                                               int outputBudget,
                                               List<String> continuationLog,
                                               boolean jsonMode) throws IOException, InterruptedException {
-        String accumulated = partial != null ? partial : "";
-        OpenAiClient.Completion current = new OpenAiClient.Completion(accumulated, "length");
-        int restartRetries = 0;
-        for (int turn = 1; turn <= MAX_CONTINUATION_TURNS && current.truncated(); turn++) {
-            int budget = clampOutputBudget(config, messages, outputBudget, accumulated);
-            if (budget <= 0) {
-                AiLoggingService.warn("AI-CONTINUE", "Không còn chỗ trong context window để nối tiếp; giữ "
-                        + accumulated.length() + " ký tự đã có");
-                break;
-            }
-            List<OpenAiClient.ChatMessage> turnMessages = new ArrayList<>(messages);
-            turnMessages.add(new OpenAiClient.ChatMessage("assistant", accumulated));
-            turnMessages.add(new OpenAiClient.ChatMessage("user", buildContinuationPrompt(accumulated)));
-            AiLoggingService.info("AI-CONTINUE", "Lượt nối tiếp " + turn + "/" + MAX_CONTINUATION_TURNS
-                    + " sau " + accumulated.length() + " ký tự | max_tokens=" + budget);
-            OpenAiClient.Completion next = completeWithBudgetFallback(config, turnMessages, budget, jsonMode);
-            String piece = next.content() != null ? next.content() : "";
-            if (piece.isBlank()) {
-                break;
-            }
-            // A fragment that reopens the document is not a continuation; joining it would produce two documents.
-            // Keep the prefix that is already good and re-ask once with a firmer instruction.
-            if (isDocumentRestart(accumulated, piece)) {
-                if (restartRetries >= MAX_RESTART_RETRIES) {
-                    AiLoggingService.warn("AI-CONTINUE", "Mô hình liên tục viết lại từ đầu; dừng nối tiếp và giữ "
-                            + accumulated.length() + " ký tự đã có");
-                    break;
-                }
-                restartRetries++;
-                AiLoggingService.warn("AI-CONTINUE", "Phát hiện mảnh viết lại thay vì viết tiếp; giữ nguyên tiền tố "
-                        + "và yêu cầu lại lượt " + turn + " với chỉ dẫn mạnh hơn");
-                turnMessages.set(turnMessages.size() - 1, new OpenAiClient.ChatMessage("user",
-                        buildStrictContinuationPrompt(accumulated)));
-                OpenAiClient.Completion rettyped = completeWithBudgetFallback(config, turnMessages, budget, jsonMode);
-                String retryPiece = rettyped.content() != null ? rettyped.content() : "";
-                if (retryPiece.isBlank() || isDocumentRestart(accumulated, retryPiece)) {
-                    break;
-                }
-                piece = retryPiece;
-                next = rettyped;
-            }
-            accumulated = mergeContinuation(accumulated, piece);
-            continuationLog.add(piece);
-            // A provider may flag "length" even when the joined document already closes: the parse decides.
-            String finish = next.finishReason();
-            if (next.truncated() && containsCompleteJson(accumulated)) {
-                finish = "stop";
-            }
-            current = new OpenAiClient.Completion(accumulated, finish);
-        }
-        return current;
+        OpenAiClient.Completion first = new OpenAiClient.Completion(partial != null ? partial : "", "length");
+        return AiContinuation.continueUntilComplete(config, messages, first, outputBudget,
+                AiContinuation.DocumentShape.JSON,
+                (turnMessages, budget) -> completeWithBudgetFallback(config, turnMessages, budget, jsonMode),
+                continuationLog);
     }
 
     /**
@@ -1483,28 +1406,12 @@ public class AiTestGeneratorService {
      * follow the last character already received, which is the part a vaguer instruction loses.
      */
     static String buildStrictContinuationPrompt(String accumulated) {
-        String tail = accumulated.length() > 300
-                ? accumulated.substring(accumulated.length() - 300)
-                : accumulated;
-        char last = accumulated.isBlank() ? ' ' : accumulated.charAt(accumulated.length() - 1);
-        return "[CONTINUATION - STRICT]: KHÔNG được viết lại tài liệu từ đầu. KHÔNG mở lại ```json hay dấu {. "
-                + "Ký tự cuối đã nhận là '" + last + "'. Chỉ xuất phần còn thiếu, bắt đầu ngay sau ký tự đó, "
-                + "giữ đúng mảng/chuỗi JSON đang dở và đóng lại cho hợp lệ."
-                + "\n\n--- 300 ký tự cuối đã nhận ---\n" + tail + "\n--- Hết ---\nTiếp tục:";
+        return AiContinuation.buildStrictContinuationPrompt(accumulated);
     }
 
     /** Whether the text already holds a balanced root JSON object, i.e. nothing more needs continuing. */
     static boolean containsCompleteJson(String text) {
-        if (text == null || text.isBlank()) {
-            return false;
-        }
-        try {
-            ObjectMapper validator = new ObjectMapper();
-            validator.readTree(extractJsonBlock(text));
-            return true;
-        } catch (Exception notComplete) {
-            return false;
-        }
+        return AiContinuation.containsCompleteJson(text);
     }
 
     /**
@@ -1512,14 +1419,7 @@ public class AiTestGeneratorService {
      * stopped: anything vaguer makes the model restart the JSON, and a restarted fragment cannot be merged.
      */
     static String buildContinuationPrompt(String accumulated) {
-        String tail = accumulated.length() > 400
-                ? accumulated.substring(accumulated.length() - 400)
-                : accumulated;
-        return "[CONTINUATION]: Phản hồi trước bị cắt do giới hạn output tokens. "
-                + "Hãy viết TIẾP đúng từ ký tự tiếp theo của nội dung dưới đây, không lặp lại phần đã có, "
-                + "không mở lại từ đầu, không thêm lời dẫn hay markdown."
-                + "\n\n--- Cuối nội dung đã nhận (" + accumulated.length() + " ký tự) ---\n" + tail
-                + "\n--- Hết ---\nTiếp tục ngay từ đây:";
+        return AiContinuation.buildContinuationPrompt(accumulated);
     }
 
     /**
@@ -1528,21 +1428,7 @@ public class AiTestGeneratorService {
      * single line is not duplicated across the join.
      */
     static String mergeContinuation(String accumulated, String piece) {
-        String head = accumulated != null ? accumulated : "";
-        String add = piece != null ? piece : "";
-        if (head.isBlank()) {
-            return add;
-        }
-        if (add.isBlank()) {
-            return head;
-        }
-        int maxOverlap = Math.min(head.length(), add.length());
-        for (int len = maxOverlap; len >= 16; len--) {
-            if (head.regionMatches(head.length() - len, add, 0, len)) {
-                return head + add.substring(len);
-            }
-        }
-        return head + add;
+        return AiContinuation.mergeContinuation(accumulated, piece);
     }
 
     /** The output budget actually in force for this request (explicit config wins over the mode default). */

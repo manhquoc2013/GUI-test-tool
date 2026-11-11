@@ -242,6 +242,9 @@ public class SettingsStore {
             AiConfig copyAi = new AiConfig(encKey, srcAi.getBaseUrl(), srcAi.getModel());
             copyAi.setTemperature(srcAi.getTemperature());
             copyAi.setMaxTokens(srcAi.getMaxTokens());
+            // Output budgets are part of the saved contract: dropping them silently reset the user's limits.
+            copyAi.setMaxOutputTokens(srcAi.getMaxOutputTokens());
+            copyAi.setOutputTokenCeiling(srcAi.getOutputTokenCeiling());
             copy.setAiConfig(copyAi);
         }
         return copy;

@@ -16,8 +16,7 @@ class SettingsStoreAiTest {
     Path tempDir;
 
     @Test
-    void testSerializationWithAiConfig() throws IOException {
-        SettingsStore.Settings settings = new SettingsStore.Settings();
+    void testSerializationWithAiConfig() throws IOException {        SettingsStore.Settings settings = new SettingsStore.Settings();
         settings.getAiConfig().setApiKey("sk-custom-token");
         settings.getAiConfig().setModel("o3-mini");
         settings.getAiConfig().setBaseUrl("https://custom.openai.proxy/v1");
@@ -31,5 +30,27 @@ class SettingsStoreAiTest {
         assertEquals("sk-custom-token", loaded.getAiConfig().getApiKey());
         assertEquals("o3-mini", loaded.getAiConfig().getModel());
         assertEquals("https://custom.openai.proxy/v1", loaded.getAiConfig().getBaseUrl());
+    }
+
+    /**
+     * The storage copy rebuilds the AiConfig field by field; any budget left out of that copy silently
+     * reset the user's limits on every save.
+     */
+    @Test
+    void outputBudgetsSurviveSaveAndLoad() throws IOException {
+        SettingsStore store = new SettingsStore(tempDir);
+        SettingsStore.Settings settings = new SettingsStore.Settings();
+        settings.getAiConfig().setApiKey("sk-budget-test-key");
+        settings.getAiConfig().setMaxOutputTokens(12000);
+        settings.getAiConfig().setOutputTokenCeiling(48000);
+
+        store.save(settings);
+
+        SettingsStore.Settings loaded = store.load();
+        assertNotNull(loaded.getAiConfig());
+        assertEquals(12000, loaded.getAiConfig().getMaxOutputTokens(),
+                "the per-request output budget must survive a save");
+        assertEquals(48000, loaded.getAiConfig().getOutputTokenCeiling(),
+                "the configured ceiling must survive a save");
     }
 }

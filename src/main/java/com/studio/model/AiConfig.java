@@ -17,6 +17,12 @@ public class AiConfig {
     private double temperature = DEFAULT_TEMPERATURE;
     private int maxTokens = DEFAULT_MAX_TOKENS;
     private int maxOutputTokens = 0; // 0 = tự động chọn theo chế độ (resolve from mode)
+    /**
+     * Trần output cho một lượt trả lời. 0 = lấy theo năng lực của model
+     * ({@link AiModelCapabilities#outputCeilingForModel}). Đặt thủ công khi dùng endpoint
+     * tương thích OpenAI mà tên model không có trong bảng.
+     */
+    private int outputTokenCeiling = 0;
 
     public AiConfig() {
     }
@@ -85,6 +91,23 @@ public class AiConfig {
 
     public void setMaxOutputTokens(int maxOutputTokens) {
         this.maxOutputTokens = Math.max(0, maxOutputTokens);
+    }
+
+    /**
+     * Absolute per-reply output ceiling; 0 means "derive it from the model".
+     */
+    public int getOutputTokenCeiling() {
+        return outputTokenCeiling;
+    }
+
+    public void setOutputTokenCeiling(int outputTokenCeiling) {
+        this.outputTokenCeiling = Math.max(0, Math.min(AiModelCapabilities.ABSOLUTE_OUTPUT_CEILING, outputTokenCeiling));
+    }
+
+    /** The ceiling an escalation may reach for this config. */
+    @JsonIgnore
+    public int getEffectiveOutputTokenCeiling() {
+        return AiModelCapabilities.resolveOutputCeiling(this);
     }
 
     @JsonIgnore

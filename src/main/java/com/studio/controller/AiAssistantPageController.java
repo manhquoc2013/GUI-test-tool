@@ -2,6 +2,7 @@ package com.studio.controller;
 
 import com.studio.model.*;
 import com.studio.service.AiAmbiguityAnalyzer;
+import com.studio.service.AiContinuation;
 import com.studio.service.AiDelegationPolicy;
 import com.studio.service.AiAgentPlanParser;
 import com.studio.service.AiCoordinatorAgent;
@@ -761,10 +762,14 @@ public class AiAssistantPageController implements Initializable {
 
         AiCoordinatorAgent coordinator = new AiCoordinatorAgent(userRequest -> {
             try {
-                return client.chatCompletion(aiConfig, List.of(
-                        new OpenAiClient.ChatMessage("system", new AiCoordinatorAgent(
-                                r -> "{}").plannerSystemPrompt()),
-                        new OpenAiClient.ChatMessage("user", userRequest + "\n\n" + grounding)));
+                return completeUntilDone(client, aiConfig, List.of(
+                                new OpenAiClient.ChatMessage("system", new AiCoordinatorAgent(
+                                        r -> "{}").plannerSystemPrompt()),
+                                new OpenAiClient.ChatMessage("user", userRequest + "\n\n" + grounding)),
+                        OpenAiClient.defaultOutputTokensFor(false),
+                        AiContinuation.DocumentShape.JSON,
+                        "Bộ lập kế hoạch",
+                        new ArrayList<>()).content();
             } catch (Exception e) {
                 planFailure[0] = new AiAgentPlanParser.InvalidPlanException(
                         "Không gọi được bộ lập kế hoạch: " + e.getMessage());
@@ -786,13 +791,19 @@ public class AiAssistantPageController implements Initializable {
         AiLlmAgentExecutor agentExecutor = new AiLlmAgentExecutor(
                 aiConfig,
                 (AiConfig cfg, List<AiChatMessage> messages) -> {
-                    OpenAiClient.Completion reply = client.completeChat(cfg, List.of(
-                            new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
-                            new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
-                            OpenAiClient.defaultOutputTokensFor(generateScript));
+                    List<String> continuationLog = new ArrayList<>();
+                    OpenAiClient.Completion reply = completeUntilDone(client, cfg, List.of(
+                                    new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
+                                    new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
+                            OpenAiClient.defaultOutputTokensFor(generateScript),
+                            AiContinuation.DocumentShape.PROSE,
+                            "Sub-agent",
+                            continuationLog);
+                    // Report the real call count and summed provider usage, not a fixed "1 call, unknown tokens".
                     return new AiLlmAgentExecutor.MeasuredReply(
                             reply.content(),
-                            new AiLlmAgentExecutor.AgentUsage(1,                             reply.promptTokens(), reply.completionTokens()));
+                            new AiLlmAgentExecutor.AgentUsage(1 + continuationLog.size(),
+                                    reply.promptTokens(), reply.completionTokens()));
                 },
                 grounding);
         AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
@@ -806,6 +817,34 @@ public class AiAssistantPageController implements Initializable {
                 executor, status -> Platform.runLater(() -> updateThinkingStatus(status)));
         orchestrator.orchestrate(session, tasks);
         return true;
+    }
+
+    /**
+     * One model call that keeps fetching the tail when the provider stops on the output limit.
+     *
+     * <p>The planner and the sub-agents used to issue a single request and use whatever came back, so an
+     * answer that overran {@code max_tokens} silently lost its second half. The continuation loop is the
+     * same one test-case generation uses, with the document shape deciding how completeness is judged.</p>
+     *
+     * @param continuationLog receives each appended piece, so the caller can report the real call count
+     */
+    private OpenAiClient.Completion completeUntilDone(OpenAiClient client, AiConfig cfg,
+                                                      List<OpenAiClient.ChatMessage> messages,
+                                                      int outputBudget,
+                                                      AiContinuation.DocumentShape shape,
+                                                      String label,
+                                                      List<String> continuationLog) throws Exception {
+        int ceiling = AiModelCapabilities.resolveOutputCeiling(cfg);
+        int budget = outputBudget > 0 ? Math.min(outputBudget, ceiling) : ceiling;
+        OpenAiClient.Completion first = client.completeChat(cfg, messages, budget);
+        if (!first.truncated()) {
+            return first;
+        }
+        AiLoggingService.warn("AI-CONTINUE", label
+                + " chạm trần output tokens; nối tiếp để lấy trọn phản hồi (shape=" + shape + ")");
+        return AiContinuation.continueUntilComplete(cfg, messages, first, budget, shape,
+                (turnMessages, turnBudget) -> client.completeChat(cfg, turnMessages, turnBudget),
+                continuationLog);
     }
 
     private void renderChatHistory() {

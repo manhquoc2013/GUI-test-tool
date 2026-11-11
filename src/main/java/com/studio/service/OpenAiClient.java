@@ -5,15 +5,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.studio.model.AiConfig;
+import com.studio.model.AiModelCapabilities;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Native Java HTTP Client for OpenAI API and OpenAI-compatible endpoints.
@@ -32,6 +43,28 @@ public class OpenAiClient {
     private static final long RETRY_BASE_BACKOFF_MS = 500;
     private static final java.util.Set<Integer> RETRYABLE_STATUS_CODES = java.util.Set.of(
             408, 425, 429, 500, 502, 503, 504);
+
+    /**
+     * A long answer sent as one body can be cut by a proxy or hit the per-request timeout. Requesting
+     * Server-Sent Events makes the body arrive incrementally, so the full completion is accumulated
+     * in memory and the provider's own {@code finish_reason} is always observed. Providers that refuse
+     * {@code stream} fall back to a single-body request; nothing is lost either way.
+     */
+    private static final boolean STREAMING_ENABLED = true;
+    private static final String SSE_DATA_PREFIX = "data:";
+    private static final String SSE_DONE_MARKER = "[DONE]";
+    private static final String SSE_CONTENT_TYPE = "text/event-stream";
+    /** How often the read loop checks whether the provider stopped sending bytes. */
+    private static final long STREAM_WATCHDOG_PERIOD_MS = 5_000L;
+    /** Upper bound on an error body read into memory, so a misbehaving server cannot exhaust the heap. */
+    private static final int MAX_ERROR_BODY_CHARS = 8_192;
+    private static final java.util.regex.Pattern WHITESPACE =
+            java.util.regex.Pattern.compile("\\s+");
+    private static final ScheduledExecutorService STREAM_WATCHDOG = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "ai-stream-watchdog");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private static HttpClient getSharedHttpClient() {
         if (SHARED_HTTP_CLIENT == null) {
@@ -215,8 +248,6 @@ public class OpenAiClient {
         }
     }
 
-    /** Hard ceiling for an escalated output budget: most chat models reject anything larger. */
-    public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
     /** Floor used when a reply was cut while no explicit budget was configured. */
     static final int MIN_OUTPUT_TOKENS_FOR_ESCALATION = 4096;
     /** Headroom kept free in the model's context window for token-estimate drift. */
@@ -302,7 +333,7 @@ public class OpenAiClient {
             }
             int promptEstimate = Math.max(1, promptChars / 3);
             int room = contextWindow - promptEstimate - CONTEXT_SAFETY_MARGIN_TOKENS;
-            int escalated = Math.min(MAX_OUTPUT_TOKENS_CEILING,
+            int escalated = Math.min(AiModelCapabilities.resolveOutputCeiling(config),
                     Math.max(budget, MIN_OUTPUT_TOKENS_FOR_ESCALATION) * 2);
             escalated = Math.min(escalated, Math.max(0, room));
             if (escalated > budget) {
@@ -343,12 +374,29 @@ public class OpenAiClient {
             requestedMaxTokens = outputTokenOverride;
         }
 
-        ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, jsonMode);
-        String requestBody = mapper.writeValueAsString(root);
         String maxTokensDesc = requestedMaxTokens > 0 ? String.valueOf(requestedMaxTokens) : "không giới hạn (mặc định model)";
         AiLoggingService.info("AI-REQUEST", "Gửi yêu cầu tới " + config.getEffectiveModel() + " (" + targetUrl
                 + ") | max_tokens=" + maxTokensDesc + " | temp=" + config.getTemperature()
-                + " | json_mode=" + jsonMode + " | messages=" + messages.size());
+                + " | json_mode=" + jsonMode + " | stream=" + STREAMING_ENABLED
+                + " | messages=" + messages.size());
+
+        if (STREAMING_ENABLED) {
+            Completion streamed = streamCompletion(config, provider, targetUrl, apiKey, messages,
+                    requestedMaxTokens, jsonMode);
+            if (streamed != null) {
+                return streamed;
+            }
+            AiLoggingService.warn("AI-STREAM", "Endpoint không dùng được SSE; chuyển sang phản hồi nguyên khối");
+        }
+        return completeOnce(config, provider, targetUrl, apiKey, messages, requestedMaxTokens, jsonMode);
+    }
+
+    /** One non-streaming request with the json-mode fallback; the shared path for every endpoint. */
+    private Completion completeOnce(AiConfig config, String provider, String targetUrl, String apiKey,
+                                    List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode)
+            throws IOException, InterruptedException {
+        ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, jsonMode);
+        String requestBody = mapper.writeValueAsString(root);
 
         Attempt attempt = sendWithRetry(targetUrl, apiKey, requestBody);
         HttpResponse<String> response = attempt.response();
@@ -366,13 +414,15 @@ public class OpenAiClient {
         }
 
         if (response.statusCode() != 200) {
-            String err = extractErrorMessage(response.body());
-            String safeErr = com.studio.util.SecuritySanitizer.sanitize(err, apiKey);
-            AiLoggingService.error("AI-RESPONSE", "Lỗi HTTP " + response.statusCode() + ": " + safeErr);
-            throw new IOException(provider + " API Lỗi (" + response.statusCode() + "): " + safeErr);
+            throw apiError(provider, apiKey, response.statusCode(), response.body());
         }
 
-        JsonNode resJson = mapper.readTree(response.body());
+        return parseChatResponse(config, response.body(), latency);
+    }
+
+    /** Parses a non-streamed {@code /chat/completions} body into the shared {@link Completion} shape. */
+    private Completion parseChatResponse(AiConfig config, String body, long latency) throws IOException {
+        JsonNode resJson = mapper.readTree(body);
         JsonNode choices = resJson.path("choices");
         if (choices.isArray() && !choices.isEmpty()) {
             JsonNode choice0 = choices.get(0);
@@ -433,8 +483,294 @@ public class OpenAiClient {
         return new Completion("", "missing");
     }
 
+    /**
+     * Streams the completion over Server-Sent Events and accumulates the whole answer.
+     *
+     * <p>Returns {@code null} when this endpoint cannot stream (it rejects {@code stream}, answers with a
+     * plain body that cannot be read, or dies before the first token), so the caller issues exactly one
+     * single-body request instead. A stream that breaks after some tokens is returned as a truncated
+     * completion: the text already received is real and must not be thrown away.</p>
+     */
+    private Completion streamCompletion(AiConfig config, String provider, String targetUrl, String apiKey,
+                                        List<ChatMessage> messages, int requestedMaxTokens, boolean jsonMode)
+            throws IOException, InterruptedException {
+        boolean useJsonMode = jsonMode;
+        boolean jsonModeRetried = false;
+        while (true) {
+            ObjectNode root = buildRequestBody(config, messages, requestedMaxTokens, useJsonMode, true);
+            HttpResponse<InputStream> response =
+                    sendStreamWithRetry(targetUrl, apiKey, mapper.writeValueAsString(root));
+            int statusCode = response.statusCode();
+
+            if (statusCode == 200) {
+                String contentType = response.headers().firstValue("content-type").orElse("")
+                        .toLowerCase(Locale.ROOT);
+                if (!contentType.contains(SSE_CONTENT_TYPE)) {
+                    // The endpoint ignored stream=true (or the body is one JSON document): read it whole
+                    // and reuse the normal parser rather than pretending the stream format was honoured.
+                    AiLoggingService.info("AI-STREAM", "Phản hồi 200 không phải SSE; đọc nguyên khối");
+                    return parseChatResponse(config, readBodyText(response.body(), Integer.MAX_VALUE), 0);
+                }
+                return readSseCompletion(config, apiKey, response.body());
+            }
+
+            String errorBody = readBodyText(response.body(), MAX_ERROR_BODY_CHARS);
+            if (useJsonMode && !jsonModeRetried
+                    && (statusCode == 400 || statusCode == 422)
+                    && looksLikeUnsupportedJsonMode(errorBody)) {
+                AiLoggingService.warn("AI-STREAM", provider
+                        + " từ chối response_format khi stream; thử lại ở chế độ text");
+                useJsonMode = false;
+                jsonModeRetried = true;
+                continue;
+            }
+            if (looksLikeUnsupportedStream(errorBody)) {
+                AiLoggingService.warn("AI-STREAM", provider + " từ chối stream=true: " + shortBody(errorBody));
+                return null;
+            }
+            throw apiError(provider, apiKey, statusCode, errorBody);
+        }
+    }
+
+    /**
+     * Reads one SSE response. Every {@code data:} frame contributes a content delta; the provider's
+     * {@code finish_reason} and {@code usage} are carried onto the returned {@link Completion}. An idle
+     * watchdog closes the socket when the provider stops sending bytes, so a stalled stream cannot hang
+     * the caller forever.
+     *
+     * @return the accumulated completion, or {@code null} when the stream produced nothing usable
+     */
+    private Completion readSseCompletion(AiConfig config, String apiKey, InputStream stream) {
+        StringBuilder content = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
+        String finishReason = null;
+        int promptTokens = -1;
+        int completionTokens = -1;
+        boolean doneMarkerSeen = false;
+        AtomicLong lastActivity = new AtomicLong(System.nanoTime());
+        ScheduledFuture<?> watchdog = STREAM_WATCHDOG.scheduleAtFixedRate(() -> {
+            if (System.nanoTime() - lastActivity.get() > REQUEST_TIMEOUT.toNanos()) {
+                AiLoggingService.warn("AI-STREAM", "Không nhận thêm dữ liệu trong "
+                        + REQUEST_TIMEOUT.toSeconds() + "s; đóng stream để không treo vô hạn");
+                closeQuietly(stream);
+            }
+        }, STREAM_WATCHDOG_PERIOD_MS, STREAM_WATCHDOG_PERIOD_MS, TimeUnit.MILLISECONDS);
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lastActivity.set(System.nanoTime());
+                if (line.isEmpty() || line.startsWith(":")) {
+                    continue; // event separator or heartbeat comment
+                }
+                if (!line.startsWith(SSE_DATA_PREFIX)) {
+                    continue; // event:, id:, retry: — not part of the payload
+                }
+                String payload = line.substring(SSE_DATA_PREFIX.length()).trim();
+                if (payload.isEmpty()) {
+                    continue;
+                }
+                if (SSE_DONE_MARKER.equals(payload)) {
+                    doneMarkerSeen = true;
+                    break;
+                }
+                JsonNode chunk;
+                try {
+                    chunk = mapper.readTree(payload);
+                } catch (Exception malformed) {
+                    AiLoggingService.debug("AI-STREAM",
+                            "Bỏ qua mảnh SSE không phải JSON: " + malformed.getMessage());
+                    continue;
+                }
+                JsonNode error = chunk.path("error");
+                if (error.isObject() && !error.isEmpty()) {
+                    String message = com.studio.util.SecuritySanitizer.sanitize(
+                            error.path("message").asText("Lỗi không xác định từ stream"), apiKey);
+                    AiLoggingService.error("AI-STREAM", "Provider báo lỗi giữa stream: " + message);
+                    if (content.isEmpty() && reasoning.isEmpty()) {
+                        return null;
+                    }
+                    return new Completion(textOf(content, reasoning), "length", promptTokens, completionTokens);
+                }
+
+                JsonNode usage = chunk.path("usage");
+                if (usage.isObject()) {
+                    promptTokens = usage.path("prompt_tokens").asInt(promptTokens);
+                    completionTokens = usage.path("completion_tokens").asInt(completionTokens);
+                }
+
+                JsonNode choices = chunk.path("choices");
+                if (!choices.isArray() || choices.isEmpty()) {
+                    continue;
+                }
+                JsonNode choice0 = choices.get(0);
+                JsonNode delta = choice0.path("delta");
+                appendDelta(content, delta.path("content"));
+                appendDelta(reasoning, delta.path("reasoning_content"));
+                appendDelta(reasoning, delta.path("reasoning"));
+                String reason = choice0.path("finish_reason").asText("");
+                if (!reason.isBlank()) {
+                    finishReason = reason;
+                }
+            }
+        } catch (IOException cut) {
+            if (content.isEmpty() && reasoning.isEmpty()) {
+                AiLoggingService.warn("AI-STREAM", "Stream hỏng trước khi có token nào: " + cut.getMessage());
+                return null;
+            }
+            AiLoggingService.warn("AI-STREAM", "Stream bị ngắt sau " + content.length()
+                    + " ký tự: " + cut.getMessage());
+            return new Completion(textOf(content, reasoning), "length", promptTokens, completionTokens);
+        } finally {
+            watchdog.cancel(false);
+            closeQuietly(stream);
+        }
+
+        String text = textOf(content, reasoning);
+        if (text.isBlank()) {
+            AiLoggingService.warn("AI-STREAM", "Stream kết thúc mà không có nội dung");
+            return null;
+        }
+        if (content.isEmpty()) {
+            AiLoggingService.warn("AI-RESPONSE", "Mô hình trả về reasoning_content (" + reasoning.length()
+                    + " ký tự) trong khi content chính rỗng. Đang trích xuất nội dung từ reasoning.");
+        }
+        // No finish_reason and no [DONE] means the connection closed early; report "length" so the
+        // caller keeps the text but also knows the answer may be incomplete.
+        String resolvedFinish = finishReason != null ? finishReason : (doneMarkerSeen ? "stop" : "length");
+        AiLoggingService.info("AI-RESPONSE", "Thành công HTTP 200 (stream) | finish_reason=" + resolvedFinish
+                + " | prompt_tokens=" + promptTokens + " | completion_tokens=" + completionTokens
+                + " | output_chars=" + text.length());
+        if ("length".equalsIgnoreCase(resolvedFinish)) {
+            AiLoggingService.warn("AI-RESPONSE", "⚠️ Phản hồi bị CẮT NGANG do chạm giới hạn token (finish_reason=length)!");
+        }
+        return new Completion(text, resolvedFinish, promptTokens, completionTokens);
+    }
+
+    /** The visible answer: main content, or the reasoning channel when the model left content empty. */
+    private static String textOf(StringBuilder content, StringBuilder reasoning) {
+        return content.isEmpty() ? reasoning.toString() : content.toString();
+    }
+
+    private static void appendDelta(StringBuilder target, JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return;
+        }
+        String piece = node.asText("");
+        if (!piece.isEmpty()) {
+            target.append(piece);
+        }
+    }
+
+    /**
+     * Opens the SSE connection with the same transient-failure policy as the single-body path.
+     * Retried attempts drain and close their bodies so sockets cannot leak.
+     */
+    private HttpResponse<InputStream> sendStreamWithRetry(String targetUrl, String apiKey, String requestBody)
+            throws IOException, InterruptedException {
+        IOException lastFailure = null;
+        for (int attempt = 0; attempt <= MAX_NETWORK_RETRIES; attempt++) {
+            if (attempt > 0) {
+                long backoff = RETRY_BASE_BACKOFF_MS * attempt;
+                AiLoggingService.warn("AI-RETRY", "Thử lại stream lần " + attempt + "/" + MAX_NETWORK_RETRIES
+                        + " sau " + backoff + "ms");
+                Thread.sleep(backoff);
+            }
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(targetUrl))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .header("Accept", SSE_CONTENT_TYPE)
+                    .header("User-Agent", "TestStudio/1.0")
+                    .timeout(REQUEST_TIMEOUT)
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+            try {
+                HttpResponse<InputStream> response =
+                        httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                if (RETRYABLE_STATUS_CODES.contains(response.statusCode()) && attempt < MAX_NETWORK_RETRIES) {
+                    AiLoggingService.warn("AI-RETRY", "HTTP " + response.statusCode()
+                            + " (tạm thời) khi mở stream; sẽ thử lại");
+                    closeQuietly(response.body());
+                    continue;
+                }
+                return response;
+            } catch (IOException e) {
+                lastFailure = e;
+                AiLoggingService.warn("AI-RETRY", "Lỗi transport khi mở stream: " + e.getMessage());
+            }
+        }
+        throw lastFailure != null ? lastFailure
+                : new IOException("Không mở được stream tới " + targetUrl + " sau " + MAX_NETWORK_RETRIES + " lần thử");
+    }
+
+    private static IOException apiError(String provider, String apiKey, int statusCode, String responseBody) {
+        String safeErr = com.studio.util.SecuritySanitizer.sanitize(
+                extractErrorMessage(responseBody), apiKey);
+        AiLoggingService.error("AI-RESPONSE", "Lỗi HTTP " + statusCode + ": " + safeErr);
+        return new IOException(provider + " API Lỗi (" + statusCode + "): " + safeErr);
+    }
+
+    /** Reads a whole response body as text, capped so a hostile server cannot exhaust the heap. */
+    private static String readBodyText(InputStream stream, int maxChars) {
+        StringBuilder sb = new StringBuilder();
+        try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+            char[] buffer = new char[2_048];
+            int read;
+            while (sb.length() < maxChars) {
+                int room = Math.min(buffer.length, maxChars - sb.length());
+                read = room > 0 ? reader.read(buffer, 0, room) : -1;
+                if (read == -1) {
+                    break;
+                }
+                sb.append(buffer, 0, read);
+            }
+        } catch (IOException e) {
+            AiLoggingService.debug("AI-STREAM", "Đọc body lỗi: " + e.getMessage());
+        }
+        return sb.toString();
+    }
+
+    private static void closeQuietly(InputStream stream) {
+        if (stream == null) {
+            return;
+        }
+        try {
+            stream.close();
+        } catch (IOException closeFailure) {
+            AiLoggingService.debug("AI-STREAM", "Đóng stream thất bại: " + closeFailure.getMessage());
+        }
+    }
+
+    /** A 4xx whose message names {@code stream} means the endpoint has no SSE support at all. */
+    private static boolean looksLikeUnsupportedStream(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return false;
+        }
+        String lower = responseBody.toLowerCase(Locale.ROOT);
+        if (!lower.contains("stream")) {
+            return false;
+        }
+        return lower.contains("not supported") || lower.contains("unsupported")
+                || lower.contains("unknown parameter") || lower.contains("unrecognized")
+                || lower.contains("invalid parameter") || lower.contains("streaming is not");
+    }
+
+    private static String shortBody(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        String singleLine = WHITESPACE.matcher(body).replaceAll(" ").trim();
+        return singleLine.length() > 200 ? singleLine.substring(0, 200) + "..." : singleLine;
+    }
+
     private ObjectNode buildRequestBody(AiConfig config, List<ChatMessage> messages,
                                         int requestedMaxTokens, boolean jsonMode) {
+        return buildRequestBody(config, messages, requestedMaxTokens, jsonMode, false);
+    }
+
+    private ObjectNode buildRequestBody(AiConfig config, List<ChatMessage> messages,
+                                        int requestedMaxTokens, boolean jsonMode, boolean stream) {
         ObjectNode root = mapper.createObjectNode();
         root.put("model", config.getEffectiveModel());
         root.put("temperature", config.getTemperature());
@@ -443,6 +779,9 @@ public class OpenAiClient {
         }
         if (jsonMode) {
             root.putObject("response_format").put("type", "json_object");
+        }
+        if (stream) {
+            root.put("stream", true);
         }
 
         ArrayNode messagesNode = root.putArray("messages");
