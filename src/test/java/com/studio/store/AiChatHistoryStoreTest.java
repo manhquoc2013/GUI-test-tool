@@ -156,7 +156,6 @@ public class AiChatHistoryStoreTest {
     public void testWriteJsonAtomicAndBatchIndexing(@TempDir Path suiteDir) throws IOException {
         AiChatHistoryStore store = new AiChatHistoryStore();
         AiChatSession session = new AiChatSession("BatchSuite");
-
         for (int i = 1; i <= 15; i++) {
             AiChatMessage m = new AiChatMessage(i % 2 == 1 ? "user" : "assistant", "Content message #" + i);
             m.setEstimatedTokens(5);
@@ -178,6 +177,44 @@ public class AiChatHistoryStoreTest {
         com.studio.db.AiChatDbService dbService = new com.studio.db.AiChatDbService();
         List<AiChatMessage> dbMsgs = dbService.getMessages("BatchSuite", session.getId());
         assertEquals(15, dbMsgs.size());
+    }
+
+    /**
+     * A conversation stored under a suite by an older build must move into the single workspace history
+     * and keep the target it was started with, instead of disappearing when the target picker changes.
+     */
+    @Test
+    public void testSuiteScopedChatsMigrateIntoWorkspaceHistory(@TempDir Path tempHome) throws IOException {
+        com.studio.util.StudioPaths.setPathsForTesting(tempHome, null);
+        try {
+            Path suiteDir = com.studio.util.StudioPaths.getProjectDir()
+                    .resolve("WebTests")
+                    .resolve("LoginSuite");
+            Files.createDirectories(suiteDir);
+
+            AiChatHistoryStore store = new AiChatHistoryStore();
+            AiChatSession legacy = new AiChatSession("LoginSuite");
+            legacy.setTitle("Hội thoại cũ");
+            legacy.addMessage(new AiChatMessage("user", "Câu hỏi cũ"));
+            store.saveSession(suiteDir, legacy);
+            assertTrue(Files.exists(store.resolveSessionsDir(suiteDir)
+                    .resolve(legacy.getId() + ".json")));
+
+            // First listing performs the one-time migration.
+            List<com.studio.model.AiChatSessionMeta> history = store.listAllSessions();
+            assertTrue(history.stream().anyMatch(meta -> legacy.getId().equals(meta.getId())),
+                    "Suite-scoped conversation must appear in the workspace history");
+
+            AiChatSession migrated = store.loadSessionById(legacy.getId());
+            assertNotNull(migrated);
+            assertEquals("WebTests", migrated.getTargetGroup(), "Target group must be recovered from the path");
+            assertEquals("LoginSuite", migrated.getTargetSuite());
+            assertEquals(1, migrated.getMessages().size());
+            assertFalse(Files.exists(store.resolveSessionsDir(suiteDir)),
+                    "The old per-suite chat directory must be removed after migration");
+        } finally {
+            com.studio.util.StudioPaths.resetForTesting();
+        }
     }
 }
 

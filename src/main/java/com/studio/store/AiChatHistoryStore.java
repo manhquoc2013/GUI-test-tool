@@ -26,6 +26,8 @@ public class AiChatHistoryStore {
     private static final ObjectMapper DEFAULT_MAPPER = ProjectStore.DEFAULT_MAPPER;
     private final ObjectMapper mapper;
     private final com.studio.db.LocalDataIndexService indexService;
+    /** The project tree is scanned for suite-scoped chats at most once per store instance. */
+    private boolean suiteSessionsMigrated;
 
     public AiChatHistoryStore() {
         this(DEFAULT_MAPPER);
@@ -53,7 +55,67 @@ public class AiChatHistoryStore {
         if (suiteDir != null && Files.exists(suiteDir) && Files.isDirectory(suiteDir)) {
             return suiteDir.resolve(CHAT_SESSIONS_DIR);
         }
+        return resolveGlobalSessionsDir();
+    }
+
+    /** The single, workspace-wide location of chat history (independent of the save target). */
+    public Path resolveGlobalSessionsDir() {
         return StudioPaths.getDataDir().resolve("ai_chats").resolve("global");
+    }
+
+    /**
+     * History list for the whole workspace. Choosing a save target must never swap the transcript out
+     * from under a running worker, so every conversation lives in one place and the target is only
+     * metadata captured on the session.
+     */
+    public synchronized List<com.studio.model.AiChatSessionMeta> listAllSessions() {
+        migrateSuiteSessionsIntoGlobalHistory();
+        return listSessions(null);
+    }
+
+    /** Load one global session by id; returns null instead of falling back to "latest". */
+    public AiChatSession loadSessionById(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        Path path = resolveGlobalSessionsDir().resolve(sessionId + ".json");
+        if (!Files.exists(path)) {
+            return null;
+        }
+        try {
+            return mapper.readValue(path.toFile(), AiChatSession.class);
+        } catch (IOException e) {
+            com.studio.service.AiLoggingService.warn("AI-CHAT",
+                    "Không đọc được cuộc trò chuyện " + sessionId + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    public void saveSession(AiChatSession session) throws IOException {
+        saveSession(null, session);
+    }
+
+    public void renameSession(String sessionId, String newTitle) throws IOException {
+        if (sessionId == null || newTitle == null || newTitle.isBlank()) {
+            return;
+        }
+        AiChatSession session = loadSessionById(sessionId);
+        if (session != null) {
+            session.setTitle(newTitle.trim());
+            saveSession(session);
+        }
+    }
+
+    public void setSessionPinned(String sessionId, boolean pinned) throws IOException {
+        AiChatSession session = loadSessionById(sessionId);
+        if (session != null) {
+            session.setPinned(pinned);
+            saveSession(session);
+        }
+    }
+
+    public void deleteSession(String sessionId) throws IOException {
+        deleteSessionFile(resolveGlobalSessionsDir(), sessionId);
     }
 
     /**
@@ -258,8 +320,11 @@ public class AiChatHistoryStore {
      * Delete a session and its storage file.
      */
     public void deleteSession(Path suiteDir, String sessionId) throws IOException {
+        deleteSessionFile(resolveSessionsDir(suiteDir), sessionId);
+    }
+
+    private void deleteSessionFile(Path dir, String sessionId) throws IOException {
         if (sessionId == null) return;
-        Path dir = resolveSessionsDir(suiteDir);
         Path path = dir.resolve(sessionId + ".json");
         Files.deleteIfExists(path);
         indexService.clearChatForSession(sessionId);
@@ -272,6 +337,100 @@ public class AiChatHistoryStore {
                 }
             } catch (IOException ignored) {}
         }
+    }
+
+    /**
+     * Moves conversations that older builds stored under {@code <suite>/.ai_chats} into the single
+     * workspace history. The target group/suite is recovered from the path, so a migrated session keeps
+     * the target it was started with. Empty sessions are dropped instead of being duplicated as clutter.
+     */
+    private synchronized void migrateSuiteSessionsIntoGlobalHistory() {
+        if (suiteSessionsMigrated) {
+            return;
+        }
+        suiteSessionsMigrated = true;
+
+        Path projectDir = StudioPaths.getProjectDir();
+        if (!Files.isDirectory(projectDir)) {
+            return;
+        }
+        Path globalDir = resolveGlobalSessionsDir();
+        try (DirectoryStream<Path> groups = Files.newDirectoryStream(projectDir)) {
+            for (Path groupDir : groups) {
+                if (!Files.isDirectory(groupDir)) {
+                    continue;
+                }
+                String groupName = groupDir.getFileName().toString();
+                try (DirectoryStream<Path> suites = Files.newDirectoryStream(groupDir)) {
+                    for (Path suiteDir : suites) {
+                        if (!Files.isDirectory(suiteDir)) {
+                            continue;
+                        }
+                        Path sessionsDir = suiteDir.resolve(CHAT_SESSIONS_DIR);
+                        if (Files.isDirectory(sessionsDir)) {
+                            migrateSessionsDir(sessionsDir, globalDir, groupName,
+                                    suiteDir.getFileName().toString());
+                        }
+                    }
+                } catch (IOException e) {
+                    com.studio.service.AiLoggingService.warn("AI-CHAT",
+                            "Không quét được chat của nhóm " + groupName + ": " + e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            com.studio.service.AiLoggingService.warn("AI-CHAT",
+                    "Không quét được lịch sử chat theo suite: " + e.getMessage());
+        }
+    }
+
+    private void migrateSessionsDir(Path sessionsDir, Path globalDir, String groupName, String suiteName)
+            throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionsDir, "*.json")) {
+            for (Path source : stream) {
+                AiChatSession session;
+                try {
+                    session = mapper.readValue(source.toFile(), AiChatSession.class);
+                } catch (IOException e) {
+                    com.studio.service.AiLoggingService.warn("AI-CHAT",
+                            "Bỏ qua file chat hỏng " + source.getFileName() + ": " + e.getMessage());
+                    continue;
+                }
+                if (session == null) {
+                    continue;
+                }
+                if (session.getMessages().isEmpty()) {
+                    // An empty conversation holds no history; keeping it would duplicate placeholder rows.
+                    Files.deleteIfExists(source);
+                    continue;
+                }
+                if (session.getTargetGroup() == null || session.getTargetGroup().isBlank()) {
+                    session.setTargetGroup(groupName);
+                }
+                if (session.getTargetSuite() == null || session.getTargetSuite().isBlank()) {
+                    session.setTargetSuite(suiteName);
+                }
+                Path target = globalDir.resolve(session.getId() + ".json");
+                if (!Files.exists(target)) {
+                    // Write directly instead of saveSession so the original ordering is preserved: an
+                    // upgrade must not reshuffle every old conversation to the top of the sidebar.
+                    for (com.studio.model.AiChatMessage message : session.getMessages()) {
+                        if (message.getSessionId() == null || message.getSessionId().isBlank()) {
+                            message.setSessionId(session.getId());
+                        }
+                    }
+                    writeJsonAtomic(target, session);
+                    indexService.indexChatSession(session.toMeta());
+                    indexService.indexChatMessages(session.getMessages(), "global");
+                }
+                Files.deleteIfExists(source);
+            }
+        }
+        // Remove the now-empty suite chat directory so the tree is not littered with dead folders.
+        try (DirectoryStream<Path> remaining = Files.newDirectoryStream(sessionsDir)) {
+            if (!remaining.iterator().hasNext()) {
+                Files.deleteIfExists(sessionsDir);
+            }
+        } catch (IOException ignored) {}
     }
 
     /**

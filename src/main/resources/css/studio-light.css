@@ -1349,6 +1349,11 @@
     -fx-text-fill: #1d4ed8;
     -fx-font-weight: bold;
 }
+.ai-session-running {
+    -fx-text-fill: #b45309;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
 
 .ai-left-panel, .ai-right-panel {
     -fx-background-color: #ffffff;

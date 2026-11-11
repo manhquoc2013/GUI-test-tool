@@ -16,6 +16,11 @@ public class AiChatSessionMeta {
     private long createdAt;
     private long updatedAt;
     private boolean pinned;
+    /**
+     * Search blob (title + user prompts) used by the history search box. Computed, never persisted, so
+     * the sidebar can match message text without re-reading every session file per keystroke.
+     */
+    private String searchText;
 
     public AiChatSessionMeta() {
     }
@@ -93,6 +98,26 @@ public class AiChatSessionMeta {
 
     public void setPinned(boolean pinned) {
         this.pinned = pinned;
+    }
+
+    public String getSearchText() {
+        return searchText;
+    }
+
+    public void setSearchText(String searchText) {
+        this.searchText = searchText;
+    }
+
+    /** True when the query matches the title or any indexed user prompt. */
+    public boolean matches(String lowerCaseQuery) {
+        if (lowerCaseQuery == null || lowerCaseQuery.isBlank()) {
+            return true;
+        }
+        String haystack = searchText;
+        if (haystack == null || haystack.isBlank()) {
+            haystack = getTitle();
+        }
+        return haystack != null && haystack.toLowerCase(java.util.Locale.ROOT).contains(lowerCaseQuery);
     }
 
     @Override

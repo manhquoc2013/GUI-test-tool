@@ -55,8 +55,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import javafx.beans.property.SimpleStringProperty;
 
@@ -166,6 +168,13 @@ public class AiAssistantPageController implements Initializable {
     private final FilteredList<AiChatSessionMeta> filteredSessions = new FilteredList<>(allSessions, p -> true);
     private boolean isSwitchingSession = false;
     private boolean isReloadingTargets = false;
+    /** Guards programmatic target updates: ComboBox.setValue also fires onAction. */
+    private boolean isApplyingSessionTarget = false;
+    /**
+     * One worker per conversation. Runs are keyed by session id, so switching tabs, switching
+     * conversations or choosing another save target never stops or hijacks a running agent.
+     */
+    private final Map<String, SessionRun> activeRuns = new ConcurrentHashMap<>();
     private String liveDomJson = null;
     private String currentSuggestedGroup = null;
     private String currentSuggestedSuite = null;
@@ -175,6 +184,31 @@ public class AiAssistantPageController implements Initializable {
     private HBox thinkingBubbleWrapper = null;
     private Timeline thinkingTimeline = null;
     private Label thinkingStatusLabel = null;
+
+    /** Live state of the single in-flight turn of one conversation. */
+    private static final class SessionRun {
+        private final AiChatSession session;
+        private volatile String status;
+
+        SessionRun(AiChatSession session, String initialStatus) {
+            this.session = session;
+            this.status = initialStatus;
+        }
+
+        AiChatSession getSession() {
+            return session;
+        }
+
+        String getStatus() {
+            return status;
+        }
+
+        void setStatus(String nextStatus) {
+            if (nextStatus != null && !nextStatus.isBlank()) {
+                this.status = nextStatus;
+            }
+        }
+    }
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -230,7 +264,13 @@ public class AiAssistantPageController implements Initializable {
         targetGroupCombo.setButtonCell(placeholderCell("Chọn Nhóm..."));
         targetSuiteCombo.setButtonCell(placeholderCell("Chọn Suite..."));
         targetGroupCombo.setOnAction(e -> onGroupSelected());
-        targetSuiteCombo.setOnAction(e -> loadChatHistoryForSuite());
+        // Picking a target never reloads the transcript: history is workspace-wide, and a swap here
+        // was what hid the conversation (and its running agent) when the user chose a suite.
+        targetSuiteCombo.setOnAction(e -> updateTargetControlsLock());
+        String targetTooltip = "Đích lưu cho Test Case sinh ra. Chỉ chọn được trước khi bắt đầu trò chuyện;"
+                + " mặc định để trống và tự động tạo khi lưu.";
+        UiTooltips.install(targetGroupCombo, targetTooltip);
+        UiTooltips.install(targetSuiteCombo, targetTooltip);
 
         if (skillComboBox != null) {
             skillComboBox.getItems().setAll(com.studio.model.AiSkill.values());
@@ -299,7 +339,7 @@ public class AiAssistantPageController implements Initializable {
                     event.consume();
                 } else {
                     // Plain Enter (or Ctrl+Enter / Cmd+Enter): send message
-                    if (sendBtn == null || !sendBtn.isDisabled()) {
+                    if (currentSession == null || !isSessionRunning(currentSession.getId())) {
                         sendPrompt();
                     }
                     event.consume();
@@ -358,7 +398,7 @@ public class AiAssistantPageController implements Initializable {
             persistChatDisplayMode(selected);
             // Never wipe the live agent bubbles of a turn that is still running; the end-of-turn
             // render already applies the new mode.
-            if (sendBtn == null || !sendBtn.isDisabled()) {
+            if (currentSession == null || !isSessionRunning(currentSession.getId())) {
                 renderChatHistory();
             }
         });
@@ -390,100 +430,124 @@ public class AiAssistantPageController implements Initializable {
         try {
             String prevGroup = targetGroupCombo.getValue();
             String prevSuite = targetSuiteCombo.getValue();
-            String activeSessionId = (currentSession != null) ? currentSession.getId() : null;
-            Path prevSuiteDir = getSelectedSuiteDir();
 
-            Path projDir = StudioPaths.getProjectDir();
-            List<String> groups = new ArrayList<>();
-            if (Files.exists(projDir)) {
-                try (var stream = Files.list(projDir)) {
-                    stream.filter(Files::isDirectory)
-                          .map(d -> d.getFileName().toString())
-                          .sorted(String.CASE_INSENSITIVE_ORDER)
-                          .forEach(groups::add);
-                } catch (IOException ignored) {}
-            }
-
-            List<String> groupChoices = withBlankChoice(groups);
-            if (!groupChoices.equals(new ArrayList<>(targetGroupCombo.getItems()))) {
-                targetGroupCombo.getItems().setAll(groupChoices);
-            }
-
-            // Truly unselected stays unselected; only a never-populated picker
-            // falls back to the first group so the suite list is not empty.
-            String targetGroup = null;
-            if (prevGroup != null && !prevGroup.isBlank()) {
-                targetGroup = groups.contains(prevGroup) ? prevGroup : null;
-            } else if (targetGroupCombo.getValue() == null && !groups.isEmpty()) {
-                targetGroup = groups.get(0);
-            }
+            List<String> groups = listGroupNames();
+            targetGroupCombo.getItems().setAll(withBlankChoice(groups));
+            // A blank choice is a real state ("tự động tạo khi lưu"), never replaced by the first group.
+            String targetGroup = groups.contains(prevGroup) ? prevGroup : "";
             targetGroupCombo.setValue(targetGroup);
 
-            List<String> suites = new ArrayList<>();
-            if (targetGroup != null && !targetGroup.isBlank()) {
-                Path groupDir = projDir.resolve(targetGroup);
-                if (Files.exists(groupDir)) {
-                    try (var stream = Files.list(groupDir)) {
-                        stream.filter(Files::isDirectory)
-                              .map(d -> d.getFileName().toString())
-                              .sorted(String.CASE_INSENSITIVE_ORDER)
-                              .forEach(suites::add);
-                    } catch (IOException ignored) {}
-                }
-            }
-
-            List<String> suiteChoices = withBlankChoice(suites);
-            if (!suiteChoices.equals(new ArrayList<>(targetSuiteCombo.getItems()))) {
-                targetSuiteCombo.getItems().setAll(suiteChoices);
-            }
-
-            String targetSuite = null;
-            if (prevSuite != null && !prevSuite.isBlank() && suites.contains(prevSuite)) {
-                targetSuite = prevSuite;
-            } else if (!suites.isEmpty()) {
-                targetSuite = suites.get(0);
-            }
+            List<String> suites = targetGroup.isBlank() ? List.of() : listSuiteNames(targetGroup);
+            targetSuiteCombo.getItems().setAll(withBlankChoice(suites));
+            String targetSuite = prevSuite != null && !prevSuite.isBlank() && suites.contains(prevSuite)
+                    ? prevSuite
+                    : "";
             targetSuiteCombo.setValue(targetSuite);
-
-            Path newSuiteDir = getSelectedSuiteDir();
-            boolean suiteSame = (prevSuiteDir == null && newSuiteDir == null) ||
-                                (prevSuiteDir != null && prevSuiteDir.equals(newSuiteDir));
-
-            if (suiteSame && currentSession != null && (!currentSession.getMessages().isEmpty() || activeSessionId != null)) {
-                refreshSessionsList(activeSessionId);
-            } else {
-                loadChatHistoryForSuiteInternal(activeSessionId);
-            }
         } finally {
             isReloadingTargets = false;
         }
+        updateTargetControlsLock();
+        // History is workspace-wide; refreshing the target list must never reload or replace the open
+        // transcript (that swap used to hide a conversation whose agent was still running).
+        refreshSessionsList(currentSession != null ? currentSession.getId() : null);
+    }
+
+    private static List<String> listGroupNames() {
+        List<String> groups = new ArrayList<>();
+        Path projDir = StudioPaths.getProjectDir();
+        if (!Files.exists(projDir)) {
+            return groups;
+        }
+        try (var stream = Files.list(projDir)) {
+            stream.filter(Files::isDirectory)
+                    .map(d -> d.getFileName().toString())
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .forEach(groups::add);
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không đọc được danh sách Nhóm: " + e.getMessage());
+        }
+        return groups;
+    }
+
+    private static List<String> listSuiteNames(String groupName) {
+        List<String> suites = new ArrayList<>();
+        if (groupName == null || groupName.isBlank()) {
+            return suites;
+        }
+        Path groupDir = StudioPaths.getProjectDir().resolve(groupName);
+        if (!Files.exists(groupDir)) {
+            return suites;
+        }
+        try (var stream = Files.list(groupDir)) {
+            stream.filter(Files::isDirectory)
+                    .map(d -> d.getFileName().toString())
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .forEach(suites::add);
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không đọc được danh sách Suite của " + groupName + ": "
+                    + e.getMessage());
+        }
+        return suites;
     }
 
     private void onGroupSelected() {
-        if (isReloadingTargets) return;
-        String groupName = targetGroupCombo.getValue();
-        if (groupName == null || groupName.isBlank()) {
-            targetSuiteCombo.getItems().clear();
-            loadChatHistoryForSuite();
+        if (isReloadingTargets || isApplyingSessionTarget) return;
+        populateSuiteChoices(targetGroupCombo.getValue(), null);
+        updateTargetControlsLock();
+    }
+
+    private void populateSuiteChoices(String groupName, String preferredSuite) {
+        List<String> suites = groupName == null || groupName.isBlank()
+                ? new ArrayList<>()
+                : listSuiteNames(groupName);
+        targetSuiteCombo.getItems().setAll(withBlankChoice(suites));
+        String nextSuite = preferredSuite != null && !preferredSuite.isBlank() && suites.contains(preferredSuite)
+                ? preferredSuite
+                : "";
+        targetSuiteCombo.setValue(nextSuite);
+    }
+
+    /**
+     * The save target belongs to the conversation: once the user has sent a prompt it is locked, so the
+     * transcript can never be re-bucketed under a different suite while a worker is running.
+     */
+    private void updateTargetControlsLock() {
+        boolean locked = currentSession != null && currentSession.hasUserMessages();
+        if (targetGroupCombo != null) {
+            targetGroupCombo.setDisable(locked);
+        }
+        if (targetSuiteCombo != null) {
+            targetSuiteCombo.setDisable(locked);
+        }
+    }
+
+    /** Restores the target captured by a conversation into the (guarded) pickers. */
+    private void applySessionTarget(AiChatSession session) {
+        if (session == null || targetGroupCombo == null || targetSuiteCombo == null) {
             return;
         }
+        isApplyingSessionTarget = true;
+        try {
+            String group = session.getTargetGroup() != null ? session.getTargetGroup() : "";
+            String suite = session.getTargetSuite() != null ? session.getTargetSuite() : "";
 
-        List<String> suites = new ArrayList<>();
-        Path groupDir = StudioPaths.getProjectDir().resolve(groupName);
-        if (Files.exists(groupDir)) {
-            try (var stream = Files.list(groupDir)) {
-                stream.filter(Files::isDirectory)
-                      .map(d -> d.getFileName().toString())
-                      .sorted(String.CASE_INSENSITIVE_ORDER)
-                      .forEach(suites::add);
-            } catch (IOException ignored) {}
+            List<String> groups = listGroupNames();
+            if (!group.isBlank() && !groups.contains(group)) {
+                groups.add(group);
+            }
+            targetGroupCombo.getItems().setAll(withBlankChoice(groups));
+            targetGroupCombo.setValue(group);
+
+            List<String> suites = group.isBlank() ? new ArrayList<>() : listSuiteNames(group);
+            if (!suite.isBlank() && !suites.contains(suite)) {
+                suites.add(suite);
+            }
+            targetSuiteCombo.getItems().setAll(withBlankChoice(suites));
+            targetSuiteCombo.setValue(suites.contains(suite) ? suite : "");
+        } finally {
+            isApplyingSessionTarget = false;
         }
-        targetSuiteCombo.getItems().setAll(withBlankChoice(suites));
-        if (!suites.isEmpty()) {
-            targetSuiteCombo.getSelectionModel().select(0);
-        } else {
-            loadChatHistoryForSuite();
-        }
+        updateTargetControlsLock();
     }
 
     /** Prepends the "no selection" entry so both pickers can be cleared again. */
@@ -508,34 +572,56 @@ public class AiAssistantPageController implements Initializable {
 
     public Path getSelectedSuiteDir() {
         if (targetGroupCombo == null || targetSuiteCombo == null) return null;
-        String group = targetGroupCombo.getValue();
-        String suite = targetSuiteCombo.getValue();
-        if (group != null && suite != null && !group.isBlank() && !suite.isBlank()) {
-            Path p = StudioPaths.getProjectDir().resolve(group).resolve(suite);
-            if (Files.exists(p) && Files.isDirectory(p)) {
-                return p;
-            }
+        return resolveSuiteDir(targetGroupCombo.getValue(), targetSuiteCombo.getValue());
+    }
+
+    /** Resolves a stored target pair to an existing suite directory, or null when it is not created yet. */
+    private static Path resolveSuiteDir(String group, String suite) {
+        if (group == null || suite == null || group.isBlank() || suite.isBlank()) {
+            return null;
         }
-        return null;
+        Path p = StudioPaths.getProjectDir().resolve(group).resolve(suite);
+        return Files.exists(p) && Files.isDirectory(p) ? p : null;
     }
 
     public void loadChatHistoryForSuite() {
         if (isReloadingTargets) return;
-        String preserveSessionId = (currentSession != null) ? currentSession.getId() : null;
-        loadChatHistoryForSuiteInternal(preserveSessionId);
+        refreshSessionsList(currentSession != null ? currentSession.getId() : null);
+        refreshOpenSession();
     }
 
-    private void loadChatHistoryForSuiteInternal(String preferredSessionId) {
-        Path suiteDir = getSelectedSuiteDir();
-        refreshSessionsList(preferredSessionId);
-        if (sessionsListView != null && sessionsListView.getSelectionModel().getSelectedItem() != null) {
-            currentSession = chatHistoryStore.loadSession(suiteDir, sessionsListView.getSelectionModel().getSelectedItem().getId());
-        } else {
-            currentSession = chatHistoryStore.loadSession(suiteDir, preferredSessionId);
+    /** Reloads the selected conversation from the workspace history and re-renders it. */
+    private void refreshOpenSession() {
+        AiChatSessionMeta selected = sessionsListView != null
+                && sessionsListView.getSelectionModel().getSelectedItem() != null
+                ? sessionsListView.getSelectionModel().getSelectedItem()
+                : null;
+        String preferredId = selected != null
+                ? selected.getId()
+                : (currentSession != null ? currentSession.getId() : null);
+
+        AiChatSession loaded = loadLiveSession(preferredId);
+        if (loaded == null) {
+            loaded = chatHistoryStore.loadSession(null, null);
         }
+        currentSession = loaded;
+        applySessionTarget(currentSession);
         renderChatHistory();
-        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
+        updateComposerRunState();
+    }
+
+    /**
+     * While a conversation is running, the in-memory session is the only complete copy: its agent turns
+     * are persisted only at end of turn. Returning the live instance keeps the transcript continuous when
+     * the user switches away and back instead of showing a stale copy read from disk.
+     */
+    private AiChatSession loadLiveSession(String sessionId) {
+        SessionRun run = sessionId != null ? activeRuns.get(sessionId) : null;
+        if (run != null) {
+            return run.getSession();
+        }
+        return chatHistoryStore.loadSessionById(sessionId);
     }
 
     private void setupSessionsSidebar() {
@@ -590,6 +676,15 @@ public class AiAssistantPageController implements Initializable {
                         timeLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: -fx-text-base-color; -fx-opacity: 0.6;");
                         bottomRow.getChildren().add(timeLabel);
 
+                        if (isSessionRunning(item.getId())) {
+                            Label runLabel = new Label("⏳ Đang chạy");
+                            runLabel.getStyleClass().add("ai-session-running");
+                            bottomRow.getChildren().add(runLabel);
+                            UiTooltips.install(this, "Tác nhân AI đang xử lý trong cuộc trò chuyện này");
+                        } else {
+                            UiTooltips.clear(this);
+                        }
+
                         box.getChildren().addAll(topRow, bottomRow);
                         setGraphic(box);
                         setText(null);
@@ -631,18 +726,15 @@ public class AiAssistantPageController implements Initializable {
                 }
             });
             sessionSearchField.textProperty().addListener((obs, oldVal, newVal) -> {
-                String query = newVal != null ? newVal.trim().toLowerCase() : "";
-                filteredSessions.setPredicate(session -> {
-                    if (query.isEmpty()) return true;
-                    return session.getTitle() != null && session.getTitle().toLowerCase().contains(query);
-                });
+                String query = newVal != null ? newVal.trim().toLowerCase(Locale.ROOT) : "";
+                filteredSessions.setPredicate(session -> session == null || session.matches(query));
             });
         }
     }
 
     public void refreshSessionsList(String selectSessionId) {
-        Path suiteDir = getSelectedSuiteDir();
-        List<AiChatSessionMeta> list = chatHistoryStore.listSessions(suiteDir);
+        // One workspace-wide history: the save target no longer decides which conversations are visible.
+        List<AiChatSessionMeta> list = chatHistoryStore.listAllSessions();
         allSessions.setAll(list);
 
         if (sessionsListView != null) {
@@ -666,16 +758,28 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /** Repaints only the running badges, without re-reading every session file from disk. */
+    private void refreshSessionsRunningState() {
+        if (sessionsListView != null) {
+            sessionsListView.refresh();
+        }
+    }
+
     private void switchToSession(String sessionId) {
         if (isSwitchingSession || sessionId == null) return;
         if (currentSession != null && sessionId.equals(currentSession.getId())) return;
 
         isSwitchingSession = true;
         try {
-            Path suiteDir = getSelectedSuiteDir();
-            currentSession = chatHistoryStore.loadSession(suiteDir, sessionId);
+            AiChatSession loaded = loadLiveSession(sessionId);
+            if (loaded == null) {
+                return;
+            }
+            currentSession = loaded;
+            applySessionTarget(currentSession);
             renderChatHistory();
             updateTokenUsageDisplay();
+            updateComposerRunState();
         } finally {
             isSwitchingSession = false;
         }
@@ -718,22 +822,31 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void createNewChat() {
-        Path suiteDir = getSelectedSuiteDir();
-        currentSession = chatHistoryStore.createNewSession(suiteDir, "Cuộc trò chuyện mới");
+        // New conversations always start with a blank target, and the history stays workspace-wide.
+        currentSession = chatHistoryStore.createNewSession(null, "Cuộc trò chuyện mới");
+        currentSession.setTargetGroup("");
+        currentSession.setTargetSuite("");
+        try {
+            chatHistoryStore.saveSession(currentSession);
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không lưu được cuộc trò chuyện mới: " + e.getMessage());
+        }
         refreshSessionsList(currentSession.getId());
+        applySessionTarget(currentSession);
         renderChatHistory();
-        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
+        updateComposerRunState();
         ToastService.info("Đã tạo cuộc trò chuyện mới.");
     }
 
     private void handleTogglePin(AiChatSessionMeta item) {
         if (item == null) return;
-        Path suiteDir = getSelectedSuiteDir();
         try {
-            chatHistoryStore.setSessionPinned(suiteDir, item.getId(), !item.isPinned());
+            chatHistoryStore.setSessionPinned(item.getId(), !item.isPinned());
             refreshSessionsList(item.getId());
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không ghim được cuộc trò chuyện: " + e.getMessage());
+        }
     }
 
     private void handleRenameSession(AiChatSessionMeta item) {
@@ -745,23 +858,23 @@ public class AiAssistantPageController implements Initializable {
         DialogTheme.apply(dialog);
         Optional<String> res = dialog.showAndWait();
         if (res.isPresent() && !res.get().isBlank()) {
-            Path suiteDir = getSelectedSuiteDir();
             try {
                 String newTitle = res.get().trim();
-                chatHistoryStore.renameSession(suiteDir, item.getId(), newTitle);
+                chatHistoryStore.renameSession(item.getId(), newTitle);
                 if (currentSession != null && item.getId().equals(currentSession.getId())) {
                     currentSession.setTitle(newTitle);
                 }
                 refreshSessionsList(item.getId());
                 ToastService.info("Đã đổi tên cuộc trò chuyện.");
-            } catch (IOException ignored) {}
+            } catch (IOException e) {
+                AiLoggingService.warn("AI-CHAT", "Không đổi tên được cuộc trò chuyện: " + e.getMessage());
+            }
         }
     }
 
     private void handleDeleteSession(AiChatSessionMeta item) {
         if (item == null) return;
-        if (generationProgress != null && generationProgress.isVisible()
-                && currentSession != null && item.getId().equals(currentSession.getId())) {
+        if (isSessionRunning(item.getId())) {
             ToastService.warn("Không thể xóa cuộc trò chuyện khi AI đang sinh kịch bản. Vui lòng đợi hoàn thành.");
             return;
         }
@@ -772,15 +885,16 @@ public class AiAssistantPageController implements Initializable {
         DialogTheme.apply(alert);
         Optional<ButtonType> res = alert.showAndWait();
         if (res.isPresent() && res.get() == ButtonType.OK) {
-            Path suiteDir = getSelectedSuiteDir();
             try {
-                chatHistoryStore.deleteSession(suiteDir, item.getId());
+                chatHistoryStore.deleteSession(item.getId());
                 ToastService.info("Đã xóa cuộc trò chuyện.");
                 if (currentSession != null && item.getId().equals(currentSession.getId())) {
                     currentSession = null;
                 }
                 loadChatHistoryForSuite();
-            } catch (IOException ignored) {}
+            } catch (IOException e) {
+                AiLoggingService.warn("AI-CHAT", "Không xóa được cuộc trò chuyện: " + e.getMessage());
+            }
         }
     }
 
@@ -877,51 +991,75 @@ public class AiAssistantPageController implements Initializable {
         AiSubAgentOrchestrator.AgentExecutor executor = agentExecutor;
 
         // The user's turn is already recorded by sendPrompt; adding it again duplicated every prompt.
-        Platform.runLater(() -> updateThinkingStatus("🤖 Coordinator đang giao việc cho "
-                + tasks.size() + " tác nhân..."));
+        publishRunStatus(session, "🤖 Coordinator đang giao việc cho " + tasks.size() + " tác nhân...");
         AiSubAgentOrchestrator orchestrator = new AiSubAgentOrchestrator(
                 executor,
-                status -> Platform.runLater(() -> updateThinkingStatus(status)),
-                this::appendLiveTranscriptMessage);
+                status -> publishRunStatus(session, status),
+                msg -> appendLiveTranscriptMessage(session, msg));
         AiSubAgentOrchestrator.OrchestrationResult orchestration = orchestrator.orchestrate(session, tasks);
 
         // The agents design the solution; the artefact still has to be produced. Without this pass the
         // turn ended in prose and the user received no test case at all.
-        Platform.runLater(() -> updateThinkingStatus(
-                "🧪 [Test Architect] Đang sinh bộ Test Case có cấu trúc từ kết quả phân tích..."));
+        publishRunStatus(session,
+                "🧪 [Test Architect] Đang sinh bộ Test Case có cấu trúc từ kết quả phân tích...");
         AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
                 aiConfig, prompt, docs, suiteContext, domJson,
                 historyWithoutAgentTurns(session),
-                status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                status -> publishRunStatus(session, status),
                 skill, suiteDir, generateScript);
         completeAggregateWithArtifacts(session, orchestration, result);
         return result;
     }
 
     /**
-     * Shows one agent message as soon as it is recorded. The final aggregated answer is skipped: it is
-     * still being completed with the generated cases and is rendered once at end of turn.
+     * Publishes a progress line to the run of one conversation. Background workers of different
+     * conversations update only their own run state and never touch another session's transcript.
      */
-    private void appendLiveTranscriptMessage(AiChatMessage msg) {
-        if (msg == null || msg.isAggregatedResult()) {
+    private void publishRunStatus(AiChatSession session, String status) {
+        if (session == null || status == null || status.isBlank()) {
+            return;
+        }
+        String sessionId = session.getId();
+        Platform.runLater(() -> {
+            SessionRun run = activeRuns.get(sessionId);
+            if (run != null) {
+                run.setStatus(status);
+            }
+            if (isCurrentSession(session)) {
+                updateThinkingStatus(status);
+            }
+        });
+    }
+
+    /**
+     * Shows one agent message as soon as it is recorded. The final aggregated answer is skipped: it is
+     * still being completed with the generated cases and is rendered once at end of turn. A message from
+     * a conversation the user is not looking at is recorded on disk without touching this transcript.
+     */
+    private void appendLiveTranscriptMessage(AiChatSession session, AiChatMessage msg) {
+        if (session == null || msg == null || msg.isAggregatedResult()) {
             return;
         }
         Platform.runLater(() -> {
-            if (currentSession == null || msg.getId() == null || sendBtn == null || !sendBtn.isDisabled()) {
-                return;
-            }
-            if (!currentSession.getMessages().contains(msg)) {
+            if (!isCurrentSession(session) || !session.getMessages().contains(msg)) {
                 return;
             }
             // Keep the thinking indicator last so progress stays visible under the new bubble.
-            if (thinkingBubbleWrapper != null) {
+            boolean bubbleAttached = thinkingBubbleWrapper != null
+                    && chatMessagesBox.getChildren().contains(thinkingBubbleWrapper);
+            if (bubbleAttached) {
                 chatMessagesBox.getChildren().remove(thinkingBubbleWrapper);
             }
             renderMessageBubble(msg, true);
-            if (thinkingBubbleWrapper != null) {
+            if (bubbleAttached) {
                 chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
             }
         });
+    }
+
+    /** True when the given session is the one currently rendered in the chat pane. */
+    private boolean isCurrentSession(AiChatSession session) {
+        return session != null && currentSession != null && session.getId().equals(currentSession.getId());
     }
 
     /** History handed to the generator: the agent transcript is evidence, not conversation context. */
@@ -1018,6 +1156,9 @@ public class AiAssistantPageController implements Initializable {
     }
 
     private void renderChatHistory() {
+        // The transcript is rebuilt from the session, so any bubble left from the previous render is
+        // detached; a run still active in this session gets a fresh indicator at the end.
+        removeThinkingBubble();
         chatMessagesBox.getChildren().clear();
 
         if (currentSession.getMessages().isEmpty()) {
@@ -1036,7 +1177,32 @@ public class AiAssistantPageController implements Initializable {
             restoreLatestPreviewCases();
         }
 
+        syncRunBubbleForCurrentSession();
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
+    }
+
+    /** Recreates the "đang chạy" indicator for the open conversation after a re-render or a switch. */
+    private void syncRunBubbleForCurrentSession() {
+        if (currentSession == null) {
+            return;
+        }
+        SessionRun run = activeRuns.get(currentSession.getId());
+        if (run == null) {
+            return;
+        }
+        showThinkingBubble(resolveConfiguredModelName());
+        if (thinkingStatusLabel != null) {
+            thinkingStatusLabel.setText(run.getStatus());
+        }
+    }
+
+    private String resolveConfiguredModelName() {
+        try {
+            return settingsStore.load().getAiConfig().getEffectiveModel();
+        } catch (Exception e) {
+            AiLoggingService.warn("AI-CHAT", "Không đọc được cấu hình mô hình: " + e.getMessage());
+            return AiConfig.DEFAULT_MODEL;
+        }
     }
 
     private void restoreLatestPreviewCases() {
@@ -1141,6 +1307,13 @@ public class AiAssistantPageController implements Initializable {
 
     @FXML
     public void clearChat() {
+        if (currentSession == null) {
+            return;
+        }
+        if (isSessionRunning(currentSession.getId())) {
+            ToastService.warn("⚠️ Tác nhân AI đang chạy trong cuộc trò chuyện này. Vui lòng đợi hoàn tất trước khi xóa.");
+            return;
+        }
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("Xác nhận xóa lịch sử");
         alert.setHeaderText("Xóa tin nhắn trong cuộc trò chuyện");
@@ -1150,15 +1323,17 @@ public class AiAssistantPageController implements Initializable {
         Optional<ButtonType> result = alert.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
             removeThinkingBubble();
-            Path suiteDir = getSelectedSuiteDir();
             currentSession.getMessages().clear();
             try {
-                chatHistoryStore.saveSession(suiteDir, currentSession);
-            } catch (IOException ignored) {
+                chatHistoryStore.saveSession(currentSession);
+            } catch (IOException e) {
+                AiLoggingService.warn("AI-CHAT", "Không lưu được trạng thái xóa chat: " + e.getMessage());
+                ToastService.error("Không lưu được trạng thái xóa: " + e.getMessage());
             }
             refreshSessionsList(currentSession.getId());
             renderChatHistory();
             updateTokenUsageDisplay();
+            updateTargetControlsLock();
             ToastService.info("Nội dung cuộc trò chuyện đã được xóa.");
         }
     }
@@ -1316,6 +1491,14 @@ public class AiAssistantPageController implements Initializable {
             ToastService.warn("⚠️ Vui lòng nhập nội dung yêu cầu hoặc đính kèm tài liệu.");
             return;
         }
+        if (currentSession == null) {
+            currentSession = chatHistoryStore.createNewSession(null, "Cuộc trò chuyện mới");
+        }
+        if (isSessionRunning(currentSession.getId())) {
+            ToastService.warn("⚠️ Tác nhân AI đang xử lý tin nhắn trước đó trong cuộc trò chuyện này."
+                    + " Hãy tạo cuộc trò chuyện mới để chạy song song.");
+            return;
+        }
 
         // Auto-detect or override skill from slash command if user typed it
         com.studio.model.AiSkill chosenSkill = (skillComboBox != null && skillComboBox.getValue() != null)
@@ -1356,6 +1539,18 @@ public class AiAssistantPageController implements Initializable {
             }
         }
 
+        // Capture the save target exactly once, with the first prompt. From then on it belongs to the
+        // conversation and the pickers are locked, so the worker can never be re-pointed mid-run.
+        final AiChatSession targetSession = currentSession;
+        final boolean firstPrompt = !targetSession.hasUserMessages();
+        if (firstPrompt) {
+            targetSession.setTargetGroup(normalizeTarget(targetGroupCombo != null ? targetGroupCombo.getValue() : null));
+            targetSession.setTargetSuite(normalizeTarget(targetSuiteCombo != null ? targetSuiteCombo.getValue() : null));
+        }
+        final String targetGroupName = normalizeTarget(targetSession.getTargetGroup());
+        final String targetSuiteName = normalizeTarget(targetSession.getTargetSuite());
+        final Path targetSuiteDir = resolveSuiteDir(targetGroupName, targetSuiteName);
+
         // Create User Message
         StringBuilder userChatText = new StringBuilder();
         if (activeSkill != com.studio.model.AiSkill.AUTO) {
@@ -1392,25 +1587,30 @@ public class AiAssistantPageController implements Initializable {
         userMsg.setAttachedFilePaths(filePaths);
         userMsg.setAttachedDocsSnapshot(docsSnapshotList);
         userMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userMsg));
-        currentSession.addMessage(userMsg);
+        targetSession.addMessage(userMsg);
 
-        if ("Cuộc trò chuyện mới".equalsIgnoreCase(currentSession.getTitle())) {
+        if ("Cuộc trò chuyện mới".equalsIgnoreCase(targetSession.getTitle())) {
             String cleanPrompt = prompt.replace("\n", " ").trim();
             if (cleanPrompt.length() > 28) {
                 cleanPrompt = cleanPrompt.substring(0, 28) + "...";
             }
             if (!cleanPrompt.isBlank()) {
-                currentSession.setTitle(cleanPrompt);
+                targetSession.setTitle(cleanPrompt);
             }
         }
 
-        Path suiteDir = getSelectedSuiteDir();
+        // Persist the new turn BEFORE the worker starts: a crash or a page switch must not lose the
+        // history entry that the running agent is writing into.
         try {
-            chatHistoryStore.saveSession(suiteDir, currentSession);
-            refreshSessionsList(currentSession.getId());
-        } catch (IOException ignored) {}
+            chatHistoryStore.saveSession(targetSession);
+            refreshSessionsList(targetSession.getId());
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không lưu được tin nhắn mới: " + e.getMessage());
+            ToastService.error("Không lưu được lịch sử chat: " + e.getMessage());
+        }
 
         renderMessageBubble(userMsg, true);
+        updateTargetControlsLock();
 
         // Snapshot attached docs and clear input
         List<DocumentParserService.ParsedDocument> docsSnapshot = new ArrayList<>(attachedDocuments);
@@ -1418,10 +1618,17 @@ public class AiAssistantPageController implements Initializable {
         clearAttachments();
         updateTokenUsageDisplay();
 
-        executePromptInternal(prompt, docsSnapshot, activeSkill);
+        executePromptInternal(targetSession, targetSuiteDir, targetGroupName, targetSuiteName,
+                prompt, docsSnapshot, activeSkill);
     }
 
-    private void executePromptInternal(String prompt, List<DocumentParserService.ParsedDocument> docsSnapshot,
+    private static String normalizeTarget(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private void executePromptInternal(AiChatSession targetSession, Path suiteDir, String targetGroupName,
+            String targetSuiteName, String prompt,
+            List<DocumentParserService.ParsedDocument> docsSnapshot,
             com.studio.model.AiSkill activeSkill) {
         SettingsStore.Settings settings;
         try {
@@ -1431,19 +1638,17 @@ public class AiAssistantPageController implements Initializable {
         }
         AiConfig aiConfig = settings.getAiConfig();
 
-        sendBtn.setDisable(true);
-        sendBtn.setText("Đang sinh kịch bản...");
-        generationProgress.setVisible(true);
-        generationProgress.setManaged(true);
-        showThinkingBubble(aiConfig.getEffectiveModel() + " — " + activeSkill.getDisplayName());
+        final String targetSessionId = targetSession.getId();
+        final String initialStatus = aiConfig.getEffectiveModel() + " — " + activeSkill.getDisplayName();
+        activeRuns.put(targetSessionId, new SessionRun(targetSession, initialStatus));
+        refreshSessionsRunningState();
+        updateComposerRunState();
+        if (isCurrentSession(targetSession)) {
+            showThinkingBubble(initialStatus);
+        }
 
-        Path suiteDir = getSelectedSuiteDir();
-        String groupVal = (targetGroupCombo != null && targetGroupCombo.getValue() != null && !targetGroupCombo.getValue().isBlank())
-                ? targetGroupCombo.getValue()
-                : "(Tự động tạo khi lưu)";
-        String suiteVal = (targetSuiteCombo != null && targetSuiteCombo.getValue() != null && !targetSuiteCombo.getValue().isBlank())
-                ? targetSuiteCombo.getValue()
-                : "(Tự động tạo khi lưu)";
+        String groupVal = targetGroupName.isBlank() ? "(Tự động tạo khi lưu)" : targetGroupName;
+        String suiteVal = targetSuiteName.isBlank() ? "(Tự động tạo khi lưu)" : targetSuiteName;
         String context = "Nhóm đích: " + groupVal + ", Suite đích: " + suiteVal;
 
         // Tự động phát hiện URL từ prompt hoặc từ tài liệu đính kèm nếu chưa có Live DOM
@@ -1497,8 +1702,6 @@ public class AiAssistantPageController implements Initializable {
         final boolean effectiveGenerateScript = generateScript;
         String domContext = liveDomJson;
         final AiConfig effectiveAiConfig = aiConfig;
-        final AiChatSession targetSession = currentSession;
-        final String targetSessionId = targetSession.getId();
 
         Thread thread = new Thread(() -> {
             try {
@@ -1508,8 +1711,8 @@ public class AiAssistantPageController implements Initializable {
                 if (!isScenarioIntent
                         && (activeDomContext == null || activeDomContext.isBlank() || "[]".equals(activeDomContext))
                         && detectedTargetUrl != null) {
-                    Platform.runLater(() -> updateThinkingStatus(
-                            "Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "..."));
+                    publishRunStatus(targetSession,
+                            "Đang tự động quét cấu trúc Live DOM từ " + detectedTargetUrl + "...");
                     try {
                         String autoScannedDom = domScanner.scanUrl(detectedTargetUrl, 10000);
                         if (autoScannedDom != null && !autoScannedDom.isBlank() && !"[]".equals(autoScannedDom)) {
@@ -1519,7 +1722,8 @@ public class AiAssistantPageController implements Initializable {
                                      () -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
                         }
                     } catch (Exception ex) {
-                        System.err.println("[AiAssistant] Tự động quét DOM ngầm thất bại: " + ex.getMessage());
+                        AiLoggingService.warn("AI-CHAT",
+                                "Tự động quét DOM ngầm thất bại cho " + detectedTargetUrl + ": " + ex.getMessage());
                     }
                 }
 
@@ -1543,7 +1747,7 @@ public class AiAssistantPageController implements Initializable {
                     result = aiGenerator.generateTestCases(
                             effectiveAiConfig, prompt, docsSnapshot, context, activeDomContext,
                             historyWithoutAgentTurns(targetSession),
-                            status -> Platform.runLater(() -> updateThinkingStatus(status)),
+                            status -> publishRunStatus(targetSession, status),
                             activeSkill,
                             suiteDir,
                             effectiveGenerateScript);
@@ -1553,11 +1757,7 @@ public class AiAssistantPageController implements Initializable {
                 final AiChatMessage delegatedAnswer = delegatedRun ? latestAggregate(targetSession) : null;
 
                 Platform.runLater(() -> {
-                    removeThinkingBubble();
-                    sendBtn.setDisable(false);
-                    sendBtn.setText("Gửi (Enter)");
-                    generationProgress.setVisible(false);
-                    generationProgress.setManaged(false);
+                    finishRun(targetSession);
 
                     // The delegated pass already recorded exactly one aggregated answer and filled it with
                     // the generated cases; adding a second one duplicated the final deliverable.
@@ -1574,12 +1774,13 @@ public class AiAssistantPageController implements Initializable {
 
                     // Persist updated history
                     try {
-                        chatHistoryStore.saveSession(suiteDir, targetSession);
-                        refreshSessionsList(targetSession.getId());
-                    } catch (IOException ignored) {
+                        chatHistoryStore.saveSession(targetSession);
+                    } catch (IOException e) {
+                        AiLoggingService.warn("AI-CHAT",
+                                "Không lưu được kết quả phiên " + targetSessionId + ": " + e.getMessage());
                     }
 
-                    boolean isCurrentActive = currentSession != null && targetSessionId.equals(currentSession.getId());
+                    boolean isCurrentActive = isCurrentSession(targetSession);
                     if (isCurrentActive) {
                         // Re-render instead of appending: the live agent bubbles are already on screen and
                         // the aggregated answer was completed after they appeared.
@@ -1626,22 +1827,22 @@ public class AiAssistantPageController implements Initializable {
                     refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                 });
             } catch (Exception ex) {
+                AiLoggingService.error("AI-CHAT",
+                        "Lượt sinh kịch bản của phiên " + targetSessionId + " thất bại: " + ex.getMessage());
                 Platform.runLater(() -> {
-                    removeThinkingBubble();
-                    sendBtn.setDisable(false);
-                    sendBtn.setText("Gửi (Enter)");
-                    generationProgress.setVisible(false);
-                    generationProgress.setManaged(false);
+                    finishRun(targetSession);
 
                     AiChatMessage errorMsg = new AiChatMessage("assistant", "❌ Lỗi: " + ex.getMessage());
                     errorMsg.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(errorMsg));
                     targetSession.addMessage(errorMsg);
                     try {
-                        chatHistoryStore.saveSession(suiteDir, targetSession);
-                    } catch (IOException ignored) {
+                        chatHistoryStore.saveSession(targetSession);
+                    } catch (IOException saveFailure) {
+                        AiLoggingService.warn("AI-CHAT",
+                                "Không lưu được lỗi của phiên " + targetSessionId + ": " + saveFailure.getMessage());
                     }
 
-                    if (currentSession != null && targetSessionId.equals(currentSession.getId())) {
+                    if (isCurrentSession(targetSession)) {
                         renderMessageBubble(errorMsg, true);
                         updateTokenUsageDisplay();
                         ToastService.error("Lỗi AI: " + ex.getMessage());
@@ -1651,9 +1852,47 @@ public class AiAssistantPageController implements Initializable {
                     refreshSessionsList(currentSession != null ? currentSession.getId() : null);
                 });
             }
-        }, "AiAssistant-Worker");
+        }, "AiAssistant-Worker-" + shortSessionId(targetSessionId));
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /** Ends one conversation's run and releases only that conversation's composer/indicator. */
+    private void finishRun(AiChatSession targetSession) {
+        if (targetSession == null) {
+            return;
+        }
+        activeRuns.remove(targetSession.getId());
+        refreshSessionsRunningState();
+        if (isCurrentSession(targetSession)) {
+            removeThinkingBubble();
+            updateComposerRunState();
+        }
+    }
+
+    private static String shortSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return "unknown";
+        }
+        return sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
+    }
+
+    /** Enables/disables the composer according to the run state of the conversation on screen. */
+    private void updateComposerRunState() {
+        boolean running = currentSession != null && isSessionRunning(currentSession.getId());
+        if (sendBtn != null) {
+            sendBtn.setDisable(running);
+            sendBtn.setText(running ? "Đang sinh kịch bản..." : "Gửi (Enter)");
+        }
+        if (generationProgress != null) {
+            generationProgress.setVisible(running);
+            generationProgress.setManaged(running);
+        }
+    }
+
+    /** True while a worker of this conversation is generating (also drives the history badge). */
+    public boolean isSessionRunning(String sessionId) {
+        return sessionId != null && activeRuns.containsKey(sessionId);
     }
 
     /**
@@ -1682,7 +1921,7 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    private void showThinkingBubble(String modelName) {
+    private void showThinkingBubble(String statusText) {
         removeThinkingBubble();
 
         VBox bubble = new VBox(8);
@@ -1720,7 +1959,9 @@ public class AiAssistantPageController implements Initializable {
         spinner.setMinSize(18, 18);
         spinner.getStyleClass().add("ai-thinking-spinner");
 
-        thinkingStatusLabel = new Label("Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...");
+        thinkingStatusLabel = new Label(statusText != null && !statusText.isBlank()
+                ? statusText
+                : "Đang kết nối tới mô hình AI...");
         thinkingStatusLabel.getStyleClass().add("ai-thinking-status-text");
         HBox.setHgrow(thinkingStatusLabel, Priority.ALWAYS);
 
@@ -1732,32 +1973,15 @@ public class AiAssistantPageController implements Initializable {
         chatMessagesBox.getChildren().add(thinkingBubbleWrapper);
         Platform.runLater(() -> chatScroll.setVvalue(1.0));
 
-        // Animated progression stages (4-Agent Pipeline)
-        String[] stages = new String[] {
-                "Đang kết nối tới mô hình " + (modelName != null ? modelName : "AI") + "...",
-                "🔍 [Agent 1/4 - Spec Miner] Đang phân tích yêu cầu, tài liệu & phân hệ chức năng...",
-                "✍️ [Agent 2/4 - Test Architect] Đang thiết kế ma trận Test Case & Kịch bản...",
-                "🧐 [Agent 3/4 - Reality Checker] Đang thẩm định chất lượng & độ bao phủ...",
-                "🔄 [Agent 4/4 - Loop Engineer] Đang tự động tối ưu hóa & hoàn thiện kết quả..."
-        };
-
-        final int[] stageIdx = { 0 };
+        // Only the dots animate. Progress text is driven by the real run (publishRunStatus) — the old
+        // canned 4-agent rotation overwrote those live statuses after a couple of seconds.
         final int[] dotStep = { 0 };
-
         thinkingTimeline = new Timeline(new KeyFrame(Duration.millis(500), ev -> {
             dotStep[0]++;
             int activeDot = dotStep[0] % 3;
             dot1.setOpacity(activeDot == 0 ? 1.0 : 0.3);
             dot2.setOpacity(activeDot == 1 ? 1.0 : 0.3);
             dot3.setOpacity(activeDot == 2 ? 1.0 : 0.3);
-
-            // Rotate text every ~2.5s (every 5 ticks of 500ms)
-            if (dotStep[0] % 5 == 0 && stageIdx[0] < stages.length - 1) {
-                stageIdx[0]++;
-                if (thinkingStatusLabel != null) {
-                    thinkingStatusLabel.setText(stages[stageIdx[0]]);
-                }
-            }
         }));
         thinkingTimeline.setCycleCount(Animation.INDEFINITE);
         thinkingTimeline.play();
@@ -1898,16 +2122,25 @@ public class AiAssistantPageController implements Initializable {
             return;
         }
 
-        // Cập nhật lại UI ComboBoxes nếu vừa tự động tạo
-        if (!targetGroupCombo.getItems().contains(group)) {
-            targetGroupCombo.getItems().add(group);
-        }
-        targetGroupCombo.setValue(group);
+        // Cập nhật lại UI ComboBoxes nếu vừa tự động tạo (guarded: setting a value fires onAction)
+        isApplyingSessionTarget = true;
+        try {
+            if (!targetGroupCombo.getItems().contains(group)) {
+                targetGroupCombo.getItems().add(group);
+            }
+            targetGroupCombo.setValue(group);
 
-        if (!targetSuiteCombo.getItems().contains(suite)) {
-            targetSuiteCombo.getItems().add(suite);
+            if (!targetSuiteCombo.getItems().contains(suite)) {
+                targetSuiteCombo.getItems().add(suite);
+            }
+            targetSuiteCombo.setValue(suite);
+        } finally {
+            isApplyingSessionTarget = false;
         }
-        targetSuiteCombo.setValue(suite);
+        // The applied target becomes the conversation's target, so reopening it shows the same choice.
+        currentSession.setTargetGroup(group);
+        currentSession.setTargetSuite(suite);
+        updateTargetControlsLock();
 
         // Sync edited script back to current item if user changed it in editor
         AiGeneratedCase selected = generatedCasesListView.getSelectionModel().getSelectedItem();
@@ -1933,7 +2166,8 @@ public class AiAssistantPageController implements Initializable {
                 }
             }
 
-            chatHistoryStore.saveSession(suiteDir, currentSession);
+            chatHistoryStore.saveSession(currentSession);
+            refreshSessionsList(currentSession.getId());
             renderChatHistory();
 
             String successMsg;
@@ -2565,9 +2799,9 @@ public class AiAssistantPageController implements Initializable {
             Button confirmBtn = new Button("⚡ Xác nhận & Sinh Test Cases chi tiết");
             confirmBtn.getStyleClass().add("clarification-confirm-btn");
             confirmBtn.setOnAction(e -> {
-                // One generation at a time: a second click while a run is alive used to start a
-                // parallel generation that raced on the same session file.
-                if (sendBtn.isDisabled()) {
+                // One generation at a time per conversation: a second click while a run is alive used
+                // to start a parallel generation that raced on the same session file.
+                if (currentSession != null && isSessionRunning(currentSession.getId())) {
                     ToastService.warn("⚠️ Đang sinh kịch bản — vui lòng chờ lượt hiện tại hoàn tất.");
                     return;
                 }
@@ -2595,9 +2829,8 @@ public class AiAssistantPageController implements Initializable {
                     }
                 }
 
-                Path suiteDir = getSelectedSuiteDir();
                 try {
-                    chatHistoryStore.saveSession(suiteDir, currentSession);
+                    chatHistoryStore.saveSession(currentSession);
                     refreshSessionsList(currentSession.getId());
                 } catch (IOException saveFailure) {
                     ToastService.error("Không lưu được câu trả lời làm rõ: " + saveFailure.getMessage());
@@ -2605,16 +2838,27 @@ public class AiAssistantPageController implements Initializable {
 
                 String augmented = aiGenerator.getAmbiguityAnalyzer().buildAugmentedPrompt(originalPrompt, collected);
 
-                // Refresh UI to show chips disabled and badge
+                // Refresh UI to show chips disabled and badge (the run starts below and re-renders anyway)
                 renderChatHistory();
 
-                // Add user confirmation bubble and execute
+                // Add user confirmation bubble and execute against the conversation's own target
                 AiChatMessage userConfirm = new AiChatMessage("user", "Đã xác nhận lựa chọn chi tiết:\n" + augmented);
                 userConfirm.setEstimatedTokens(tokenOptimizer.estimateMessageTokens(userConfirm));
                 currentSession.addMessage(userConfirm);
                 renderMessageBubble(userConfirm, true);
+                // Persisted before the worker starts, exactly like a normal prompt: the confirmed turn
+                // must survive a crash in the middle of generation.
+                try {
+                    chatHistoryStore.saveSession(currentSession);
+                } catch (IOException saveFailure) {
+                    AiLoggingService.warn("AI-CHAT",
+                            "Không lưu được lượt xác nhận làm rõ: " + saveFailure.getMessage());
+                }
 
-                executePromptInternal(augmented, List.of(), com.studio.model.AiSkill.AUTO);
+                String group = normalizeTarget(currentSession.getTargetGroup());
+                String suite = normalizeTarget(currentSession.getTargetSuite());
+                executePromptInternal(currentSession, resolveSuiteDir(group, suite), group, suite,
+                        augmented, List.of(), com.studio.model.AiSkill.AUTO);
             });
 
             actionRow.getChildren().add(confirmBtn);
@@ -2703,7 +2947,7 @@ public class AiAssistantPageController implements Initializable {
             return;
         }
 
-        if (sendBtn != null && sendBtn.isDisabled()) {
+        if (currentSession != null && isSessionRunning(currentSession.getId())) {
             ToastService.warn("⚠️ AI đang sinh kịch bản. Vui lòng đợi hoàn tất trước khi hoàn tác.");
             return;
         }
@@ -2748,16 +2992,16 @@ public class AiAssistantPageController implements Initializable {
         restoreToInputArea(targetMsg);
 
         // 3. Persist and re-render
-        Path suiteDir = getSelectedSuiteDir();
         try {
-            chatHistoryStore.saveSession(suiteDir, currentSession);
+            chatHistoryStore.saveSession(currentSession);
             refreshSessionsList(currentSession.getId());
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            AiLoggingService.warn("AI-CHAT", "Không lưu được trạng thái hoàn tác: " + e.getMessage());
         }
 
         renderChatHistory();
-        restoreLatestPreviewCases();
         updateTokenUsageDisplay();
+        updateTargetControlsLock();
         ToastService.info("Đã hoàn tác tin nhắn và các phản hồi của Trợ lý AI sau đó.");
     }
 
@@ -2779,6 +3023,10 @@ public class AiAssistantPageController implements Initializable {
 
     public ListView<AiChatSessionMeta> getSessionsListView() {
         return sessionsListView;
+    }
+
+    public TextField getSessionSearchField() {
+        return sessionSearchField;
     }
 
     public VBox getChatMessagesBox() {

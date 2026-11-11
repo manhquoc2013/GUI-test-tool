@@ -1818,6 +1818,11 @@
     -fx-text-fill: #7aa2f7;
     -fx-font-weight: bold;
 }
+.ai-session-running {
+    -fx-text-fill: #e0af68;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
 .ai-split-pane > .split-pane-divider {
     -fx-background-color: #2a2b3d;
     -fx-padding: 0 1 0 1;

@@ -79,9 +79,11 @@ public class AiAssistantAutoCreateSuiteTest {
                 AiAssistantPageController controller = loader.getController();
                 assertNotNull(controller);
 
-                // Initial state: empty project, no groups or suites
-                assertNull(controller.getTargetGroupCombo().getValue());
-                assertNull(controller.getTargetSuiteCombo().getValue());
+                // Initial state: empty project, no groups or suites, and no auto-selected save target
+                assertTrue(controller.getTargetGroupCombo().getValue() == null
+                        || controller.getTargetGroupCombo().getValue().isBlank());
+                assertTrue(controller.getTargetSuiteCombo().getValue() == null
+                        || controller.getTargetSuiteCombo().getValue().isBlank());
 
                 // Prepare simulated AI generated cases
                 AiGeneratedCase case1 = new AiGeneratedCase();

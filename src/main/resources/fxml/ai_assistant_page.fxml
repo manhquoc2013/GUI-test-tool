@@ -49,7 +49,7 @@
             <padding><Insets top="10" right="8" bottom="10" left="8"/></padding>
             <Button text="Cuộc trò chuyện mới" fx:id="newChatBtn" onAction="#createNewChat"
                     styleClass="ai-new-chat-btn" maxWidth="Infinity"/>
-            <TextField fx:id="sessionSearchField" promptText="Tìm cuộc trò chuyện..." styleClass="ai-session-search">
+            <TextField fx:id="sessionSearchField" promptText="Tìm tin nhắn trong lịch sử..." styleClass="ai-session-search">
                 <VBox.margin><Insets top="8" bottom="8"/></VBox.margin>
             </TextField>
             <Label text="LỊCH SỬ HỘI THOẠI" styleClass="sidebar-section-label">

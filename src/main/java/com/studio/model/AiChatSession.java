@@ -12,6 +12,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AiChatSession {
 
+    /** How much of each user prompt is indexed for the sidebar search (memory bound). */
+    private static final int SEARCH_TEXT_CHARS_PER_MESSAGE = 240;
+    /** Maximum number of user prompts indexed per session. */
+    private static final int SEARCH_TEXT_MAX_MESSAGES = 20;
+
     private String id;
     private String suiteKey;
     private String title;
@@ -24,6 +29,13 @@ public class AiChatSession {
     private long createdAt;
     private long lastUpdated;
     private boolean pinned;
+    /**
+     * Target group/suite captured when the conversation starts. Empty means "(Tự động tạo khi lưu)".
+     * It lives on the session because it is locked for the whole conversation: changing the picker
+     * mid-conversation used to move the transcript to another storage bucket and hide the history.
+     */
+    private String targetGroup;
+    private String targetSuite;
     /** Sub-agent sessions spawned from this session, in dispatch order. */
     private List<AiSubAgentSession> subAgents = new CopyOnWriteArrayList<>();
 
@@ -133,6 +145,34 @@ public class AiChatSession {
         this.pinned = pinned;
     }
 
+    /** Target group chosen when the conversation started; null/blank means "create on save". */
+    public String getTargetGroup() {
+        return targetGroup;
+    }
+
+    public void setTargetGroup(String targetGroup) {
+        this.targetGroup = targetGroup;
+    }
+
+    /** Target suite chosen when the conversation started; null/blank means "create on save". */
+    public String getTargetSuite() {
+        return targetSuite;
+    }
+
+    public void setTargetSuite(String targetSuite) {
+        this.targetSuite = targetSuite;
+    }
+
+    /** True once the user has sent at least one prompt, which locks the target pickers. */
+    public boolean hasUserMessages() {
+        for (AiChatMessage message : messages) {
+            if (message != null && "user".equalsIgnoreCase(message.getRole())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void addMessage(AiChatMessage message) {
         if (message != null) {
             if (message.getSessionId() == null || message.getSessionId().isBlank()) {
@@ -170,6 +210,33 @@ public class AiChatSession {
         meta.setCreatedAt(getCreatedAt());
         meta.setUpdatedAt(getLastUpdated());
         meta.setPinned(isPinned());
+        meta.setSearchText(buildSearchText());
         return meta;
+    }
+
+    /** Title + a bounded slice of user prompts, so the sidebar search can match message text. */
+    private String buildSearchText() {
+        StringBuilder blob = new StringBuilder(getTitle());
+        if (messages == null) {
+            return blob.toString();
+        }
+        int scanned = 0;
+        for (AiChatMessage message : messages) {
+            if (message == null || !"user".equalsIgnoreCase(message.getRole())) {
+                continue;
+            }
+            String text = message.getRawPrompt();
+            if (text == null || text.isBlank()) {
+                text = message.getContent();
+            }
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            blob.append(' ').append(text, 0, Math.min(text.length(), SEARCH_TEXT_CHARS_PER_MESSAGE));
+            if (++scanned >= SEARCH_TEXT_MAX_MESSAGES) {
+                break;
+            }
+        }
+        return blob.toString();
     }
 }

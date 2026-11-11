@@ -79,8 +79,17 @@ public class AiAssistantChatHistoryPreservationTest {
                 AiAssistantPageController controller = loader.getController();
                 assertNotNull(controller);
 
-                // Verify targets loaded
+                // The save target starts blank (no silent auto-selection of the first group/suite).
                 controller.reloadTargets();
+                assertTrue(controller.getTargetGroupCombo().getValue() == null
+                        || controller.getTargetGroupCombo().getValue().isBlank());
+                assertTrue(controller.getTargetSuiteCombo().getValue() == null
+                        || controller.getTargetSuiteCombo().getValue().isBlank());
+                assertNull(controller.getSelectedSuiteDir());
+
+                // The user picks a target before starting the conversation.
+                controller.getTargetGroupCombo().setValue("WebTests");
+                controller.getTargetSuiteCombo().setValue("LoginSuite");
                 assertEquals("WebTests", controller.getTargetGroupCombo().getValue());
                 assertEquals("LoginSuite", controller.getTargetSuiteCombo().getValue());
 
@@ -94,9 +103,9 @@ public class AiAssistantChatHistoryPreservationTest {
                 session.addMessage(userMsg);
                 session.addMessage(aiMsg);
 
-                // Save session to disk
+                // Save session to the workspace history (not tied to the selected target)
                 AiChatHistoryStore store = new AiChatHistoryStore();
-                store.saveSession(suiteDir, session);
+                store.saveSession(session);
                 controller.refreshSessionsList(originalSessionId);
 
                 assertEquals(2, controller.getCurrentSession().getMessages().size());
