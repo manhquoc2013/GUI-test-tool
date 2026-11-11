@@ -42,7 +42,7 @@ Output in `target/classes/`.
 mvn -DskipTests package
 ```
 
-Produces `target/playwright-automation-studio-2.6.0.jar`.
+Produces `target/playwright-automation-studio-3.0.0.jar`.
 
 ### Run the application
 
@@ -72,7 +72,7 @@ In addition to portable archives, Test Studio provides native offline installers
 bash scripts/build-installer.sh
 ```
 
-- Produces: `dist/TestStudio-2.6.0-mac-<arch>.dmg`
+- Produces: `dist/TestStudio-3.0.0-mac-<arch>.dmg`
 - Bundles a complete `.app` bundle, embedded JRE 26, Node.js, and offline Chromium.
 - Provides standard `/Applications` drag-and-drop link and icon branding.
 
@@ -82,7 +82,7 @@ bash scripts/build-installer.sh
 scripts\build-installer.bat
 ```
 
-- Produces: `dist\TestStudio-2.6.0-windows-x64-Setup.exe`
+- Produces: `dist\TestStudio-3.0.0-windows-x64-Setup.exe`
 - Uses Inno Setup 6 (with automatic fallback to `jpackage --type exe`).
 - Creates Start Menu entries, optional Desktop shortcut, and registered Windows uninstaller.
 
@@ -171,7 +171,7 @@ Quy trình CI/CD hoàn toàn tự động cho 3 nền tảng (**macOS**, **Windo
 **Quy trình thực thi:**
 1. Setup JDK 26 (Temurin) + Node.js 22.
 2. Kiểm tra công cụ jpackage.
-3. Chạy toàn bộ bộ kiểm thử tự động (**260 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
+3. Chạy toàn bộ bộ kiểm thử tự động (**547 unit tests**) với Xvfb trên Linux để bảo đảm chất lượng tuyệt đối trước khi đóng gói.
 4. Chạy `scripts/build-portable.sh` / `scripts/build-portable.bat` để đóng gói jpackage app-image kèm JRE nhúng, Node.js và Playwright Chromium.
 5. Upload artifacts của 3 hệ điều hành (bao gồm cả bản Portable ZIP và Native Installers: `.exe`, `.dmg`, `.deb`).
 6. Job `publish` gom toàn bộ các tệp phân phối và đính kèm vào mục Assets của GitHub Release chính thức kèm Release Notes được trích xuất tự động theo phiên bản.

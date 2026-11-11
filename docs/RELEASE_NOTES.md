@@ -1,5 +1,57 @@
 # Release Notes — Test Studio
 
+## Test Studio v3.0.0
+
+**Release date:** 2026-11-11
+
+Phiên bản **Test Studio v3.0.0** là bước chuyển lớn về kiến trúc AI: từ một pipeline sinh kiểm thử tuần tự sang **hệ điều phối đa tác nhân ràng buộc bởi rule (Rule-Bound Multi-Agent Orchestration)**, **streaming trực tiếp kèm khả năng dừng lượt chạy**, **ngân sách token thích ứng theo từng model**, cùng đại tu trải nghiệm chat và giao diện thích ứng cho toàn bộ workspace.
+
+---
+
+### Điểm nổi bật trong phiên bản v3.0.0 (Key Highlights)
+
+#### 1. Điều phối đa tác nhân ràng buộc bởi rule (Rule-Bound Multi-Agent Orchestration)
+- **Danh mục tác nhân cố định (`AiAgentRuleCatalog`)**: `SpecMiner` (bóc tách yêu cầu), `TestArchitect` (thiết kế test case), `RealityChecker` (chấm độc lập), `LoopEngineer` (sửa theo finding) và `Coordinator` (điều phối). Mỗi rule quy định rõ nghĩa vụ, điều cấm, bằng chứng bắt buộc và phụ thuộc — không thể tái định nghĩa từ settings hay file ngoài.
+- **Điều phối theo sóng phụ thuộc (`AiCoordinatorAgent`, `AiSubAgentOrchestrator`)**: Coordinator phân rã yêu cầu thành nhiệm vụ kèm `ruleId`; orchestrator chạy theo đồ thị `dependsOn`, chuyển đầu ra của agent trước vào prompt agent sau và đánh dấu agent vượt ranh giới thay vì tin tưởng mù quáng.
+- **Phiên con độc lập**: Mỗi lượt giao việc là một sub-agent session có nhãn agent, số lượt gọi LLM và token vào/ra thực tế; kết quả tổng hợp trả về phiên cha.
+
+#### 2. Streaming trực tiếp & Kiểm soát lượt chạy
+- **Hiển thị theo luồng (`AiStreamAggregator`, `AiStreamObserver`)**: Nội dung trả về hiện dần trong bubble với buffer giới hạn, an toàn đa luồng cho nhiều sub-agent chạy song song.
+- **Nút Dừng (`AiChatRunRegistry`)**: Ngắt lượt chạy ngay tại token kế tiếp, giữ lại phần đã sinh, đóng lượt sạch sẽ; cờ huỷ chỉ thuộc về lượt đã phát sinh nó.
+
+#### 3. Ngân sách đầu ra thích ứng & Chống cắt cụt
+- **Giới hạn theo model (`AiModelCapabilities`)**: Tự suy ra trần output cho từng model (1.024–131.072 token), cho phép người dùng ghi đè; thay thế mức cứng 16.384 trước đây.
+- **Nối tiếp có giới hạn (`AiContinuation`)**: Phản hồi bị cắt được tiếp tục qua nhiều lượt; từ chối nối tiếp khởi động lại; phần văn xuôi bị cắt được khôi phục thay vì mất.
+- **Chia lô theo mục (`AiSectionBatches`)**: Tài liệu lớn được cắt theo heading/ranh giới dòng, chia đều ngân sách token và không bỏ sót màn hình; coverage chỉ tính các case truy vết được (`AiCoverageAnalyzer`).
+
+#### 4. Trải nghiệm Chat 3.0
+- **Chế độ hiển thị (`ChatDisplayMode`)**: `Gọn` / `Tổng hợp` / `Chi tiết` — bubble dài mặc định rút gọn thành đoạn tóm tắt bỏ markdown, kèm nút **Xem thêm**; nội dung gốc trong phiên không bao giờ bị sửa.
+- **Quản lý phiên**: Chỉ báo tin nhắn chưa đọc, lịch sử thu gọn mặc định, di trú phiên cũ, khôi phục đúng suite đích.
+- **Undo chính xác**: Chỉ hoàn tác được prompt của người dùng, và hoàn tác sẽ thu hồi cả các lượt trả lời do prompt đó sinh ra.
+- **Transcript dài**: Cửa sổ hiển thị tin nhắn, tự cuộn chỉ khi đang ở đáy, hộp thoại nội dung dài riêng và giới hạn kích thước bubble.
+
+#### 5. Giao diện thích ứng & Đồng bộ theme Sáng
+- **Breakpoint 900/1.280 px (`UiResponsive`)**: Toolbar tự xuống dòng, nhãn rút gọn, pane làm việc rộng hơn; cửa sổ tối thiểu 900 px và trang AI không còn bị cắt nội dung.
+- **Thanh cuộn 10 px (`CompactScrollBars`)**: Áp dụng đúng cho cả `VirtualFlow` của ListView/TableView/TreeView, kèm cuộn mượt có cache (`SmoothScroll`, `UiMotion`).
+- **Theme Sáng hoàn chỉnh**: Bổ sung các class sidebar, assertion-row, layout, page-title/page-subtitle còn thiếu; sửa `styleClass` bị ngăn bởi dấu phẩy và nhãn trộn ngôn ngữ.
+- **Chi tiết nhỏ**: Dòng case/assert được ellipsize kèm tooltip, bốn hộp thoại còn lại không bị tràn khỏi màn hình thấp.
+
+#### 6. Độ bền dữ liệu & Bảo mật
+- **Chặn path traversal**: Tên Group/Suite/Case được kiểm tra nghiêm ngặt; thao tác xoá từ chối thư mục gốc hoặc đường dẫn ngoài project.
+- **Ghi settings nguyên tử**: `settings.json` được ghi atomic; file hỏng được cách ly giữ nguyên để phục hồi thay vì bị ghi đè.
+- **Mã hoá fail-closed**: Nếu mã hoá API key thất bại, cài đặt không được lưu thay vì lưu plaintext; HTML report escape đầy đủ `status`/`priority`.
+- **Đồng bộ báo cáo**: ReportStore đối soát DB ⇄ đĩa, bỏ qua từng report lỗi thay vì làm hỏng toàn bộ danh sách.
+
+---
+
+### Nâng cấp & Tương thích
+
+- **Phiên bản major 2.6.0 → 3.0.0** do thay đổi mô hình thực thi AI, ngữ nghĩa chat và shell giao diện.
+- Dữ liệu dự án (`group.json`, `suite.json`, script), báo cáo và settings hiện có vẫn đọc được; phiên chat cũ được di trú tự động.
+- Toàn bộ gói cài đặt vẫn được build tự động cho **Windows (`.exe`)**, **macOS (`.dmg`)**, **Linux (`.deb`)** và **Portable (`.zip`)** qua GitHub Actions khi gắn tag `v3.0.0`.
+
+---
+
 ## Test Studio v2.6.0
 
 **Release date:** 2026-11-10

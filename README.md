@@ -17,7 +17,7 @@ The application presents a three-panel layout:
 - **Center content** — the active page: Explorer (tree of Groups → Suites → Cases), Suite Workspace (code editor, Record/Play controls, terminal), or Reports (run history and detail).
 - **Toast overlay** — real-time feedback for every action (CRUD, Record, Run, Export) in success/info/warn/error styles.
 
-All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) dark theme.
+The UI ships with the [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) dark theme and a Modern Light theme, switchable at runtime. The shell and its pages are responsive down to a 900 px window.
 
 ---
 
@@ -49,6 +49,10 @@ All UI is styled with the [Catppuccin Mocha](https://github.com/catppuccin/catpp
   - **Consolidated Workspace Action Bar**: Single-row action bar grouping Case title & status badge, Start URL field, `[🔴 Ghi hình]`, `[▶️ Chạy case]`, `[▶️ Chạy suite]`, `[✨ AI Hỗ trợ]`, `[💾 Lưu code]`, and layout toggles.
   - **Side-by-Side Split View for Code & Asserts**: Inspect and modify test scripts and assertions simultaneously with `[◫ Chia đôi]` or collapse into `[🗖 Toàn màn hình Code]`.
 - **AI Assistant with OpenAI Integration** — Built-in AI assistant powered by OpenAI models (`gpt-4o`, `gpt-4o-mini`, `o3-mini`, `o1`) or compatible endpoints (Azure, OpenRouter, LocalAI, Ollama):
+  - **Rule-bound multi-agent orchestration**: A fixed catalogue of agents (`SpecMiner`, `TestArchitect`, `RealityChecker`, `LoopEngineer`) works in dependency waves under a `Coordinator`; each sub-agent session reports real LLM calls and input/output tokens.
+  - **Streaming responses & stop control**: Replies render live token by token; `Dừng` cancels the in-flight turn at the next token and keeps the partial output.
+  - **Adaptive output budgeting**: Per-model output ceilings, bounded multi-turn continuation, and section-aware batching keep large specifications fully reachable instead of truncating them.
+  - **Chat display modes & session control**: `Gọn` / `Tổng hợp` / `Chi tiết` bubble rendering with `Xem thêm`, unread indicators, collapsed history, and undo that only reverts user prompts together with the assistant turns they produced.
   - **Natural language test generation**: Describe your test scenarios in plain text, and AI generates full Playwright Java scripts and structured assertions.
   - **Multi-format document parsing**: Upload requirements or specifications directly from `.txt`, `.md`, `.json`, `.csv`, Word (`.docx`), PDF (`.pdf`), and UI screenshots/mockups (`.png`, `.jpg`).
   - **One-click Import & Update**: Preview generated cases and import them directly into any Group/Suite or update the active Case.

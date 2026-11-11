@@ -12,11 +12,11 @@ The application runs **in-process** — test scripts are compiled and executed w
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| Application Version | Test Studio | 2.6.0 | Desktop automation IDE |
+| Application Version | Test Studio | 3.0.0 | Desktop automation IDE |
 | Language | Java | 26 | Application core, compiler and test scripts |
 | UI Framework | JavaFX (FXML) | 26.0.1 | Desktop UI with declarative FXML layouts & Catppuccin theme |
 | Browser Automation | Playwright Java | 1.61.0 | Browser launch, page interaction, codegen |
-| Embedded Database | H2 Database | 2.3.232 | Dual persistence, in-memory cache & fast queries |
+| Embedded Database | H2 Database | 2.2.224 | Dual persistence, in-memory cache & fast queries |
 | Document Ingestion | PDFBox & Apache POI | 3.0.4 / 5.5.1 | Multi-format requirement parser (PDF, Word, Excel, PPTX) |
 | JSON Serialization | Jackson | 2.18.2 | Serialization of project trees, suites, and reports |
 | Build & Tooling | Maven & jpackage | 3.9+ / JDK 26 | Compilation, dependency management, app-image packaging |
@@ -41,7 +41,11 @@ com.studio/
 │   ├── RunReport.java                    # Full run report (all cases)
 │   ├── HealedStepMeta.java               # Self-healing audit metadata
 │   ├── StepGroup.java                    # Reusable step group model
-│   └── TestDataProfile.java              # Test data matrix & profile model
+│   ├── TestDataProfile.java              # Test data matrix & profile model
+│   ├── AiAgentRule.java                  # Agent contract: obligations, prohibitions, evidence, dependencies
+│   ├── AiSubAgentSession.java            # Per-agent session with real LLM call & token metrics
+│   ├── AiModelCapabilities.java          # Per-model output ceiling resolution & clamping
+│   └── ChatDisplayMode.java              # COMPACT / SUMMARY / DETAIL transcript rendering
 │
 ├── store/                                # Persistence & Data stores
 │   ├── ProjectStore.java                 # Group/Suite/Case CRUD + atomic disk JSON + H2 cache
@@ -61,6 +65,19 @@ com.studio/
 │   ├── HtmlReportService.java            # Standalone single-file HTML report with embedded screenshots
 │   ├── AssertResultsScorer.java          # Reads assert-results to determine pass/fail & scores
 │   ├── AiTestGeneratorService.java       # Resilient 3-tier parsing & specialist prompt generation
+│   ├── AiAgentRuleCatalog.java           # Immutable in-code agent rule catalogue
+│   ├── AiCoordinatorAgent.java           # Planner that decomposes requests into rule-bound tasks
+│   ├── AiSubAgentOrchestrator.java       # Dependency-wave execution, boundary checks & aggregation
+│   ├── AiLlmAgentExecutor.java           # LLM-backed executor for one agent turn
+│   ├── AiAgentDefinitionLoader.java      # Loads agent/skill definitions into prompts
+│   ├── AiAgentPlanParser.java            # Parses & validates coordinator plans
+│   ├── AiStreamAggregator.java           # Thread-safe streamed preview buffers
+│   ├── AiChatRunRegistry.java            # In-flight turn registry & cancellation flags
+│   ├── AiContinuation.java               # Bounded continuation of truncated replies
+│   ├── AiSectionBatches.java             # Heading/line-safe section batching
+│   ├── AiCoverageAnalyzer.java           # Traceable coverage & uncovered-screen detection
+│   ├── AiDelegationPolicy.java           # Rule selection & delegation limits
+│   ├── AiQualityJudge.java               # Output quality scoring
 │   ├── UserGuideService.java             # In-app bilingual Markdown user guide reader
 │   ├── MarkdownConverterEngine.java      # MarkItDown hybrid document ingestion (PDF, Word, Excel, PPTX, HTML)
 │   ├── LiveDomScanner.java               # Active page DOM structure extractor with LRU cache
@@ -83,6 +100,7 @@ com.studio/
 │   ├── EntityFormDialog.java             # Create/Edit modals for Group, Suite, Case entities
 │   ├── AiAssistantPageController.java    # AI chat workspace, prompt presets, document attachments & case import
 │   ├── AiCasePromptDialog.java           # Modal dialog for prompt-based test generation & specialist routing
+│   ├── LongTextDialog.java               # Scrollable dialog for oversized chat content
 │   ├── UserGuideViewerController.java    # Embedded Markdown guide viewer with TOC navigation
 │   ├── HelpDrawerController.java         # Collapsible quick help side-drawer
 │   ├── TabManager.java                   # Multi-tab document workspace system
@@ -104,6 +122,11 @@ com.studio/
     ├── SecuritySanitizer.java            # Sensitive data redaction for logs, toasts, and exceptions
     ├── ApiKeyCipher.java                 # Machine-bound AES-256-GCM encryption for stored API keys
     ├── VariableResolver.java             # Dynamic variable substitution (${url}, ${timestamp})
+    ├── CompactScrollBars.java            # 10 px scroll bars that survive VirtualFlow layout
+    ├── DialogTheme.java                  # Theme-aware dialog chrome
+    ├── SmoothScroll.java                 # Cached eased scrolling for virtualised lists
+    ├── UiMotion.java                     # Shared animation & motion helpers
+    ├── UiResponsive.java                 # 900/1,280 px breakpoint callbacks
     ├── UiIcons.java                      # Vector SVG icons & graphical helpers
     └── UiTooltips.java                   # Ergonomic UI tooltip helpers
 ```

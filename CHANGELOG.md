@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.0] — 2026-11-11
+
+### Added
+
+- **Rule-Bound Multi-Agent Orchestration (`AiAgentRuleCatalog`, `AiCoordinatorAgent`, `AiSubAgentOrchestrator`)**:
+  - Fixed, in-code agent catalogue — `SpecMiner`, `TestArchitect`, `RealityChecker`, `LoopEngineer`, `Coordinator` — where every rule declares obligations, prohibitions, required evidence, and dependencies. Deployment cannot redefine what an agent may do.
+  - Coordinator agent decomposes the user request into `ruleId` tasks; `AiSubAgentOrchestrator` executes them in dependency waves declared by `dependsOn`, injects upstream output into dependent prompts, and flags boundary violations instead of trusting the output.
+  - Each delegated turn runs as its own sub-agent session with agent-labelled chat messages, real LLM call counts, and input/output token metrics; results aggregate back into the parent conversation.
+- **Streaming Responses & Live Run Control (`AiStreamAggregator`, `AiStreamObserver`, `AiChatRunRegistry`)**:
+  - Thread-safe streamed preview with bounded buffers for concurrent sub-agents and JSON-contract sources that only advance a progress counter.
+  - Stop button cancels an in-flight turn at the next streamed token; a stopped turn is recorded as stopped, not as an agent failure, and the cancel flag is scoped to the turn that raised it.
+- **Adaptive Output Budgeting & Continuation (`AiModelCapabilities`, `AiContinuation`, `AiSectionBatches`, `AiCoverageAnalyzer`)**:
+  - Per-model output ceilings (1,024–131,072 tokens, explicit setting wins, clamped) replace the fixed 16,384 limit.
+  - Truncated replies continue across bounded turns; restarted continuations are rejected; recovered prose batches and cut output are preserved instead of discarded.
+  - Token-aware section batching splits large specifications on heading/line boundaries, water-fills the document budget, and keeps uncovered screens reachable instead of silently truncating 71% of the document.
+- **Chat Display Modes & Long-Content UX (`ChatDisplayMode`, `LongTextDialog`)**:
+  - `Gọn` / `Tổng hợp` / `Chi tiết` modes clip bubbles to a status line, a markdown-stripped executive excerpt, or the full message; the stored content is never rewritten and `Xem thêm` reveals it.
+  - Dedicated long-text dialog, content limit for oversized bubbles, transcript windowing, and smoother scroll behaviour for long agent answers.
+- **Session Management**: Unread indicators, history collapsed by default, session migration, and target-suite reload consistency.
+- **Responsive UI Toolkit (`UiResponsive`, `CompactScrollBars`, `SmoothScroll`, `UiMotion`, `DialogTheme`)**:
+  - Java-driven breakpoints at 900 px (`COMPACT`) and 1,280 px (`REGULAR`) because JavaFX CSS has no `@media`; callbacks fire on boundary crossings only.
+  - 10 px scroll bars that survive `VirtualFlow` layout, cached smooth scrolling, and motion helpers.
+- **AI Agent Definition Loading (`AiAgentDefinitionLoader`, `AiAgentPlanParser`)**: Loads agent/skill definitions and parses coordinator plans with explicit invalid-plan reporting.
+
+### Changed
+
+- **AI Chat transcript & composer**: Windowed transcript rendering, auto-follow only when pinned to the bottom, composer control parity, clearable AI target pickers, and attachment rehydration on undo.
+- **Undo semantics**: Only user prompts are undoable, and undoing a prompt also removes the assistant turns it produced.
+- **UI responsiveness**: Wrapping toolbars, 900 px minimum window, wider work panes, AI page fits compact widths without clipping, dialogs stay on screen on short displays, ellipsized case/assert rows with tooltips.
+- **Theme parity**: Light theme now defines the sidebar, assertion-row, layout, page-title, and page-subtitle classes it previously missed; comma-broken `styleClass` values and mixed-language labels normalized.
+- **Major version**: 2.6.0 → 3.0.0 because the AI execution model, chat semantics, and UI shell changed; existing project data and settings remain readable.
+
+### Fixed
+
+- Null input in tokenizer; continuation merging reduced from O(n²) to O(n).
+- Truncated AI replies no longer lose the cut output; failed batches recover prose instead of aborting the run.
+- HTTP/2 rejection on a host now falls back to HTTP/1.1 for that host instead of retrying the same failing stream.
+- AI assistant content clipping at compact widths, 10 px scroll bars, and faint tree headings in light mode.
+- Data integrity and hardening: path-traversal-proof group/suite/case names, atomic `settings.json` writes with corrupt-file quarantine, fail-closed API-key encryption (never persist plaintext), HTML report field escaping, and report reconcile between disk and H2.
+
+---
+
 ## [2.6.0] — 2026-11-10
 
 ### Added

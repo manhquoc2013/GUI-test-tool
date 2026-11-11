@@ -10,7 +10,7 @@ Bộ tài liệu này phản ánh **chính xác trạng thái thực tế của 
 
 | Thông số | Giá trị |
 |---|---|
-| **Phiên bản (Version)** | **2.6.0** (`pom.xml`) |
+| **Phiên bản (Version)** | **3.0.0** (`pom.xml`) |
 | **Nền tảng (Platform)** | JavaFX 26.0.1 · Playwright Java 1.61.0 · OpenJDK 26+ · Node.js 20+ LTS |
 | **Chủ đề giao diện (Themes)** | Tối (**Catppuccin Mocha**) / Sáng (**Modern Light**) — chuyển tức thời |
 | **Bộ cài đặt (Installers)** | Windows Setup (`.exe`), macOS Disk Image (`.dmg`), Linux Debian (`.deb`), Portable (`.zip`) |
@@ -435,6 +435,22 @@ Hộp thoại `AiCasePromptDialog` (nút **✨ AI Hỗ trợ** trên Workspace) 
 - **Nút Quét Live DOM**: Trích xuất cấu trúc ngữ nghĩa của trang web đang mở để AI sinh ra các locator bền bỉ nhất dựa trên cây DOM thực tế.
 - **Trình nạp tài liệu MarkItDown Hybrid**: Hỗ trợ đính kèm trực tiếp tài liệu đặc tả yêu cầu dạng Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`), PowerPoint (`.pptx`), và HTML. Hệ thống tự động chuyển đổi sang định dạng Markdown rút gọn để làm ngữ cảnh chuẩn xác cho mô hình ngôn ngữ lớn mà không gây tràn token.
 
+### 10.5. Điều phối đa tác nhân, Streaming & Kiểm soát lượt chạy (v3.0)
+
+- **Danh mục tác nhân cố định (`AiAgentRuleCatalog`)**: Mỗi agent có nhiệm vụ (obligations), điều cấm (prohibitions) và bằng chứng bắt buộc (evidence). Danh mục gồm:
+  - **SpecMiner** — bóc tách yêu cầu, liệt kê màn hình/trường/hành vi.
+  - **TestArchitect** — thiết kế test case từ đặc tả đã bóc tách.
+  - **RealityChecker** — chấm điểm độc lập đầu ra của agent khác.
+  - **LoopEngineer** — chỉ sửa đúng các finding được chỉ ra.
+- **Điều phối theo sóng phụ thuộc (`AiCoordinatorAgent`, `AiSubAgentOrchestrator`)**: Coordinator phân rã yêu cầu thành nhiệm vụ có `ruleId`; các agent chạy theo thứ tự khai báo `dependsOn`, đầu ra của agent trước được chuyển vào prompt agent sau. Agent vượt ranh giới hoặc thiếu bằng chứng bị đánh dấu thay vì tin tưởng mù quáng.
+- **Phiên con (sub-agent session)**: Mỗi lượt giao việc hiển thị thành một phiên riêng có nhãn agent, số lượt gọi LLM và token vào/ra; kết quả tổng hợp trả về phiên cha.
+- **Streaming trực tiếp**: Nội dung trả về hiển thị theo luồng; nút **Dừng** ngắt lượt chạy ngay tại token kế tiếp và giữ lại phần đã sinh.
+- **Chống cắt cụt đầu ra**: Giới hạn output tự động theo từng model (`AiModelCapabilities`, 1.024–131.072 token), nối tiếp qua nhiều lượt có giới hạn (`AiContinuation`), từ chối nối tiếp khởi động lại và khôi phục batch văn xuôi bị cắt.
+- **Chia lô theo mục (`AiSectionBatches`)**: Tài liệu lớn được cắt theo heading/ranh giới dòng thành các lô vừa ngân sách token, không bỏ sót màn hình; coverage chỉ tính các case truy vết được (`AiCoverageAnalyzer`).
+- **Chế độ hiển thị chat (`ChatDisplayMode`)**: `Gọn` / `Tổng hợp` / `Chi tiết`; bubble dài mặc định rút gọn kèm nút **Xem thêm**, nội dung gốc không bị sửa đổi.
+- **Quản lý phiên chat**: Chỉ báo tin nhắn chưa đọc, lịch sử thu gọn mặc định, Undo chỉ áp dụng cho prompt người dùng và thu hồi cả lượt trả lời tương ứng của AI.
+- **Giao diện thích ứng**: Toolbar tự xuống dòng, cửa sổ tối thiểu 900px, thanh cuộn 10px, cuộn mượt có cache; theme Sáng đã phủ đủ các class giao diện.
+
 ---
 
 ## 11. Cài đặt, Dọn dẹp dữ liệu & Quản lý chủ đề
@@ -505,7 +521,7 @@ flowchart TD
     C -->|macOS Installer| F["scripts/build-installer.sh<br/>Apple Disk Image (.dmg)"]
     C -->|Linux Installer| G["scripts/build-installer-linux.sh<br/>Debian Package (.deb)"]
     D & E & F & G --> H[".github/workflows/release-portable.yml<br/>Unified Dual Release CI/CD"]
-    H --> I["GitHub Release v2.6.0<br/>6 Artifacts trọn gói kèm Release Notes chuẩn"]
+    H --> I["GitHub Release v3.0.0<br/>6 Artifacts trọn gói kèm Release Notes chuẩn"]
 ```
 
 ### 13.1. Ma trận bộ cài đặt hệ thống
@@ -519,7 +535,7 @@ flowchart TD
 
 ### 13.2. Đường ống phát hành kép tự động (Unified Dual Release CI/CD)
 
-Khi gắn thẻ phiên bản mới (`git tag v2.6.0 && git push origin v2.6.0`):
+Khi gắn thẻ phiên bản mới (`git tag v3.0.0 && git push origin v3.0.0`):
 1. Quy trình `.github/workflows/release-portable.yml` tự động khởi chạy trên GitHub Actions.
 2. Ma trận build song song 3 nền tảng (Windows, macOS, Ubuntu) sản xuất đồng thời **cả 3 bản Portable ZIP** và **cả 3 bản Cài đặt chuyên nghiệp (EXE, DMG, DEB)**.
 3. Tập lệnh `scripts/extract-release-notes.py` tự động bóc tách đúng phần ghi chú phát hành của phiên bản mục tiêu trong `docs/RELEASE_NOTES.md` để đính kèm vào GitHub Release.
@@ -620,7 +636,7 @@ data/
 | Bấm **Ghi hình** nhưng không thấy mở trình duyệt | Thiếu Node.js hoặc Playwright CLI ở bản chạy từ mã nguồn | Cài đặt Node.js 20+ LTS và chạy `npx playwright install`. Nếu dùng bản Portable hoặc Installer, hãy kiểm tra quyền thực thi tập tin. |
 | Ca kiểm thử bị bỏ qua (Skip 100%) khi chạy | Case chưa chuyển sang `Ready` hoặc chưa có assertion `ACTIVE` | Mở case, chuyển trạng thái sang `Ready`, thêm hoặc kích hoạt ít nhất một assertion `ACTIVE`. |
 | Lỗi `Timeout 30000ms exceeded` khi chạy | Trang web phản hồi chậm hoặc phần tử thay đổi vượt quá khả năng tự phục hồi | Mở Assertion Builder tăng `Timeout ms` lên 45000ms hoặc cập nhật lại locator qua nút **Quét Live DOM**. |
-| Bộ cài Windows báo lỗi tập tin đang bị khóa | Ứng dụng Test Studio phiên bản trước đang chạy nền | Bộ cài v2.6.0 tự động phát hiện và hỏi đóng tiến trình qua `taskkill`. Bạn cũng có thể mở Task Manager và kết thúc tiến trình `TestStudio.exe`. |
+| Bộ cài Windows báo lỗi tập tin đang bị khóa | Ứng dụng Test Studio phiên bản trước đang chạy nền | Bộ cài v3.0.0 tự động phát hiện và hỏi đóng tiến trình qua `taskkill`. Bạn cũng có thể mở Task Manager và kết thúc tiến trình `TestStudio.exe`. |
 | Trợ lý AI báo lỗi `Connection refused` hoặc timeout | Sai Base URL hoặc mạng bị chặn proxy | Vào **Cài đặt → tab AI**, kiểm tra Base URL và bấm nút **Kiểm tra kết nối** để đo độ trễ và nhận diện thông báo lỗi chi tiết. |
 
 ### 16.2. Các câu hỏi thường gặp (FAQ)
