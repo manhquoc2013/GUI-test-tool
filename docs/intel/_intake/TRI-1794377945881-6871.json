@@ -1,0 +1,142 @@
+{
+  "request_id": "ses_e3734f6b4ffe0eAJTvK8WoFjdx/msg_1c942879b001TyRqi6Q8Am8w3o/call_00_xMnBBnuZdeHN3fB8Uy8l8137",
+  "decision_axes": {
+    "version": 1,
+    "scope": {
+      "files": 7,
+      "packages": 0,
+      "write_regions": 1
+    },
+    "risk": {
+      "status": "unassessed",
+      "groups": []
+    },
+    "complexity": "unassessed",
+    "execution": {
+      "owner": true,
+      "basis": "scope_envelope",
+      "parallelism": "not_inferred",
+      "local_batch_files": 8
+    }
+  },
+  "triage_id": "TRI-1794377945881-6871",
+  "created_at": 1794377945881,
+  "request_summary": "Fix duplicated button icons, keep panel contents from clipping at small widths, collapse the AI history panel by default, and remove the 'Quét Live DOM' button.",
+  "change_class": "C1",
+  "handling": "inline_declared_scope",
+  "evidence": {
+    "edit_target_files": [
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/controller/ReportDetailPageController.java",
+      "src/main/resources/css/studio-light.css",
+      "src/main/resources/css/studio.css",
+      "src/main/resources/fxml/ai_assistant_page.fxml",
+      "src/main/resources/fxml/report_detail_page.fxml",
+      "src/main/resources/fxml/suite_workspace_page.fxml"
+    ],
+    "impact_files": [
+      "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "src/main/java/com/studio/controller/ReportDetailPageController.java",
+      "src/main/resources/css/studio-light.css",
+      "src/main/resources/css/studio.css",
+      "src/main/resources/fxml/ai_assistant_page.fxml",
+      "src/main/resources/fxml/report_detail_page.fxml",
+      "src/main/resources/fxml/suite_workspace_page.fxml"
+    ],
+    "packages": [],
+    "shape": "scaffolded",
+    "write_scope_clusters": 1,
+    "brownfield_extend": false,
+    "one_way_door_hits": [],
+    "risk_effects": [],
+    "cochange": {
+      "status": "measured",
+      "window_commits": 18,
+      "areas": 3,
+      "judged_pairs": 1,
+      "novel_pair_count": 0,
+      "novel_pairs": [],
+      "min_confidence": 0.05,
+      "risk_score": 0.6
+    },
+    "dev_footprint": "mixed"
+  },
+  "rationale": "C1: 7 edit-target files in one package, no one-way door — pre-declared write scope required (7 edit-target files / 0 package(s) / 1 write-scope clusters / co-change risk 0.6 (0/1 judged pairs novel) / shape=scaffolded)",
+  "entry_point": "AI Assistant page and the Suite workspace right-side panels",
+  "blast_radius": 7,
+  "done_oracle": "AI Assistant opens with the history panel collapsed; the 'Quét Live DOM' button is gone; no button renders two icons; no control or label is clipped when a panel is narrowed; all screens still load and their existing actions still work.",
+  "verification_commands": [
+    {
+      "command": "mvn -o test -Dtest=FxmlLoadTest -DfailIfNoTests=false",
+      "cwd": "/Users/tranquoc/Developer/tools/GUI-test-tool",
+      "timeout_ms": 480000
+    }
+  ],
+  "declared_write_scope": [
+    "src/main/java/com/studio/controller/AiAssistantPageController.java",
+    "src/main/java/com/studio/controller/ReportDetailPageController.java",
+    "src/main/resources/css/studio-light.css",
+    "src/main/resources/css/studio.css",
+    "src/main/resources/fxml/ai_assistant_page.fxml",
+    "src/main/resources/fxml/report_detail_page.fxml",
+    "src/main/resources/fxml/suite_workspace_page.fxml"
+  ],
+  "seam_claims": [
+    {
+      "file": "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "line": 200,
+      "quote": "if (scanDomBtn != null) {",
+      "source_hash": "7d16b96b2e62a2a45d68a022f33bd2df4a27332c1e310c89093a9d62e9729cc0",
+      "quote_hash": "bc5749e232cd5d9de6fc01c603547f691ccb46f667f748bbba29a43717cb86f1"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "line": 196,
+      "quote": "UiIcons.setGraphic(attachFileBtn, UiIcons.PLUS, 12);",
+      "source_hash": "7d16b96b2e62a2a45d68a022f33bd2df4a27332c1e310c89093a9d62e9729cc0",
+      "quote_hash": "55b81cb9d3ce366e90335797734bf82a52c6fc7961e6f5e35fe29c6763538de3"
+    },
+    {
+      "file": "src/main/java/com/studio/controller/AiAssistantPageController.java",
+      "line": 591,
+      "quote": "public void toggleHistorySidebar() {",
+      "source_hash": "7d16b96b2e62a2a45d68a022f33bd2df4a27332c1e310c89093a9d62e9729cc0",
+      "quote_hash": "969610aafa64203f828e98aaa83946c8d661f123af9c6b34c550cb0df53f97df"
+    },
+    {
+      "file": "src/main/resources/fxml/ai_assistant_page.fxml",
+      "line": 40,
+      "quote": "<Button text=\"+ Chat mới\" fx:id=\"newChatToolbarBtn\" onAction=\"#createNewChat\" styleClass=\"btn-secondary\" minWidth=\"-Infinity\"/>",
+      "source_hash": "1d861b1c3f93b25bb94ee0e88797f208082757ce1ce531814dc745dd0a43b095",
+      "quote_hash": "95d364db765aaa48b2e6ab912ec512686d7546dc85b2d4af0d4184b1d35f1419"
+    },
+    {
+      "file": "src/main/resources/fxml/ai_assistant_page.fxml",
+      "line": 35,
+      "quote": "<Button text=\"☰ Lịch sử\" fx:id=\"toggleSidebarBtn\" onAction=\"#toggleHistorySidebar\" styleClass=\"icon-btn\" minWidth=\"-Infinity\"/>",
+      "source_hash": "1d861b1c3f93b25bb94ee0e88797f208082757ce1ce531814dc745dd0a43b095",
+      "quote_hash": "e941a7fd23f2e73ea87c98e86a5bdb54569acb360c542ba8fc713c2e62a8e775"
+    },
+    {
+      "file": "src/main/resources/fxml/suite_workspace_page.fxml",
+      "line": 70,
+      "quote": "<VBox styleClass=\"case-list-panel\" minWidth=\"200\" prefWidth=\"260\">",
+      "source_hash": "dff821d3acb49a2e9eb21ef70ef9589cc070d2ce8b8b879a9ebd284395668b3f",
+      "quote_hash": "3f049506466cfd1bbc7654d913887fd1320f42f6c63227a6dc570711b0bbd697"
+    }
+  ],
+  "source_snapshot": {
+    "vcs": "git",
+    "head": "ad53e8191057ce50f4f23a0fea2f54fdd4ec5487",
+    "dirty": true,
+    "captured_at": 1794377946504
+  },
+  "target_module": "M-001",
+  "budget": {
+    "wall_clock_ms": 2400000,
+    "turns": 100,
+    "turns_used": 0
+  },
+  "risk_facts": [],
+  "risk_facts_source": "declared"
+}
