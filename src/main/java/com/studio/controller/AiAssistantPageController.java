@@ -264,7 +264,12 @@ public class AiAssistantPageController implements Initializable {
                 } else {
                     int stepsCount = item.getTestSteps() != null ? item.getTestSteps().size() : 0;
                     int assertsCount = item.getAssertions() != null ? item.getAssertions().size() : 0;
-                    setText(item.getName() + " (" + stepsCount + " steps, " + assertsCount + " asserts)");
+                    String line = item.getName() + " (" + stepsCount + " steps, "
+                            + assertsCount + " asserts)";
+                    setText(line);
+                    // The cell ellipsizes by default on a narrow panel; the tooltip
+                    // keeps the full case name reachable.
+                    UiTooltips.install(this, line);
                 }
             }
         });

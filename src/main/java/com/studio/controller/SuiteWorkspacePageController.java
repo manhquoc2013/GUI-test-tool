@@ -413,6 +413,9 @@ public class SuiteWorkspacePageController {
                     row.getStyleClass().add("case-row");
                     nameLabel.getStyleClass().add("case-row-label");
                     nameLabel.setMaxWidth(Double.MAX_VALUE);
+                    // Single line + ellipsis, same as the assert rows: a case name
+                    // must never be cut mid-word when the list panel narrows.
+                    nameLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
                     HBox.setHgrow(nameLabel, Priority.ALWAYS);
                     statusLabel.getStyleClass().add("case-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
@@ -462,6 +465,7 @@ public class SuiteWorkspacePageController {
                     TestCase tc = findCaseByName(name);
                     boolean showRun = false;
                     nameLabel.setText(name);
+                    UiTooltips.install(nameLabel, name);
                     String suiteName = suite != null ? suite.getName() : null;
                     String overlay = tc != null
                             ? RunProgressService.overlayForCase(tc.getId(), suiteName, name)
