@@ -45,7 +45,7 @@
     <!-- Main Content Area: History Sidebar + Chat/Preview SplitPane -->
     <HBox VBox.vgrow="ALWAYS" spacing="0">
         <!-- Collapsible Left Sidebar for Chat Sessions -->
-        <VBox fx:id="historySidebar" styleClass="ai-sessions-sidebar" prefWidth="250" minWidth="220" maxWidth="320">
+        <VBox fx:id="historySidebar" styleClass="ai-sessions-sidebar" prefWidth="250" minWidth="170" maxWidth="320">
             <padding><Insets top="10" right="8" bottom="10" left="8"/></padding>
             <Button text="+ Cuộc trò chuyện mới" fx:id="newChatBtn" onAction="#createNewChat"
                     styleClass="ai-new-chat-btn" maxWidth="Infinity"/>
@@ -127,7 +127,7 @@
                 <!-- Wrapping header: the export menu is wide and cannot shrink,
                      so a fixed HBox forced this panel past the window edge. -->
                 <FlowPane hgap="10" vgap="6" alignment="CENTER_LEFT">
-                    <VBox spacing="2" prefWidth="260" minWidth="120">
+                    <VBox spacing="2" prefWidth="180" minWidth="100">
                         <Label text="Kết quả sinh Test Case &amp; Kịch bản" styleClass="section-header" wrapText="true" minWidth="0"/>
                         <Label fx:id="resultSummaryLabel" text="Chưa có kết quả. Hãy nhập yêu cầu ở khung bên trái." styleClass="section-summary" wrapText="true" minWidth="0"/>
                     </VBox>
