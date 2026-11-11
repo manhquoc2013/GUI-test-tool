@@ -536,6 +536,33 @@ public class AiMultiAgentCoordinator {
         return traced;
     }
 
+    /**
+     * The screens of {@code screens} that no case can be traced to. Used after a truncated reply: the
+     * cases that survived cover some screens, and only the untouched ones are worth asking for again.
+     */
+    public static List<ScreenSpecSection> uncoveredScreens(List<AiGeneratedCase> cases,
+                                                           List<ScreenSpecSection> screens) {
+        if (screens == null || screens.isEmpty()) {
+            return List.of();
+        }
+        List<ScreenSpecSection> uncovered = new java.util.ArrayList<>();
+        for (ScreenSpecSection screen : screens) {
+            boolean covered = false;
+            if (cases != null) {
+                for (AiGeneratedCase c : cases) {
+                    if (c != null && findScreenForCase(c, List.of(screen)) != null) {
+                        covered = true;
+                        break;
+                    }
+                }
+            }
+            if (!covered) {
+                uncovered.add(screen);
+            }
+        }
+        return uncovered;
+    }
+
     private static ScreenSpecSection findScreenForCase(AiGeneratedCase c,
                                                        List<ScreenSpecSection> screens) {
         String declared = normalizeToken(c.getScreenId());

@@ -73,6 +73,8 @@ public class AiTestGeneratorService {
     private static final java.util.regex.Pattern SUMMARY_FIELD_PATTERN = java.util.regex.Pattern.compile("\"summary\"\\s*:\\s*\"([^\"]+)\"");
     private static final java.util.regex.Pattern GROUP_FIELD_PATTERN = java.util.regex.Pattern.compile("\"suggestedGroup\"\\s*:\\s*\"([^\"]+)\"");
     private static final java.util.regex.Pattern SUITE_FIELD_PATTERN = java.util.regex.Pattern.compile("\"suggestedSuite\"\\s*:\\s*\"([^\"]+)\"");
+    /** Start of the {@code cases} array, i.e. where salvage begins scanning for complete objects. */
+    private static final java.util.regex.Pattern CASES_ARRAY_PATTERN = java.util.regex.Pattern.compile("\"cases\"\\s*:\\s*\\[");
     private static final java.util.regex.Pattern SCRIPT_FIELD_PATTERN = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
     private static final java.util.regex.Pattern SCRIPT_TRUNC_PATTERN = java.util.regex.Pattern.compile("\"scriptCode\"\\s*:\\s*\"(.*)", java.util.regex.Pattern.DOTALL);
     private static final java.util.regex.Pattern NAME_FIELD_PATTERN = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"");
@@ -911,8 +913,9 @@ public class AiTestGeneratorService {
 
     /**
      * AG-2: one screen per batch when generating scripts (largest response). Otherwise the number of
-     * screens per batch is derived from the input window after reserving output and fixed per-batch
-     * overhead (system prompt, pipeline directive, definitions, DOM), measured in tokens.
+     * screens per batch is derived from BOTH budgets: the input window bounds how much specification one
+     * turn can carry, and the output ceiling bounds how many cases the reply can hold. Sizing from the
+     * input window alone produced batches that could never be emitted in one reply.
      */
     static int resolveBatchSize(AiConfig config,
                                 List<AiMultiAgentCoordinator.ScreenSpecSection> screens,
@@ -935,8 +938,66 @@ public class AiTestGeneratorService {
         int instructionOverheadPerScreen = 800;
         int availableInput = Math.max(1024, contextLimit - outputReserve - fixedOverhead);
 
-        int computed = availableInput / (avgScreenTokens + instructionOverheadPerScreen);
-        return Math.max(1, Math.min(3, computed));
+        int byInput = availableInput / (avgScreenTokens + instructionOverheadPerScreen);
+        int byOutput = maxScreensThatFitOneReply(config);
+        return Math.max(1, Math.min(Math.min(3, byInput), byOutput));
+    }
+
+    /**
+     * How many screens one reply can carry, from the model's output ceiling.
+     *
+     * <p>A screen is asked for {@link #MIN_CASES_PER_SCREEN} full cases, and one JSON case with steps,
+     * data sets and assertions measures roughly {@link #ESTIMATED_TOKENS_PER_CASE} tokens. A batch whose
+     * requested output exceeds the ceiling can never be delivered in one reply: the provider cuts it,
+     * continuation rewrites instead of resuming, and the batch is lost after several 40s calls.</p>
+     */
+    static int maxScreensThatFitOneReply(AiConfig config) {
+        int ceiling = AiModelCapabilities.resolveOutputCeiling(config);
+        int perScreen = MIN_CASES_PER_SCREEN * ESTIMATED_TOKENS_PER_CASE;
+        return Math.max(1, ceiling / perScreen);
+    }
+
+    /**
+     * Builds the message list for one batch attempt. Shared by the first attempt and the recovery
+     * attempts so a smaller screen set is asked with exactly the same contract and constraints.
+     */
+    private List<OpenAiClient.ChatMessage> buildBatchMessages(String effectivePrompt,
+                                                              List<AiMultiAgentCoordinator.ScreenSpecSection> batchScreens,
+                                                              int batchNum,
+                                                              int totalBatches,
+                                                              int totalScreens,
+                                                              AiSkill effectiveSkill,
+                                                              boolean effectiveGenerateScript,
+                                                              List<com.studio.model.AiChatMessage> history,
+                                                              String batchContext,
+                                                              String formattedDom,
+                                                              int maxTokens) {
+        String batchPrompt = multiAgentCoordinator.buildScreenBatchPrompt(
+                effectivePrompt, batchScreens, batchNum, totalBatches, totalScreens, MIN_CASES_PER_SCREEN);
+        StringBuilder systemPrompt = new StringBuilder(SYSTEM_PROMPT)
+                .append("\n\n")
+                .append(multiAgentCoordinator.buildMultiAgentPipelineDirective(
+                        batchPrompt, effectiveSkill, List.of(), effectiveGenerateScript));
+        String batchDefinitions = AiAgentDefinitionLoader.toPromptSection(
+                definitionLoader.selectFor(batchPrompt, effectiveSkill.getId()));
+        if (!batchDefinitions.isBlank()) {
+            systemPrompt.append("\n\n").append(batchDefinitions);
+        }
+        if (!effectiveGenerateScript) {
+            systemPrompt.append("\n\n").append("""
+                    ### ⚠️ QUY TẮC BẮT BUỘC: Đặt `scriptCode = ""` và tập trung 100% vào `testSteps`, `testDataSets` và `assertions`.
+                    """);
+        }
+        return tokenOptimizer.buildOptimizedMessages(
+                systemPrompt.toString(),
+                history,
+                batchPrompt,
+                List.of(),
+                batchContext,
+                formattedDom,
+                maxTokens,
+                AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
+        );
     }
 
     private GenerationResult orchestrateMultiScreenBatches(
@@ -993,67 +1054,71 @@ public class AiTestGeneratorService {
                         + (start + 1) + " - " + end + "/" + totalScreens + " (Lô " + batchNum + "/" + totalBatches + ")...");
             }
 
-            String batchPrompt = multiAgentCoordinator.buildScreenBatchPrompt(
-                    effectivePrompt, batchScreens, batchNum, totalBatches, totalScreens, 4);
-
-            String batchSystemPrompt = SYSTEM_PROMPT + "\n\n" + multiAgentCoordinator.buildMultiAgentPipelineDirective(
-                    batchPrompt, effectiveSkill, List.of(), effectiveGenerateScript);
-            String batchDefinitions = AiAgentDefinitionLoader.toPromptSection(
-                    definitionLoader.selectFor(batchPrompt, effectiveSkill.getId()));
-            if (!batchDefinitions.isBlank()) {
-                batchSystemPrompt = batchSystemPrompt + "\n\n" + batchDefinitions;
-            }
-
-            if (!effectiveGenerateScript) {
-                batchSystemPrompt = batchSystemPrompt + "\n\n" + """
-                    ### ⚠️ QUY TẮC BẮT BUỘC: Đặt `scriptCode = ""` và tập trung 100% vào `testSteps`, `testDataSets` và `assertions`.
-                    """;
-            }
-
-            List<OpenAiClient.ChatMessage> batchMessages = tokenOptimizer.buildOptimizedMessages(
-                    batchSystemPrompt,
-                    history,
-                    batchPrompt,
-                    List.of(),
-                    batchContext,
-                    formattedDom,
-                    maxTokens,
-                    AiTokenOptimizer.DEFAULT_SLIDING_WINDOW_TURNS
-            );
-
+            // A truncated reply covers only the screens whose cases made it out. Asking again for the
+            // whole batch repeats the same overflow, so the retry carries only the uncovered screens:
+            // a strictly smaller request that fits, and the loop always makes progress.
+            List<AiMultiAgentCoordinator.ScreenSpecSection> pendingScreens = new ArrayList<>(batchScreens);
+            int maxAttempts = pendingScreens.size();
+            boolean batchFailed = false;
             try {
-                OpenAiClient.Completion batchCompletion = completeChatWithTruncationRecovery(config, batchMessages,
-                        OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true, observer);
-                String reply = batchCompletion.content();
-                if (batchCompletion.truncated()) {
-                    // A cut batch yields a half-written case list; say so instead of passing it off as complete.
-                    outputTruncationNoted = true;
-                    AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
-                            + " bị cắt do giới hạn output tokens dù đã thử lại với ngân sách lớn hơn");
-                }                // A model can answer a batch with prose instead of the JSON contract (observed in
-                // production: "Tôi đã phân tích yêu cầu..."). Retry that one batch once, exactly like
-                // the single-shot path does, and count the batch as lost only if the retry fails too.
-                if (!containsExtractableCases(reply)) {
-                    batchRetryCount++;
-                    AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
-                            + " không trả JSON cases, chạy lại một lượt tự hiệu chỉnh");
-                    OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
-                            buildBatchRetryMessages(batchMessages, reply),
-                            OpenAiClient.defaultOutputTokensFor(effectiveGenerateScript), true, observer);
-                    String retryReply = retryCompletion.content();
-                    if (retryCompletion.truncated()) {
-                        outputTruncationNoted = true;
+                for (int attempt = 1; attempt <= maxAttempts && !pendingScreens.isEmpty() && !batchFailed; attempt++) {
+                    if (attempt > 1) {
+                        if (progressListener != null) {
+                            progressListener.accept("🔁 [Agent 2/4 - Test Architect] Lô " + batchNum + "/" + totalBatches
+                                    + " bị cắt — thiết kế lại cho " + pendingScreens.size()
+                                    + " màn hình chưa phủ (Màn hình " + pendingScreens.get(0).screenIndex()
+                                    + "/" + totalScreens + ")...");
+                        }
+                        AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " chạy lại cho " + pendingScreens.size() + " màn hình chưa phủ");
                     }
-                    if (containsExtractableCases(retryReply)) {
-                        reply = retryReply;
-                    } else {
+
+                    List<OpenAiClient.ChatMessage> batchMessages = buildBatchMessages(
+                            effectivePrompt, pendingScreens, batchNum, totalBatches, totalScreens,
+                            effectiveSkill, effectiveGenerateScript, history, batchContext, formattedDom, maxTokens);
+
+                    OpenAiClient.Completion batchCompletion = completeChatWithTruncationRecovery(config, batchMessages,
+                            AiModelCapabilities.resolveOutputCeiling(config), true, observer);
+                    boolean truncated = batchCompletion.truncated();
+                    String reply = batchCompletion.content();
+                    if (truncated) {
+                        // A cut batch yields a half-written case list; say so instead of passing it off as complete.
+                        outputTruncationNoted = true;
+                        AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " bị cắt do giới hạn output tokens");
+                    }
+
+                    // A model can answer a batch with prose instead of the JSON contract (observed in
+                    // production: "Tôi đã phân tích yêu cầu..."). Retry that one batch once, exactly like
+                    // the single-shot path does, and count the batch as lost only if the retry fails too.
+                    if (!containsExtractableCases(reply)) {
+                        batchRetryCount++;
+                        AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " không trả JSON cases, chạy lại một lượt tự hiệu chỉnh");
+                        OpenAiClient.Completion retryCompletion = completeChatWithTruncationRecovery(config,
+                                buildBatchRetryMessages(batchMessages, reply),
+                                AiModelCapabilities.resolveOutputCeiling(config), true, observer);
+                        String retryReply = retryCompletion.content();
+                        if (retryCompletion.truncated()) {
+                            outputTruncationNoted = true;
+                            truncated = true;
+                        }
+                        if (containsExtractableCases(retryReply)) {
+                            reply = retryReply;
+                        } else {
+                            lostBatches.add(batchNum);
+                            AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                    + " mất sau lượt tự hiệu chỉnh: " + describeReply(reply));
+                            batchFailed = true;
+                            continue;
+                        }
+                    }
+
+                    if (reply == null || reply.isBlank()) {
+                        batchFailed = true;
                         lostBatches.add(batchNum);
-                        AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
-                                + " mất sau lượt tự hiệu chỉnh: " + describeReply(reply));
                         continue;
                     }
-                }
-                if (reply != null && !reply.isBlank()) {
                     // finish_reason is not proof of completeness: an OpenAI-compatible gateway may omit it
                     // or report "stop" while the JSON document is still open. Auto-repair salvages the
                     // partial cases, so the loss has to be reported here rather than silently trusted.
@@ -1063,23 +1128,33 @@ public class AiTestGeneratorService {
                                 + " trả JSON chưa đóng; chỉ giữ được phần đọc được");
                     }
                     GenerationResult batchRes = parseResponse(reply, effectiveSkill);
-                    if (batchRes != null && batchRes.getCases() != null && !batchRes.getCases().isEmpty()) {
-                        AiMultiAgentCoordinator.bindTraceability(batchRes.getCases(), batchScreens);
-                        int added = 0;
-                        for (AiGeneratedCase generated : batchRes.getCases()) {
-                            String key = generated.duplicateKey();
-                            if (aggregatedCases.stream().anyMatch(existing -> existing.duplicateKey().equals(key))) {
-                                duplicateCases++;
-                                continue;
-                            }
-                            aggregatedCases.add(generated);
-                            added++;
-                        }
-                        if (added == 0) {
-                            AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
-                                    + " chỉ trả về case trùng với các lô trước; không cộng thêm độ phủ");
+                    List<AiGeneratedCase> batchCases = batchRes != null && batchRes.getCases() != null
+                            ? batchRes.getCases() : List.of();
+                    if (batchCases.isEmpty()) {
+                        // Every screen left in this attempt stays uncovered: report it instead of letting
+                        // a recovery attempt look like a batch that simply produced nothing.
+                        lostBatches.add(batchNum);
+                        AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " không trích xuất được case nào: " + describeReply(reply));
+                        batchFailed = true;
+                        continue;
+                    }
+
+                    AiMultiAgentCoordinator.bindTraceability(batchCases, pendingScreens);
+                    int added = 0;
+                    for (AiGeneratedCase generated : batchCases) {
+                        String key = generated.duplicateKey();
+                        if (aggregatedCases.stream().anyMatch(existing -> existing.duplicateKey().equals(key))) {
+                            duplicateCases++;
                             continue;
                         }
+                        aggregatedCases.add(generated);
+                        added++;
+                    }
+                    if (added == 0) {
+                        AiLoggingService.warn("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " chỉ trả về case trùng với các lô trước; không cộng thêm độ phủ");
+                    } else {
                         if (primaryGroup == null && !AiMultiAgentCoordinator.isGenericOrBlank(batchRes.getSuggestedGroup())) {
                             primaryGroup = batchRes.getSuggestedGroup();
                         }
@@ -1090,6 +1165,21 @@ public class AiTestGeneratorService {
                             if (combinedSummary.length() > 0) combinedSummary.append("\n\n");
                             combinedSummary.append(batchRes.getSummary());
                         }
+                    }
+
+                    if (!truncated) {
+                        break;
+                    }
+                    List<AiMultiAgentCoordinator.ScreenSpecSection> uncovered =
+                            AiMultiAgentCoordinator.uncoveredScreens(batchCases, pendingScreens);
+                    if (added == 0 && uncovered.size() == pendingScreens.size()) {
+                        // Nothing new survived: another identical request cannot do better.
+                        AiLoggingService.error("AI-BATCH", "Lô " + batchNum + "/" + totalBatches
+                                + " bị cắt và không phủ thêm màn hình nào; dừng lô này");
+                        lostBatches.add(batchNum);
+                        batchFailed = true;
+                    } else {
+                        pendingScreens = new ArrayList<>(uncovered);
                     }
                 }
             } catch (AiRunCancelledException cancelled) {
@@ -1332,6 +1422,13 @@ public class AiTestGeneratorService {
     static final int MAX_RESTART_RETRIES = AiContinuation.DEFAULT_MAX_RESTART_RETRIES;
     /** Headroom kept free in the model's context window for token-estimate drift. */
     static final int CONTEXT_SAFETY_MARGIN_TOKENS = AiContinuation.CONTEXT_SAFETY_MARGIN_TOKENS;
+    /** Cases every screen is asked for in a batch prompt (happy path, validation, boundary, business rule). */
+    static final int MIN_CASES_PER_SCREEN = 4;
+    /**
+     * Measured cost of one JSON case (steps + data sets + assertions) in output tokens. The production
+     * log put ~2.9 characters per token, i.e. ~340 tokens per 1000 characters of emitted case JSON.
+     */
+    static final int ESTIMATED_TOKENS_PER_CASE = 700;
 
     /**
      * One model call with output-limit recovery. The output budget is first clamped to what the model's context
@@ -1605,6 +1702,21 @@ public class AiTestGeneratorService {
             }
         } catch (Exception e2) {
             AiLoggingService.warn("AI-PARSE", "Tier 2 Auto-repair thất bại (" + e2.getMessage() + "). Đang thử Tier 3 (Tolerant extraction)...");
+        }
+
+        // Tier 2b: Salvage every complete case object from a cut array. Auto-repair fails whenever the cut
+        // lands inside a field name ("{... , \"screenId\"}" is not JSON), and a scenario-only reply has no
+        // scriptCode for Tier 3 to recover, so without this tier one bad cut loses the whole batch.
+        try {
+            GenerationResult salvaged = salvageCompleteCases(jsonText, rawResponse);
+            if (salvaged != null && salvaged.getCases() != null && !salvaged.getCases().isEmpty()) {
+                AiLoggingService.warn("AI-PARSE", "Tier 2b: JSON bị cắt — đã cứu "
+                        + salvaged.getCases().size() + " case hoàn chỉnh, phần bị cắt bị bỏ.");
+                return salvaged;
+            }
+        } catch (Exception e2b) {
+            AiLoggingService.warn("AI-PARSE", "Tier 2b Salvage thất bại (" + e2b.getMessage()
+                    + "). Đang thử Tier 3 (Tolerant extraction)...");
         }
 
         // Tier 3: Tolerant regex / pattern extraction directly from raw text
@@ -2121,6 +2233,114 @@ public class AiTestGeneratorService {
             return s.substring(firstBrace).trim();
         }
         return s;
+    }
+
+    /**
+     * Recovers the complete case objects a truncated {@code cases} array already contains.
+     *
+     * <p>Auto-repair can only close what was opened; it cannot fix a cut that lands inside a field name
+     * or a value, and a scenario-only reply carries no {@code scriptCode} for the tolerant tier to pull
+     * out. Every case before the cut is valid JSON on its own, so those are re-assembled into a small
+     * document and parsed with the normal parser instead of being thrown away with the broken tail.</p>
+     *
+     * @return the recovered cases, or {@code null} when not a single case object is complete
+     */
+    GenerationResult salvageCompleteCases(String jsonText, String rawResponse) throws Exception {
+        List<String> completeObjects = extractCompleteCaseObjects(jsonText);
+        if (completeObjects.isEmpty()) {
+            return null;
+        }
+        // One malformed element must not discard the siblings that are intact.
+        List<String> validObjects = new ArrayList<>(completeObjects.size());
+        int skipped = 0;
+        for (String object : completeObjects) {
+            try {
+                if (mapper.readTree(object).isObject()) {
+                    validObjects.add(object);
+                }
+            } catch (com.fasterxml.jackson.core.JsonProcessingException invalidElement) {
+                skipped++;
+            }
+        }
+        if (skipped > 0) {
+            AiLoggingService.warn("AI-PARSE", "Tier 2b: bỏ " + skipped + " case có JSON hỏng, giữ "
+                    + validObjects.size() + " case đọc được");
+        }
+        if (validObjects.isEmpty()) {
+            return null;
+        }
+        StringBuilder document = new StringBuilder("{\"summary\": ")
+                .append(mapper.writeValueAsString(firstMatch(SUMMARY_FIELD_PATTERN, rawResponse,
+                        "Đã phục hồi các test case hoàn chỉnh từ phản hồi bị cắt ngang")))
+                .append(",\"suggestedGroup\": ")
+                .append(mapper.writeValueAsString(firstMatch(GROUP_FIELD_PATTERN, rawResponse, "")))
+                .append(",\"suggestedSuite\": ")
+                .append(mapper.writeValueAsString(firstMatch(SUITE_FIELD_PATTERN, rawResponse, "")))
+                .append(",\"cases\": [")
+                .append(String.join(",", validObjects))
+                .append("]}");
+        GenerationResult result = parseJsonCases(document.toString(), rawResponse);
+        return result.getCases().isEmpty() ? null : result;
+    }
+
+    /** Every top-level object of the {@code cases} array whose closing brace was actually received. */
+    static List<String> extractCompleteCaseObjects(String jsonText) {
+        List<String> objects = new ArrayList<>();
+        if (jsonText == null || jsonText.isBlank()) {
+            return objects;
+        }
+        java.util.regex.Matcher arrayStart = CASES_ARRAY_PATTERN.matcher(jsonText);
+        if (!arrayStart.find()) {
+            return objects;
+        }
+        int depth = 1;
+        boolean inString = false;
+        boolean escaped = false;
+        int elementStart = -1;
+        for (int i = arrayStart.end(); i < jsonText.length(); i++) {
+            char c = jsonText.charAt(i);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            switch (c) {
+                case '"' -> inString = true;
+                case '{', '[' -> {
+                    if (depth == 1 && c == '{') {
+                        elementStart = i;
+                    }
+                    depth++;
+                }
+                case '}', ']' -> {
+                    depth--;
+                    if (depth == 0) {
+                        return objects;
+                    }
+                    if (depth == 1 && c == '}' && elementStart >= 0) {
+                        objects.add(jsonText.substring(elementStart, i + 1));
+                        elementStart = -1;
+                    }
+                }
+                default -> { }
+            }
+        }
+        // The tail is still open: it was cut mid-object and must not be salvaged.
+        return objects;
+    }
+
+    /** First captured group of {@code pattern} in {@code text}, or {@code fallback} when absent. */
+    private static String firstMatch(java.util.regex.Pattern pattern, String text, String fallback) {
+        if (text == null || text.isBlank()) {
+            return fallback;
+        }
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        return matcher.find() ? matcher.group(1) : fallback;
     }
 
     /**

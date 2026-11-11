@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studio.model.AiConfig;
+import com.studio.model.AiModelCapabilities;
 import com.studio.model.AiSkill;
 import org.junit.jupiter.api.Test;
 
@@ -109,6 +110,105 @@ public class AiMultiAgentBatchRecoveryTest {
         assertTrue(result.describeLostBatches().contains("CHƯA phủ đủ"),
                 "the report must tell the user the suite is incomplete");
         assertFalse(result.getCases().isEmpty(), "healthy batches must still be returned");
+    }
+
+    @Test
+    public void eachBatchAsksForTheModelsFullOutputCeiling() throws Exception {
+        // Production sent defaultOutputTokensFor(false)=4096 first, always came back cut, and paid a
+        // second 40s call at 8192 for every batch. The largest reply of the pipeline must start at the
+        // ceiling the model actually supports.
+        AiConfig config = new AiConfig();
+        config.setApiKey("sk-mock-test-key");
+        config.setModel("deepseek-chat");
+        int ceiling = AiModelCapabilities.resolveOutputCeiling(config);
+        List<Integer> budgets = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig cfg, List<OpenAiClient.ChatMessage> messages,
+                                           int outputTokenOverride, boolean jsonMode) {
+                budgets.add(outputTokenOverride);
+                return new Completion(CASE_JSON, "stop");
+            }
+        };
+
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+        service.generateTestCases(config, "[PHẠM VI] Bao quát 4 màn hình [XÁC MINH] Toàn diện",
+                List.of(srsDoc()), "", null, List.of(), status -> { },
+                AiSkill.MULTI_AGENT_LOOP, null, false);
+
+        assertFalse(budgets.isEmpty(), "the batch pipeline must issue at least one call");
+        for (int budget : budgets) {
+            assertEquals(ceiling, budget,
+                    "every batch call must use the model's own output ceiling instead of a smaller default");
+        }
+    }
+
+    /** A one-case JSON reply whose case name carries the screen it belongs to. */
+    private static String caseFor(String caseName, String description) {
+        return """
+                ```json
+                {"summary":"Lô đã xử lý","suggestedGroup":"QuanLyDonHang","suggestedSuite":"KiemThu_DonHang","cases":[
+                  {"name":"%s","description":"%s","priority":"P0",
+                   "testSteps":[{"stepNumber":1,"action":"NAVIGATE","target":"Page","testData":"","expectedResult":"OK"}],
+                   "testDataSets":[{"scenario":"Valid","parameters":{},"expectedOutcome":"OK"}],
+                   "assertions":[{"type":"ELEMENT_VISIBLE","locator":"body","value":"","status":"ACTIVE"}]}
+                ]}
+                ```
+                """.formatted(caseName, description);
+    }
+
+    /** The screen token the batch prompt declares, so a fake case can be traced to its screen. */
+    private static String firstScreenToken(String prompt) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("Token định danh: `([^`]+)`").matcher(prompt);
+        return matcher.find() ? matcher.group(1) : "ManHinh";
+    }
+
+    @Test
+    public void cutBatchRetriesOnlyTheScreensThatWereNotCovered() throws Exception {
+        // Repeating the same oversized batch is what made the turn hang: the retry overflowed again and
+        // produced the same cut. The retry must carry only the screens the salvaged cases did not cover.
+        List<String> batchPrompts = new java.util.ArrayList<>();
+        java.util.concurrent.atomic.AtomicBoolean firstBatchAsked = new java.util.concurrent.atomic.AtomicBoolean();
+
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<OpenAiClient.ChatMessage> messages,
+                                           int outputTokenOverride, boolean jsonMode) {
+                String lastUser = messages.get(messages.size() - 1).getTextContent();
+                boolean continuation = lastUser != null && lastUser.startsWith("[CONTINUATION");
+                if (continuation) {
+                    // No progress on purpose: the continuation must give up and hand over to recovery.
+                    return new Completion("", "length");
+                }
+                batchPrompts.add(lastUser);
+                String token = firstScreenToken(lastUser);
+                if (lastUser != null && lastUser.contains("MÀN HÌNH #1")
+                        && firstBatchAsked.compareAndSet(false, true)) {
+                    // Batch 1 is cut after the case for screen 1 only.
+                    return new Completion(caseFor("TC01_" + token + "_HappyPath", "Màn hình 1"), "length");
+                }
+                return new Completion(caseFor("TC02_" + token + "_HappyPath", "Màn hình kế tiếp"), "stop");
+            }
+        };
+
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+        AiConfig config = new AiConfig();
+        config.setApiKey("sk-mock-test-key");
+        config.setModel("deepseek-chat");
+        AiTestGeneratorService.GenerationResult result = service.generateTestCases(
+                config,
+                "[PHẠM VI] Bao quát 4 màn hình [XÁC MINH] Toàn diện",
+                List.of(srsDoc()), "", null, List.of(), status -> { },
+                AiSkill.MULTI_AGENT_LOOP, null, false);
+
+        boolean recoveryAskedOnlyUncoveredScreens = batchPrompts.stream()
+                .anyMatch(p -> p != null && p.contains("MÀN HÌNH #2") && !p.contains("MÀN HÌNH #1"));
+        assertTrue(recoveryAskedOnlyUncoveredScreens,
+                "after the cut, the retry must ask for the uncovered screens instead of resending the batch");
+        assertTrue(result.getCases().size() >= 3,
+                "the salvaged case and the recovered cases must both be kept");
     }
 
     @Test

@@ -170,6 +170,78 @@ public class AiTestGeneratorTruncationRecoveryTest {
     }
 
     @Test
+    public void truncatedReplyCutInsideAKeyNameStillSalvagesCompleteCases() {
+        // The production failure: the cut lands inside a field name, so auto-repair closes it into
+        // {"screenId"} and Jackson rejects it ("was expecting a colon to separate field name and value").
+        // Every case before the cut is complete, so it must still be delivered instead of losing the batch.
+        String cutInsideKeyName = """
+                ```json
+                {"summary":"ok","suggestedGroup":"G","suggestedSuite":"S","cases":[
+                  {"name":"TC01_A","description":"a","testSteps":[{"stepNumber":1,"action":"NAVIGATE","target":"P","testData":"","expectedResult":"OK"}],
+                   "testDataSets":[{"scenario":"x","parameters":{},"expectedOutcome":"OK"}],
+                   "assertions":[{"type":"ELEMENT_VISIBLE","locator":"body","value":"","status":"ACTIVE"}]},
+                  {"screenI
+                """;
+
+        AiTestGeneratorService service = new AiTestGeneratorService(new OpenAiClient(), new ObjectMapper());
+        AiTestGeneratorService.GenerationResult result = service.parseResponse(cutInsideKeyName, AiSkill.PLAYWRIGHT_E2E);
+
+        assertEquals(1, result.getCases().size(),
+                "the complete case before the cut must be salvaged, not discarded");
+        assertEquals("TC01_A", result.getCases().get(0).getName());
+        assertFalse(result.getCases().get(0).getTestSteps().isEmpty(),
+                "a salvaged case keeps its real steps, not a placeholder");
+    }
+
+    @Test
+    public void truncatedReplyCutInsideAStringValueStillSalvagesCompleteCases() {
+        // A cut inside a string value is repairable, but the repaired tail is only half a case: the
+        // complete case in front of it must survive either way.
+        String cutInsideString = """
+                {"summary":"ok","cases":[
+                  {"name":"TC01_A","description":"a","assertions":[]},
+                  {"name":"TC02_B","testSteps":[{"stepNumber":1,"action":"NAVIGATE","target":"P","expectedResult":"cắt ngang
+                """;
+
+        AiTestGeneratorService service = new AiTestGeneratorService(new OpenAiClient(), new ObjectMapper());
+        AiTestGeneratorService.GenerationResult result = service.parseResponse(cutInsideString, AiSkill.PLAYWRIGHT_E2E);
+
+        assertFalse(result.getCases().isEmpty(), "a truncated tail must not discard the complete case");
+        assertEquals("TC01_A", result.getCases().get(0).getName());
+    }
+
+    @Test
+    public void truncatedReplyWithNoCompleteCaseStillReportsNoCases() {
+        String nothingComplete = """
+                {"summary":"ok","cases":[{"descr
+                """;
+
+        AiTestGeneratorService service = new AiTestGeneratorService(new OpenAiClient(), new ObjectMapper());
+        AiTestGeneratorService.GenerationResult result = service.parseResponse(nothingComplete, AiSkill.PLAYWRIGHT_E2E);
+
+        assertTrue(result.getCases().isEmpty(),
+                "salvage must never invent a half-written case");
+    }
+
+    @Test
+    public void salvageKeepsTheIntactCasesWhenOneElementIsMalformed() throws Exception {
+        String brokenElement = """
+                {"summary":"ok","cases":[
+                  {"name":"TC01_A","description":"a"},
+                  {"a":1,}
+                ]}
+                """;
+
+        AiTestGeneratorService service = new AiTestGeneratorService(new OpenAiClient(), new ObjectMapper());
+        AiTestGeneratorService.GenerationResult result = service.salvageCompleteCases(brokenElement, brokenElement);
+
+        assertNotNull(result);
+        assertEquals(1, result.getCases().size(),
+                "one broken element must not discard the intact ones around it");
+        assertEquals("TC01_A", result.getCases().get(0).getName());
+    }
+
+    @Test
     public void untruncatedReplyMakesNoExtraRequest() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         OpenAiClient client = new OpenAiClient() {
