@@ -2,6 +2,11 @@ package com.studio.controller;
 
 import com.studio.model.*;
 import com.studio.service.AiAmbiguityAnalyzer;
+import com.studio.service.AiAgentPlanParser;
+import com.studio.service.AiCoordinatorAgent;
+import com.studio.service.AiLlmAgentExecutor;
+import com.studio.service.AiSubAgentOrchestrator;
+import com.studio.service.OpenAiClient;
 import com.studio.service.AiLoggingService;
 import com.studio.service.AiTestGeneratorService;
 import com.studio.service.AiTokenOptimizer;
@@ -676,6 +681,62 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /**
+     * Delegates a request to rule-bound sub-agents through the coordinator, publishing each
+     * agent's exchange and exactly one aggregated answer into the session.
+     *
+     * Returns false when the request should keep the single-assistant path (no plan could be
+     * produced, or the request is not delegable) — delegation must never swallow a request a
+     * user could otherwise have answered.
+     */
+    private boolean delegateToAgents(AiChatSession session, String prompt,
+                                     AiConfig aiConfig, boolean generateScript) {
+        OpenAiClient client = new OpenAiClient();
+        AiAgentPlanParser.InvalidPlanException[] planFailure = new AiAgentPlanParser.InvalidPlanException[1];
+
+        AiCoordinatorAgent coordinator = new AiCoordinatorAgent(userRequest -> {
+            try {
+                return client.chatCompletion(aiConfig, List.of(
+                        new OpenAiClient.ChatMessage("system", new AiCoordinatorAgent(
+                                r -> "{}").plannerSystemPrompt()),
+                        new OpenAiClient.ChatMessage("user", userRequest)));
+            } catch (Exception e) {
+                planFailure[0] = new AiAgentPlanParser.InvalidPlanException(
+                        "Không gọi được bộ lập kế hoạch: " + e.getMessage());
+                return null;
+            }
+        });
+
+        List<AiSubAgentOrchestrator.SubAgentTask> tasks;
+        try {
+            tasks = coordinator.toTasks(coordinator.plan(prompt));
+        } catch (Exception e) {
+            AiLoggingService.info("AI-COORDINATOR", "Bỏ qua điều phối, dùng trợ lý đơn: " + e.getMessage());
+            return false;
+        }
+        if (tasks.isEmpty()) {
+            return false;
+        }
+
+        AiSubAgentOrchestrator.AgentExecutor executor = new AiLlmAgentExecutor(
+                aiConfig,
+                (cfg, messages) -> client.chatCompletion(cfg, List.of(
+                        new OpenAiClient.ChatMessage(messages.get(0).getRole(), messages.get(0).getContent()),
+                        new OpenAiClient.ChatMessage(messages.get(1).getRole(), messages.get(1).getContent())),
+                        OpenAiClient.defaultOutputTokensFor(generateScript)),
+                "");
+
+        // Parent turn recorded first so the transcript reads request -> agents -> one answer.
+        session.addMessage(new AiChatMessage("user", prompt));
+
+        Platform.runLater(() -> updateThinkingStatus("🤖 Coordinator đang giao việc cho "
+                + tasks.size() + " tác nhân..."));
+        AiSubAgentOrchestrator orchestrator = new AiSubAgentOrchestrator(
+                executor, status -> Platform.runLater(() -> updateThinkingStatus(status)));
+        orchestrator.orchestrate(session, tasks);
+        return true;
+    }
+
     private void renderChatHistory() {
         chatMessagesBox.getChildren().clear();
 
@@ -1142,6 +1203,27 @@ public class AiAssistantPageController implements Initializable {
                     } catch (Exception ex) {
                         System.err.println("[AiAssistant] Tự động quét DOM ngầm thất bại: " + ex.getMessage());
                     }
+                }
+
+                // Điều phối đa tác nhân: coordinator phân rã yêu cầu, mỗi tác nhân con chạy theo
+                // rule cố định của nó, rồi một kết quả tổng hợp duy nhất được phát về chat.
+                if (delegateToAgents(targetSession, prompt, effectiveAiConfig, effectiveGenerateScript)) {
+                    Platform.runLater(() -> {
+                        removeThinkingBubble();
+                        sendBtn.setDisable(false);
+                        sendBtn.setText("Gửi (Enter)");
+                        generationProgress.setVisible(false);
+                        generationProgress.setManaged(false);
+                        if (targetSessionId.equals(currentSession != null ? currentSession.getId() : null)) {
+                            renderChatHistory();
+                        }
+                        try {
+                            chatHistoryStore.saveSession(suiteDir, targetSession);
+                            refreshSessionsList(targetSession.getId());
+                        } catch (IOException ignored) {
+                        }
+                    });
+                    return;
                 }
 
                 AiTestGeneratorService.GenerationResult result = aiGenerator.generateTestCases(
@@ -1839,7 +1921,8 @@ public class AiAssistantPageController implements Initializable {
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        String title = bubbleHeader(msg, formattedTime);        Label headerLabel = new Label(title);
+        String title = bubbleHeader(msg, formattedTime);
+        Label headerLabel = new Label(title);
         headerLabel.getStyleClass().add("ai-chat-bubble-header");
         HBox.setHgrow(headerLabel, Priority.ALWAYS);
 
