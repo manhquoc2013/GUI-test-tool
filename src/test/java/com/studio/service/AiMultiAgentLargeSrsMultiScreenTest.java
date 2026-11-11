@@ -232,9 +232,10 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                 srsMarkdown.length());
 
                 List<String> progressMsgs = new ArrayList<>();
+                String userPrompt = "[PHẠM VI] Bao quát đầy đủ 10 màn hình [TIỀN ĐIỀU KIỆN] Sẵn sàng [XÁC MINH] Toàn diện";
                 AiTestGeneratorService.GenerationResult result = service.generateTestCases(
                                 config,
-                                "[PHẠM VI] Bao quát đầy đủ 10 màn hình [TIỀN ĐIỀU KIỆN] Sẵn sàng [XÁC MINH] Toàn diện",
+                                userPrompt,
                                 List.of(srsDoc),
                                 "",
                                 null,
@@ -245,8 +246,16 @@ public class AiMultiAgentLargeSrsMultiScreenTest {
                                 false);
 
                 assertNotNull(result);
-                assertEquals(5, batchInvocations.get(),
-                                "10 screens with batchSize=2 must trigger 5 focused LLM batch invocations");
+                // Batch size is derived from the token budget and the average screen size
+                // (AiTestGeneratorService#resolveBatchSize, AG-2), so the expected number of LLM batch
+                // calls is derived the same way here instead of hardcoding the old fixed batchSize = 2.
+                List<AiMultiAgentCoordinator.ScreenSpecSection> screens =
+                                AiMultiAgentCoordinator.extractScreenSections(userPrompt, List.of(srsDoc));
+                int batchSize = AiTestGeneratorService.resolveBatchSize(config, screens, false);
+                int expectedBatches = (int) Math.ceil(screens.size() / (double) batchSize);
+                assertEquals(expectedBatches, batchInvocations.get(),
+                                screens.size() + " screens with batchSize=" + batchSize
+                                                + " must trigger " + expectedBatches + " focused LLM batch invocations");
                 assertTrue(result.getCases().size() >= 35,
                                 "Multi-batch orchestration + Loop Engineer expansion must produce 35+ test cases (actual: "
                                                 + result.getCases().size() + ")");
