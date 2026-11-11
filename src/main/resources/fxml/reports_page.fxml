@@ -4,7 +4,7 @@
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.control.TableView?>
 <?import javafx.scene.control.TableColumn?>
-<?import javafx.scene.control.ToolBar?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
@@ -15,7 +15,7 @@
 <VBox xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="com.studio.controller.ReportsPageController"
       styleClass="reports-page">
-    <ToolBar styleClass="page-toolbar">
+    <FlowPane styleClass="page-toolbar" hgap="8" vgap="6" alignment="CENTER_LEFT" prefWrapLength="1100">
         <Label text="Báo cáo" styleClass="page-title"/>
         <Separator/>
         <Label text="Phạm vi" styleClass="toolbar-label"/>
@@ -24,9 +24,8 @@
         <ComboBox fx:id="resultFilter" prefWidth="120" onAction="#onFilterChanged"/>
         <Label text="Suite" styleClass="toolbar-label"/>
         <ComboBox fx:id="suiteFilter" prefWidth="160" onAction="#onFilterChanged"/>
-        <HBox HBox.hgrow="ALWAYS"/>
         <Button text="Làm mới" fx:id="refreshBtn" onAction="#refresh" styleClass="toolbar-btn"/>
-    </ToolBar>
+    </FlowPane>
     <TableView fx:id="reportsTable" VBox.vgrow="ALWAYS" styleClass="reports-table">
         <columns>
             <TableColumn text="Mã chạy" fx:id="runIdCol" prefWidth="130"/>

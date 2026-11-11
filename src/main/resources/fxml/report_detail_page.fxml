@@ -2,6 +2,7 @@
 
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.control.TableView?>
@@ -23,16 +24,16 @@
     <VBox spacing="8" maxWidth="Infinity" maxHeight="Infinity">
         <padding><Insets top="8" right="12" bottom="8" left="12"/></padding>
 
-        <HBox spacing="16" alignment="CENTER_LEFT" styleClass="report-summary-bar field-row">
+        <FlowPane styleClass="report-summary-bar field-row" hgap="16" vgap="6"
+                  alignment="CENTER_LEFT" prefWrapLength="1100">
             <Label fx:id="summaryLabel" text="Tổng quan: " styleClass="report-summary-label"/>
-            <HBox HBox.hgrow="ALWAYS"/>
             <ComboBox fx:id="caseFilter" prefWidth="160" promptText="Tất cả" onAction="#onCaseFilterChanged"/>
             <Button text="Xuất HTML" fx:id="exportHtmlBtn" onAction="#exportHtml" styleClass="btn-secondary"/>
             <Button text="Xuất Excel" fx:id="exportBtn" onAction="#exportExcel" styleClass="btn-primary"/>
             <Button text="Xóa báo cáo" fx:id="deleteReportBtn" onAction="#deleteCurrentReport"
                     styleClass="toolbar-btn-danger"/>
             <Button text="Quay lại" fx:id="backBtn" onAction="#goBack" styleClass="btn-secondary"/>
-        </HBox>
+        </FlowPane>
 
         <TableView fx:id="casesTable" VBox.vgrow="ALWAYS" styleClass="cases-table">
             <columns>

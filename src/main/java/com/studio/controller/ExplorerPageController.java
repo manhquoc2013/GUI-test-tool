@@ -18,8 +18,6 @@ import com.studio.util.StatusDisplay;
 import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
 import com.studio.util.StudioPaths;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -56,7 +54,9 @@ public class ExplorerPageController {
     @FXML private Button deleteBtn;
     @FXML private Button openWorkspaceBtn;
     @FXML private Button runNodeBtn;
-    @FXML private ComboBox<String> statusFilter;
+    // Status filter state. The chips above the tree are the only UI for this now;
+    // the toolbar ComboBox was a duplicate control kept in sync with them.
+    private String statusFilterValue = StatusDisplay.ALL_LABEL;
     @FXML private TextField searchField;
     @FXML private Button chipAll;
     @FXML private Button chipActive;
@@ -112,12 +112,6 @@ public class ExplorerPageController {
     private void setNodeRef(TreeItem<Object> item, NodeRef ref) {
         nodeRefs.put(item, ref);
     }
-    private final ObservableList<String> filterOptions = FXCollections.observableArrayList(
-            StatusDisplay.ALL_LABEL,
-            StatusDisplay.label("ACTIVE"),
-            StatusDisplay.label("DRAFT"),
-            StatusDisplay.label("INACTIVE")
-    );
 
     // ── Inner class for tree node metadata ──
 
@@ -1103,52 +1097,37 @@ public class ExplorerPageController {
     // ── Status filter ──
 
     private void setupStatusFilter() {
-        statusFilter.getItems().addAll(filterOptions);
-        statusFilter.setValue(StatusDisplay.ALL_LABEL);
-        com.studio.util.UiTooltips.install(statusFilter, "Lọc danh sách cây dự án theo trạng thái");
         if (chipAll != null) com.studio.util.UiTooltips.install(chipAll, "Hiện tất cả");
         if (chipActive != null) com.studio.util.UiTooltips.install(chipActive, "Chỉ hiện các mục Đang hoạt động / Ready");
         if (chipDraft != null) com.studio.util.UiTooltips.install(chipDraft, "Chỉ hiện các mục Nháp / Draft");
         if (chipInactive != null) com.studio.util.UiTooltips.install(chipInactive, "Chỉ hiện các mục Ngừng / Inactive");
-        statusFilter.setOnAction(e -> {
-            syncFilterChipsWithCombo(statusFilter.getValue());
-            refreshTree();
-        });
     }
 
     @FXML
     public void filterChipAll() {
         setFilterChipActive(chipAll);
-        if (statusFilter != null) {
-            statusFilter.setValue(StatusDisplay.ALL_LABEL);
-        }
+        statusFilterValue = StatusDisplay.ALL_LABEL;
         refreshTree();
     }
 
     @FXML
     public void filterChipActive() {
         setFilterChipActive(chipActive);
-        if (statusFilter != null) {
-            statusFilter.setValue(StatusDisplay.label("ACTIVE"));
-        }
+        statusFilterValue = StatusDisplay.label("ACTIVE");
         refreshTree();
     }
 
     @FXML
     public void filterChipDraft() {
         setFilterChipActive(chipDraft);
-        if (statusFilter != null) {
-            statusFilter.setValue(StatusDisplay.label("DRAFT"));
-        }
+        statusFilterValue = StatusDisplay.label("DRAFT");
         refreshTree();
     }
 
     @FXML
     public void filterChipInactive() {
         setFilterChipActive(chipInactive);
-        if (statusFilter != null) {
-            statusFilter.setValue(StatusDisplay.label("INACTIVE"));
-        }
+        statusFilterValue = StatusDisplay.label("INACTIVE");
         refreshTree();
     }
 
@@ -1160,18 +1139,6 @@ public class ExplorerPageController {
         }
         if (activeChip != null && !activeChip.getStyleClass().contains("active")) {
             activeChip.getStyleClass().add("active");
-        }
-    }
-
-    private void syncFilterChipsWithCombo(String val) {
-        if (val == null || StatusDisplay.isAll(val)) {
-            setFilterChipActive(chipAll);
-        } else if (val.contains("Đang hoạt động") || val.contains("Active")) {
-            setFilterChipActive(chipActive);
-        } else if (val.contains("Bản nháp") || val.contains("Draft")) {
-            setFilterChipActive(chipDraft);
-        } else if (val.contains("Không hoạt động") || val.contains("Inactive")) {
-            setFilterChipActive(chipInactive);
         }
     }
 
@@ -1369,7 +1336,7 @@ public class ExplorerPageController {
     }
 
     private void reloadTree() {
-        String filter = statusFilter != null ? statusFilter.getValue() : StatusDisplay.ALL_LABEL;
+        String filter = statusFilterValue;
         String search = searchField != null ? searchField.getText() : "";
         NodeRef keepRef = currentPreviewRef;
         loadTree();

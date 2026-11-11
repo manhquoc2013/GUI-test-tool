@@ -26,19 +26,21 @@
       fx:controller="com.studio.controller.AiAssistantPageController"
       styleClass="ai-assistant-page" spacing="0">
 
-    <!-- Top Toolbar -->
-    <HBox styleClass="page-toolbar" spacing="10" alignment="CENTER_LEFT">
+    <!-- Top Toolbar. FlowPane so the title/badges/actions reflow onto a second
+         line on narrow windows instead of forcing the row past the window edge
+         (a plain HBox needed 1117px and was clipped below that). -->
+    <FlowPane styleClass="page-toolbar" hgap="10" vgap="6" alignment="CENTER_LEFT"
+              prefWrapLength="1100">
         <padding><Insets top="8" right="14" bottom="8" left="14"/></padding>
         <Button text="☰ Lịch sử" fx:id="toggleSidebarBtn" onAction="#toggleHistorySidebar" styleClass="icon-btn" minWidth="-Infinity"/>
         <Label text="Trợ lý AI" styleClass="page-title" minWidth="-Infinity"/>
-        <Label text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
-        <HBox HBox.hgrow="ALWAYS"/>
+        <Label fx:id="pageSubtitleLabel" text="— Tự động hóa kiểm thử thông minh với OpenAI" styleClass="page-subtitle" minWidth="-Infinity"/>
         <Label fx:id="tokenUsageBadge" text="Tokens: ~0" styleClass="ai-token-badge" minWidth="-Infinity"/>
         <Label fx:id="modelIndicatorLabel" text="Mô hình: gpt-4o" styleClass="ai-model-badge" minWidth="-Infinity"/>
         <Button text="+ Chat mới" fx:id="newChatToolbarBtn" onAction="#createNewChat" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Cấu hình AI" fx:id="settingsBtn" onAction="#openSettings" styleClass="btn-secondary" minWidth="-Infinity"/>
         <Button text="Xóa chat" fx:id="clearChatBtn" onAction="#clearChat" styleClass="btn-secondary" minWidth="-Infinity"/>
-    </HBox>
+    </FlowPane>
 
     <!-- Main Content Area: History Sidebar + Chat/Preview SplitPane -->
     <HBox VBox.vgrow="ALWAYS" spacing="0">

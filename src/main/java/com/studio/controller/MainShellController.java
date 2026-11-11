@@ -6,6 +6,7 @@ import com.studio.service.ToastService;
 import com.studio.store.SettingsStore;
 import com.studio.util.BusyButtons;
 import com.studio.util.UiMotion;
+import com.studio.util.UiResponsive;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -137,6 +138,7 @@ public class MainShellController implements Initializable {
         }
         RunCancelService.addListener(this::updateStopRunButton);
         updateStopRunButton();
+        installResponsiveBehaviour();
 
         // Setup SVG icons on main shell buttons
         com.studio.util.UiIcons.setGraphic(toggleSidebarBtn, com.studio.util.UiIcons.MENU, 14);
@@ -470,6 +472,25 @@ public class MainShellController implements Initializable {
                 }
             });
         }
+    }
+
+    /**
+     * Compact windows shrink the sidebar to its icon rail automatically, freeing
+     * horizontal room for the work pane. The user's explicit toggle still wins
+     * while the window stays in the same breakpoint; the mode is re-applied on
+     * each cross so a window that grows again restores the expanded rail.
+     */
+    private void installResponsiveBehaviour() {
+        UiResponsive.install(sidebar, mode -> {
+            boolean wantExpanded = mode == UiResponsive.Mode.REGULAR;
+            if (sidebarExpanded != wantExpanded && !UiMotion.isBusy(sidebar)) {
+                sidebarExpanded = wantExpanded;
+                UiMotion.animateWidth(sidebar,
+                        wantExpanded ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED,
+                        this::applySidebarContent,
+                        this::applySidebarContent);
+            }
+        });
     }
 
     @FXML

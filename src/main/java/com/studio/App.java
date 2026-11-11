@@ -36,6 +36,12 @@ public class App extends Application {
         scene.getStylesheets().add(getClass().getResource("/css/studio.css").toExternalForm());
         com.studio.service.ThemeService.init(scene);
 
+        // Floor the window at the smallest layout the screens are proven to
+        // support (all toolbars reflow above this). Without it the OS lets the
+        // window shrink until controls are clipped off-screen.
+        primaryStage.setMinWidth(900);
+        primaryStage.setMinHeight(600);
+
         primaryStage.setTitle("Test Studio");
         primaryStage.setScene(scene);
 

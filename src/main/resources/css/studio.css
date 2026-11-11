@@ -33,6 +33,14 @@
 }
 
 /* === HEADER BAR === */
+/* FlowPane rows: allow the row to wrap below its preferred width instead of
+   forcing its parent wider (the default min-width follows pref-width). */
+.header-bar,
+.page-toolbar,
+.workspace-action-bar,
+.report-summary-bar {
+    -fx-min-width: 0;
+}
 .header-bar {
     -fx-background-color: #16161e;
     -fx-border-color: #2a2b3d;

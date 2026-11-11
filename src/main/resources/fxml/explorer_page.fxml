@@ -3,7 +3,7 @@
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.control.TreeView?>
-<?import javafx.scene.control.ToolBar?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.CheckBox?>
@@ -18,19 +18,16 @@
 <VBox xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="com.studio.controller.ExplorerPageController"
       styleClass="explorer-page">
-    <ToolBar styleClass="page-toolbar">
+    <FlowPane styleClass="page-toolbar" hgap="8" vgap="6" alignment="CENTER_LEFT" prefWrapLength="1100">
         <Button text="Nhóm mới" fx:id="addGroupBtn" onAction="#addGroup" styleClass="toolbar-btn-add"/>
         <Button text="Suite mới" fx:id="addSuiteBtn" onAction="#addSuite" styleClass="toolbar-btn"/>
         <Button text="Case mới" fx:id="addCaseBtn" onAction="#addCase" styleClass="toolbar-btn"/>
         <Separator fx:id="createToolbarSep"/>
         <Button text="Sao chép" fx:id="copyBtn" onAction="#copyItem" styleClass="toolbar-btn"/>
         <Button text="Xóa" fx:id="deleteBtn" onAction="#deleteItem" styleClass="toolbar-btn-danger"/>
-        <HBox HBox.hgrow="ALWAYS"/>
         <TextField fx:id="searchField" promptText="Tìm theo tên…" prefWidth="200" styleClass="toolbar-search"/>
-        <Label text="Lọc" styleClass="toolbar-label"/>
-        <ComboBox fx:id="statusFilter" prefWidth="180"/>
-    </ToolBar>
-    <SplitPane dividerPositions="0.55" VBox.vgrow="ALWAYS">
+    </FlowPane>
+    <SplitPane dividerPositions="0.62" VBox.vgrow="ALWAYS">
         <VBox styleClass="tree-panel">
             <HBox styleClass="tree-header-box" alignment="CENTER_LEFT" spacing="6">
                 <padding><Insets top="6" right="8" bottom="6" left="8"/></padding>
