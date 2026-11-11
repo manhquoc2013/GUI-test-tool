@@ -41,6 +41,8 @@ public class AiTestGeneratorTruncationRecoveryTest {
     private static AiConfig config() {
         AiConfig config = new AiConfig();
         config.setApiKey("sk-mock-test-key");
+        // A roomy window: these tests exercise truncation/continuation, not the context clamp.
+        config.setMaxTokens(200_000);
         return config;
     }
 
@@ -88,19 +90,12 @@ public class AiTestGeneratorTruncationRecoveryTest {
             ]}
             ```
             """;
-    private static final String PART_1 = TWO_CASES.substring(0, TWO_CASES.indexOf("\"TC02_B\""));
-    private static final String PART_2 = TWO_CASES.substring(PART_1.length(), TWO_CASES.indexOf("\"TC02_B\"") + 40);
-    private static final String PART_3 = TWO_CASES.substring(PART_2.length() + PART_1.length());
-
-    private static double unusedOverlapRatio(String tail, String nextPiece) {
-        int max = Math.min(80, Math.min(tail.length(), nextPiece.length()));
-        for (int len = max; len >= 8; len--) {
-            if (tail.regionMatches(tail.length() - len, nextPiece, 0, len)) {
-                return len / (double) nextPiece.length();
-            }
-        }
-        return 0;
-    }
+    /** The cases JSON exactly as a model emits it, split into the pieces a truncated stream would deliver. */
+    private static final int PART_1_END = 180;
+    private static final int PART_2_END = 330;
+    private static final String PART_1 = TWO_CASES.substring(0, PART_1_END);
+    private static final String PART_2 = TWO_CASES.substring(PART_1_END, PART_2_END);
+    private static final String PART_3 = TWO_CASES.substring(PART_2_END);
 
     @Test
     public void continuationMergesTurnsIntoOneCompleteReply() throws Exception {
@@ -119,7 +114,7 @@ public class AiTestGeneratorTruncationRecoveryTest {
         // Drives the loop directly so the merge is asserted regardless of how many escalation attempts the
         // surrounding flow makes before continuation begins.
         OpenAiClient.Completion merged = service.continueCompletion(config(),
-                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), PART_1, 4096, new java.util.ArrayList<>());
+                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), PART_1, 60_000, new java.util.ArrayList<>());
 
         assertFalse(merged.truncated(), "a reply whose continuation finished is no longer truncated");
         assertEquals(2, service.parseResponse(merged.content(), AiSkill.PLAYWRIGHT_E2E).getCases().size(),
@@ -138,17 +133,22 @@ public class AiTestGeneratorTruncationRecoveryTest {
             @Override
             public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
                 String lastUser = messages.get(messages.size() - 1).getTextContent();
-                if (lastUser != null && lastUser.startsWith("[CONTINUATION]")) {
+                if (lastUser != null && lastUser.startsWith("[CONTINUATION")) {
                     continuedPrompts.add(lastUser);
                 }
-                // Always cut, always appending a little: the loop must stop at the bound.
-                return new Completion("{\"cases\":[{\"name\":\"x" + calls.incrementAndGet() + "\"", "length");
+                // Always cut, always appending a token-free difference: the loop must stop at the bound, and no
+                // piece may look like a restart (each new value must differ from every earlier one).
+                return new Completion("v" + calls.incrementAndGet() + "\",", "length");
             }
         };
         AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+        AiConfig roomy = new AiConfig();
+        roomy.setApiKey("k");
+        roomy.setMaxTokens(200_000);
 
-        OpenAiClient.Completion merged = service.continueCompletion(config(),
-                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), "{\"cases\":[", 4096, new java.util.ArrayList<>());
+        OpenAiClient.Completion merged = service.continueCompletion(roomy,
+                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), "{\"cases\":[\"seed-value-abc",
+                60_000, new java.util.ArrayList<>());
 
         assertEquals(AiTestGeneratorService.MAX_CONTINUATION_TURNS, continuedPrompts.size(),
                 "continuation must stop at the configured turn limit");
@@ -252,5 +252,150 @@ public class AiTestGeneratorTruncationRecoveryTest {
 
         assertFalse(result.isOutputTruncated());
         assertFalse(result.hasLostBatches());
+    }
+
+    // --- restart detection and context-window budget ---
+
+    @Test
+    public void restartFragmentIsDetectedAndNotConcatenated() {
+        String head = "```json\n{\"summary\":\"ok\",\"cases\":[{\"name\":\"TC01\",\"testSteps\":[";
+        String restart = "```json\n{\"summary\":\"Bộ kịch bản kiểm thử\",\"cases\":[{\"name\":\"TC01_A\"";
+        String replay = "{\"summary\":\"ok\",\"cases\":[{\"name\":\"TC01_A\"";
+
+        assertTrue(AiTestGeneratorService.isDocumentRestart(head, restart),
+                "re-opening the fence inside the document is a restart");
+        assertTrue(AiTestGeneratorService.isDocumentRestart(head, replay),
+                "replaying an earlier opening is a restart");
+        assertFalse(AiTestGeneratorService.isDocumentRestart(head, "\"action\":\"CLICK\"}]}"),
+                "a genuine continuation must not be refused");
+        assertFalse(AiTestGeneratorService.isDocumentRestart("", "{\"cases\":[]}"),
+                "nothing to restart when there is no prefix yet");
+    }
+
+    @Test
+    public void restartingFragmentIsReaskedWithAStrictPromptAndPrefixKept() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        List<String> userPrompts = new java.util.ArrayList<>();
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                String lastUser = messages.get(messages.size() - 1).getTextContent();
+                userPrompts.add(lastUser);
+                int call = calls.incrementAndGet();
+                if (call == 1) {
+                    return new Completion(PART_1, "length");
+                }
+                if (call == 2) {
+                    // Restarts the document instead of continuing it.
+                    return new Completion("```json\n{\"summary\":\"Bộ kịch bản\",\"cases\":[", "length");
+                }
+                return new Completion(PART_3, "stop");
+            }
+        };
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+
+        OpenAiClient.Completion merged = service.continueCompletion(config(),
+                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), PART_1, 60_000, new java.util.ArrayList<>());
+
+        assertTrue(userPrompts.stream().anyMatch(p -> p.startsWith("[CONTINUATION - STRICT]")),
+                "the refused turn must be re-asked with the strict instruction");
+        assertTrue(merged.content().startsWith(PART_1), "the pre-continuation prefix must stay intact");
+        assertFalse(merged.content().contains("```json\n{\"summary\":\"Bộ kịch bản\""),
+                "the restarting fragment must not be concatenated");
+    }
+
+    @Test
+    public void restartRetriesAreSeparatelyBounded() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                calls.incrementAndGet();
+                return new Completion("```json\n{\"summary\":\"lại từ đầu\",\"cases\":[", "length");
+            }
+        };
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+
+        OpenAiClient.Completion result = service.continueCompletion(config(),
+                List.of(new OpenAiClient.ChatMessage("user", "tạo case")), PART_1, 60_000, new java.util.ArrayList<>());
+
+        assertEquals(PART_1, result.content(), "a permanently rewriting model leaves the prefix untouched");
+        assertTrue(calls.get() <= 1 + AiTestGeneratorService.MAX_RESTART_RETRIES,
+                "restart retries must be capped independently, got " + calls.get() + " calls");
+        assertTrue(result.truncated());
+    }
+
+    @Test
+    public void outputBudgetIsClampedToTheContextWindow() {
+        AiTestGeneratorService service = new AiTestGeneratorService(new OpenAiClient(), new ObjectMapper());
+        List<OpenAiClient.ChatMessage> messages = List.of(
+                new OpenAiClient.ChatMessage("system", "the quick brown fox jumps over the lazy dog ".repeat(1_000)));
+
+        AiConfig small = new AiConfig();
+        small.setApiKey("k");
+        small.setMaxTokens(16_000);
+        int clamped = service.clampOutputBudget(small, messages, 16_384, "");
+
+        assertTrue(clamped < 16_384, "a small-context model must not be asked for the full 16384");
+        assertTrue(clamped >= 0);
+        // ~9000 words ⇒ ~11700 tokens by the estimator; window 16k, margin 1k ⇒ ~3.3k of room.
+        assertTrue(clamped >= 2_000 && clamped <= 5_000, "budget must track the room left, got " + clamped);
+
+        AiConfig big = new AiConfig();
+        big.setApiKey("k");
+        big.setMaxTokens(200_000);
+        assertEquals(16_384, service.clampOutputBudget(big, messages, 16_384, ""),
+                "a large-context model keeps the caller's wish up to the hard ceiling");
+    }
+
+    @Test
+    public void contextOverflowRefusalFallsBackToTheReducedBudget() throws Exception {
+        List<Integer> budgets = new java.util.ArrayList<>();
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride)
+                    throws java.io.IOException {
+                budgets.add(outputTokenOverride);
+                // The provider's real window is smaller than the configured one, so the first ask is refused.
+                // prompt: 1 500 × 9 words ⇒ 13 500 words × 1.3 ≈ 17 550 tokens; window 20 000 − 17 554 − margin
+                // 1 024 leaves ≈ 1 422 — under this threshold, and well below the 16 384 of the first request.
+                if (outputTokenOverride > 2_000) {
+                    throw new java.io.IOException("HTTP 400: This model's maximum context length is 16000 tokens");
+                }
+                return new Completion(TWO_CASES, "stop");
+            }
+        };
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+        AiConfig contextBound = new AiConfig();
+        contextBound.setApiKey("k");
+        contextBound.setMaxTokens(20_000);
+
+        OpenAiClient.Completion completion = service.completeWithBudgetFallback(contextBound,
+                List.of(new OpenAiClient.ChatMessage("user", "the quick brown fox jumps over the lazy dog ".repeat(1_500))), 16_384);
+
+        assertEquals("stop", completion.finishReason());
+        assertTrue(budgets.size() >= 2, "the refused request must be retried");
+        assertTrue(budgets.get(budgets.size() - 1) <= 2_000,
+                "the fallback must shrink to what the context window allows, got " + budgets.get(budgets.size() - 1));
+    }
+
+    @Test
+    public void unrelatedErrorIsNotSwallowedByTheFallback() {
+        OpenAiClient client = new OpenAiClient() {
+            @Override
+            public Completion completeChat(AiConfig config, List<ChatMessage> messages, int outputTokenOverride) {
+                throw new java.io.UncheckedIOException(new java.io.IOException("HTTP 401: bad key"));
+            }
+        };
+        AiTestGeneratorService service = new AiTestGeneratorService(client, new ObjectMapper());
+
+        assertThrows(Exception.class, () -> service.completeWithBudgetFallback(config(),
+                List.of(new OpenAiClient.ChatMessage("user", "hi")), 1024));
+    }
+
+    @Test
+    public void overloadedCeilingConstantIsReadFromTheClient() {
+        assertFalse(AiTestGeneratorService.isContextOverflowRefusal("HTTP 401: bad key"));
+        assertTrue(AiTestGeneratorService.isContextOverflowRefusal("HTTP 400: context_length_exceeded"));
     }
 }

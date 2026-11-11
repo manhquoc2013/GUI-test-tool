@@ -1137,27 +1137,124 @@ public class AiTestGeneratorService {
     static final int MAX_CONTINUATION_TURNS = 3;
 
     /**
-     * One model call with output-limit recovery. When the reply stopped on {@code length} the client
-     * itself retries once with a doubled, capped budget; this wrapper covers only a client that overrides
-     * {@code completeChat} (tests, alternative transports) so callers always get a recovery attempt.
+     * Retries a continuation turn whose fragment restarted the document instead of resuming it. Separate from
+     * {@link #MAX_CONTINUATION_TURNS} on purpose: a model that keeps rewriting would otherwise loop forever on
+     * retries alone. After this many refusals the caller stops continuing and keeps the prefix that was good.
+     */
+    static final int MAX_RESTART_RETRIES = 1;
+    /** Headroom kept free in the model's context window for token-estimate drift. */
+    static final int CONTEXT_SAFETY_MARGIN_TOKENS = 1024;
+
+    /**
+     * One model call with output-limit recovery. The output budget is first clamped to what the model's context
+     * window can still take, then a cut reply is retried with a doubled budget, and finally the text is
+     * continued rather than restarted.
      */
     OpenAiClient.Completion completeChatWithTruncationRecovery(AiConfig config,
                                                                List<OpenAiClient.ChatMessage> messages,
                                                                int outputBudget) throws IOException, InterruptedException {
-        OpenAiClient.Completion completion = openAiClient.completeChat(config, messages, outputBudget);
+        int safeBudget = clampOutputBudget(config, messages, outputBudget, "");
+        OpenAiClient.Completion completion = completeWithBudgetFallback(config, messages, safeBudget);
         if (!completion.truncated()) {
             return completion;
         }
-        int escalated = Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(outputBudget, outputBudget * 2));
-        if (escalated <= outputBudget) {
-            return completion;
+        int escalated = clampOutputBudget(config, messages,
+                Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(safeBudget, safeBudget * 2)), "");
+        if (escalated <= safeBudget) {
+            return continueCompletion(config, messages, completion.content(), safeBudget, new java.util.ArrayList<>());
         }
         AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, thử lại với max_tokens=" + escalated);
-        OpenAiClient.Completion retry = openAiClient.completeChat(config, messages, escalated);
+        OpenAiClient.Completion retry = completeWithBudgetFallback(config, messages, escalated);
         OpenAiClient.Completion better = retry.content() == null || retry.content().length() < completion.content().length()
                 ? completion : retry;
         // Still cut after the bigger budget: stop enlarging and continue the text instead of restarting it.
         return better.truncated() ? continueCompletion(config, messages, better.content(), escalated, new java.util.ArrayList<>()) : better;
+    }
+
+    /**
+     * Sends one request, and when the provider refuses it because the prompt + budget no longer fit the context
+     * window, retries once with whatever room is left. A second refusal is a configuration problem and is thrown
+     * so the caller can tell the user, instead of silently returning a short suite.
+     */
+    OpenAiClient.Completion completeWithBudgetFallback(AiConfig config,
+                                                       List<OpenAiClient.ChatMessage> messages,
+                                                       int outputBudget) throws IOException, InterruptedException {
+        try {
+            return openAiClient.completeChat(config, messages, outputBudget);
+        } catch (IOException refused) {
+            if (!isContextOverflowRefusal(refused.getMessage())) {
+                throw refused;
+            }
+            int reduced = clampOutputBudget(config, messages, outputBudget, "");
+            if (reduced >= outputBudget || reduced <= 0) {
+                throw refused;
+            }
+            AiLoggingService.warn("AI-RESPONSE", "Model từ chối vì vượt context window; giảm max_tokens "
+                    + outputBudget + " → " + reduced + " rồi thử lại");
+            return openAiClient.completeChat(config, messages, reduced);
+        }
+    }
+
+    /** A provider refusal that means "prompt + max_tokens exceeds the context window". */
+    static boolean isContextOverflowRefusal(String message) {
+        if (message == null) {
+            return false;
+        }
+        String m = message.toLowerCase(java.util.Locale.ROOT);
+        return m.contains("context_length_exceeded")
+                || m.contains("maximum context length")
+                || m.contains("context length")
+                || m.contains("too many tokens")
+                || (m.contains("max_tokens") && m.contains("too large"));
+    }
+
+    /**
+     * The output budget a request may actually send: the caller's wish, the model ceiling and — the part that used
+     * to be missing — the room left in the model's context window after the prompt and any accumulated text. The
+     * previous fixed 16384 ignored both, so a small-context model rejected the request outright.
+     */
+    int clampOutputBudget(AiConfig config, List<OpenAiClient.ChatMessage> messages, int wished, String accumulated) {
+        int contextWindow = config != null && config.getMaxTokens() > 0
+                ? config.getMaxTokens()
+                : AiTokenOptimizer.DEFAULT_MAX_CONTEXT_TOKENS;
+        int promptTokens = 0;
+        if (messages != null) {
+            for (OpenAiClient.ChatMessage m : messages) {
+                promptTokens += tokenOptimizer.estimateTokens(m.getTextContent()) + 4;
+            }
+        }
+        promptTokens += tokenOptimizer.estimateTokens(accumulated);
+        int room = contextWindow - promptTokens - CONTEXT_SAFETY_MARGIN_TOKENS;
+        int ceiling = Math.min(MAX_OUTPUT_TOKENS_CEILING, Math.max(0, room));
+        return Math.max(0, Math.min(wished, ceiling));
+    }
+
+    /**
+     * Detects a fragment that restarts the document instead of resuming it: it re-opens the JSON fence or root
+     * object while the accumulated text is already inside one, or it replays a run of text that already occurred
+     * earlier. Such a fragment cannot be joined — concatenating it produces two documents — so the caller keeps
+     * its prefix and retries the turn with a firmer instruction.
+     */
+    static boolean isDocumentRestart(String accumulated, String piece) {
+        if (accumulated == null || accumulated.isBlank() || piece == null || piece.isBlank()) {
+            return false;
+        }
+        String head = accumulated.stripTrailing();
+        String add = piece.strip();
+        if (!head.isEmpty()) {
+            char last = head.charAt(head.length() - 1);
+            boolean insideDocument = last != '}' && last != ']' && last != '`';
+            if (insideDocument && (add.startsWith("```") || add.startsWith("{"))) {
+                return true;
+            }
+        }
+        // Replaying an earlier run of the document (a rewritten opening) is a restart even without a brace.
+        String probe = add.length() > 120 ? add.substring(0, 120) : add;
+        if (probe.length() < 24) {
+            return false;
+        }
+        int earlier = accumulated.indexOf(probe.substring(0, 24));
+        return earlier >= 0 && earlier < accumulated.length() - probe.substring(0, 24).length();
     }
 
     /**
@@ -1173,16 +1270,44 @@ public class AiTestGeneratorService {
                                               List<String> continuationLog) throws IOException, InterruptedException {
         String accumulated = partial != null ? partial : "";
         OpenAiClient.Completion current = new OpenAiClient.Completion(accumulated, "length");
+        int restartRetries = 0;
         for (int turn = 1; turn <= MAX_CONTINUATION_TURNS && current.truncated(); turn++) {
+            int budget = clampOutputBudget(config, messages, outputBudget, accumulated);
+            if (budget <= 0) {
+                AiLoggingService.warn("AI-CONTINUE", "Không còn chỗ trong context window để nối tiếp; giữ "
+                        + accumulated.length() + " ký tự đã có");
+                break;
+            }
             List<OpenAiClient.ChatMessage> turnMessages = new ArrayList<>(messages);
             turnMessages.add(new OpenAiClient.ChatMessage("assistant", accumulated));
             turnMessages.add(new OpenAiClient.ChatMessage("user", buildContinuationPrompt(accumulated)));
             AiLoggingService.info("AI-CONTINUE", "Lượt nối tiếp " + turn + "/" + MAX_CONTINUATION_TURNS
-                    + " sau " + accumulated.length() + " ký tự");
-            OpenAiClient.Completion next = openAiClient.completeChat(config, turnMessages, outputBudget);
+                    + " sau " + accumulated.length() + " ký tự | max_tokens=" + budget);
+            OpenAiClient.Completion next = completeWithBudgetFallback(config, turnMessages, budget);
             String piece = next.content() != null ? next.content() : "";
             if (piece.isBlank()) {
                 break;
+            }
+            // A fragment that reopens the document is not a continuation; joining it would produce two documents.
+            // Keep the prefix that is already good and re-ask once with a firmer instruction.
+            if (isDocumentRestart(accumulated, piece)) {
+                if (restartRetries >= MAX_RESTART_RETRIES) {
+                    AiLoggingService.warn("AI-CONTINUE", "Mô hình liên tục viết lại từ đầu; dừng nối tiếp và giữ "
+                            + accumulated.length() + " ký tự đã có");
+                    break;
+                }
+                restartRetries++;
+                AiLoggingService.warn("AI-CONTINUE", "Phát hiện mảnh viết lại thay vì viết tiếp; giữ nguyên tiền tố "
+                        + "và yêu cầu lại lượt " + turn + " với chỉ dẫn mạnh hơn");
+                turnMessages.set(turnMessages.size() - 1, new OpenAiClient.ChatMessage("user",
+                        buildStrictContinuationPrompt(accumulated)));
+                OpenAiClient.Completion rettyped = completeWithBudgetFallback(config, turnMessages, budget);
+                String retryPiece = rettyped.content() != null ? rettyped.content() : "";
+                if (retryPiece.isBlank() || isDocumentRestart(accumulated, retryPiece)) {
+                    break;
+                }
+                piece = retryPiece;
+                next = rettyped;
             }
             accumulated = mergeContinuation(accumulated, piece);
             continuationLog.add(piece);
@@ -1194,6 +1319,21 @@ public class AiTestGeneratorService {
             current = new OpenAiClient.Completion(accumulated, finish);
         }
         return current;
+    }
+
+    /**
+     * The re-ask sent after a refused restart: it forbids re-opening the document and pins the sentence that must
+     * follow the last character already received, which is the part a vaguer instruction loses.
+     */
+    static String buildStrictContinuationPrompt(String accumulated) {
+        String tail = accumulated.length() > 300
+                ? accumulated.substring(accumulated.length() - 300)
+                : accumulated;
+        char last = accumulated.isBlank() ? ' ' : accumulated.charAt(accumulated.length() - 1);
+        return "[CONTINUATION - STRICT]: KHÔNG được viết lại tài liệu từ đầu. KHÔNG mở lại ```json hay dấu {. "
+                + "Ký tự cuối đã nhận là '" + last + "'. Chỉ xuất phần còn thiếu, bắt đầu ngay sau ký tự đó, "
+                + "giữ đúng mảng/chuỗi JSON đang dở và đóng lại cho hợp lệ."
+                + "\n\n--- 300 ký tự cuối đã nhận ---\n" + tail + "\n--- Hết ---\nTiếp tục:";
     }
 
     /** Whether the text already holds a balanced root JSON object, i.e. nothing more needs continuing. */

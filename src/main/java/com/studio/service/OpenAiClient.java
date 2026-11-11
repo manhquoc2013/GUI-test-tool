@@ -212,6 +212,8 @@ public class OpenAiClient {
     public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
     /** Floor used when a reply was cut while no explicit budget was configured. */
     static final int MIN_OUTPUT_TOKENS_FOR_ESCALATION = 4096;
+    /** Headroom kept free in the model's context window for token-estimate drift. */
+    static final int CONTEXT_SAFETY_MARGIN_TOKENS = 1024;
 
     /**
      * Default output token budget when no explicit maxOutputTokens is configured.
@@ -260,8 +262,20 @@ public class OpenAiClient {
             // The caller asked for a plain string, so it cannot act on the stop reason. Retry once with a
             // larger budget here rather than handing back a half-written script as if it were complete.
             int budget = resolveOutputBudget(config, outputTokenOverride);
+            // The budget is bounded by the model's own context window, not by this constant alone: a request whose
+            // prompt + max_tokens overflows the window is rejected outright by the provider.
+            int contextWindow = config != null && config.getMaxTokens() > 0
+                    ? config.getMaxTokens()
+                    : 128000;
+            int promptChars = 0;
+            for (ChatMessage m : messages) {
+                promptChars += m.getTextContent() != null ? m.getTextContent().length() : 0;
+            }
+            int promptEstimate = Math.max(1, promptChars / 3);
+            int room = contextWindow - promptEstimate - CONTEXT_SAFETY_MARGIN_TOKENS;
             int escalated = Math.min(MAX_OUTPUT_TOKENS_CEILING,
                     Math.max(budget, MIN_OUTPUT_TOKENS_FOR_ESCALATION) * 2);
+            escalated = Math.min(escalated, Math.max(0, room));
             if (escalated > budget) {
                 AiLoggingService.warn("AI-RESPONSE", "Phản hồi bị cắt, chạy lại với max_tokens=" + escalated
                         + " (trước: " + (budget > 0 ? String.valueOf(budget) : "mặc định model") + ")");
