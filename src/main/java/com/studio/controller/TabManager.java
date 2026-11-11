@@ -1,7 +1,6 @@
 package com.studio.controller;
 
 import com.studio.util.UiMotion;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -122,7 +121,8 @@ public class TabManager {
         HBox row = new HBox(6);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("tab-item");
-        row.setPadding(new Insets(5, 12, 5, 12));
+        // No inline padding: the tab's box (padding, radius, height, active accent) is owned by the
+        // `.tab-item` rules in both theme sheets, so the two themes cannot drift apart here.
 
         Label iconLbl = new Label();
         iconLbl.getStyleClass().add("tab-icon");

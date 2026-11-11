@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <?import javafx.scene.layout.BorderPane?>
-<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.StackPane?>
@@ -16,25 +15,33 @@
             fx:controller="com.studio.controller.MainShellController"
             styleClass="root-pane">
     <top>
-        <!-- FlowPane: the header reflows to a second line on narrow windows
-             instead of clipping the right-hand actions. -->
-        <FlowPane fx:id="headerBar" styleClass="header-bar" hgap="12" vgap="4" alignment="CENTER_LEFT"
-                  prefWrapLength="1180">
-            <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
-            <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
-            <Label text="Test Studio" styleClass="app-title"/>
-            <Separator orientation="VERTICAL" styleClass="header-separator"/>
-            <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
-                <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>
+        <!-- Two clusters in one row: identity on the left, actions pinned to the right edge. The bar
+             used to be a FlowPane, which never grows a child, so the action cluster sat right after the
+             breadcrumb and left roughly half the width empty. The identity cluster may shrink (and the
+             suite label ellipsizes) so a long suite name can never push the actions off-screen. -->
+        <HBox fx:id="headerBar" styleClass="header-bar" spacing="10" alignment="CENTER_LEFT">
+            <padding><Insets top="0" right="14" bottom="0" left="14"/></padding>
+            <HBox fx:id="headerIdentity" styleClass="header-identity" spacing="10" alignment="CENTER_LEFT"
+                  minWidth="0">
+                <Button fx:id="toggleSidebarBtn" text="☰" styleClass="icon-btn" onAction="#toggleSidebar"/>
+                <Label text="Test Studio" styleClass="app-title"/>
+                <Separator orientation="VERTICAL" styleClass="header-separator"/>
+                <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
+                    <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>
+                </HBox>
+                <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
+                <Button fx:id="stopRunBtn" text="Dừng" styleClass="header-stop-btn" onAction="#stopRun"
+                        visible="false" managed="false"/>
             </HBox>
-            <Button fx:id="stopRunBtn" text="Dừng" styleClass="header-stop-btn" onAction="#stopRun"
-                    visible="false" managed="false"/>
-            <Label fx:id="activeSuiteLabel" styleClass="active-suite-label" text=""/>
-            <Button fx:id="themeToggleBtn" text="Sáng" styleClass="header-help-btn" onAction="#toggleTheme"/>
-            <Button fx:id="cleanupBtn" text="Dọn dẹp" styleClass="header-help-btn" onAction="#openCleanupDialog"/>
-            <Button fx:id="settingsBtn" text="Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
-            <Button fx:id="helpBtn" text="Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
-        </FlowPane>
+            <!-- Pushes the action cluster to the right edge; the only child that grows. -->
+            <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+            <HBox fx:id="headerActions" styleClass="header-actions" spacing="6" alignment="CENTER_RIGHT">
+                <Button fx:id="themeToggleBtn" text="Sáng" styleClass="header-help-btn" onAction="#toggleTheme"/>
+                <Button fx:id="cleanupBtn" text="Dọn dẹp" styleClass="header-help-btn" onAction="#openCleanupDialog"/>
+                <Button fx:id="settingsBtn" text="Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
+                <Button fx:id="helpBtn" text="Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
+            </HBox>
+        </HBox>
     </top>
     <left>
         <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">

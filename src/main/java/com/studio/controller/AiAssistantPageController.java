@@ -47,6 +47,7 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.*;
 import javafx.scene.shape.Rectangle;
@@ -197,7 +198,14 @@ public class AiAssistantPageController implements Initializable {
      * conversations or choosing another save target never stops or hijacks a running agent.
      */
     private final AiChatRunRegistry runRegistry = new AiChatRunRegistry();
-    private String liveDomJson = null;
+    /** Written by the run worker and read by the next turn, hence volatile. */
+    private volatile String liveDomJson = null;
+    /**
+     * URL the cached {@link #liveDomJson} was scanned from. Without it a later turn that names a
+     * different page kept feeding the model the first page's DOM, so every generated selector pointed
+     * at the wrong site.
+     */
+    private volatile String liveDomSourceUrl = null;
     private String currentSuggestedGroup = null;
     private String currentSuggestedSuite = null;
     /** Density used to render assistant/agent bubbles; user prompts are always shown in full. */
@@ -235,6 +243,12 @@ public class AiAssistantPageController implements Initializable {
     private String transcriptWindowSessionId = null;
     /** Suppresses the auto-load listener while a page is being prepended and re-anchored. */
     private boolean loadingEarlierMessages = false;
+    /** Set by any real wheel/thumb gesture so an in-flight follow never fights the reader. */
+    private boolean chatReaderTookOver = false;
+    /** Remaining pulses that may re-assert the bottom after content was appended. */
+    private int bottomSettlePasses = 0;
+    /** True while the pending settle belongs to an appended message (eased) rather than a rebuild. */
+    private boolean bottomSettleEased = false;
     /** Full provider payload behind the truncated raw viewer, opened on demand. */
     private String rawResponseFull = "";
     /** The bubble currently on screen for each message, so a turn ends without re-rendering it all. */
@@ -264,6 +278,12 @@ public class AiAssistantPageController implements Initializable {
     private static final int TRANSCRIPT_PAGE_SIZE = 40;
     /** Scrolling this close to the top pulls the previous page in before the wall is visible. */
     private static final double TRANSCRIPT_LOAD_MORE_THRESHOLD = 0.02;
+    /** Pulses a rebuilt transcript may spend re-measuring before its bottom position is final. */
+    private static final int BOTTOM_SETTLE_PASSES = 3;
+    /** Pulses a single appended message needs: one to measure it, one to land the eased position. */
+    private static final int FOLLOW_SETTLE_PASSES = 2;
+    /** "No pixel offset captured": the reader was following the newest message instead. */
+    private static final double NO_OFFSET = -1;
     /**
      * Characters rendered inline in one bubble. Beyond this the full text opens in
      * {@link LongTextDialog}: a single 25k-character label costs ~40ms per layout, which is what made
@@ -476,16 +496,25 @@ public class AiAssistantPageController implements Initializable {
         }
         chatScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         chatScroll.setPannable(false);
-        chatSmoothScroll = SmoothScroll.install(chatScroll);
+        // Registered before the easing filter so it sees every gesture: that filter consumes the
+        // events it eases, and a consumed event never reaches a filter registered after it.
         // Only a real wheel/trackpad gesture may pull the previous page in. Watching vvalue alone
         // also fired when the skin clamped the value on the first layout of a rebuilt transcript,
         // which silently raised the window on every render.
         chatScroll.addEventFilter(ScrollEvent.SCROLL, event -> {
-            if (event.getDeltaY() != 0 && !loadingEarlierMessages
+            if (event.getDeltaY() != 0) {
+                chatReaderTookOver = true;
+            }
+            // Only an upward wheel gesture may pull the previous page in; a downward notch at the top
+            // used to trigger it as well.
+            if (event.getDeltaY() > 0 && !loadingEarlierMessages
                     && chatScroll.getVvalue() <= TRANSCRIPT_LOAD_MORE_THRESHOLD) {
                 loadEarlierMessages();
             }
         });
+        // Dragging the thumb is a deliberate move too: the follow pass must not undo it.
+        chatScroll.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> chatReaderTookOver = true);
+        chatSmoothScroll = SmoothScroll.install(chatScroll);
         if (rawResponseViewer != null) {
             UiTooltips.install(rawResponseViewer, "Nháy đúp để mở toàn bộ phản hồi gốc");
             rawResponseViewer.setOnMouseClicked(e -> {
@@ -976,6 +1005,7 @@ public class AiAssistantPageController implements Initializable {
             }
             currentSession = loaded;
             runRegistry.markRead(sessionId);
+            resetLiveDomContext();
             applySessionTarget(currentSession);
             renderChatHistory();
             updateTokenUsageDisplay();
@@ -1025,6 +1055,7 @@ public class AiAssistantPageController implements Initializable {
         currentSession.setTargetGroup("");
         currentSession.setTargetSuite("");
         runRegistry.markRead(currentSession.getId());
+        resetLiveDomContext();
         try {
             chatHistoryStore.saveSession(currentSession);
         } catch (IOException e) {
@@ -1387,12 +1418,18 @@ public class AiAssistantPageController implements Initializable {
     }
 
     /** True when the user is reading the newest message rather than an earlier one. */
-    private boolean isChatPinnedToBottom() {
+    boolean isChatPinnedToBottom() {
         if (chatScroll == null) {
             return true;
         }
-        return chatScroll.getVvalue() >= 1.0 - CHAT_BOTTOM_PIN_THRESHOLD
-                || (chatSmoothScroll != null && chatSmoothScroll.isTargetingBottom());
+        if (chatScroll.getVvalue() >= 1.0 - CHAT_BOTTOM_PIN_THRESHOLD) {
+            return true;
+        }
+        // A follow in flight: the eased value still lags behind the target. A settled target is not
+        // evidence of anything — the reader may have wheeled away from it since.
+        return chatSmoothScroll != null
+                && chatSmoothScroll.isAnimating()
+                && chatSmoothScroll.isTargetingBottom();
     }
 
     /**
@@ -1410,11 +1447,49 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
-    /** Puts the viewport at the newest message immediately — used when a transcript is rebuilt. */
+    /**
+     * Follows content that was just appended to the transcript.
+     *
+     * <p>The bubble is not measured yet when it is attached, so the scroll position still reads as
+     * "at the bottom" and a single request is a no-op; by the time the layout pass has grown the
+     * content, the position is no longer at the bottom and nothing asks again. The follow therefore
+     * re-asserts itself over the next pulses, and stops the moment the reader takes over.</p>
+     */
+    private void followNewestMessage() {
+        if (chatScroll == null) {
+            return;
+        }
+        // The caller already established that the reader is at the bottom, so this follow owns the
+        // viewport: only a gesture from here on may cancel it.
+        chatReaderTookOver = false;
+        requestChatScrollToBottom();
+        bottomSettleEased = true;
+        bottomSettlePasses = Math.max(bottomSettlePasses, FOLLOW_SETTLE_PASSES);
+        Platform.runLater(this::settleChatBottom);
+    }
+
+    /**
+     * Puts the viewport at the newest message immediately — used when a transcript is rebuilt.
+     *
+     * <p>The position has to be re-asserted over the next pulses: the skin only knows the transcript's
+     * real height after it has measured the freshly built bubbles, and it keeps the pixel offset when
+     * that height changes, which drags the ratio away from the bottom. That is what left a rebuilt
+     * transcript somewhere in the middle (or at the oldest page) instead of on the newest message.</p>
+     */
     private void jumpChatToBottom() {
         if (chatScroll == null) {
             return;
         }
+        chatReaderTookOver = false;
+        bottomSettleEased = false;
+        bottomSettlePasses = BOTTOM_SETTLE_PASSES;
+        chatScroll.applyCss();
+        chatScroll.layout();
+        applyChatBottom();
+        Platform.runLater(this::settleChatBottom);
+    }
+
+    private void applyChatBottom() {
         if (chatSmoothScroll != null) {
             chatSmoothScroll.jumpTo(1.0);
         } else {
@@ -1422,9 +1497,28 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /** Keeps the transcript at the bottom across the few passes it takes to measure new content. */
+    private void settleChatBottom() {
+        if (chatScroll == null || chatReaderTookOver || bottomSettlePasses <= 0) {
+            return;
+        }
+        bottomSettlePasses--;
+        chatScroll.applyCss();
+        chatScroll.layout();
+        if (bottomSettleEased) {
+            // A streamed message: keep the easing, the content just grew underneath it.
+            requestChatScrollToBottom();
+        } else {
+            applyChatBottom();
+        }
+        if (bottomSettlePasses > 0) {
+            Platform.runLater(this::settleChatBottom);
+        }
+    }
+
     private void scrollToBottomIfPinned(boolean pinned) {
         if (pinned) {
-            requestChatScrollToBottom();
+            followNewestMessage();
         }
     }
 
@@ -1460,10 +1554,15 @@ public class AiAssistantPageController implements Initializable {
                 return;
             }
             boolean pinned = isChatPinnedToBottom();
+            double readerOffset = pinned ? NO_OFFSET : readerPixelOffset();
             // Insert before the thinking indicator, so progress stays visible under the new bubble
             // without detaching and re-attaching that bubble (two extra layout passes per message).
             insertMessageBubbleBeforeThinking(msg);
-            scrollToBottomIfPinned(pinned);
+            if (pinned) {
+                scrollToBottomIfPinned(true);
+            } else {
+                restoreReaderPixelOffset(readerOffset);
+            }
         });
     }
 
@@ -1695,7 +1794,7 @@ public class AiAssistantPageController implements Initializable {
             int renderedBefore = Math.max(TRANSCRIPT_PAGE_SIZE, transcriptWindow);
             int oldStart = Math.max(0, all.size() - renderedBefore);
             double oldVvalue = chatScroll != null ? chatScroll.getVvalue() : 1;
-            double oldContentHeight = chatMessagesBox.getHeight();
+            double oldContentHeight = transcriptHeight();
             double viewportHeight = chatScroll != null ? chatScroll.getViewportBounds().getHeight() : 0;
 
             transcriptWindow += TRANSCRIPT_PAGE_SIZE;
@@ -1715,24 +1814,39 @@ public class AiAssistantPageController implements Initializable {
             chatMessagesBox.getChildren().addAll(0, revealed);
             appendEarlierMessagesBar(0);
 
-            // Layout now (not on the next pulse) so the anchor correction lands in this same frame.
-            chatMessagesBox.applyCss();
-            chatMessagesBox.layout();
-            double newContentHeight = chatMessagesBox.getHeight();
+            // Lay the new page out now: inside a scroll handler the viewport has not run yet, and an
+            // unmeasured page reads as "nothing was added", which left the reader pinned at the top.
+            chatScroll.applyCss();
+            chatScroll.layout();
+            double newContentHeight = transcriptHeight();
             double oldRange = Math.max(0, oldContentHeight - viewportHeight);
             double newRange = Math.max(0, newContentHeight - viewportHeight);
             if (newRange > 0) {
                 double added = Math.max(0, newContentHeight - oldContentHeight);
                 double anchored = (oldVvalue * oldRange + added) / newRange;
-                double clamped = Math.max(0, Math.min(1, anchored));
-                if (chatSmoothScroll != null) {
-                    chatSmoothScroll.jumpTo(clamped);
-                } else if (chatScroll != null) {
-                    chatScroll.setVvalue(clamped);
-                }
+                jumpTranscriptTo(anchored);
             }
         } finally {
             loadingEarlierMessages = false;
+        }
+    }
+
+    /** Laid-out height of the transcript, i.e. what the scroll position is measured against. */
+    private double transcriptHeight() {
+        Node content = chatScroll != null ? chatScroll.getContent() : null;
+        return content != null ? content.getLayoutBounds().getHeight() : 0;
+    }
+
+    /** Positions the transcript without motion, after the caller has laid the new page out. */
+    private void jumpTranscriptTo(double vvalue) {
+        if (chatScroll == null) {
+            return;
+        }
+        double clamped = Math.max(0, Math.min(1, vvalue));
+        if (chatSmoothScroll != null) {
+            chatSmoothScroll.jumpTo(clamped);
+        } else {
+            chatScroll.setVvalue(clamped);
         }
     }
 
@@ -1963,6 +2077,7 @@ public class AiAssistantPageController implements Initializable {
         if (result.isPresent() && result.get() == ButtonType.OK) {
             removeThinkingBubble();
             currentSession.getMessages().clear();
+            resetLiveDomContext();
             try {
                 chatHistoryStore.saveSession(currentSession);
             } catch (IOException e) {
@@ -2276,6 +2391,41 @@ public class AiAssistantPageController implements Initializable {
         }
     }
 
+    /**
+     * True when the cached Live DOM belongs to this turn's target. A turn with no URL of its own keeps
+     * using the conversation's current page; a turn that names another page must not.
+     */
+    private boolean domMatchesTarget(String targetUrl) {
+        return domReusableFor(liveDomJson, liveDomSourceUrl, targetUrl);
+    }
+
+    /**
+     * The reuse rule on its own, so a test can pin it: a scan is only valid for the page it came from.
+     */
+    static boolean domReusableFor(String cachedDom, String sourceUrl, String targetUrl) {
+        if (cachedDom == null || cachedDom.isBlank() || "[]".equals(cachedDom.trim())) {
+            return false;
+        }
+        if (targetUrl == null || targetUrl.isBlank()) {
+            return true;
+        }
+        return sourceUrl != null && normalizeUrl(targetUrl).equalsIgnoreCase(normalizeUrl(sourceUrl));
+    }
+
+    private static String normalizeUrl(String url) {
+        String trimmed = url == null ? "" : url.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    /** Drops the scanned page when the conversation changes, so its selectors never leak across chats. */
+    private void resetLiveDomContext() {
+        liveDomJson = null;
+        liveDomSourceUrl = null;
+    }
+
     private void executePromptInternal(AiChatSession targetSession, Path suiteDir, String targetGroupName,
             String targetSuiteName, String prompt,
             List<DocumentParserService.ParsedDocument> docsSnapshot,
@@ -2343,7 +2493,9 @@ public class AiAssistantPageController implements Initializable {
             generateScript = AiAmbiguityAnalyzer.requestsScriptOrCaseGeneration(prompt);
         }
         final boolean effectiveGenerateScript = generateScript;
-        String domContext = liveDomJson;
+        // A DOM scanned for another page is worse than no DOM at all: every selector it suggests
+        // belongs to the previous site. Only reuse the cache when it was scanned from this target.
+        String domContext = domMatchesTarget(detectedTargetUrl) ? liveDomJson : null;
         final AiConfig effectiveAiConfig = aiConfig;
 
         Thread thread = new Thread(() -> {
@@ -2361,6 +2513,7 @@ public class AiAssistantPageController implements Initializable {
                         if (autoScannedDom != null && !autoScannedDom.isBlank() && !"[]".equals(autoScannedDom)) {
                             activeDomContext = autoScannedDom;
                             liveDomJson = autoScannedDom; // Cache cho phiên làm việc
+                            liveDomSourceUrl = detectedTargetUrl;
                             Platform.runLater(
                                      () -> ToastService.info("🌐 Đã tự động nạp Live DOM từ " + detectedTargetUrl));
                         }
@@ -3521,19 +3674,49 @@ public class AiAssistantPageController implements Initializable {
 
     /**
      * Appends bubbles for messages that are not on screen yet. This is what ends a turn: rebuilding the
-     * whole transcript cleared and repainted every earlier bubble, which read as a flash.
+     * whole transcript cleared and repainted every earlier bubble, which read as a flash. Package-private
+     * so a layout test can drive the same path the end of a turn uses.
      */
-    private void appendMissingTranscriptBubbles() {
+    void appendMissingTranscriptBubbles() {
         if (currentSession == null) {
             return;
         }
         boolean pinned = isChatPinnedToBottom();
+        // A reader who scrolled up keeps the message they are reading in place; the pane would
+        // otherwise keep the *ratio* and slide the whole conversation down by the height just added.
+        double readerOffset = pinned ? NO_OFFSET : readerPixelOffset();
         for (AiChatMessage msg : windowedMessages()) {
             if (!renderedBubbles.containsKey(msg)) {
                 insertMessageBubbleBeforeThinking(msg);
             }
         }
-        scrollToBottomIfPinned(pinned);
+        if (pinned) {
+            scrollToBottomIfPinned(true);
+        } else {
+            restoreReaderPixelOffset(readerOffset);
+        }
+    }
+
+    /** Scroll offset of the reader's current position in pixels, or {@link #NO_OFFSET}. */
+    private double readerPixelOffset() {
+        if (chatScroll == null) {
+            return NO_OFFSET;
+        }
+        double range = Math.max(0, transcriptHeight() - chatScroll.getViewportBounds().getHeight());
+        return range > 0 ? chatScroll.getVvalue() * range : NO_OFFSET;
+    }
+
+    /** Puts the reader back on the same pixels after the content above or below them changed. */
+    private void restoreReaderPixelOffset(double offset) {
+        if (chatScroll == null || offset == NO_OFFSET) {
+            return;
+        }
+        chatScroll.applyCss();
+        chatScroll.layout();
+        double range = Math.max(0, transcriptHeight() - chatScroll.getViewportBounds().getHeight());
+        if (range > 0) {
+            jumpTranscriptTo(offset / range);
+        }
     }
 
     /** Replaces an already-rendered bubble whose stored content changed after it was painted. */

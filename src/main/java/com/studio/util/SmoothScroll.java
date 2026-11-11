@@ -2,7 +2,10 @@ package com.studio.util;
 
 import javafx.animation.AnimationTimer;
 import javafx.scene.Node;
+import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TreeView;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 
@@ -29,16 +32,21 @@ public final class SmoothScroll {
     private static final double MAX_WHEEL_DELTA = 6_000.0;
     /** A new wheel event may not push the target further than this per event. */
     private static final double MAX_TARGET_STEP = 0.35;
+    /** A live value this far from the last one we wrote was moved by someone else. */
+    private static final double EXTERNAL_MOVE_EPSILON = 1e-6;
 
     private final ScrollPane scrollPane;
     private final AnimationTimer timer;
     private double target;
+    /** The value this controller last wrote, used to notice moves it did not make. */
+    private double lastApplied;
     private double lastFrameNanos;
     private boolean animating;
 
     private SmoothScroll(ScrollPane scrollPane) {
         this.scrollPane = scrollPane;
         this.target = scrollPane.getVvalue();
+        this.lastApplied = this.target;
         this.timer = new AnimationTimer() {
             @Override
             public void handle(long now) {
@@ -64,15 +72,22 @@ public final class SmoothScroll {
 
     private void wire() {
         target = scrollPane.getVvalue();
-        scrollPane.addEventHandler(ScrollEvent.SCROLL, this::onScroll);
+        lastApplied = target;
+        // A filter, not a handler: a ScrollPane's skin stops scroll events from bubbling out of its
+        // viewport, so a handler on the pane never sees a wheel gesture made over its content. Without
+        // the filter the skin jumps the viewport itself and this controller's target goes stale.
+        scrollPane.addEventFilter(ScrollEvent.SCROLL, this::onScroll);
         // A thumb drag or a scrollbar click owns the value directly; fighting it would oscillate.
         scrollPane.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> syncTargetToCurrent());
     }
 
     private void onScroll(ScrollEvent event) {
-        if (event.getDeltaY() == 0) {
+        if (event.getDeltaY() == 0 || nestedControlOwnsGesture(event)) {
             return;
         }
+        // A rebuild, a skin clamp or a scrollbar drag can move the pane without going through this
+        // controller. Ease from where the viewport actually is, otherwise the first notch teleports.
+        adoptExternalValue();
         double range = scrollablePixels();
         if (range <= 0) {
             return;
@@ -97,7 +112,11 @@ public final class SmoothScroll {
     /** Eases to {@code vvalue} (clamped to the pane's range). */
     public void scrollTo(double vvalue) {
         double next = clamp(vvalue, 0, 1);
-        if (Math.abs(next - target) < SETTLE_EPSILON) {
+        // The target alone is not enough: the transcript can grow underneath a settled animation, so
+        // the live value drifts away from a target that is still 1.0. Re-arming only when the *target*
+        // moved made "follow the newest message" stop for the rest of the conversation.
+        if (Math.abs(next - target) < SETTLE_EPSILON
+                && Math.abs(next - scrollPane.getVvalue()) < SETTLE_EPSILON) {
             return;
         }
         target = next;
@@ -108,6 +127,7 @@ public final class SmoothScroll {
     public void jumpTo(double vvalue) {
         stopAnimation();
         target = clamp(vvalue, 0, 1);
+        lastApplied = target;
         scrollPane.setVvalue(target);
     }
 
@@ -119,6 +139,11 @@ public final class SmoothScroll {
     /** True when the eased destination is the end of the content, i.e. "following the stream". */
     public boolean isTargetingBottom() {
         return target >= 1 - SETTLE_EPSILON;
+    }
+
+    /** Where the next frames are easing to; package-private so a test can pin a gesture's origin. */
+    double targetValue() {
+        return target;
     }
 
     private void startAnimation() {
@@ -139,6 +164,18 @@ public final class SmoothScroll {
     private void syncTargetToCurrent() {
         stopAnimation();
         target = scrollPane.getVvalue();
+        lastApplied = target;
+    }
+
+    /** Hands control back to the pane when its value changed without this controller writing it. */
+    private void adoptExternalValue() {
+        double current = scrollPane.getVvalue();
+        if (Math.abs(current - lastApplied) <= EXTERNAL_MOVE_EPSILON) {
+            return;
+        }
+        stopAnimation();
+        target = current;
+        lastApplied = current;
     }
 
     private void tick(long nowNanos) {
@@ -153,10 +190,13 @@ public final class SmoothScroll {
         double distance = target - current;
         if (Math.abs(distance) < SETTLE_EPSILON) {
             scrollPane.setVvalue(target);
+            lastApplied = target;
             stopAnimation();
             return;
         }
-        scrollPane.setVvalue(nextValue(current, target, elapsedSeconds));
+        double next = nextValue(current, target, elapsedSeconds);
+        scrollPane.setVvalue(next);
+        lastApplied = next;
     }
 
     /**
@@ -172,8 +212,24 @@ public final class SmoothScroll {
         return Math.max(next, target);
     }
 
-    private double scrollablePixels() {
-        Node content = scrollPane.getContent();
+    /**
+     * True when the wheel gesture belongs to a control nested in the content (a list or a pane inside
+     * a bubble). Such a control scrolls itself; easing the outer pane as well would move both.
+     */
+    private boolean nestedControlOwnsGesture(ScrollEvent event) {
+        if (!(event.getTarget() instanceof Node node)) {
+            return false;
+        }
+        for (Node current = node; current != null && current != scrollPane; current = current.getParent()) {
+            if (current instanceof ScrollPane || current instanceof ListView || current instanceof TableView
+                    || current instanceof TreeView) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private double scrollablePixels() {        Node content = scrollPane.getContent();
         if (content == null) {
             return 0;
         }

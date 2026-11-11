@@ -45,6 +45,29 @@
     -fx-background-color: #16161e;
     -fx-border-color: #2a2b3d;
     -fx-border-width: 0 0 1 0;
+    -fx-min-height: 44;
+    -fx-pref-height: 44;
+}
+/* One control height for the whole bar: a 15px icon button next to 12px text buttons made the row
+   look ragged and left the labels at different baselines. */
+.header-bar .icon-btn,
+.header-bar .header-help-btn,
+.header-bar .header-stop-btn {
+    -fx-min-height: 30;
+    -fx-pref-height: 30;
+    -fx-alignment: center;
+}
+.header-bar .icon-btn {
+    -fx-padding: 0 9;
+}
+.header-bar .header-help-btn,
+.header-bar .header-stop-btn {
+    -fx-padding: 0 12;
+}
+/* Identity half may shrink so a long suite name ellipsizes instead of pushing the actions out. */
+.header-identity,
+.header-actions {
+    -fx-min-width: 0;
 }
 .app-title {
     -fx-font-size: 15px;
@@ -60,6 +83,9 @@
     -fx-text-fill: #7aa2f7;
     -fx-font-size: 12px;
     -fx-cursor: hand;
+    /* Shrinkable: the header gives this label the leftover identity width and ellipsizes it. */
+    -fx-min-width: 0;
+    -fx-max-width: 300;
 }
 .icon-btn {
     -fx-background-color: #24283b;
@@ -2243,34 +2269,51 @@
 }
 .header-separator {
     -fx-background-color: #2a2b3d;
+    /* A full-height rule in a 44px bar reads as a column divider; a short tick is enough. */
+    -fx-min-height: 18;
+    -fx-pref-height: 18;
+    -fx-max-height: 18;
 }
 
 /* --- Multi-Tab Document Bar System (VS Code / Linear style) --- */
+/* 34px row whose background is the workspace colour, so the strip reads as part of the page instead
+   of a grey band spanning the window. Tabs fill the row's full height (the container stretches its
+   children), which keeps them flush with the page edge at any tab count. */
 .tab-strip-bar {
-    -fx-background-color: #16161e;
+    -fx-background-color: #1a1b26;
     -fx-border-color: #2a2b3d;
     -fx-border-width: 0 0 1 0;
-    -fx-min-height: 36px;
-    -fx-pref-height: 36px;
-    -fx-max-height: 36px;
+    -fx-min-height: 34px;
+    -fx-pref-height: 34px;
+    -fx-max-height: 34px;
+    -fx-padding: 0 4;
 }
 .tab-scroll-pane {
+    /* ScrollPane computes a 36px minimum of its own, which would overrule the 34px strip and clip the
+       tabs by 2px. The strip owns the height; the scroll pane only fills it. */
+    -fx-min-height: 0;
     -fx-background-color: transparent;
     -fx-border-width: 0;
+    -fx-padding: 0;
 }
 .tab-scroll-pane > .viewport {
     -fx-background-color: transparent;
 }
 .tab-container {
-    -fx-padding: 0 4;
+    -fx-padding: 0;
+    -fx-alignment: center-left;
 }
 .tab-item {
-    -fx-background-color: #1a1b26;
+    -fx-background-color: #16161e;
     -fx-text-fill: #9aa5ce;
     -fx-cursor: hand;
-    -fx-border-color: transparent #24283b transparent transparent;
+    -fx-border-color: transparent #2a2b3d transparent transparent;
     -fx-border-width: 0 1 0 0;
-    -fx-padding: 7 14 7 12;
+    -fx-background-radius: 6 6 0 0;
+    -fx-padding: 0 12;
+    /* Stretch to the strip height: the tab container has fillHeight on, so no height constant is
+       needed and a horizontal scroll bar (many tabs) cannot clip the labels. */
+    -fx-max-height: Infinity;
     -fx-alignment: center-left;
 }
 .tab-item:hover {
@@ -2278,7 +2321,7 @@
 }
 .tab-item.active {
     -fx-background-color: #1f2335;
-    -fx-border-color: #7aa2f7 #24283b transparent transparent;
+    -fx-border-color: #7aa2f7 #2a2b3d transparent transparent;
     -fx-border-width: 2 1 0 0;
 }
 .tab-icon {

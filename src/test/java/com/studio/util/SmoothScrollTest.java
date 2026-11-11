@@ -1,10 +1,13 @@
 package com.studio.util;
 
 import javafx.application.Platform;
+import javafx.event.Event;
 import javafx.scene.Scene;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -106,6 +109,54 @@ class SmoothScrollTest {
                     "A rebuild needs an immediate position, not an animation");
             assertFalse(smoothScroll.isTargetingBottom(), "0.42 is not the bottom");
         });
+    }
+
+    @Test
+    void aClampedJumpDoesNotTeleportTheNextWheelGesture() throws Exception {
+        runFx(() -> {
+            ScrollPane pane = tallPane();
+            SmoothScroll smoothScroll = SmoothScroll.install(pane);
+            // A rebuild asks for the bottom before the skin has measured the content; the skin then
+            // clamps it back. The next notch must ease from the real position, never from the stale one.
+            smoothScroll.jumpTo(1.0);
+            pane.setVvalue(0.5);
+            fireWheel(pane, 120);
+            assertTrue(smoothScroll.targetValue() < 0.5,
+                    "The gesture must start where the viewport is, not where the discarded jump pointed");
+            assertTrue(smoothScroll.targetValue() > 0.3,
+                    "One notch may not jump a whole page");
+        });
+    }
+
+    @Test
+    void aWheelGestureOverANestedControlIsLeftToIt() throws Exception {
+        runFx(() -> {
+            ScrollPane nested = new ScrollPane(new Region());
+            nested.setPrefSize(300, 200);
+            VBox content = new VBox(nested);
+            content.setPrefHeight(CONTENT_HEIGHT);
+            content.setMinHeight(CONTENT_HEIGHT);
+            ScrollPane pane = new ScrollPane(content);
+            pane.setFitToWidth(true);
+            new Scene(pane, 800, VIEWPORT_HEIGHT);
+            pane.applyCss();
+            pane.layout();
+
+            SmoothScroll smoothScroll = SmoothScroll.install(pane);
+            smoothScroll.jumpTo(0.5);
+            fireWheel(nested, 120);
+            assertEquals(0.5, smoothScroll.targetValue(), 1e-9,
+                    "A list or pane inside the content scrolls itself; easing the outer pane too would move both");
+        });
+    }
+
+    private static void fireWheel(ScrollPane pane, double deltaY) {
+        ScrollEvent event = new ScrollEvent(ScrollEvent.SCROLL, 100, 100, 100, 100,
+                false, false, false, false, false, false,
+                0, deltaY, 0, deltaY,
+                ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                ScrollEvent.VerticalTextScrollUnits.NONE, 0, 0, null);
+        Event.fireEvent(pane, event);
     }
 
     private static ScrollPane tallPane() {

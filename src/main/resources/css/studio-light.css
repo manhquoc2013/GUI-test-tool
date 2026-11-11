@@ -32,10 +32,41 @@
 }
 
 /* === HEADER BAR === */
+/* Structural rules (height, control height, shrink behaviour) live in both theme sheets: each theme
+   replaces the other's stylesheet entirely, so nothing here can be inherited from the dark file. */
 .header-bar {
     -fx-background-color: #ffffff;
     -fx-border-color: #e2e8f0;
     -fx-border-width: 0 0 1 0;
+    -fx-min-height: 44;
+    -fx-pref-height: 44;
+}
+.header-bar .icon-btn,
+.header-bar .header-help-btn,
+.header-bar .header-stop-btn {
+    -fx-min-height: 30;
+    -fx-pref-height: 30;
+    -fx-alignment: center;
+}
+.header-bar .icon-btn {
+    -fx-padding: 0 9;
+}
+.header-bar .header-help-btn,
+.header-bar .header-stop-btn {
+    -fx-padding: 0 12;
+}
+.header-identity,
+.header-actions {
+    -fx-min-width: 0;
+}
+.active-suite-label {
+    -fx-min-width: 0;
+    -fx-max-width: 300;
+}
+.header-separator {
+    -fx-min-height: 18;
+    -fx-pref-height: 18;
+    -fx-max-height: 18;
 }
 
 .app-title {
@@ -222,28 +253,43 @@
 }
 
 /* === TAB CONTAINER & TABS === */
+/* The strip shares the workspace colour so it stops reading as an empty grey band under the header;
+   the tabs themselves are the only thing with a filled background. */
 .tab-strip-bar {
-    -fx-background-color: #f1f5f9;
+    -fx-background-color: #f8fafc;
     -fx-border-color: #e2e8f0;
     -fx-border-width: 0 0 1 0;
+    -fx-min-height: 34px;
+    -fx-pref-height: 34px;
+    -fx-max-height: 34px;
+    -fx-padding: 0 4;
 }
 
 .tab-scroll-pane {
-    -fx-background-color: #f1f5f9;
-    -fx-border-color: #e2e8f0;
-    -fx-border-width: 0 0 1 0;
+    /* ScrollPane computes a 36px minimum of its own, which would overrule the 34px strip and clip the
+       tabs by 2px. The strip owns the height; the scroll pane only fills it. */
+    -fx-min-height: 0;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0;
 }
 
 .tab-container {
-    -fx-background-color: #f1f5f9;
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-alignment: center-left;
 }
 
 .tab-item {
-    -fx-background-color: #e2e8f0;
-    -fx-border-color: #cbd5e1;
+    -fx-background-color: #eef2f7;
+    -fx-border-color: #dbe3ec;
     -fx-border-width: 1 1 0 1;
     -fx-border-radius: 6 6 0 0;
     -fx-background-radius: 6 6 0 0;
+    -fx-padding: 0 12;
+    -fx-max-height: Infinity;
+    -fx-alignment: center-left;
 }
 
 .tab-item:hover {
