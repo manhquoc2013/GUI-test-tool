@@ -31,9 +31,11 @@ import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -70,6 +72,8 @@ public class ReportDetailPageController {
     private Button backBtn;
 
     // --- Cases table ---
+    @FXML
+    private javafx.scene.layout.HBox stepTimelineBox;
     @FXML
     private TableView<CaseResult> casesTable;
     @FXML
@@ -550,6 +554,7 @@ public class ReportDetailPageController {
             casesTable.setItems(allCases);
 
             // Clear detail panes — do not auto-select a case (drawer stays closed)
+            if (stepTimelineBox != null) stepTimelineBox.getChildren().clear();
             assertsTable.setItems(FXCollections.emptyObservableList());
             logExcerpt.clear();
             screenshotLabel.setVisible(false);
@@ -670,6 +675,9 @@ public class ReportDetailPageController {
 
         showLog(sb.toString());
 
+        // Step execution timeline
+        buildStepTimeline(cr);
+
         // Screenshot path + preview
         Path resolvedShot = resolveScreenshotFile(cr.getScreenshotPath());
         if (resolvedShot != null) {
@@ -765,6 +773,72 @@ public class ReportDetailPageController {
         } catch (Exception e) {
             screenshotView.setImage(null);
             screenshotView.setVisible(false);
+        }
+    }
+
+    // --- Step Timeline ---
+
+    /**
+     * Builds the step execution timeline badges in stepTimelineBox.
+     * Each badge is a Label with index, tooltip with step name+result,
+     * and styleClass: step-badge-pass / step-badge-fail / step-badge-healed.
+     */
+    private void buildStepTimeline(CaseResult cr) {
+        if (stepTimelineBox == null) return;
+        stepTimelineBox.getChildren().clear();
+        if (cr == null) return;
+
+        // Check if case has any healed steps
+        boolean caseHasHealed = cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty();
+
+        // Build assert-level badges (one per assert result as a step proxy)
+        java.util.List<com.studio.model.AssertResult> asserts = cr.getAssertResults();
+        if (asserts != null && !asserts.isEmpty()) {
+            for (int i = 0; i < asserts.size(); i++) {
+                com.studio.model.AssertResult ar = asserts.get(i);
+                Label badge = new Label(String.valueOf(i + 1));
+                badge.setMinWidth(28);
+                badge.setMinHeight(28);
+                badge.setAlignment(javafx.geometry.Pos.CENTER);
+                badge.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-cursor: default;");
+
+                // Last assert badge gets healed marker if case was healed
+                boolean healed = caseHasHealed && (i == asserts.size() - 1);
+                String status = ar.getStatus() != null ? ar.getStatus().toUpperCase() : "";
+                if (healed) {
+                    badge.getStyleClass().add("step-badge-healed");
+                } else if (status.startsWith("PASS") || status.equals("OK") || status.equals("TRUE")) {
+                    badge.getStyleClass().add("step-badge-pass");
+                } else {
+                    badge.getStyleClass().add("step-badge-fail");
+                }
+
+                String tipText = "Step " + (i + 1)
+                        + (ar.getType() != null ? " [" + ar.getType() + "]" : "")
+                        + " → " + (ar.getStatus() != null ? ar.getStatus() : "?")
+                        + (healed ? " ✨Healed" : "");
+                Tooltip tip = new Tooltip(tipText);
+                Tooltip.install(badge, tip);
+
+                stepTimelineBox.getChildren().add(badge);
+            }
+        } else {
+            // No asserts — show single case-level badge
+            Label badge = new Label("1");
+            badge.setMinWidth(28);
+            badge.setMinHeight(28);
+            badge.setAlignment(javafx.geometry.Pos.CENTER);
+            badge.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            String status = cr.getStatus() != null ? cr.getStatus().toUpperCase() : "";
+            if (status.startsWith("PASS")) {
+                badge.getStyleClass().add("step-badge-pass");
+            } else if (status.startsWith("SKIP")) {
+                badge.getStyleClass().add("step-badge-healed");
+            } else {
+                badge.getStyleClass().add("step-badge-fail");
+            }
+            Tooltip.install(badge, new Tooltip(cr.getTestCaseName() + " → " + (cr.getStatus() != null ? cr.getStatus() : "?")));
+            stepTimelineBox.getChildren().add(badge);
         }
     }
 

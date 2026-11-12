@@ -26,6 +26,48 @@
         <ComboBox fx:id="suiteFilter" prefWidth="160" onAction="#onFilterChanged"/>
         <Button text="Làm mới" fx:id="refreshBtn" onAction="#refresh" styleClass="toolbar-btn"/>
     </FlowPane>
+
+    <!-- KPI Summary Cards -->
+    <HBox spacing="12" styleClass="kpi-cards-row">
+        <padding><Insets top="8" right="12" bottom="4" left="12"/></padding>
+
+        <!-- Card 1: Tổng số lần chạy -->
+        <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
+            <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
+            <Label text="Tổng số lần chạy" styleClass="small"/>
+            <Label fx:id="kpiTotalRuns" text="0" styleClass="accent"
+                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label text="tổng lần thực thi" styleClass="small"/>
+        </VBox>
+
+        <!-- Card 2: Tỷ lệ Pass -->
+        <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
+            <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
+            <Label text="Tỷ lệ Pass" styleClass="small"/>
+            <Label fx:id="kpiPassRate" text="0%" styleClass="success"
+                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label text="tỷ lệ đạt trung bình" styleClass="small"/>
+        </VBox>
+
+        <!-- Card 3: Tổng lần PASSED -->
+        <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
+            <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
+            <Label text="Lần chạy PASSED" styleClass="small"/>
+            <Label fx:id="kpiPassed" text="0" styleClass="success"
+                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label text="case đạt yêu cầu" styleClass="small"/>
+        </VBox>
+
+        <!-- Card 4: Tổng lần FAILED -->
+        <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
+            <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
+            <Label text="Lần chạy FAILED" styleClass="small"/>
+            <Label fx:id="kpiFailed" text="0" styleClass="danger"
+                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label text="case thất bại" styleClass="small"/>
+        </VBox>
+    </HBox>
+
     <TableView fx:id="reportsTable" VBox.vgrow="ALWAYS" styleClass="reports-table">
         <columns>
             <TableColumn text="Mã chạy" fx:id="runIdCol" prefWidth="130"/>

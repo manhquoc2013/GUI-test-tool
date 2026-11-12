@@ -29,6 +29,10 @@ import java.nio.file.Path;
  */
 public class EvidenceViewerDialog {
 
+    private static final double ZOOM_STEP = 100.0;
+    private static final double ZOOM_MIN  = 100.0;
+    private static final double ZOOM_MAX  = 2000.0;
+
     public static void show(String title, Path imagePath) {
         if (imagePath == null || !Files.exists(imagePath)) {
             ToastService.warn("⚠️ Không tìm thấy file ảnh chụp màn hình.");
@@ -36,7 +40,8 @@ public class EvidenceViewerDialog {
         }
 
         Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle("Bằng chứng ảnh chụp — " + (title != null ? title : imagePath.getFileName()));
+        String fileName = imagePath.getFileName() != null ? imagePath.getFileName().toString() : "";
+        dialog.setTitle("Bằng chứng ảnh chụp — " + (title != null ? title : fileName));
         dialog.setHeaderText("Xem bằng chứng ảnh chụp màn hình thực thi (Evidence)");
 
         DialogPane pane = dialog.getDialogPane();
@@ -44,12 +49,16 @@ public class EvidenceViewerDialog {
         Button closeBtn = (Button) pane.lookupButton(ButtonType.CLOSE);
         closeBtn.setText("Đóng");
 
-        VBox content = new VBox(10);
+        VBox content = new VBox(8);
         content.setPadding(new Insets(12));
-        content.setPrefWidth(850);
-        content.setPrefHeight(650);
+        content.setPrefWidth(900);
+        content.setPrefHeight(680);
 
-        // Path header row
+        // --- File name label ---
+        Label fileNameLabel = new Label("📸 " + fileName);
+        fileNameLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #c0caf5;");
+
+        // --- Path + action row ---
         HBox topRow = new HBox(10);
         topRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -82,19 +91,55 @@ public class EvidenceViewerDialog {
 
         topRow.getChildren().addAll(pathLabel, copyPathBtn, openDesktopBtn);
 
-        // Image View inside ScrollPane
+        // --- Image View ---
         Image img = new Image(imagePath.toUri().toString(), false);
         ImageView iv = new ImageView(img);
         iv.setPreserveRatio(true);
         iv.setSmooth(true);
-        iv.fitWidthProperty().bind(content.widthProperty().subtract(36));
+
+        // initial fit width — will be adjusted by zoom
+        double[] currentFitWidth = { Math.max(ZOOM_MIN, content.getPrefWidth() - 36) };
+        iv.setFitWidth(currentFitWidth[0]);
 
         ScrollPane scroll = new ScrollPane(iv);
-        scroll.setFitToWidth(true);
+        scroll.setFitToWidth(false);
         scroll.setStyle("-fx-background-color: #111218; -fx-border-color: #2a2b3d; -fx-border-radius: 8px;");
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
-        content.getChildren().addAll(topRow, scroll);
+        // --- Zoom controls ---
+        Label zoomLabel = new Label(String.format("%.0f%%", currentFitWidth[0]));
+        zoomLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #9aa5ce; -fx-min-width: 50px;");
+        zoomLabel.setAlignment(Pos.CENTER);
+
+        Button zoomInBtn  = new Button("+");
+        Button zoomOutBtn = new Button("−");
+        Button zoomFitBtn = new Button("Fit");
+        zoomInBtn.getStyleClass().add("flat");
+        zoomOutBtn.getStyleClass().add("flat");
+        zoomFitBtn.getStyleClass().addAll("flat", "small");
+
+        Runnable applyZoom = () -> {
+            iv.setFitWidth(currentFitWidth[0]);
+            zoomLabel.setText(String.format("%.0f%%", currentFitWidth[0]));
+        };
+
+        zoomInBtn.setOnAction(e -> {
+            currentFitWidth[0] = Math.min(ZOOM_MAX, currentFitWidth[0] + ZOOM_STEP);
+            applyZoom.run();
+        });
+        zoomOutBtn.setOnAction(e -> {
+            currentFitWidth[0] = Math.max(ZOOM_MIN, currentFitWidth[0] - ZOOM_STEP);
+            applyZoom.run();
+        });
+        zoomFitBtn.setOnAction(e -> {
+            currentFitWidth[0] = Math.max(ZOOM_MIN, content.getWidth() - 36);
+            applyZoom.run();
+        });
+
+        HBox zoomRow = new HBox(6, zoomOutBtn, zoomLabel, zoomInBtn, zoomFitBtn);
+        zoomRow.setAlignment(Pos.CENTER_LEFT);
+
+        content.getChildren().addAll(fileNameLabel, topRow, zoomRow, scroll);
         pane.setContent(content);
         DialogTheme.apply(dialog);
 
