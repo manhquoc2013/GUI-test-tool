@@ -1,0 +1,299 @@
+// SPDX-License-Identifier: MIT
+
+/*! @module:date-picker:start */
+@use "../settings/config" as cfg;
+@use "../settings/effects";
+@use "../settings/icons";
+
+$color-bg:              -color-bg-default      !default;
+$color-border:          -color-border-default  !default;
+$color-month-year-bg:   -color-bg-default      !default;
+$color-month-year-fg:   -color-fg-default      !default;
+$color-day-bg:          -color-bg-default      !default;
+$color-day-bg-hover:    -color-bg-subtle       !default;
+$color-day-bg-selected: -color-accent-emphasis !default;
+$color-day-fg:          -color-fg-default      !default;
+$color-day-fg-hover:    -color-fg-default      !default;
+$color-day-fg-selected: -color-fg-emphasis     !default;
+$color-week-bg:         -color-bg-subtle       !default;
+$color-week-fg:         -color-fg-muted        !default;
+$color-today-bg:        -color-accent-subtle   !default;
+$color-today-fg:        -color-accent-fg       !default;
+$color-other-month-fg:  -color-fg-subtle       !default;
+$color-chrono-fg:       -color-success-fg      !default;
+$color-icon:            -color-fg-muted        !default;
+
+$content-padding-x: 8px !default;
+$content-padding-y: 8px !default;
+$day-cell-font-size:   1em !default;
+$month-year-font-size: 1.1em !default;
+
+$cell-padding-x: 4px !default;
+$cell-padding-y: 8px !default;
+// default cell size is 24px (36px if second chronology), see DateCellSkin
+$cell-size: 2.5em !default;
+$cell-hgap: 5px   !default;
+$cell-vgap: 0     !default;
+$day-name-font-size: 0.9em !default;
+
+// secondary chronology
+$chrono-label-margin: 0.5em  !default;
+$chrono-cell-size:    2.75em !default;
+$chrono-cell-padding: 0.083333em $cell-padding-x 0.083333em 0.333333em !default;
+
+@mixin _color-variables() {
+  -color-date-bg:              $color-bg;
+  -color-date-border:          $color-border;
+  -color-date-month-year-bg:   $color-month-year-bg;
+  -color-date-month-year-fg:   $color-month-year-fg;
+  -color-date-day-bg:          $color-day-bg;
+  -color-date-day-bg-hover:    $color-day-bg-hover;
+  -color-date-day-bg-selected: $color-day-bg-selected;
+  -color-date-day-fg:          $color-day-fg;
+  -color-date-day-fg-hover:    $color-day-fg-hover;
+  -color-date-day-fg-selected: $color-day-fg-selected;
+  -color-date-week-bg:         $color-week-bg;
+  -color-date-week-fg:         $color-week-fg;
+  -color-date-today-bg:        $color-today-bg;
+  -color-date-today-fg:        $color-today-fg;
+  -color-date-other-month-fg:  $color-other-month-fg;
+  -color-date-chrono-fg:       $color-chrono-fg;
+}
+
+.combo-box-base.date-picker {
+  >.arrow-button {
+    -fx-cursor: hand;
+
+    >.arrow {
+      @include icons.get("calendar", true);
+      -fx-background-color: $color-icon;
+      -fx-padding: 0.416667em; // icon size
+    }
+  }
+
+  >.text-field {
+    &:readonly {
+      -fx-background-color: -color-input-border, -color-input-bg;
+    }
+
+    &:readonly:focused {
+      -fx-background-color: -color-input-border-focused, -color-input-bg-focused;
+    }
+  }
+}
+
+.combo-box-popup>.date-picker-popup {
+  @include effects.shadow(-color-shadow-default, cfg.$popup-shadow-radius, cfg.$popup-shadow-spread);
+  -fx-background-radius: cfg.$border-radius, cfg.$inner-border-radius;
+}
+
+.date-picker-popup {
+  @include _color-variables();
+
+  -fx-background-color: -color-date-border, -color-date-bg;
+  -fx-background-insets: 0, 1;
+  -fx-background-radius: cfg.$border-radius, cfg.$inner-border-radius;
+  -fx-alignment: CENTER;
+  -fx-spacing: 0;
+  -fx-padding: cfg.$border-width;
+
+  >.month-year-pane {
+    -fx-padding: $content-padding-y $content-padding-x $content-padding-y $content-padding-x;
+    -fx-background-color: -color-date-month-year-bg;
+    -fx-background-insets: 0;
+    -fx-background-radius: cfg.$border-radius cfg.$border-radius 0 0;
+
+    // this one is actually HBox, but because of the class name it uses Spinner styles
+    >.spinner {
+      -fx-spacing: 4px;
+      -fx-alignment: CENTER;
+      -fx-fill-height: false;
+      -fx-background-color: transparent;
+      -fx-border-color: transparent;
+      -fx-font-size: $month-year-font-size;
+
+      >.button {
+        -fx-background-color: transparent;
+        -fx-background-insets: 0;
+        -fx-background-radius: 0;
+        -fx-cursor: hand;
+
+        >.left-arrow {
+          @include icons.get("chevron-left", false);
+          -fx-background-color: -color-date-month-year-fg;
+        }
+
+        >.right-arrow {
+          @include icons.get("chevron-right", false);
+          -fx-background-color: -color-date-month-year-fg;
+        }
+      }
+
+      >.label {
+        -fx-alignment: CENTER;
+        -fx-text-fill: -color-date-month-year-fg;
+      }
+    }
+
+    >.secondary-label {
+      -fx-alignment: BASELINE_CENTER;
+      -fx-padding:   $chrono-label-margin 0 0 0;
+      -fx-text-fill: -color-date-month-year-fg;
+    }
+  }
+
+  >.calendar-grid {
+    -fx-background-color: -color-date-bg;
+    -fx-padding: $content-padding-x;
+    -fx-hgap: $cell-hgap;
+    -fx-vgap: $cell-vgap;
+    -fx-background-radius: cfg.$border-radius;
+
+    >.date-cell {
+      -fx-background-color: transparent;
+      -fx-padding: 0;
+      -fx-alignment: BASELINE_CENTER;
+      -fx-opacity: 1.0;
+      -fx-text-fill: -color-date-day-fg;
+      -fx-cell-size: $cell-size;
+      -fx-font-size: $day-cell-font-size;
+    }
+
+    >.week-number-cell {
+      -fx-padding: $cell-padding-y $cell-padding-x $cell-padding-y $cell-padding-x;
+      -fx-background-color: -color-date-week-bg;
+      -fx-text-fill: -color-date-week-fg;
+      -fx-font-size: $day-cell-font-size;
+    }
+
+    >.day-cell {
+      -fx-padding: $cell-padding-y $cell-padding-x $cell-padding-y $cell-padding-x;
+      -fx-background-color: -color-date-day-bg;
+
+      >.secondary-text {
+        -fx-fill: -color-date-chrono-fg;
+      }
+
+      &:disabled {
+        -fx-opacity: cfg.$opacity-disabled;
+      }
+    }
+
+    .day-name-cell {
+      -fx-padding: $cell-padding-y $cell-padding-x $cell-padding-y $cell-padding-x;
+      -fx-font-size: $day-name-font-size;
+    }
+
+    >.hijrah-day-cell {
+      -fx-alignment: TOP_LEFT;
+      -fx-padding: $chrono-cell-padding;
+      -fx-cell-size: $chrono-cell-size;
+    }
+
+    >.today {
+      -fx-background-color: -color-date-today-bg;
+      -fx-text-fill: -color-date-today-fg;
+      -fx-font-weight: bold;
+    }
+  }
+}
+
+.calendar {
+  -fx-effect: none;
+
+  >.top-node,
+  >.bottom-node {
+    -fx-padding: $content-padding-y calc($content-padding-x * 2) $content-padding-y calc($content-padding-x * 2);
+  }
+
+  >.month-year-pane {
+    -fx-padding: $content-padding-y calc($content-padding-x * 2) $content-padding-y calc($content-padding-x * 2);
+    -fx-alignment: CENTER_LEFT;
+    -fx-spacing: 6px;
+
+    >.button {
+      -fx-background-color: transparent;
+      -fx-background-insets: 0;
+      -fx-background-radius: 0;
+      -fx-cursor: hand;
+    }
+
+    >.back-button {
+      -fx-padding: 0 1em 0 0;
+      >.left-arrow {
+        @include icons.get("chevron-left", false);
+        -fx-background-color: -color-date-month-year-fg;
+      }
+    }
+
+    >.forward-button {
+      >.right-arrow {
+        @include icons.get("chevron-right", false);
+        -fx-background-color: -color-date-month-year-fg;
+      }
+    }
+
+    >.label {
+      -fx-text-fill: -color-date-month-year-fg;
+      -fx-font-size: $month-year-font-size;
+    }
+  }
+
+  &:disabled {
+    >.calendar-grid {
+      -fx-opacity: cfg.$opacity-disabled;
+
+      // prevent opacity from being applied twice
+      >.day-cell {
+        &:disabled {
+          -fx-opacity: 1.0;
+        }
+      }
+    }
+  }
+}
+
+.edge-to-edge>.calendar.date-picker-popup {
+  -fx-background-color: -color-date-bg;
+  -fx-background-insets: 0;
+  -fx-background-radius: 0;
+}
+
+.date-picker-popup>.calendar-grid>.selected,
+.date-picker-popup>.calendar-grid>.selected>.secondary-text,
+.date-picker-popup>.calendar-grid>.previous-month.selected,
+.date-picker-popup>.calendar-grid>.previous-month.today.selected,
+.date-picker-popup>.calendar-grid>.next-month.today.selected,
+.date-picker-popup>.calendar-grid>.next-month.selected {
+  -fx-background-color: -color-date-day-bg-selected;
+  -fx-text-fill: -color-date-day-fg-selected;
+  -fx-fill: -color-date-day-fg-selected;
+  -fx-font-weight: normal;
+}
+
+.date-picker-popup>.calendar-grid>.day-cell:hover {
+  -fx-background-color: -color-date-day-bg-hover;
+}
+
+.date-picker-popup>.calendar-grid>.today:hover {
+  -fx-background-color: -color-date-today-bg;
+  -fx-text-fill: -color-date-today-fg;
+}
+
+.date-picker-popup>.calendar-grid>.selected:hover {
+  -fx-background-color: -color-date-day-bg-selected;
+  -fx-text-fill: -color-date-day-fg-selected;
+  -fx-fill: -color-date-day-fg-selected;
+}
+
+.date-picker-popup>.calendar-grid>.previous-month,
+.date-picker-popup>.calendar-grid>.next-month,
+.date-picker-popup>.calendar-grid>.previous-month.today,
+.date-picker-popup>.calendar-grid>.next-month.today,
+.date-picker-popup>.calendar-grid>.previous-month>.secondary-text,
+.date-picker-popup>.calendar-grid>.next-month>.secondary-text {
+  -fx-text-fill: -color-date-other-month-fg;
+  -fx-fill: -color-date-other-month-fg;
+  -fx-font-weight: normal;
+}
+/*! @module:date-picker:end */

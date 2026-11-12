@@ -1,0 +1,179 @@
+// SPDX-License-Identifier: MIT
+
+@use "sass:color";
+@use "settings/utils" as utils;
+
+// Note that only dark theme is officially supported:
+// https://github.com/arcticicestudio/nord/issues/46
+
+// Nord color palette
+$nord0:  #2E3440; // hsl(220, 16.4, 21.6)
+$nord1:  #3B4252; // hsl(222, 16.3, 27.6)
+$nord2:  #434C5E; // hsl(220, 16.8, 31.6)
+$nord3:  #4C566A; // hsl(220, 16.5, 35.7)
+$nord4:  #D8DEE9; // hsl(219, 27.9, 88  )
+$nord5:  #E5E9F0; // hsl(218, 26.8, 92  )
+$nord6:  #ECEFF4; // hsl(218, 26.7, 94.1)
+$nord7:  #8FBCBB; // hsl(179, 25.1, 64.9)
+$nord8:  #88C0D0; // hsl(193, 43.4, 67.5)
+$nord9:  #81A1C1; // hsl(210, 34,   63.1)
+$nord10: #5E81AC; // hsl(213, 32,   52.2)
+$nord11: #BF616A; // hsl(354, 42.3, 56.5)
+$nord12: #D08770; // hsl(14,  50.5, 62.7)
+$nord13: #EBCB8B; // hsl(40,  70.6, 73.3)
+$nord14: #A3BE8C; // hsl(92,  27.8, 64.7)
+$nord16: #B48EAD; // hsl(311, 20.2, 63.1)
+
+@forward "settings/color-scale" with (
+
+  $dark:      #232730,
+  $light:     #fafafc,
+
+  $base-0:    #eef1f5,
+  $base-1:    $nord5,
+  $base-2:    $nord4,
+  $base-3:    #c7ceda,
+  $base-4:    #b7becb,
+  $base-5:    #979fae,
+  $base-6:    #788192,
+  $base-7:    $nord3,
+  $base-8:    $nord1,
+  $base-9:    $nord0,
+
+  $accent-0:  #d2dce8,
+  $accent-1:  #bccadc,
+  $accent-2:  #98aeca,
+  $accent-3:  #859fc0,
+  $accent-4:  #7190b6,
+  $accent-5:  $nord10,
+  $accent-6:  #537297,
+  $accent-7:  #476283,
+  $accent-8:  #3c536e,
+  $accent-9:  #314359,
+
+  $success-0: #d1e5e5,
+  $success-1: #aacfce,
+  $success-2: #82b8b8,
+  $success-3: #6fadac,
+  $success-4: #5ba2a1,
+  $success-5: #508f8e,
+  $success-6: #457b7a,
+  $success-7: #3a6867,
+  $success-8: #2f5454,
+  $success-9: #244140,
+
+  $warning-0: #f1dcd5,
+  $warning-1: #e9c7bc,
+  $warning-2: #e1b1a2,
+  $warning-3: #daa08d,
+  $warning-4: #d5937e,
+  $warning-5: #bb7a65,
+  $warning-6: #a66c5a,
+  $warning-7: #925f4e,
+  $warning-8: #7d5143,
+  $warning-9: #684438,
+
+  $danger-0:  #eacacd,
+  $danger-1:  #dfb1b5,
+  $danger-2:  #d29097,
+  $danger-3:  #c57179,
+  $danger-4:  #bf616a,
+  $danger-5:  #ac575f,
+  $danger-6:  #994e55,
+  $danger-7:  #86444a,
+  $danger-8:  #733a40,
+  $danger-9:  #603135
+);
+
+@use "settings/color-scale" as scale;
+
+@forward "settings/color-vars" with (
+
+  $fg-default:           scale.$base-9,
+  $fg-muted:             color.change(scale.$base-7, $alpha: 0.88),
+  $fg-subtle:            scale.$base-6,
+  $fg-onEmphasis:        scale.$light,
+
+  $canvas-default:       scale.$light,
+  $canvas-overlay:       scale.$light,
+  $canvas-inset:         scale.$base-1,
+  $canvas-subtle:        scale.$base-0,
+
+  $border-default:       scale.$base-3,
+  $border-muted:         lighten(scale.$base-3, 0.1),
+  $border-subtle:        utils.flattenColor(scale.$light, color.change(scale.$dark, $alpha: 0.15)),
+  $shadow-default:       scale.$base-3,
+
+  $neutral-emphasisPlus: scale.$base-8,
+  $neutral-emphasis:     scale.$base-7,
+  $neutral-muted:        utils.flattenColor(scale.$light, color.change(scale.$base-5, $alpha: 0.4)),
+  $neutral-subtle:       utils.flattenColor(scale.$light, color.change(scale.$base-5, $alpha: 0.1)),
+
+  $accent-fg:            scale.$accent-6,
+  $accent-emphasis:      scale.$accent-7,
+  $accent-muted:         utils.flattenColor(scale.$light, color.change(scale.$accent-4, $alpha: 0.4)),
+  $accent-subtle:        utils.flattenColor(scale.$light, color.change(scale.$accent-4, $alpha: 0.1)),
+
+  $success-fg:           scale.$success-7,
+  $success-emphasis:     scale.$success-6,
+  $success-muted:        utils.flattenColor(scale.$light, color.change(scale.$success-4, $alpha: 0.4)),
+  $success-subtle:       utils.flattenColor(scale.$light, color.change(scale.$success-4, $alpha: 0.1)),
+
+  $warning-fg:           scale.$warning-7,
+  $warning-emphasis:     scale.$warning-6,
+  $warning-muted:        utils.flattenColor(scale.$light, color.change(scale.$warning-4, $alpha: 0.4)),
+  $warning-subtle:       utils.flattenColor(scale.$light, color.change(scale.$warning-4, $alpha: 0.1)),
+
+  $danger-fg:            scale.$danger-6,
+  $danger-emphasis:      scale.$danger-5,
+  $danger-muted:         utils.flattenColor(scale.$light, color.change(scale.$danger-4, $alpha: 0.4)),
+  $danger-subtle:        utils.flattenColor(scale.$light, color.change(scale.$danger-4, $alpha: 0.15))
+);
+
+@forward "settings/config" with (
+  $darkMode:         false,
+  $border-radius:    1,
+  $opacity-disabled: 0.6,
+  $popup-radius:     0
+);
+
+@use "general";
+
+@forward "components/message" as message-* with (
+  $close-button-radius: 0
+);
+
+@forward "components/modal-pane" as modal-pane-* with (
+  $close-button-radius: 0
+);
+
+@forward "components/notification" as notification-* with (
+  $action-button-radius: 0
+);
+
+@forward "components/pagination" as pagination-* with (
+  $button-radius: 1
+);
+
+@forward "components/slider" as slider-* with (
+  $color-thumb-large:        -color-accent-emphasis,
+  $color-thumb-large-border: -color-accent-emphasis,
+  $thumb-size: (
+    "small-h": 8px, "medium-h": 10px, "large-h": 14px,
+    "small-w": 4px, "medium-w": 4px,  "large-w": 4px
+  ),
+  $track-size: ("small": 2px, "medium": 4px, "large": 12px),
+  $thumb-radius: 0,
+  $track-radius: 0
+);
+
+@forward "components/toggle-switch" as toggle-switch-* with (
+  $thumb-radius:       1px,
+  $thumb-area-radius:  1px,
+  $thumb-padding:      0.8em,
+  $thumb-area-padding: 0.8em 1.6em 0.8em 1.6em,
+  $thumb-border-width: 3px,
+  $thumb-opacity:      0.6
+);
+
+@use "components";

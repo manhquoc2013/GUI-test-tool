@@ -1,0 +1,18 @@
+/* SPDX-License-Identifier: MIT */
+
+#file-manager-showcase .table-directory-view .table-view {
+  -color-header-bg: -color-bg-default;
+}
+
+/* setting opacity directly to the .table-cell or .table-row-cell
+   leads to incorrect table row height calculation #javafx-bug */
+#file-manager-showcase .table-row-cell:hidden >.table-cell > *,
+#file-manager-showcase .tree-cell:hidden > * {
+  -fx-opacity: 0.75;
+}
+
+.demo-menu-item:hover,
+.demo-menu-item:focused,
+.demo-menu-item:pressed {
+  -fx-background-color: transparent;
+}

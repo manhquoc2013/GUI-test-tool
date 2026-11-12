@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: MIT
+
+/*! @module:sidebar:start */
+@use "../settings/config" as cfg;
+
+$color-sidebar-bg:                      -color-bg-default !default;
+$color-sidebar-fg:                      -color-fg-default !default;
+$color-sidebar-fg-section:              -color-fg-muted   !default;
+$color-sidebar-fg-icon:                 -color-fg-muted   !default;
+$color-sidebar-border:                  -color-border-default !default;
+
+$color-sidebar-bg-hover:                if(cfg.$darkMode, -color-base-7, -color-base-1) !default;
+$color-sidebar-fg-hover:                -color-fg-default !default;
+$color-sidebar-fg-icon-hover:           -color-fg-muted   !default;
+
+$color-sidebar-bg-focused:              if(cfg.$darkMode, -color-base-7, -color-base-1) !default;
+$color-sidebar-fg-focused:              -color-fg-default !default;
+$color-sidebar-border-focused:          if(cfg.$darkMode, -color-base-7, -color-base-1) !default;
+
+$color-sidebar-bg-selected:             if(cfg.$darkMode, -color-base-7, -color-base-1) !default;
+$color-sidebar-fg-selected:             -color-fg-default      !default;
+$color-sidebar-border-selected:         -color-accent-emphasis !default;
+
+$color-sidebar-bg-selected-within:      if(cfg.$darkMode, -color-base-7, -color-base-1) !default;
+$color-sidebar-fg-selected-within:      -color-fg-default !default;
+$color-sidebar-border-selected-within:  transparent       !default;
+
+$cell-selected-border-width: 3px !default;
+
+.sidebar {
+
+  -color-sidebar-bg:                      $color-sidebar-bg;
+  -color-sidebar-fg:                      $color-sidebar-fg;
+  -color-sidebar-fg-section:              $color-sidebar-fg-section;
+  -color-sidebar-fg-icon:                 $color-sidebar-fg-icon;
+  -color-sidebar-border:                  $color-sidebar-border;
+
+  -color-sidebar-bg-hover:                $color-sidebar-bg-hover;
+  -color-sidebar-fg-hover:                $color-sidebar-fg-hover;
+  -color-sidebar-fg-icon-hover:           $color-sidebar-fg-icon-hover;
+
+  -color-sidebar-bg-focused:              $color-sidebar-bg-focused;
+  -color-sidebar-fg-focused:              $color-sidebar-fg-focused;
+  -color-sidebar-border-focused:          $color-sidebar-border-focused;
+
+  -color-sidebar-bg-selected:             $color-sidebar-bg-selected;
+  -color-sidebar-fg-selected:             $color-sidebar-fg-selected;
+  -color-sidebar-border-selected:         $color-sidebar-border-selected;
+
+  -color-sidebar-bg-selected-within:      $color-sidebar-bg-selected-within;
+  -color-sidebar-fg-selected-within:      $color-sidebar-fg-selected-within;
+  -color-sidebar-border-selected-within:  $color-sidebar-border-selected-within;
+
+  -fx-background-insets: 0 0 0 0, 0 1 0 0;
+  -fx-background-color: -color-sidebar-border, -color-sidebar-bg;
+  -fx-cell-padding: 10px;
+  -fx-cell-height: 1em;
+  -fx-collapsed-content-width: cfg.$icon-size + 4;
+  -fx-indent: 1.5em;
+  -fx-element-spacing: 10px;
+  -fx-cursor: hand;
+
+  .sidebar-menu {
+    -fx-padding: 0 2 0 2;
+  }
+
+  .sidebar-header,
+  .sidebar-footer {
+    -fx-padding: 2;
+
+    &:hover>.static {
+      -fx-background-color: -color-sidebar-bg;
+
+      >.label {
+        -fx-text-fill: -color-sidebar-fg;
+      }
+    }
+  }
+
+  .sidebar-cell {
+    -fx-background-color: transparent;
+    -fx-background-radius: cfg.$border-radius;
+    -fx-border-radius: cfg.$border-radius;
+
+    >.label {
+      -fx-text-fill: -color-sidebar-fg;
+    }
+
+    &:hover {
+      -fx-background-color: -color-sidebar-bg-hover;
+
+      >.label {
+        -fx-text-fill: -color-sidebar-fg-hover;
+      }
+    }
+
+    &:focused {
+      -fx-background-color: -color-sidebar-bg-focused;
+      -fx-border-color: -color-sidebar-border-focused;
+      -fx-border-width: 0 0 0 $cell-selected-border-width;
+      -fx-text-fill: -color-sidebar-fg-focused;
+    }
+
+    &:focused-item {
+      -fx-text-fill: -color-sidebar-fg-focused;
+    }
+
+    &:selected {
+      -fx-background-color: -color-sidebar-bg-selected;
+      -fx-border-color: -color-sidebar-border-selected;
+      -fx-border-width: 0 0 0 $cell-selected-border-width;
+      -fx-text-fill: -color-sidebar-fg-selected;
+    }
+
+    &:selected-within {
+      -fx-background-color: -color-sidebar-bg-selected-within;
+      -fx-border-color: -color-sidebar-border-selected-within;
+      -fx-border-width: 0 0 0 $cell-selected-border-width;
+      -fx-text-fill: -color-sidebar-fg-selected-within;
+    }
+
+    .graphic>#{cfg.$font-icon-selector} {
+      -fx-fill: -color-sidebar-fg-icon;
+    }
+
+    >.accessory>.arrow {
+      -fx-fill: -color-sidebar-fg-icon;
+    }
+  }
+
+  .sidebar-section {
+    -fx-padding: 10 0 0 0;
+
+    &.first {
+      -fx-padding: 0 0 0 0;
+    }
+
+    >.label {
+      -fx-text-fill: -color-sidebar-fg-section;
+      -fx-font-weight: bold;
+    }
+  }
+
+  //*******************************************************
+  // Style Modifiers
+  //*******************************************************
+
+  .flat {
+    -color-button-bg-hover:   -color-sidebar-bg-hover;
+    -color-button-bg-focused: -color-sidebar-bg-hover;
+    -color-button-bg-pressed: -color-sidebar-bg-hover;
+
+    #{cfg.$font-icon-selector} {
+      -fx-fill: -color-sidebar-fg-icon;
+    }
+
+    &:hover #{cfg.$font-icon-selector} {
+      -fx-fill: -color-sidebar-fg-icon-hover;
+    }
+  }
+
+  .menu-button.flat>*,
+  .button.flat {
+    -fx-padding: 0;
+    -fx-background-insets: 0;
+  }
+}
+/*! @module:sidebar:end */

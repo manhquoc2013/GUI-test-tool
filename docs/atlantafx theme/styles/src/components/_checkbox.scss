@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: MIT
+
+/*! @module:checkbox:start */
+@use "../settings/config" as cfg;
+@use "../settings/icons";
+
+$color-box:                  -color-bg-default !default;
+$color-box-hover:            -color-bg-subtle  !default;
+$color-box-selected:         -color-accent-emphasis !default;
+$color-box-indeterminate:    -color-bg-default !default;
+
+$color-border:               -color-border-default  !default;
+$color-border-hover:         -color-fg-subtle       !default;
+$color-border-selected:      -color-accent-emphasis !default;
+$color-border-indeterminate: -color-border-default  !default;
+
+$color-mark-selected:        -color-fg-emphasis !default;
+$color-mark-indeterminate:   -color-fg-subtle   !default;
+
+$border-width:        1.5px !default;
+// $border-color:        -color-border-default !default;
+// $indeterminate-color: -color-fg-muted !default;
+
+.check-box {
+
+  // applied to label
+  -fx-text-fill: -color-fg-default;
+  -fx-label-padding: 0 cfg.$checkbox-label-padding 0 cfg.$graphic-gap;
+  -fx-alignment: CENTER-LEFT;
+
+  >.box {
+    -fx-background-color: $color-border, $color-box;
+    -fx-background-insets: 0, $border-width;
+    -fx-background-radius: cfg.$border-radius, cfg.$inner-border-radius;
+    -fx-padding: cfg.$checkbox-mark-padding-y cfg.$checkbox-mark-padding-x cfg.$checkbox-mark-padding-y cfg.$checkbox-mark-padding-x;
+    -fx-alignment: CENTER;
+
+    >.mark {
+      -fx-background-color: $color-box; // mark is hidden
+      @include icons.get("check", true);
+      -fx-min-height: cfg.$checkbox-mark-size;
+      -fx-max-height: cfg.$checkbox-mark-size;
+      -fx-min-width:  cfg.$checkbox-mark-size;
+      -fx-max-width:  cfg.$checkbox-mark-size;
+    }
+
+    &:hover {
+      -fx-background-color: $color-border-hover, $color-box-hover;
+    }
+  }
+
+  &:indeterminate {
+    >.box {
+      -fx-background-color: $color-border-indeterminate, $color-box-indeterminate;
+
+      >.mark {
+        -fx-background-color: $color-mark-indeterminate;
+        @include icons.get("minus", false);
+      }
+    }
+  }
+
+  &:disabled {
+    -fx-opacity: cfg.$opacity-disabled;
+
+    >.box {
+      -fx-opacity: cfg.$opacity-disabled;
+    }
+  }
+
+  &:selected {
+    >.box {
+      -fx-background-color: $color-border-selected, $color-box-selected;
+
+      >.mark {
+        -fx-background-color: $color-mark-selected;
+      }
+    }
+  }
+
+  &:show-mnemonics>.mnemonic-underline {
+    -fx-stroke: -color-fg-muted;
+  }
+}
+/*! @module:checkbox:end */

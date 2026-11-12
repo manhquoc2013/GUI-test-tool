@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+
+/*! @module:breadcrumbs:start */
+@use "../settings/config" as cfg;
+
+$padding-x: cfg.$padding-x !default;
+$padding-y: cfg.$padding-y !default;
+
+$divider-spacing: 0.5em !default;
+
+// == Structure ==
+// .breadcrumbs {
+//   >.crumb[:first|:last] { ... }
+//   >.divider { ... }
+// }
+
+.breadcrumbs {
+  -fx-padding: $padding-y $padding-x $padding-y $padding-x;
+
+  >.hyperlink {
+    -color-link-fg-visited: -color-link-fg;
+  }
+
+  >.label.divider {
+    -fx-padding: 0 $divider-spacing 0 $divider-spacing;
+  }
+}
+/*! @module:breadcrumbs:end */
