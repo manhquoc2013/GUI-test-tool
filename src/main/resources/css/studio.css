@@ -2686,5 +2686,166 @@
     -fx-text-fill: #f7768e;
 }
 
+/* === LOW-CODE / NO-CODE VISUAL STEP BUILDER === */
+.visual-step-flow-pane {
+    -fx-background-color: #1a1b26;
+}
+.step-add-bar {
+    -fx-background-color: #16161e;
+    -fx-border-color: #2a2b3d;
+    -fx-border-width: 0 0 1 0;
+}
+.step-cards-container {
+    -fx-background-color: #1a1b26;
+}
+.step-card {
+    -fx-background-color: #24283b;
+    -fx-background-radius: 8;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.25), 4, 0, 0, 2);
+}
+.step-card:hover {
+    -fx-border-color: #7aa2f7;
+}
+.step-drag-handle {
+    -fx-cursor: move;
+    -fx-font-size: 16px;
+    -fx-text-fill: #565f89;
+    -fx-padding: 0 4;
+}
+.step-drag-handle:hover {
+    -fx-text-fill: #c0caf5;
+}
+.step-action-combo {
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+    -fx-pref-width: 130;
+}
+.step-action-combo.action-navigate {
+    -fx-text-fill: #7aa2f7;
+}
+.step-action-combo.action-click {
+    -fx-text-fill: #9ece6a;
+}
+.step-action-combo.action-fill {
+    -fx-text-fill: #e0af68;
+}
+.step-action-combo.action-assert {
+    -fx-text-fill: #bb9af7;
+}
+.step-desc-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: #c0caf5;
+    -fx-font-size: 12px;
+}
+.step-desc-field:focused {
+    -fx-background-color: #1a1b26;
+    -fx-border-color: #7aa2f7;
+    -fx-border-radius: 4;
+}
+.step-target-field, .step-data-field {
+    -fx-background-color: #16161e;
+    -fx-border-color: #3b3d57;
+    -fx-border-radius: 4;
+    -fx-text-fill: #e6e9ff;
+    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+.step-target-field:focused, .step-data-field:focused {
+    -fx-border-color: #7aa2f7;
+}
+.step-tool-btn {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-cursor: hand;
+    -fx-padding: 4 6;
+}
+.step-tool-btn:hover {
+    -fx-background-color: #3b3d57;
+    -fx-background-radius: 4;
+}
+
+/* === RICHTEXTFX PLAYWRIGHT CODE EDITOR === */
+.playwright-code-area {
+    -fx-background-color: #16161e;
+    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-text-fill: #c0caf5;
+}
+.playwright-code-area .lineno {
+    -fx-background-color: #13141c;
+    -fx-text-fill: #565f89;
+    -fx-font-size: 11px;
+    -fx-padding: 0 8 0 8;
+}
+.playwright-code-area .keyword {
+    -fx-fill: #bb9af7;
+    -fx-font-weight: bold;
+}
+.playwright-code-area .playwright-token {
+    -fx-fill: #7aa2f7;
+    -fx-font-weight: bold;
+}
+.playwright-code-area .string {
+    -fx-fill: #9ece6a;
+}
+.playwright-code-area .comment {
+    -fx-fill: #565f89;
+    -fx-font-style: italic;
+}
+.playwright-code-area .paren, .playwright-code-area .bracket, .playwright-code-area .brace {
+    -fx-fill: #89ddff;
+}
+.playwright-code-area .semicolon {
+    -fx-fill: #7dcfff;
+}
+
+/* === SEGMENTED VIEW SWITCHER === */
+.button-group .button.active, .btn-segmented.active {
+    -fx-background-color: #7aa2f7;
+    -fx-text-fill: #16161e;
+    -fx-font-weight: bold;
+}
 
 
+
+
+
+/* === ACTIVITY RAIL (T2.1) === */
+.activity-rail {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 8 4 8 4;
+    -fx-spacing: 4;
+    -fx-alignment: TOP_CENTER;
+    -fx-min-width: 48px;
+    -fx-pref-width: 48px;
+    -fx-max-width: 48px;
+}
+.rail-btn {
+    -fx-min-width: 40px;
+    -fx-pref-width: 40px;
+    -fx-max-width: 40px;
+    -fx-min-height: 40px;
+    -fx-pref-height: 40px;
+    -fx-max-height: 40px;
+    -fx-background-radius: 8px;
+    -fx-cursor: hand;
+}
+.rail-btn:selected, .rail-btn.active {
+    -fx-background-color: -color-accent-muted;
+}
+
+/* === ENHANCED STATUS BAR (T2.3) === */
+.status-engine-label {
+    -fx-text-fill: #7aa2f7;
+    -fx-font-size: 11px;
+}
+.status-healed-label {
+    -fx-text-fill: #9ece6a;
+    -fx-font-size: 11px;
+}

@@ -9,6 +9,7 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.ToggleButton?>
 <?import javafx.geometry.Insets?>
 
 <BorderPane xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
@@ -44,28 +45,41 @@
         </HBox>
     </top>
     <left>
-        <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">
-            <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
-            <Button fx:id="navExplorerBtn" text="Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
-            <Button fx:id="navReportsBtn" text="Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
-            <Button fx:id="navAiBtn" text="Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
-            <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
-            <Label fx:id="sidebarSuiteSectionLabel" text="SUITE ĐANG MỞ" styleClass="sidebar-section-label">
-                <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>
-            </Label>
-            <HBox fx:id="sidebarActiveSuiteRow" spacing="4" alignment="CENTER_LEFT">
-                <VBox.margin><Insets left="14" right="10"/></VBox.margin>
-                <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="(trống)"
-                       HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
-                <Button fx:id="clearActiveSuiteBtn" text="✕" styleClass="sidebar-clear-suite-btn"
-                        onAction="#clearActiveSuite" visible="false" managed="false"
-                        focusTraversable="false"/>
-            </HBox>
-            <VBox VBox.vgrow="ALWAYS"/>
-            <Button fx:id="runAllBtn" text="Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
-                <VBox.margin><Insets left="12" right="12" bottom="8"/></VBox.margin>
-            </Button>
-        </VBox>
+        <!-- Activity Rail (48px) + Collapsible Sidebar (200px) -->
+        <HBox>
+            <!-- T2.1: 48px Activity Rail -->
+            <VBox styleClass="activity-rail" prefWidth="48" minWidth="48" maxWidth="48">
+                <ToggleButton fx:id="railExplorerBtn" text="🗂" styleClass="rail-btn" onAction="#onRailExplorer"/>
+                <ToggleButton fx:id="railReportsBtn" text="📊" styleClass="rail-btn" onAction="#onRailReports"/>
+                <ToggleButton fx:id="railAiBtn" text="✨" styleClass="rail-btn" onAction="#onRailAi"/>
+                <!-- Spacer pushes settings to bottom -->
+                <Region VBox.vgrow="ALWAYS"/>
+                <ToggleButton fx:id="railSettingsBtn" text="⚙" styleClass="rail-btn" onAction="#onRailSettings"/>
+            </VBox>
+            <!-- Existing Sidebar (kept intact to avoid breaking controller) -->
+            <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">
+                <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
+                <Button fx:id="navExplorerBtn" text="Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
+                <Button fx:id="navReportsBtn" text="Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
+                <Button fx:id="navAiBtn" text="Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
+                <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
+                <Label fx:id="sidebarSuiteSectionLabel" text="SUITE ĐANG MỞ" styleClass="sidebar-section-label">
+                    <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>
+                </Label>
+                <HBox fx:id="sidebarActiveSuiteRow" spacing="4" alignment="CENTER_LEFT">
+                    <VBox.margin><Insets left="14" right="10"/></VBox.margin>
+                    <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="(trống)"
+                           HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                    <Button fx:id="clearActiveSuiteBtn" text="✕" styleClass="sidebar-clear-suite-btn"
+                            onAction="#clearActiveSuite" visible="false" managed="false"
+                            focusTraversable="false"/>
+                </HBox>
+                <VBox VBox.vgrow="ALWAYS"/>
+                <Button fx:id="runAllBtn" text="Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
+                    <VBox.margin><Insets left="12" right="12" bottom="8"/></VBox.margin>
+                </Button>
+            </VBox>
+        </HBox>
     </left>
     <center>
         <VBox spacing="0" styleClass="center-vbox">
@@ -116,7 +130,12 @@
         <HBox styleClass="status-bar" spacing="8">
             <padding><Insets top="4" right="14" bottom="4" left="14"/></padding>
             <Label fx:id="statusLabel" text="Sẵn sàng"/>
+            <Label fx:id="testStatsLabel" text=""/>
             <HBox HBox.hgrow="ALWAYS"/>
+            <Label fx:id="healedCountLabel" text="0 healed" styleClass="status-healed-label"/>
+            <Separator orientation="VERTICAL"/>
+            <Label fx:id="engineLabel" text="Playwright" styleClass="status-engine-label"/>
+            <Separator orientation="VERTICAL"/>
             <Label fx:id="browserLabel" text="Chromium"/>
         </HBox>
     </bottom>

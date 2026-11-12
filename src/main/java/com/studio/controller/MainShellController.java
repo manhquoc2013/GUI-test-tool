@@ -17,6 +17,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
@@ -97,7 +98,23 @@ public class MainShellController implements Initializable {
     @FXML
     private Label browserLabel;
     @FXML
+    private Label engineLabel;
+    @FXML
+    private Label healedCountLabel;
+    @FXML
+    private Label testStatsLabel;
+    @FXML
     private VBox toastContainer;
+
+    // Activity Rail buttons (T2.1)
+    @FXML
+    private ToggleButton railExplorerBtn;
+    @FXML
+    private ToggleButton railReportsBtn;
+    @FXML
+    private ToggleButton railAiBtn;
+    @FXML
+    private ToggleButton railSettingsBtn;
 
     private boolean sidebarExpanded = true;
     private boolean helpVisible = false;
@@ -114,6 +131,9 @@ public class MainShellController implements Initializable {
         instance = this;
         ToastService.setToastContainer(toastContainer);
         StatusBarService.setStatusLabel(statusLabel);
+        StatusBarService.setEngineLabel(engineLabel);
+        StatusBarService.setHealedCountLabel(healedCountLabel);
+        StatusBarService.setTestStatsLabel(testStatsLabel);
         if (tabContainer != null) {
             tabManager = new TabManager(tabContainer, contentArea);
             tabManager.setOnTabSelectedListener(this::updateBreadcrumbForTab);
@@ -178,6 +198,21 @@ public class MainShellController implements Initializable {
         }
         updateThemeButtonUI();
         com.studio.service.ThemeService.addListener(theme -> updateThemeButtonUI());
+
+        // Activity Rail tooltips (T2.1)
+        if (railExplorerBtn != null) {
+            com.studio.util.UiTooltips.install(railExplorerBtn, "Khám phá (Explorer)");
+            railExplorerBtn.setSelected(true);
+        }
+        if (railReportsBtn != null) {
+            com.studio.util.UiTooltips.install(railReportsBtn, "Báo cáo (Reports)");
+        }
+        if (railAiBtn != null) {
+            com.studio.util.UiTooltips.install(railAiBtn, "Trợ lý AI");
+        }
+        if (railSettingsBtn != null) {
+            com.studio.util.UiTooltips.install(railSettingsBtn, "Cài đặt");
+        }
     }
 
     @FXML
@@ -684,6 +719,45 @@ public class MainShellController implements Initializable {
     private static void clearTooltip(javafx.scene.Node node) {
         com.studio.util.UiTooltips.clear(node);
     }
+
+    // ── Activity Rail handlers (T2.1) ───────────────────────────────────────
+
+    @FXML
+    private void onRailExplorer() {
+        showExplorer();
+        setRailActive(railExplorerBtn);
+    }
+
+    @FXML
+    private void onRailReports() {
+        showReports();
+        setRailActive(railReportsBtn);
+    }
+
+    @FXML
+    private void onRailAi() {
+        showAiAssistant();
+        setRailActive(railAiBtn);
+    }
+
+    @FXML
+    private void onRailSettings() {
+        openSettings();
+        // Settings is a dialog — deselect rail button after opening
+        if (railSettingsBtn != null) {
+            railSettingsBtn.setSelected(false);
+        }
+    }
+
+    private void setRailActive(ToggleButton active) {
+        for (ToggleButton btn : new ToggleButton[]{railExplorerBtn, railReportsBtn, railAiBtn, railSettingsBtn}) {
+            if (btn != null) {
+                btn.setSelected(btn == active);
+            }
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
 
     @FXML
     private void showExplorer() {

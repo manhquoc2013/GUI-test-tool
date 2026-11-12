@@ -19,6 +19,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
@@ -70,6 +71,16 @@ public class ReportsPageController {
     private ComboBox<String> suiteFilter;
     @FXML
     private Button refreshBtn;
+
+    // --- KPI Cards ---
+    @FXML
+    private Label kpiTotalRuns;
+    @FXML
+    private Label kpiPassRate;
+    @FXML
+    private Label kpiPassed;
+    @FXML
+    private Label kpiFailed;
 
     private final ReportStore reportStore = new ReportStore();
 
@@ -369,6 +380,26 @@ public class ReportsPageController {
             filteredReports.add(r);
         }
         reportsTable.setItems(filteredReports);
+        updateKpiCards();
+    }
+
+    /** Recompute and display the 4 KPI summary cards from the full allReports list. */
+    private void updateKpiCards() {
+        int totalRuns = allReports.size();
+        int totalPassed = 0;
+        int totalFailed = 0;
+        int totalCases = 0;
+        for (RunReport r : allReports) {
+            totalPassed += r.getPassed();
+            totalFailed += r.getFailed();
+            totalCases += r.getTotal();
+        }
+        double passRate = totalCases > 0 ? (totalPassed * 100.0 / totalCases) : 0.0;
+
+        if (kpiTotalRuns != null) kpiTotalRuns.setText(String.valueOf(totalRuns));
+        if (kpiPassRate != null) kpiPassRate.setText(String.format("%.1f%%", passRate));
+        if (kpiPassed != null) kpiPassed.setText(String.valueOf(totalPassed));
+        if (kpiFailed != null) kpiFailed.setText(String.valueOf(totalFailed));
     }
 
     /** Open the report detail page for the given run. */
