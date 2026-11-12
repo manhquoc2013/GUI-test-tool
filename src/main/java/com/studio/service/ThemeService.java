@@ -1,6 +1,9 @@
 package com.studio.service;
 
+import atlantafx.base.theme.PrimerDark;
+import atlantafx.base.theme.PrimerLight;
 import com.studio.store.SettingsStore;
+import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.Dialog;
@@ -13,7 +16,8 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Manages runtime theme switching between Dark (Tokyo Night) and Light (VS Code / GitHub Light) themes.
+ * Manages runtime theme switching between Dark (Primer Dark / Tokyo Night) and Light (Primer Light) themes.
+ * Powered by AtlantaFX theme framework.
  */
 public final class ThemeService {
 
@@ -85,7 +89,9 @@ public final class ThemeService {
                 SettingsStore.Settings s = settingsStore.load();
                 s.setTheme(currentTheme);
                 settingsStore.save(s);
-            } catch (IOException ignored) {}
+            } catch (IOException ex) {
+                AiLoggingService.warn("THEME", "Không lưu được lựa chọn theme: " + ex.getMessage());
+            }
         }, "Save-Theme-Worker");
         t.setDaemon(true);
         t.start();
@@ -99,7 +105,9 @@ public final class ThemeService {
             for (Consumer<String> listener : themeChangeListeners) {
                 try {
                     listener.accept(currentTheme);
-                } catch (Exception ignored) {}
+                } catch (RuntimeException ex) {
+                AiLoggingService.warn("THEME", "Theme listener lỗi: " + ex.getMessage());
+            }
             }
         };
         if (Platform.isFxApplicationThread()) {
@@ -139,6 +147,20 @@ public final class ThemeService {
     private static void applyCurrentTheme(Scene scene) {
         if (scene == null) return;
         applyCurrentTheme(scene.getStylesheets());
+        applyAtlantaFxTheme();
+    }
+
+    private static void applyAtlantaFxTheme() {
+        try {
+            if (THEME_LIGHT.equalsIgnoreCase(currentTheme)) {
+                Application.setUserAgentStylesheet(new PrimerLight().getUserAgentStylesheet());
+            } else {
+                Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
+            }
+        } catch (RuntimeException ex) {
+            // Headless/test environments have no Application instance to receive the user-agent sheet.
+            AiLoggingService.warn("THEME", "Không áp dụng được AtlantaFX user-agent: " + ex.getMessage());
+        }
     }
 
     private static void applyCurrentTheme(List<String> stylesheets) {

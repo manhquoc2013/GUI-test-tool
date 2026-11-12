@@ -18,6 +18,7 @@ import com.studio.util.StatusDisplay;
 import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
 import com.studio.util.StudioPaths;
+import javafx.beans.binding.Bindings;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -87,6 +88,28 @@ public class ExplorerPageController {
     private Path rootProjectDir;
     // JavaFX 26: TreeItem.setUserData/getUserData removed; use a map instead
     private final Map<TreeItem<Object>, NodeRef> nodeRefs = new HashMap<>();
+
+    // ── Tree row geometry ──
+    // A tree cell whose preferred width exceeds the viewport makes VirtualFlow grow a horizontal
+    // scrollbar. That bar steals height, so the vertical scrollbar appears; both disappear again on
+    // the next layout pass. Hovering a long row (which reveals the inline action buttons) triggered
+    // exactly that loop, so rows are capped to the viewport and long titles ellipsize instead.
+    /** Horizontal budget consumed around a row: cell padding (both sides) + disclosure arrow + scrollbar. */
+    private static final double TREE_ROW_CHROME_BASE = 48;
+    /** Extra horizontal budget per nesting level, matching the theme's disclosure-node indent. */
+    private static final double TREE_ROW_CHROME_PER_LEVEL = 18;
+    /** Floor for the cap so a narrow sidebar still yields a usable row instead of a negative width. */
+    private static final double TREE_ROW_MIN_WIDTH = 80;
+    /**
+     * Title width that must survive next to the status pill and the hover actions before those
+     * actions are shown at all. Below this the buttons would be clipped by the row's viewport cap,
+     * which is worse than hiding them (the context menu still offers every action).
+     */
+    private static final double TREE_ROW_MIN_TITLE_WIDTH = 48;
+    /** Icon size inside a tree row, sized to the 13px row font. */
+    private static final int TREE_ROW_ICON_SIZE = 10;
+    /** Icon size inside dialogs and the preview panel. */
+    private static final int DIALOG_ICON_SIZE = 12;
     /** Row under context menu (right-click); does not change TreeView selection. */
     private TreeItem<Object> contextTarget;
     /** Currently previewed tree item, if any. */
@@ -245,6 +268,37 @@ public class ExplorerPageController {
 
     // ── Tree view setup ──
 
+    /**
+     * Widest a single tree row may become, in pixels.
+     *
+     * <p>Deeply nested rows sit further right, so the indentation of every level above the root is
+     * subtracted as well. Keeping the cap below the viewport width means the row can never widen the
+     * virtual flow, which is what made the scrollbars appear and disappear while hovering a row with
+     * a long title.</p>
+     */
+    private double treeRowWidthCap(TreeItem<Object> item) {
+        double chrome = TREE_ROW_CHROME_BASE;
+        if (item != null && projectTree != null) {
+            chrome += TREE_ROW_CHROME_PER_LEVEL * Math.max(0, treeItemDepth(item) - 1);
+        }
+        double available = (projectTree != null ? projectTree.getWidth() : 0) - chrome;
+        return Math.max(TREE_ROW_MIN_WIDTH, available);
+    }
+
+    /**
+     * Nesting depth of {@code item} measured through its parents, starting at 1 for a top-level row.
+     * Walking the parents is deliberate: {@code TreeView.getTreeItemLevel} throws for an item that is
+     * no longer attached (a virtualised cell can briefly hold one while it is being recycled), and an
+     * exception inside the width binding would leave that row unsized.
+     */
+    private static int treeItemDepth(TreeItem<Object> item) {
+        int depth = 1;
+        for (TreeItem<Object> parent = item.getParent(); parent != null; parent = parent.getParent()) {
+            depth++;
+        }
+        return depth;
+    }
+
     private void setupTreeView() {
         projectTree.setShowRoot(false);
         ContextMenu treeMenu = buildTreeContextMenu();
@@ -262,16 +316,46 @@ public class ExplorerPageController {
                 private final Button deleteBtn = new Button();
                 private final Label statusLabel = new Label();
                 private final Runnable updateActionVisibility = () -> {
-                    boolean show = (isHover() || isSelected()) && !isEmpty() && getItem() != null;
+                    boolean show = (isHover() || isSelected()) && !isEmpty() && getItem() != null
+                            && hoverActionsFit();
                     actionsBox.setVisible(show);
                     actionsBox.setManaged(show);
                 };
 
+                /**
+                 * The hover actions live at the far right, after the status pill. Showing them only
+                 * when the title can keep a readable width stops them from being clipped by the
+                 * row's viewport cap — a clipped button is unusable, while the context menu still
+                 * carries every action.
+                 */
+                private boolean hoverActionsFit() {
+                    double available = treeRowWidthCap(getTreeItem());
+                    if (available <= 0) {
+                        return false;
+                    }
+                    double needed = actionsBox.prefWidth(-1) + TREE_ROW_MIN_TITLE_WIDTH;
+                    if (statusLabel.isManaged()) {
+                        needed += statusLabel.prefWidth(-1);
+                    }
+                    return available >= needed;
+                }
+
                 {
                     row.setAlignment(Pos.CENTER_LEFT);
                     row.getStyleClass().add("tree-row");
+                    // The row is the cell graphic, so its preferred width becomes the cell width.
+                    // Cap it against the viewport: otherwise a long title (or the hover actions)
+                    // widens the virtual flow and the scrollbars start toggling.
+                    row.setMinWidth(0);
+                    row.maxWidthProperty().bind(Bindings.createDoubleBinding(
+                            () -> treeRowWidthCap(getTreeItem()),
+                            projectTree.widthProperty(), treeItemProperty()));
                     nameLabel.getStyleClass().add("tree-row-name");
                     nameLabel.setMaxWidth(Double.MAX_VALUE);
+                    // A label's computed min width is its full text width, which would refuse to
+                    // shrink. Zero it and ellipsize so a long title truncates inside the row.
+                    nameLabel.setMinWidth(0);
+                    nameLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
                     HBox.setHgrow(nameLabel, Priority.ALWAYS);
 
                     actionsBox.setAlignment(Pos.CENTER_RIGHT);
@@ -279,12 +363,12 @@ public class ExplorerPageController {
                     actionsBox.setVisible(false);
                     actionsBox.setManaged(false);
 
-                    UiIcons.setGraphic(runBtn, UiIcons.PLAY, 10, "#9ece6a");
+                    UiIcons.setThemedGraphic(runBtn, UiIcons.PLAY, TREE_ROW_ICON_SIZE, UiIcons.STYLE_SUCCESS);
                     UiIcons.setGraphic(openBtn, UiIcons.SPLIT, 10);
                     UiIcons.setGraphic(addBtn, UiIcons.PLUS, 10);
                     UiIcons.setGraphic(editBtn, UiIcons.EDIT, 10);
                     UiIcons.setGraphic(copyBtn, UiIcons.COPY, 10);
-                    UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 10, "#f7768e");
+                    UiIcons.setThemedGraphic(deleteBtn, UiIcons.TRASH, TREE_ROW_ICON_SIZE, UiIcons.STYLE_DANGER);
 
                     for (Button btn : List.of(runBtn, openBtn, addBtn, editBtn, copyBtn, deleteBtn)) {
                         btn.getStyleClass().add("tree-action-btn");
@@ -304,10 +388,14 @@ public class ExplorerPageController {
 
                     statusLabel.getStyleClass().add("tree-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
-                    row.getChildren().addAll(nameLabel, actionsBox, statusLabel);
+                    // Status before the actions: the actions are the last children, so when the row
+                    // runs out of room it is the buttons that clip, never the status ("lúc mất lúc
+                    // thấy" while hovering a long title).
+                    row.getChildren().addAll(nameLabel, statusLabel, actionsBox);
 
                     hoverProperty().addListener((obs, wasHovered, isHovered) -> updateActionVisibility.run());
                     selectedProperty().addListener((obs, wasSelected, isSelected) -> updateActionVisibility.run());
+                    widthProperty().addListener((obs, oldWidth, newWidth) -> updateActionVisibility.run());
                 }
 
                 @Override
@@ -1050,7 +1138,7 @@ public class ExplorerPageController {
         copyBtn.setOnAction(e -> copyItem());
         if (deleteBtn != null) {
             deleteBtn.setOnAction(e -> deleteItem());
-            UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 12, "#f7768e");
+            UiIcons.setThemedGraphic(deleteBtn, UiIcons.TRASH, DIALOG_ICON_SIZE, UiIcons.STYLE_DANGER);
             com.studio.util.UiTooltips.install(deleteBtn, "Xóa mục đã chọn (Nhóm / Suite / Case)");
             deleteBtn.setDisable(true);
         }
@@ -1079,7 +1167,7 @@ public class ExplorerPageController {
         }
         if (previewDeleteBtn != null) {
             previewDeleteBtn.setOnAction(e -> deleteItem());
-            UiIcons.setGraphic(previewDeleteBtn, UiIcons.TRASH, 12, "#f7768e");
+            UiIcons.setThemedGraphic(previewDeleteBtn, UiIcons.TRASH, DIALOG_ICON_SIZE, UiIcons.STYLE_DANGER);
             com.studio.util.UiTooltips.install(previewDeleteBtn, "Xóa mục này");
             previewDeleteBtn.setVisible(false);
             previewDeleteBtn.setManaged(false);

@@ -22,6 +22,10 @@ public final class AiAgentPlanParser {
 
     /** Thrown when the plan cannot be trusted; the caller must not execute any part of it. */
     public static final class InvalidPlanException extends Exception {
+
+        /** Serialisation is never used; the value only silences the missing-SUID contract warning. */
+        private static final long serialVersionUID = 1L;
+
         public InvalidPlanException(String message) {
             super(message);
         }

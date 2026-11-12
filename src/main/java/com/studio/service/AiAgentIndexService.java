@@ -4,11 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.studio.db.DatabaseManager;
 import com.studio.model.AiGeneratedCase;
-import com.studio.model.Assertion;
 import com.studio.util.StringEscapeUtil;
 import com.studio.util.StudioPaths;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;

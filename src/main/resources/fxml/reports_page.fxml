@@ -35,8 +35,7 @@
         <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
             <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
             <Label text="Tổng số lần chạy" styleClass="small"/>
-            <Label fx:id="kpiTotalRuns" text="0" styleClass="accent"
-                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label fx:id="kpiTotalRuns" text="0" styleClass="accent, kpi-value"/>
             <Label text="tổng lần thực thi" styleClass="small"/>
         </VBox>
 
@@ -44,8 +43,7 @@
         <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
             <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
             <Label text="Tỷ lệ Pass" styleClass="small"/>
-            <Label fx:id="kpiPassRate" text="0%" styleClass="success"
-                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label fx:id="kpiPassRate" text="0%" styleClass="success, kpi-value"/>
             <Label text="tỷ lệ đạt trung bình" styleClass="small"/>
         </VBox>
 
@@ -53,8 +51,7 @@
         <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
             <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
             <Label text="Lần chạy PASSED" styleClass="small"/>
-            <Label fx:id="kpiPassed" text="0" styleClass="success"
-                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label fx:id="kpiPassed" text="0" styleClass="success, kpi-value"/>
             <Label text="case đạt yêu cầu" styleClass="small"/>
         </VBox>
 
@@ -62,8 +59,7 @@
         <VBox styleClass="card" HBox.hgrow="ALWAYS" maxWidth="Infinity" spacing="4">
             <padding><Insets top="12" right="16" bottom="12" left="16"/></padding>
             <Label text="Lần chạy FAILED" styleClass="small"/>
-            <Label fx:id="kpiFailed" text="0" styleClass="danger"
-                   style="-fx-font-size: 28px; -fx-font-weight: bold;"/>
+            <Label fx:id="kpiFailed" text="0" styleClass="danger, kpi-value"/>
             <Label text="case thất bại" styleClass="small"/>
         </VBox>
     </HBox>

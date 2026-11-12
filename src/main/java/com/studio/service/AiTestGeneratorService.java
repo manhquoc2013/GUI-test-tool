@@ -899,11 +899,6 @@ public class AiTestGeneratorService {
     }
 
     /**
-     * Executes Multi-Batch Orchestration across screen sections.
-     * Groups screens into manageable batches (e.g. 2 screens per batch), calls the LLM per batch,
-     * parses the responses, and aggregates test cases into a unified result.
-     */
-    /**
      * Average character length of the screen sections in this run; 0 when there is nothing to measure.
      */
     static int avgScreenChars(List<AiMultiAgentCoordinator.ScreenSpecSection> screens) {

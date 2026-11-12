@@ -317,6 +317,8 @@ public class AiAssistantPageController implements Initializable {
     private static final String UNREAD_GLYPH = "●";
     private static final String RUNNING_BADGE_LABEL = RUNNING_GLYPH + " Đang chạy";
     private static final String UNREAD_BADGE_LABEL = UNREAD_GLYPH + " Kết quả mới";
+    /** Marks the blank "no selection" entry so the prompt styling lives in the stylesheet. */
+    private static final String PLACEHOLDER_CELL_CLASS = "combo-placeholder-cell";
     /** Source label of the JSON artefact pass, shown in the live "receiving" counter. */
     private static final String AI_STREAM_SOURCE_TEST_ARCHITECT = "Test Architect";
     /** Composer run strip: shown while a turn runs, and while its stop request is being honoured. */
@@ -733,8 +735,14 @@ public class AiAssistantPageController implements Initializable {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null || item.isBlank() ? prompt : item);
-                setStyle(item == null || item.isBlank() ? "-fx-text-fill: derive(-fx-text-background-color, 45%);" : null);
+                boolean placeholder = empty || item == null || item.isBlank();
+                setText(placeholder ? prompt : item);
+                // Style class instead of an inline `derive(-fx-text-background-color, ...)`:
+                // inline lookups cannot resolve theme colours before a stylesheet is attached.
+                getStyleClass().remove(PLACEHOLDER_CELL_CLASS);
+                if (placeholder) {
+                    getStyleClass().add(PLACEHOLDER_CELL_CLASS);
+                }
             }
         };
     }

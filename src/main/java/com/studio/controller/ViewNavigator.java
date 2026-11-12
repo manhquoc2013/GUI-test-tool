@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Static helper for page navigation within the main shell.
@@ -19,16 +20,13 @@ import java.util.Map;
 public class ViewNavigator {
 
     public enum Page {
-        EXPLORER("Explorer", "/fxml/explorer_page.fxml"),
-        REPORTS("Reports", "/fxml/reports_page.fxml"),
-        REPORT_DETAIL("Report Detail", "/fxml/report_detail_page.fxml"),
-        AI_ASSISTANT("AI Assistant", "/fxml/ai_assistant_page.fxml");
+        EXPLORER("/fxml/explorer_page.fxml"),
+        REPORTS("/fxml/reports_page.fxml"),
+        AI_ASSISTANT("/fxml/ai_assistant_page.fxml");
 
-        public final String title;
         public final String fxmlPath;
 
-        Page(String title, String fxmlPath) {
-            this.title = title;
+        Page(String fxmlPath) {
             this.fxmlPath = fxmlPath;
         }
     }
@@ -38,6 +36,7 @@ public class ViewNavigator {
     private static final Map<Page, Node> pageCache = new HashMap<>();
     private static final Map<Page, Object> controllerCache = new HashMap<>();
     private static Page currentPage;
+    private static Consumer<Page> onPageNavigated;
 
     public static void init(StackPane content) {
         init(content, null);
@@ -58,6 +57,23 @@ public class ViewNavigator {
         return tabManager;
     }
 
+    /**
+     * Pages are sidebar destinations, not documents: the shell listens here to keep the breadcrumb
+     * and the sidebar/rail selection in sync with whatever page is on screen.
+     */
+    public static void setOnPageNavigated(Consumer<Page> listener) {
+        onPageNavigated = listener;
+    }
+
+    public static Page getCurrentPage() {
+        return currentPage;
+    }
+
+    /**
+     * Shows a sidebar page. Deliberately does not create a document tab: the tab strip is reserved
+     * for real documents (open suites, report details), otherwise every page would be listed twice —
+     * once in the sidebar and once in the strip.
+     */
     public static void navigateTo(Page page) {
         if (contentArea == null) return;
         try {
@@ -73,16 +89,40 @@ public class ViewNavigator {
                 controllerCache.put(page, loader.getController());
             }
             if (tabManager != null) {
-                String tabId = "PAGE_" + page.name();
-                boolean closable = (page != Page.EXPLORER);
-                tabManager.openTab(tabId, page.title, "", node, closable, null, controllerCache.get(page));
-            } else {
-                showPage(node);
+                // Leaving a document tab for a sidebar page: drop the strip's active highlight.
+                tabManager.clearActive();
             }
+            showPage(node);
             currentPage = page;
             onPageShown(page);
+            notifyPageNavigated(page);
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Re-displays the page that was on screen, e.g. after the last document tab closed. Falls back to
+     * Explorer when no page was ever shown (the shell was sitting on a workspace).
+     */
+    public static void showCurrentPage() {
+        Page page = currentPage;
+        Node cached = page != null ? pageCache.get(page) : null;
+        if (page == null || cached == null) {
+            navigateTo(Page.EXPLORER);
+            return;
+        }
+        if (tabManager != null) {
+            tabManager.clearActive();
+        }
+        showPage(cached);
+        onPageShown(page);
+        notifyPageNavigated(page);
+    }
+
+    private static void notifyPageNavigated(Page page) {
+        if (onPageNavigated != null) {
+            onPageNavigated.accept(page);
         }
     }
 
@@ -215,16 +255,11 @@ public class ViewNavigator {
                 showPage(node);
             }
 
-            currentPage = Page.REPORT_DETAIL;
             return ctrl;
         } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
-    }
-
-    public static Page getCurrentPage() {
-        return currentPage;
     }
 
     public static <T> T getController(Page page, Class<T> type) {

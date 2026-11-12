@@ -10,8 +10,10 @@ import com.studio.util.DialogTheme;
 import com.studio.util.UiIcons;
 import com.studio.util.UiTooltips;
 import javafx.application.Platform;
+import javafx.geometry.HPos;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
@@ -27,6 +29,18 @@ import java.util.List;
  * Tab 2: AI Assistant & LLM Endpoint Configuration
  */
 public class AiSettingsDialog {
+
+    /** Fixed label column: the form labels must never be squeezed into an ellipsis ("…"). */
+    private static final double FORM_LABEL_COLUMN_WIDTH = 190;
+    /** The label column never shrinks, so the fields keep this much room before text wraps. */
+    private static final double FORM_FIELD_MIN_WIDTH = 320;
+    private static final double FORM_GUTTER = 12;
+    private static final double FORM_ROW_GAP = 14;
+    private static final double FORM_HINT_GAP = 4;
+    private static final double FORM_PADDING_V = 16;
+    private static final double FORM_PADDING_H = 20;
+    private static final double FORM_DIALOG_WIDTH = 680;
+    private static final double FORM_TAB_MIN_WIDTH = 150;
 
     private static final List<String> DEFAULT_OPENAI_PRESETS = List.of(
             "gpt-4o",
@@ -109,16 +123,12 @@ public class AiSettingsDialog {
 
         TabPane tabPane = new TabPane();
         tabPane.getStyleClass().add("settings-tab-pane");
-        tabPane.setStyle("-fx-tab-min-width: 150px;");
+        tabPane.setTabMinWidth(FORM_TAB_MIN_WIDTH);
 
         // ══════════════════════════════════════════════════════════
         // TAB 1: Cài đặt Chung & Trình duyệt (General Settings)
         // ══════════════════════════════════════════════════════════
-        GridPane generalGrid = new GridPane();
-        generalGrid.setHgap(12);
-        generalGrid.setVgap(14);
-        generalGrid.setPadding(new Insets(16, 20, 16, 20));
-        generalGrid.setPrefWidth(620);
+        GridPane generalGrid = buildFormGrid();
 
         int genRow = 0;
 
@@ -229,11 +239,7 @@ public class AiSettingsDialog {
         // ══════════════════════════════════════════════════════════
         // TAB 2: Cấu hình Trợ lý AI (AI & LLM Configuration)
         // ══════════════════════════════════════════════════════════
-        GridPane aiGrid = new GridPane();
-        aiGrid.setHgap(12);
-        aiGrid.setVgap(14);
-        aiGrid.setPadding(new Insets(16, 20, 16, 20));
-        aiGrid.setPrefWidth(620);
+        GridPane aiGrid = buildFormGrid();
 
         int aiRow = 0;
 
@@ -282,9 +288,10 @@ public class AiSettingsDialog {
         });
 
         Label securityBadge = new Label("🔒 Mã hóa AES-256-GCM bảo vệ an toàn theo phần cứng thiết bị.");
-        securityBadge.setStyle("-fx-font-size: 11px; -fx-text-fill: #10b981;");
+        securityBadge.getStyleClass().add("settings-security-badge");
+        securityBadge.setWrapText(true);
 
-        VBox keyCol = new VBox(4, keyField, securityBadge);
+        VBox keyCol = buildFieldColumn(keyField, securityBadge);
         aiGrid.add(keyLabel, 0, aiRow);
         aiGrid.add(keyCol, 1, aiRow);
         aiRow++;
@@ -295,9 +302,9 @@ public class AiSettingsDialog {
         TextField urlField = new TextField(aiConfig.getBaseUrl());
         urlField.setPromptText("https://api.openai.com/v1");
 
-        Label urlHint = new Label("Hỗ trợ OpenAI, Azure, OpenRouter (https://openrouter.ai/api/v1), Gemini, Ollama");
-        urlHint.getStyleClass().add("settings-hint-label");
-        VBox urlCol = new VBox(4, urlField, urlHint);
+        Label urlHint = hintLabel(
+                "Hỗ trợ OpenAI, Azure, OpenRouter (https://openrouter.ai/api/v1), Gemini, Ollama");
+        VBox urlCol = buildFieldColumn(urlField, urlHint);
 
         aiGrid.add(urlLabel, 0, aiRow);
         aiGrid.add(urlCol, 1, aiRow);
@@ -379,12 +386,11 @@ public class AiSettingsDialog {
         maxTokensSpinner.setEditable(true);
         HBox.setHgrow(maxTokensSpinner, Priority.ALWAYS);
 
-        Label maxTokensHint = new Label("Cửa sổ ngữ cảnh model nhận trong một lượt. "
+        Label maxTokensHint = hintLabel("Cửa sổ ngữ cảnh model nhận trong một lượt. "
                 + "0 = ứng dụng tạm tính 32.768 token, nên tài liệu dài sẽ bị chia phần/nén; "
                 + "đặt đúng cửa sổ thật của model (VD 65.536 hoặc 131.072) để AI đọc trọn tài liệu trong một lượt.");
-        maxTokensHint.getStyleClass().add("settings-hint-label");
 
-        VBox maxTokensBox = new VBox(4, maxTokensSpinner, maxTokensHint);
+        VBox maxTokensBox = buildFieldColumn(maxTokensSpinner, maxTokensHint);
         aiGrid.add(maxTokensLabel, 0, aiRow);
         aiGrid.add(maxTokensBox, 1, aiRow);
         aiRow++;
@@ -396,10 +402,10 @@ public class AiSettingsDialog {
                 Math.max(0, aiConfig.getOutputTokenCeiling()), 1024);
         ceilingSpinner.setEditable(true);
         HBox.setHgrow(ceilingSpinner, Priority.ALWAYS);
-        Label ceilingHint = new Label("0 = Tự động theo model (" + AiModelCapabilities.DEFAULT_OUTPUT_CEILING
+        Label ceilingHint = hintLabel("0 = Tự động theo model ("
+                + AiModelCapabilities.DEFAULT_OUTPUT_CEILING
                 + " cho model chưa biết). Đây là mức tối đa một lượt được phép sinh khi phản hồi bị cắt.");
-        ceilingHint.getStyleClass().add("settings-hint-label");
-        VBox ceilingBox = new VBox(4, ceilingSpinner, ceilingHint);
+        VBox ceilingBox = buildFieldColumn(ceilingSpinner, ceilingHint);
         aiGrid.add(ceilingLabel, 0, aiRow);
         aiGrid.add(ceilingBox, 1, aiRow);
         aiRow++;
@@ -412,9 +418,7 @@ public class AiSettingsDialog {
         testConnBtn.getStyleClass().add("btn-secondary");
         UiIcons.setGraphic(testConnBtn, UiIcons.CHECK, 12);
 
-        Label testStatusLabel = new Label("");
-        testStatusLabel.setWrapText(true);
-        testStatusLabel.getStyleClass().add("settings-hint-label");
+        Label testStatusLabel = hintLabel("");
 
         fetchModelsBtn.setOnAction(e -> {
             fetchModelsBtn.setDisable(true);
@@ -493,7 +497,7 @@ public class AiSettingsDialog {
             thread.start();
         });
 
-        VBox testBox = new VBox(6, testConnBtn, testStatusLabel);
+        VBox testBox = buildFieldColumn(testConnBtn, testStatusLabel);
         aiGrid.add(testLabel, 0, aiRow);
         aiGrid.add(testBox, 1, aiRow);
 
@@ -508,9 +512,9 @@ public class AiSettingsDialog {
         }
 
         pane.setContent(tabPane);
-        pane.setPrefWidth(660);
+        pane.setPrefWidth(FORM_DIALOG_WIDTH);
         DialogTheme.apply(dialog);
-        DialogTheme.fitToScreen(dialog, 660);
+        DialogTheme.fitToScreen(dialog, FORM_DIALOG_WIDTH);
 
         dialog.setResultConverter(btn -> {
             if (btn == ButtonType.OK) {
@@ -567,5 +571,49 @@ public class AiSettingsDialog {
 
         java.util.Optional<Boolean> result = dialog.showAndWait();
         return result.orElse(false);
+    }
+
+    /**
+     * Two-column form: a natural-width label column that never shrinks, and a field column that
+     * takes the remaining room. Without the constraints the label column was the one that gave way
+     * when a long, non-wrapping hint pushed column 1 past the dialog width — every label collapsed
+     * to a single "…" glyph.
+     */
+    private static GridPane buildFormGrid() {
+        GridPane grid = new GridPane();
+        grid.setHgap(FORM_GUTTER);
+        grid.setVgap(FORM_ROW_GAP);
+        grid.setPadding(new Insets(FORM_PADDING_V, FORM_PADDING_H, FORM_PADDING_V, FORM_PADDING_H));
+
+        ColumnConstraints labelColumn = new ColumnConstraints();
+        labelColumn.setMinWidth(Region.USE_PREF_SIZE);
+        labelColumn.setHalignment(HPos.LEFT);
+        labelColumn.setHgrow(Priority.NEVER);
+
+        ColumnConstraints fieldColumn = new ColumnConstraints();
+        fieldColumn.setMinWidth(FORM_FIELD_MIN_WIDTH);
+        fieldColumn.setHgrow(Priority.ALWAYS);
+        fieldColumn.setFillWidth(true);
+
+        grid.getColumnConstraints().addAll(labelColumn, fieldColumn);
+        grid.setMinWidth(FORM_LABEL_COLUMN_WIDTH + FORM_GUTTER + FORM_FIELD_MIN_WIDTH + 2 * FORM_PADDING_H);
+        return grid;
+    }
+
+    /** Stacks a control with its hint; vertical spacing differs from the row gap. */
+    private static VBox buildFieldColumn(Node control, Node hint) {
+        VBox column = new VBox(FORM_HINT_GAP, control, hint);
+        column.setFillWidth(true);
+        return column;
+    }
+
+    /** Hint text under a field: always wraps, so it can never widen (and thus crush) the form. */
+    private static Label hintLabel(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("settings-hint-label");
+        label.setWrapText(true);
+        label.setMaxWidth(Double.MAX_VALUE);
+        label.setMinHeight(Region.USE_PREF_SIZE);
+        return label;
     }
 }

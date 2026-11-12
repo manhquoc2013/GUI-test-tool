@@ -76,7 +76,6 @@ Notes: This is a pre-existing environment issue (Maven dependency cache not popu
 | `contentArea` | `@FXML StackPane contentArea` | ✅ Matched |
 | `toastContainer` | `@FXML VBox toastContainer` | ✅ Matched |
 | `sidebar` | `@FXML VBox sidebar` | ✅ Matched |
-| `activeSuiteLabel` | `@FXML Label activeSuiteLabel` | ✅ Matched |
 | `sidebarActiveSuite` | `@FXML Label sidebarActiveSuite` | ✅ Matched |
 | `statusLabel` | `@FXML Label statusLabel` | ✅ Matched |
 | `browserLabel` | `@FXML Label browserLabel` | ✅ Matched |

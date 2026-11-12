@@ -10,6 +10,9 @@ package com.studio.service;
  */
 public final class AiRunCancelledException extends RuntimeException {
 
+    /** Serialisation is never used; the value only silences the missing-SUID contract warning. */
+    private static final long serialVersionUID = 1L;
+
     /** Stable message, so an aggregated log line names the user action instead of a null cause. */
     public static final String MESSAGE = "Người dùng đã dừng lượt sinh phản hồi";
 

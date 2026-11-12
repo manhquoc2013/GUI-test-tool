@@ -43,8 +43,16 @@ public final class UiTooltips {
         Tooltip.install(node, tip);
         if (node instanceof Control control) {
             control.setTooltip(tip);
+            // Icon-only controls carry no text of their own; the tooltip is the only name a
+            // screen reader can announce, so mirror it into the accessible text.
+            if (control.getAccessibleText() == null) {
+                control.setAccessibleText(text);
+            }
         } else if (node instanceof Label label) {
             label.setTooltip(tip);
+            if (label.getAccessibleText() == null) {
+                label.setAccessibleText(text);
+            }
         }
         return tip;
     }

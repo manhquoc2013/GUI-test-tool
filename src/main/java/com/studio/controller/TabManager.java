@@ -15,10 +15,9 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Manages the Multi-Tab Document Bar (VS Code / IntelliJ style) in the main
- * shell.
- * Allows multiple Suites, Explorer, Reports, and AI Assistant to be open
- * concurrently.
+ * Manages the Multi-Tab Document Bar (VS Code / IntelliJ style) in the main shell.
+ * Holds real documents only — open suites and report details. The fixed pages (Explorer, Reports,
+ * AI Assistant) belong to the sidebar navigation, so listing them here would duplicate the nav.
  */
 public class TabManager {
 
@@ -79,6 +78,7 @@ public class TabManager {
     private final Map<String, StudioTab> tabs = new LinkedHashMap<>();
     private String activeTabId;
     private Consumer<StudioTab> onTabSelectedListener;
+    private Runnable onTabsChanged;
 
     public TabManager(HBox tabContainer, StackPane contentArea) {
         this.tabContainer = tabContainer;
@@ -87,6 +87,25 @@ public class TabManager {
 
     public void setOnTabSelectedListener(Consumer<StudioTab> listener) {
         this.onTabSelectedListener = listener;
+    }
+
+    /** Fired whenever the number of open documents changes (open/close). */
+    public void setOnTabsChanged(Runnable listener) {
+        this.onTabsChanged = listener;
+    }
+
+    public boolean hasTabs() {
+        return !tabs.isEmpty();
+    }
+
+    /** Clears the active highlight, e.g. when the shell switches to a sidebar page. */
+    public void clearActive() {
+        activeTabId = null;
+        for (StudioTab tab : tabs.values()) {
+            if (tab.tabNode != null) {
+                tab.tabNode.getStyleClass().remove("active");
+            }
+        }
     }
 
     public void openTab(String id, String title, String icon, Node content,
@@ -113,8 +132,15 @@ public class TabManager {
 
         tabs.put(id, tab);
         tabContainer.getChildren().add(tabNode);
+        notifyTabsChanged();
 
         selectTab(id);
+    }
+
+    private void notifyTabsChanged() {
+        if (onTabsChanged != null) {
+            onTabsChanged.run();
+        }
     }
 
     private HBox buildTabNode(StudioTab tab) {
@@ -126,12 +152,8 @@ public class TabManager {
 
         Label iconLbl = new Label();
         iconLbl.getStyleClass().add("tab-icon");
-        if (tab.id.startsWith("PAGE_EXPLORER")) {
-            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FOLDER, 12);
-        } else if (tab.id.startsWith("PAGE_REPORTS") || tab.id.startsWith("REPORT:")) {
+        if (tab.id.startsWith("REPORT:")) {
             com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FILE, 12);
-        } else if (tab.id.startsWith("PAGE_AI")) {
-            com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.AI_SPARKLES, 12);
         } else if (tab.id.startsWith("SUITE:")) {
             com.studio.util.UiIcons.setGraphic(iconLbl, com.studio.util.UiIcons.FILE, 12);
         } else {
@@ -216,6 +238,7 @@ public class TabManager {
         if (tab.tabNode != null) {
             tabContainer.getChildren().remove(tab.tabNode);
         }
+        notifyTabsChanged();
 
         // If the closed tab was active, switch to adjacent or remaining
         if (id.equals(activeTabId)) {
@@ -225,8 +248,8 @@ public class TabManager {
                 selectTab(keys.get(nextIndex));
             } else {
                 activeTabId = null;
-                // Default back to Explorer
-                ViewNavigator.navigateTo(ViewNavigator.Page.EXPLORER);
+                // Nothing left to show: back to the page the sidebar had on screen.
+                ViewNavigator.showCurrentPage();
             }
         }
     }

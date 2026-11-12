@@ -2,6 +2,7 @@
 
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.Region?>
@@ -50,6 +51,7 @@
         <!-- Group 2: Authoring (Save, AI & Export) -->
         <HBox spacing="6" alignment="CENTER_LEFT" styleClass="workspace-btn-group">
             <Button text="AI Hỗ trợ" fx:id="aiAssistBtn" onAction="#openAiCaseAssistant" styleClass="btn-ai-assist"/>
+            <Button text="AI Copilot" fx:id="copilotBtn" onAction="#toggleAiCopilot" styleClass="btn-ai-assist"/>
             <Button text="Lưu code" fx:id="saveBtn" onAction="#saveCode" styleClass="toolbar-btn-save"/>
             <Button text="Xuất Excel" fx:id="exportExcelBtn" onAction="#exportSuiteExcel" styleClass="toolbar-btn-excel"/>
             <Button text="Xóa case" fx:id="deleteCaseBtn" onAction="#deleteSelectedCase" styleClass="toolbar-btn-danger" visible="false" managed="false"/>
@@ -80,7 +82,9 @@
             <ListView fx:id="caseListView" VBox.vgrow="ALWAYS" styleClass="case-list"/>
         </VBox>
 
-        <!-- Right: Workspace Main Content -->
+        <!-- Right: Workspace Main Content (the AI Copilot drawer docks into the right slot) -->
+        <BorderPane fx:id="workspaceLayer" VBox.vgrow="ALWAYS">
+        <center>
         <VBox spacing="0" VBox.vgrow="ALWAYS">
             <StackPane VBox.vgrow="ALWAYS" styleClass="workspace-main">
                 <!-- Suite Info Panel (when no case selected) -->
@@ -108,10 +112,10 @@
                 <SplitPane fx:id="workspaceSplitPane" dividerPositions="0.62" VBox.vgrow="ALWAYS"
                            styleClass="workspace-split" visible="false" managed="false">
                     <!-- Left: Code Editor -->
-                    <VBox fx:id="codePanel" spacing="0" styleClass="code-panel">
+                    <VBox fx:id="codePanel" spacing="0" styleClass="code-panel" minWidth="300">
                         <HBox styleClass="editor-header-bar" spacing="8" alignment="CENTER_LEFT">
                             <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
-                            <Label text="Playwright Test Code" styleClass="editor-title-label"/>
+                            <Label text="Playwright Test Code" styleClass="editor-title-label" minWidth="0"/>
                             <Label fx:id="codeDirtyLabel" text="● Chưa lưu" styleClass="code-dirty-tag" visible="false" managed="false"/>
                             <HBox HBox.hgrow="ALWAYS"/>
                             <Label fx:id="codeStatsLabel" text="Java Playwright Script" styleClass="editor-stats-label"/>
@@ -122,7 +126,7 @@
                     </VBox>
 
                     <!-- Right: Asserts Catalog & Manager -->
-                    <VBox fx:id="assertsPanel" spacing="8" styleClass="asserts-panel">
+                    <VBox fx:id="assertsPanel" spacing="8" styleClass="asserts-panel" minWidth="240">
                         <padding><Insets top="8" right="10" bottom="10" left="10"/></padding>
                         <FlowPane hgap="8" vgap="6" alignment="CENTER_LEFT" styleClass="asserts-header-row">
                             <Label text="Danh mục Asserts" styleClass="section-header" minWidth="0"/>
@@ -149,5 +153,7 @@
                           VBox.vgrow="ALWAYS"/>
             </VBox>
         </VBox>
+        </center>
+        </BorderPane>
     </SplitPane>
 </VBox>

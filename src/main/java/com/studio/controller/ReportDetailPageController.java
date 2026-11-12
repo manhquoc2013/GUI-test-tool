@@ -147,6 +147,8 @@ public class ReportDetailPageController {
     private static final int LOG_WRAP_LIMIT_CHARS = 20_000;
     /** Text placed into the TextArea; the rest stays in {@link #fullLogText}. */
     private static final int LOG_VIEW_LIMIT_CHARS = 120_000;
+    /** Icon size of the report toolbar actions. */
+    private static final int TOOLBAR_ICON_SIZE = 12;
     private static final String LOG_TRUNCATED_NOTE =
             "\n\n… (đã rút gọn để hiển thị mượt — nháy đúp để xem toàn bộ)";
 
@@ -268,10 +270,10 @@ public class ReportDetailPageController {
 
         if (caseEvidenceCol != null) {
             caseEvidenceCol.setCellFactory(col -> new TableCell<CaseResult, Void>() {
-                private final Button btn = new Button("🖼️ Ảnh chụp");
+                private final Button btn = new Button("Ảnh chụp");
                 {
-                    btn.getStyleClass().add("btn-sm");
-                    btn.setStyle("-fx-font-size: 11px; -fx-padding: 2px 8px; -fx-cursor: hand;");
+                    btn.getStyleClass().addAll("btn-sm", "report-evidence-btn");
+                    btn.setAccessibleText("Mở ảnh chụp màn hình của case");
                     btn.setOnAction(e -> {
                         if (getIndex() >= 0 && getIndex() < getTableView().getItems().size()) {
                             CaseResult cr = getTableView().getItems().get(getIndex());
@@ -279,7 +281,7 @@ public class ReportDetailPageController {
                             if (shot != null) {
                                 EvidenceViewerDialog.show(cr.getTestCaseName(), shot);
                             } else {
-                                ToastService.info("ℹ️ Case này không có ảnh chụp màn hình.");
+                                ToastService.info("Case này không có ảnh chụp màn hình.");
                             }
                         }
                     });
@@ -342,7 +344,7 @@ public class ReportDetailPageController {
     private void setupAssertColumns() {
         Label emptyAssertPlaceholder = new Label(
                 "Không có kết quả Assert (kịch bản không khai báo assertion hoặc gặp ngoại lệ trong quá trình chạy).");
-        emptyAssertPlaceholder.setStyle("-fx-text-fill: #94a3b8; -fx-font-style: italic; -fx-padding: 10px;");
+        emptyAssertPlaceholder.getStyleClass().add("assert-empty-placeholder");
         assertsTable.setPlaceholder(emptyAssertPlaceholder);
 
         ResponsiveTableColumns.install(assertsTable,
@@ -451,7 +453,8 @@ public class ReportDetailPageController {
         backBtn.setOnAction(e -> goBack());
         if (deleteReportBtn != null) {
             deleteReportBtn.setOnAction(e -> deleteCurrentReport());
-            com.studio.util.UiIcons.setGraphic(deleteReportBtn, com.studio.util.UiIcons.TRASH, 12, "#f7768e");
+            com.studio.util.UiIcons.setThemedGraphic(deleteReportBtn, com.studio.util.UiIcons.TRASH,
+                    TOOLBAR_ICON_SIZE, com.studio.util.UiIcons.STYLE_DANGER);
         }
         if (exportHtmlBtn != null) {
             com.studio.util.UiIcons.setGraphic(exportHtmlBtn, com.studio.util.UiIcons.GLOBE, 12);
@@ -536,7 +539,7 @@ public class ReportDetailPageController {
         try {
             currentReport = reportStore.loadReport(runId);
             if (currentReport == null) {
-                ToastService.error("⚠️ Không tìm thấy báo cáo: " + runId);
+                ToastService.error("Không tìm thấy báo cáo: " + runId);
                 return;
             }
 
@@ -576,7 +579,7 @@ public class ReportDetailPageController {
             return;
         String runId = currentReport.getRunId() != null ? currentReport.getRunId() : "—";
         summaryLabel.setText(String.format(
-                "🆔 %s  ·  ✅ %d Đạt  ·  ❌ %d Thất bại  ·  ⏭️ %d Bỏ qua",
+                "%s  ·  %d Đạt  ·  %d Thất bại  ·  %d Bỏ qua",
                 runId,
                 currentReport.getPassed(),
                 currentReport.getFailed(),
@@ -607,9 +610,9 @@ public class ReportDetailPageController {
         if (detailCaseTitle != null) {
             String name = cr.getTestCaseName() != null ? cr.getTestCaseName() : "Case";
             if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
-                detailCaseTitle.setText("🎯 " + name + " [✨ Auto-Healed: " + cr.getHealedSteps().size() + "]");
+                detailCaseTitle.setText(name + " [Auto-Healed: " + cr.getHealedSteps().size() + "]");
             } else {
-                detailCaseTitle.setText("🎯 " + name);
+                detailCaseTitle.setText(name);
             }
         }
 
@@ -638,33 +641,33 @@ public class ReportDetailPageController {
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
                 sb.append(cr.getLogExcerpt());
             } else if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
-                sb.append("❌ NGUYÊN NHÂN THẤT BẠI: ").append(cr.getFailureReason());
+                sb.append("NGUYÊN NHÂN THẤT BẠI: ").append(cr.getFailureReason());
             } else {
-                sb.append("❌ Test case thực thi thất bại.");
+                sb.append("Test case thực thi thất bại.");
             }
         } else if ("ERROR".equals(cr.getStatus())) {
             if (cr.getLogExcerpt() != null && !cr.getLogExcerpt().isBlank()) {
                 sb.append(cr.getLogExcerpt());
             } else if (cr.getFailureReason() != null && !cr.getFailureReason().isBlank()) {
-                sb.append("⚠️ LỖI KỊCH BẢN / BIÊN DỊCH: ").append(cr.getFailureReason());
+                sb.append("LỖI KỊCH BẢN / BIÊN DỊCH: ").append(cr.getFailureReason());
             } else {
-                sb.append("⚠️ Có lỗi xảy ra trong quá trình chuẩn bị / biên dịch test case.");
+                sb.append("Có lỗi xảy ra trong quá trình chuẩn bị / biên dịch test case.");
             }
         } else if ("SKIPPED".equals(cr.getStatus())) {
-            sb.append("⏭️ ĐÃ BỎ QUA: ").append(cr.getSkipReason() != null ? cr.getSkipReason() : "Không có lý do");
+            sb.append("ĐÃ BỎ QUA: ").append(cr.getSkipReason() != null ? cr.getSkipReason() : "Không có lý do");
         } else if ("PASSED".equals(cr.getStatus())) {
-            sb.append("✅ Test case thực thi thành công và đạt tất cả các kiểm tra.");
+            sb.append("Test case thực thi thành công và đạt tất cả các kiểm tra.");
             if (cr.getScreenshotPath() != null) {
                 sb.append(" Xem ảnh chụp màn hình kiểm chứng bên trên.");
             }
         } else {
-            sb.append("📝 Không có thông tin bổ sung cho case này.");
+            sb.append("Không có thông tin bổ sung cho case này.");
         }
 
         // Self-Healing details
         List<HealedStepMeta> healed = cr.getHealedSteps();
         if (healed != null && !healed.isEmpty()) {
-            StringBuilder healedLog = new StringBuilder("\n\n✨ [TỰ ĐỘNG SỬA LỖI - SELF-HEALING]:\n");
+            StringBuilder healedLog = new StringBuilder("\n\n[TỰ ĐỘNG SỬA LỖI - SELF-HEALING]:\n");
             for (HealedStepMeta hm : healed) {
                 healedLog.append(String.format(" • %s (%s, %.0f%%): '%s' ➔ '%s'\n",
                         hm.getActionDescription(), hm.getMethod(), hm.getConfidence() * 100,
@@ -686,7 +689,7 @@ public class ReportDetailPageController {
             String fileName = Path.of(pathText).getFileName() != null
                     ? Path.of(pathText).getFileName().toString()
                     : pathText;
-            screenshotLabel.setText("📸 " + fileName);
+            screenshotLabel.setText(fileName);
             com.studio.util.UiTooltips.install(screenshotLabel, pathText);
             screenshotLabel.setVisible(true);
             viewScreenshotBtn.setVisible(true);
@@ -797,10 +800,7 @@ public class ReportDetailPageController {
             for (int i = 0; i < asserts.size(); i++) {
                 com.studio.model.AssertResult ar = asserts.get(i);
                 Label badge = new Label(String.valueOf(i + 1));
-                badge.setMinWidth(28);
-                badge.setMinHeight(28);
-                badge.setAlignment(javafx.geometry.Pos.CENTER);
-                badge.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-cursor: default;");
+                badge.getStyleClass().add("step-badge");
 
                 // Last assert badge gets healed marker if case was healed
                 boolean healed = caseHasHealed && (i == asserts.size() - 1);
@@ -816,7 +816,7 @@ public class ReportDetailPageController {
                 String tipText = "Step " + (i + 1)
                         + (ar.getType() != null ? " [" + ar.getType() + "]" : "")
                         + " → " + (ar.getStatus() != null ? ar.getStatus() : "?")
-                        + (healed ? " ✨Healed" : "");
+                        + (healed ? " Healed" : "");
                 Tooltip tip = new Tooltip(tipText);
                 Tooltip.install(badge, tip);
 
@@ -825,10 +825,7 @@ public class ReportDetailPageController {
         } else {
             // No asserts — show single case-level badge
             Label badge = new Label("1");
-            badge.setMinWidth(28);
-            badge.setMinHeight(28);
-            badge.setAlignment(javafx.geometry.Pos.CENTER);
-            badge.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            badge.getStyleClass().add("step-badge");
             String status = cr.getStatus() != null ? cr.getStatus().toUpperCase() : "";
             if (status.startsWith("PASS")) {
                 badge.getStyleClass().add("step-badge-pass");
@@ -847,7 +844,7 @@ public class ReportDetailPageController {
     @FXML
     private void exportHtml() {
         if (currentReport == null) {
-            ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
+            ToastService.warn("Chưa tải báo cáo để xuất.");
             return;
         }
 
@@ -882,7 +879,7 @@ public class ReportDetailPageController {
                 } catch (Exception ignored) {
                 }
             } catch (Exception e) {
-                ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
+                ToastService.error("Xuất HTML thất bại: " + e.getMessage());
             }
         }
     }
@@ -890,7 +887,7 @@ public class ReportDetailPageController {
     @FXML
     private void exportExcel() {
         if (currentReport == null) {
-            ToastService.warn("⚠️ Chưa tải báo cáo để xuất.");
+            ToastService.warn("Chưa tải báo cáo để xuất.");
             return;
         }
 
@@ -914,9 +911,9 @@ public class ReportDetailPageController {
         if (file != null) {
             try {
                 ExcelReportService.export(currentReport, file.toPath(), lang);
-                ToastService.success("📤 Đã xuất Excel: " + file.getName());
+                ToastService.success("Đã xuất Excel: " + file.getName());
             } catch (Exception e) {
-                ToastService.error("❌ Xuất thất bại: " + e.getMessage());
+                ToastService.error("Xuất thất bại: " + e.getMessage());
             }
         }
     }
@@ -929,14 +926,14 @@ public class ReportDetailPageController {
     @FXML
     private void deleteCurrentReport() {
         if (currentReport == null || currentReport.getRunId() == null || currentReport.getRunId().isBlank()) {
-            ToastService.warn("⚠️ Chưa tải báo cáo để xóa.");
+            ToastService.warn("Chưa tải báo cáo để xóa.");
             return;
         }
         String runId = currentReport.getRunId();
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         DialogTheme.apply(confirm);
         confirm.setTitle("Xóa báo cáo");
-        confirm.setHeaderText("🗑️ Xóa báo cáo " + runId + "?");
+        confirm.setHeaderText("Xóa báo cáo " + runId + "?");
         confirm.setContentText(
                 "Sẽ xóa report.json, ảnh chụp và dữ liệu harness liên quan. Không thể hoàn tác.");
         if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
@@ -944,11 +941,11 @@ public class ReportDetailPageController {
         }
         try {
             reportStore.deleteReport(runId);
-            ToastService.success("🗑️ Đã xóa báo cáo: " + runId);
+            ToastService.success("Đã xóa báo cáo: " + runId);
             ViewNavigator.invalidate(ViewNavigator.Page.REPORTS);
             ViewNavigator.navigateTo(ViewNavigator.Page.REPORTS);
         } catch (Exception e) {
-            ToastService.error("❌ Không xóa được báo cáo: " + e.getMessage());
+            ToastService.error("Không xóa được báo cáo: " + e.getMessage());
         }
     }
 
@@ -956,12 +953,12 @@ public class ReportDetailPageController {
     private void viewScreenshot() {
         CaseResult selected = casesTable.getSelectionModel().getSelectedItem();
         if (selected == null) {
-            ToastService.warn("⚠️ Chọn một case trong bảng trước.");
+            ToastService.warn("Chọn một case trong bảng trước.");
             return;
         }
         Path resolved = resolveScreenshotFile(selected.getScreenshotPath());
         if (resolved == null) {
-            ToastService.warn("⚠️ Không tìm thấy file ảnh chụp"
+            ToastService.warn("Không tìm thấy file ảnh chụp"
                     + (selected.getScreenshotPath() != null ? ": " + selected.getScreenshotPath() : ""));
             return;
         }

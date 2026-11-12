@@ -135,7 +135,8 @@ class DeleteButtonsAndExecutionGuardTest {
                 // Clear selection in projectTree
                 Field projectTreeField = ExplorerPageController.class.getDeclaredField("projectTree");
                 projectTreeField.setAccessible(true);
-                javafx.scene.control.TreeView<Object> tree = (javafx.scene.control.TreeView<Object>) projectTreeField.get(controller);
+                javafx.scene.control.TreeView<?> tree =
+                        (javafx.scene.control.TreeView<?>) projectTreeField.get(controller);
                 assertNotNull(tree);
                 tree.getSelectionModel().clearSelection();
                 assertNull(tree.getSelectionModel().getSelectedItem());

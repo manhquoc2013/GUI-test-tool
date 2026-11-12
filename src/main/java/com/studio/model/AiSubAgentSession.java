@@ -41,9 +41,8 @@ public class AiSubAgentSession {
     private long finishedAt;
     /** Ordered transcript of this agent's own exchanges. */
     private List<AiChatMessage> messages = new ArrayList<>();
-    /** Non-secret diagnostic metadata (tokens, durations). */
     /**
-     * Per-agent counters. Written by the agent worker while the token badge reads them on the FX
+     * Non-secret diagnostic metadata (tokens, durations). Written by the agent worker while the token badge reads them on the FX
      * thread, so it must be concurrent: a plain {@link java.util.LinkedHashMap} could corrupt its
      * buckets and hang the UI thread mid-render.
      */

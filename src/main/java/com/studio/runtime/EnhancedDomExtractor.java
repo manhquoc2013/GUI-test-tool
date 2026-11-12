@@ -33,10 +33,10 @@ public class EnhancedDomExtractor {
                 const rect = el.getBoundingClientRect();
                 const role = el.getAttribute('role') || '';
 
-                const isInteractive = interactiveTags.has(tag) || 
-                                      interactiveRoles.has(role) || 
-                                      el.hasAttribute('onclick') || 
-                                      el.hasAttribute('data-testid') || 
+                const isInteractive = interactiveTags.has(tag) ||
+                                      interactiveRoles.has(role) ||
+                                      el.hasAttribute('onclick') ||
+                                      el.hasAttribute('data-testid') ||
                                       el.hasAttribute('data-qa') ||
                                       el.hasAttribute('data-cy') ||
                                       style.cursor === 'pointer';
@@ -44,7 +44,7 @@ public class EnhancedDomExtractor {
                 if (isInteractive && isElementVisible(el, rect, style)) {
                     const testId = el.getAttribute('data-testid') || el.getAttribute('data-qa') || el.getAttribute('data-cy');
                     const text = (el.innerText || el.value || el.getAttribute('title') || '').trim().replace(/\\s+/g, ' ').substring(0, 60);
-                    
+
                     // Filter out unstable dynamic IDs like btn_182947192
                     let stableId = el.id || null;
                     if (stableId && /\\d{4,}/.test(stableId)) {

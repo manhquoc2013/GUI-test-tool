@@ -11,6 +11,30 @@
     -color-text-muted: #9aa5ce;
     -fx-accent-color: #7aa2f7;
     -fx-text-muted-color: #9aa5ce;
+
+    /* Bootstrap palette shared by the redesign components. Defined here (not only in the
+       AtlantaFX user-agent sheet) so studio.css resolves standalone — layout tests load the
+       sheet without a launched Application, and unresolved lookups log CSS warnings. */
+    -color-bg-default: #1a1b26;
+    -color-bg-subtle: #16161e;
+    -color-bg-inset: #13141c;
+    -color-border-muted: #2a2b3d;
+    -color-border-default: #3b3d57;
+    -color-fg-default: #e6e9ff;
+    -color-fg-muted: #9aa5ce;
+    -color-fg-on-emphasis: #16161e;
+    -color-accent-emphasis: #7aa2f7;
+    -color-accent-fg: #7aa2f7;
+    -color-accent-muted: #22325b;
+    -color-success-emphasis: #9ece6a;
+    -color-success-fg: #9ece6a;
+    -color-success-subtle: #1f2d1f;
+    -color-danger-emphasis: #f7768e;
+    -color-danger-fg: #f7768e;
+    -color-danger-subtle: #2d1f23;
+    -color-warning-emphasis: #e0af68;
+    -color-warning-fg: #e0af68;
+    -color-warning-subtle: #2d261a;
 }
 /*
  * Icon size scale (same role → same size):
@@ -78,14 +102,6 @@
 .app-title-icon {
     -fx-font-size: 16px;
     -fx-padding: 0 4 0 0;
-}
-.active-suite-label {
-    -fx-text-fill: #7aa2f7;
-    -fx-font-size: 12px;
-    -fx-cursor: hand;
-    /* Shrinkable: the header gives this label the leftover identity width and ellipsizes it. */
-    -fx-min-width: 0;
-    -fx-max-width: 300;
 }
 .icon-btn {
     -fx-background-color: #24283b;
@@ -239,7 +255,9 @@
 .sidebar-active-label {
     -fx-text-fill: #9ece6a;
     -fx-font-size: 12px;
-    -fx-wrap-text: true;
+    /* One line + ellipsis: the toolbar row also holds the clear button, so a long suite name must
+       truncate instead of wrapping the section or widening the panel. */
+    -fx-wrap-text: false;
 }
 .sidebar-active-label.has-suite {
     -fx-cursor: hand;
@@ -1220,19 +1238,30 @@
     -fx-padding: 4 0 0 0;
 }
 
-.combo-box.status-combo .list-cell {
+.combo-box.status-combo > .list-cell {
     -fx-font-size: 12px;
 }
 
 /* === CONTROLS === */
-.combo-box,
-.combo-box .list-cell {
+/* The frame belongs to the ComboBox itself. Only the *button cell* — the direct child that shows
+   the current value — may inherit its geometry. Scoping this to ".combo-box .list-cell" (any
+   descendant) painted the field frame, radius and padding onto every option row in the popup, so
+   the dropdown read as a column of boxes instead of a list. */
+.combo-box {
     -fx-background-color: #24283b;
     -fx-text-fill: #c0caf5;
     -fx-border-color: #3b3d57;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
-    -fx-padding: 2 6;
+}
+.combo-box > .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #c0caf5;
+    /* Same box as .text-field, so a combo and a text field in one form row share a height. */
+    -fx-padding: 7 8 7 10;
+    /* The generic .list-cell rule must not leak its frame into the field's button cell. */
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
 }
 .combo-box:hover {
     -fx-border-color: #7aa2f7;
@@ -1246,15 +1275,33 @@
 .combo-box .combo-box-popup .list-view {
     -fx-background-color: #24283b;
     -fx-border-color: #3b3d57;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 4;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 14, 0.1, 0, 5);
 }
 .combo-box .combo-box-popup .list-cell {
-    -fx-background-color: #24283b;
+    -fx-background-color: transparent;
     -fx-text-fill: #c0caf5;
-    -fx-padding: 8 10;
+    -fx-padding: 7 10;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-background-radius: 4;
 }
-.combo-box .combo-box-popup .list-cell:hover,
-.combo-box .combo-box-popup .list-cell:filled:selected {
+.combo-box .combo-box-popup .list-cell:filled:hover {
     -fx-background-color: #2f334d;
+}
+.combo-box .combo-box-popup .list-cell:filled:selected,
+.combo-box .combo-box-popup .list-cell:filled:selected:focused {
+    -fx-background-color: #2f334d;
+    -fx-text-fill: #c0caf5;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+/* Blank "no selection" entry of the AI target pickers (placeholder prompt). */
+.combo-box .combo-placeholder-cell {
+    -fx-text-fill: -color-fg-muted;
 }
 
 .text-field, .text-input {
@@ -1632,6 +1679,12 @@
     -fx-background-insets: 0, 1;
     -fx-background-radius: 6, 5;
 }
+/* Dialog fields use a 1px inset frame, so the combo's button cell needs the same 8/10 box as
+   .dialog-pane .text-field; otherwise a combo sits 2px shorter than the field beside it. */
+.dialog-pane .combo-box-base > .list-cell,
+.studio-dialog .combo-box-base > .list-cell {
+    -fx-padding: 8 8 8 10;
+}
 
 /* Kill Modena nested strokes that look dashed on transparent stages */
 .dialog-pane > .button-bar > .container > .details-button,
@@ -1738,6 +1791,23 @@
 }
 .preview-scroll > .viewport {
     -fx-background-color: transparent;
+}
+
+/* === AI STATUS MESSAGES (generate-case dialog, copilot) === */
+.ai-status {
+    -fx-font-size: 12px;
+}
+.ai-status-ok {
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-success-fg;
+}
+.ai-status-warn {
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-warning-fg;
+}
+.ai-status-error {
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-danger-fg;
 }
 
 /* === AI ASSISTANT PAGE === */
@@ -2686,158 +2756,498 @@
     -fx-text-fill: #f7768e;
 }
 
-/* === LOW-CODE / NO-CODE VISUAL STEP BUILDER === */
+/* Security note under the API-key field. Kept as a class so the colour is theme-owned. */
+.settings-security-badge {
+    -fx-font-size: 11px;
+    -fx-text-fill: #73daca;
+}
+
+/* === LOW-CODE / NO-CODE VISUAL STEP BUILDER ===
+   Colours come from AtlantaFX looked-up tokens so the builder follows Primer Dark/Light. */
 .visual-step-flow-pane {
-    -fx-background-color: #1a1b26;
+    -fx-background-color: -color-bg-default;
 }
 .step-add-bar {
-    -fx-background-color: #16161e;
-    -fx-border-color: #2a2b3d;
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-muted;
     -fx-border-width: 0 0 1 0;
+    -fx-padding: 8 12 8 12;
+}
+.step-add-bar-title {
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-muted;
 }
 .step-cards-container {
-    -fx-background-color: #1a1b26;
+    -fx-background-color: -color-bg-default;
+    -fx-padding: 10 12 10 12;
 }
+/* Footer: undo/redo next to the primary "add step" action. */
+.step-footer-bar {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 8 12 8 12;
+}
+.step-history-btn {
+    -fx-padding: 3 7;
+}
+.step-history-btn:disabled {
+    -fx-opacity: 0.4;
+}
+.step-quick-add {
+    -fx-border-color: -color-border-muted;
+    -fx-border-radius: 999;
+    -fx-background-radius: 999;
+    -fx-padding: 3 10;
+    -fx-cursor: hand;
+}
+.step-quick-add:hover {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-background-color: -color-bg-inset;
+}
+.step-quick-add .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+.step-quick-add:hover .ui-svg-icon {
+    -fx-fill: -color-accent-fg;
+}
+
+/* Empty state: icon, title, explanation, primary action. */
+.step-empty-state {
+    -fx-padding: 26 16 26 16;
+    -fx-spacing: 6;
+    -fx-alignment: center;
+}
+.step-empty-icon .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+.step-empty-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-default;
+}
+.step-empty-hint {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -color-fg-muted;
+    -fx-text-alignment: center;
+}
+
 .step-card {
-    -fx-background-color: #24283b;
+    -fx-background-color: -color-bg-subtle;
     -fx-background-radius: 8;
-    -fx-border-color: #3b3d57;
+    -fx-border-color: -color-border-default;
     -fx-border-radius: 8;
     -fx-border-width: 1;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.25), 4, 0, 0, 2);
+    -fx-padding: 6 10 6 10;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 6, 0, 0, 2);
 }
 .step-card:hover {
-    -fx-border-color: #7aa2f7;
+    -fx-border-color: -color-accent-emphasis;
+}
+.step-card-selected {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 2;
+}
+/* An open editor keeps a softer accent frame than a selected card, so both states read at once. */
+.step-card-expanded {
+    -fx-border-color: -color-accent-muted;
+}
+.step-card-dragging {
+    -fx-opacity: 0.55;
+}
+.step-card-disabled {
+    -fx-opacity: 0.55;
+}
+/* RAW cards hold hand-written Playwright/Java: mark them so they never read as an editable selector. */
+.step-card-raw {
+    -fx-border-color: -color-border-muted;
+    -fx-border-style: segments(4, 4);
+    -fx-background-color: -color-bg-inset;
+}
+.step-card-drop-before {
+    -fx-border-color: -color-accent-emphasis -color-border-default -color-border-default -color-border-default;
+}
+.step-card-drop-after {
+    -fx-border-color: -color-border-default -color-border-default -color-accent-emphasis -color-border-default;
+}
+
+/* Summary row: the whole row toggles the editor, so it reserves a comfortable hit height. */
+.step-card-header {
+    -fx-min-height: 28;
+    -fx-cursor: hand;
+}
+/* The description sits on its own row, indented past the drag handle, so it can use the full
+   card width instead of competing with the action chip for the same line. */
+.step-card-summary-row {
+    -fx-min-height: 24;
+    -fx-padding: 0 0 0 30;
+    -fx-cursor: hand;
+}
+.step-card-summary-row:focused {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 6;
+}
+.step-card-header:focused {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 6;
 }
 .step-drag-handle {
     -fx-cursor: move;
-    -fx-font-size: 16px;
-    -fx-text-fill: #565f89;
-    -fx-padding: 0 4;
+    -fx-padding: 0 2;
 }
-.step-drag-handle:hover {
-    -fx-text-fill: #c0caf5;
+.step-drag-handle .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
 }
-.step-action-combo {
+.step-drag-handle:hover .ui-svg-icon {
+    -fx-fill: -color-fg-default;
+}
+.step-num-badge {
+    -fx-font-weight: bold;
+    -fx-font-family: monospace;
+    -fx-font-size: 11px;
+    -fx-min-width: 26;
+    -fx-alignment: center;
+    -fx-text-fill: -color-fg-muted;
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 6;
+    -fx-padding: 2 6;
+}
+
+/* Action chip: reads as a label, opens the action picker. Never a raw action code. */
+.step-action-chip {
     -fx-font-weight: bold;
     -fx-font-size: 11px;
-    -fx-pref-width: 130;
+    -fx-text-fill: -color-fg-default;
+    -fx-background-color: transparent;
+    -fx-border-color: -color-border-muted;
+    -fx-border-radius: 999;
+    -fx-background-radius: 999;
+    -fx-padding: 2 8;
+    -fx-cursor: hand;
 }
-.step-action-combo.action-navigate {
-    -fx-text-fill: #7aa2f7;
+.step-action-chip:hover,
+.step-action-chip:showing {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-background-color: -color-bg-inset;
 }
-.step-action-combo.action-click {
-    -fx-text-fill: #9ece6a;
+.step-action-chip > .label {
+    -fx-text-fill: -color-fg-default;
 }
-.step-action-combo.action-fill {
-    -fx-text-fill: #e0af68;
+.step-action-chip > .arrow-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0 0 0 4;
 }
-.step-action-combo.action-assert {
-    -fx-text-fill: #bb9af7;
+.step-action-chip > .arrow-button > .arrow {
+    -fx-background-color: -color-fg-muted;
+    -fx-padding: 2;
 }
-.step-desc-field {
+.step-action-chip .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+.step-action-chip.action-navigate .ui-svg-icon,
+.step-action-chip.action-navigate > .label {
+    -fx-text-fill: -color-accent-fg;
+    -fx-fill: -color-accent-fg;
+}
+.step-action-chip.action-click .ui-svg-icon,
+.step-action-chip.action-click > .label {
+    -fx-text-fill: -color-success-fg;
+    -fx-fill: -color-success-fg;
+}
+.step-action-chip.action-fill .ui-svg-icon,
+.step-action-chip.action-fill > .label {
+    -fx-text-fill: -color-warning-fg;
+    -fx-fill: -color-warning-fg;
+}
+.step-action-chip.action-assert-visible .ui-svg-icon,
+.step-action-chip.action-assert-visible > .label,
+.step-action-chip.action-assert-hidden .ui-svg-icon,
+.step-action-chip.action-assert-hidden > .label,
+.step-action-chip.action-assert-text .ui-svg-icon,
+.step-action-chip.action-assert-text > .label,
+.step-action-chip.action-assert-value .ui-svg-icon,
+.step-action-chip.action-assert-value > .label,
+.step-action-chip.action-assert-url .ui-svg-icon,
+.step-action-chip.action-assert-url > .label,
+.step-action-chip.action-assert-title .ui-svg-icon,
+.step-action-chip.action-assert-title > .label {
+    -fx-text-fill: -color-danger-fg;
+    -fx-fill: -color-danger-fg;
+}
+.step-action-chip.action-raw .ui-svg-icon,
+.step-action-chip.action-raw > .label {
+    -fx-text-fill: -color-fg-muted;
+    -fx-fill: -color-fg-muted;
+}
+
+.step-summary {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-default;
+}
+/* An unfinished step reads in warning ink instead of looking like a configured one. */
+.step-summary-incomplete {
+    -fx-text-fill: -color-warning-fg;
+}
+.step-summary-code {
+    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -color-fg-muted;
+}
+.step-expand-btn .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+
+.step-body {
+    -fx-padding: 8 0 2 0;
+}
+.step-field-caption {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-fg-muted;
+}
+.step-field {
+    -fx-background-color: -color-bg-inset;
+    -fx-border-color: -color-border-muted;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: -color-fg-default;
+    -fx-font-size: 12px;
+    -fx-padding: 6 8;
+}
+.step-field:focused {
+    -fx-border-color: -color-accent-emphasis;
+}
+.step-code-field {
+    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+
+/* A comment is annotation, not a step: no frame, no shadow, no editor. Without this it occupied a
+   full card and pushed the real steps apart in a long case. */
+.step-card-note {
     -fx-background-color: transparent;
     -fx-border-color: transparent;
-    -fx-text-fill: #c0caf5;
-    -fx-font-size: 12px;
+    -fx-effect: null;
+    -fx-padding: 1 6 1 2;
 }
-.step-desc-field:focused {
-    -fx-background-color: #1a1b26;
-    -fx-border-color: #7aa2f7;
-    -fx-border-radius: 4;
+.step-card-note:hover {
+    -fx-border-color: -color-border-muted;
 }
-.step-target-field, .step-data-field {
-    -fx-background-color: #16161e;
-    -fx-border-color: #3b3d57;
-    -fx-border-radius: 4;
-    -fx-text-fill: #e6e9ff;
-    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
-    -fx-font-size: 12px;
+.step-note-row {
+    -fx-min-height: 26;
 }
-.step-target-field:focused, .step-data-field:focused {
-    -fx-border-color: #7aa2f7;
+.step-note-chip,
+.step-note-chip > .label {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-size: 11px;
+}
+.step-note-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-font-style: italic;
+    -fx-text-fill: -color-fg-muted;
+    -fx-padding: 2 6;
+}
+.step-note-field:focused {
+    -fx-background-color: -color-bg-inset;
+    -fx-border-color: -color-border-default;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-font-style: normal;
+}
+/* Insertion slot for a drag reorder, kept after every card variant so a RAW or selected card still
+   shows the accent edge. Only the edge colour changes, so the card never resizes and the list does
+   not jitter while the pointer crosses card boundaries. */
+
+/* Overflow menu: hidden until the card is hovered/selected, so destructive actions never sit
+   next to the reading path. Space stays reserved (managed) to avoid header jitter. */
+.step-overflow-btn {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 2 4;
+    -fx-cursor: hand;
+}
+.step-overflow-btn:hover,
+.step-overflow-btn:showing {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 4;
+}
+.step-overflow-btn .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+.step-overflow-btn:hover .ui-svg-icon {
+    -fx-fill: -color-fg-default;
 }
 .step-tool-btn {
     -fx-background-color: transparent;
     -fx-border-color: transparent;
     -fx-cursor: hand;
-    -fx-padding: 4 6;
+    -fx-padding: 2 4;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+}
+.step-tool-btn .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
 }
 .step-tool-btn:hover {
-    -fx-background-color: #3b3d57;
+    -fx-background-color: -color-bg-inset;
     -fx-background-radius: 4;
 }
+.step-tool-btn:hover .ui-svg-icon {
+    -fx-fill: -color-fg-default;
+}
+.step-tool-btn.danger .ui-svg-icon {
+    -fx-fill: -color-danger-emphasis;
+}
 
-/* === RICHTEXTFX PLAYWRIGHT CODE EDITOR === */
+/* === PLAYWRIGHT CODE EDITOR (native TextArea + line gutter) === */
 .playwright-code-area {
-    -fx-background-color: #16161e;
+    -fx-background-color: -color-bg-default;
+}
+.playwright-code-area .lineno-gutter {
+    -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-pref-width: 48;
+    -fx-min-width: 48;
+    -fx-max-width: 48;
+    -fx-background-color: -color-bg-subtle;
+}
+.playwright-code-area .lineno-gutter .content,
+.playwright-code-area .code-editor-inner .content {
+    -fx-background-color: transparent;
+}
+.playwright-code-area .code-editor-inner {
     -fx-font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
     -fx-font-size: 13px;
-    -fx-text-fill: #c0caf5;
+    -fx-text-fill: -color-fg-default;
+    -fx-background-color: -color-bg-default;
 }
-.playwright-code-area .lineno {
-    -fx-background-color: #13141c;
-    -fx-text-fill: #565f89;
-    -fx-font-size: 11px;
-    -fx-padding: 0 8 0 8;
+.workspace-editor-container {
+    -fx-background-color: -color-bg-default;
 }
-.playwright-code-area .keyword {
-    -fx-fill: #bb9af7;
-    -fx-font-weight: bold;
+.view-mode-switcher {
+    -fx-padding: 0 0 0 8;
 }
-.playwright-code-area .playwright-token {
-    -fx-fill: #7aa2f7;
-    -fx-font-weight: bold;
+.editor-header-tools {
+    -fx-alignment: center-right;
 }
-.playwright-code-area .string {
-    -fx-fill: #9ece6a;
-}
-.playwright-code-area .comment {
-    -fx-fill: #565f89;
-    -fx-font-style: italic;
-}
-.playwright-code-area .paren, .playwright-code-area .bracket, .playwright-code-area .brace {
-    -fx-fill: #89ddff;
-}
-.playwright-code-area .semicolon {
-    -fx-fill: #7dcfff;
-}
-
-/* === SEGMENTED VIEW SWITCHER === */
-.button-group .button.active, .btn-segmented.active {
-    -fx-background-color: #7aa2f7;
-    -fx-text-fill: #16161e;
-    -fx-font-weight: bold;
-}
-
-
-
-
-
-/* === ACTIVITY RAIL (T2.1) === */
-.activity-rail {
-    -fx-background-color: -color-bg-subtle;
-    -fx-border-color: -color-border-muted;
-    -fx-border-width: 0 1 0 0;
-    -fx-padding: 8 4 8 4;
-    -fx-spacing: 4;
-    -fx-alignment: TOP_CENTER;
-    -fx-min-width: 48px;
-    -fx-pref-width: 48px;
-    -fx-max-width: 48px;
-}
-.rail-btn {
-    -fx-min-width: 40px;
-    -fx-pref-width: 40px;
-    -fx-max-width: 40px;
-    -fx-min-height: 40px;
-    -fx-pref-height: 40px;
-    -fx-max-height: 40px;
-    -fx-background-radius: 8px;
+/* Toggle for the Asserts pane: icon-only, states mirrored by the .active class. */
+.editor-header-toggle {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 4 6;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
     -fx-cursor: hand;
 }
-.rail-btn:selected, .rail-btn.active {
-    -fx-background-color: -color-accent-muted;
+.editor-header-toggle .ui-svg-icon {
+    -fx-fill: -color-fg-muted;
+}
+.editor-header-toggle:hover {
+    -fx-background-color: -color-bg-inset;
+}
+.editor-header-toggle:hover .ui-svg-icon {
+    -fx-fill: -color-fg-default;
+}
+.editor-header-toggle.active {
+    -fx-background-color: -color-bg-inset;
+}
+.editor-header-toggle.active .ui-svg-icon {
+    -fx-fill: -color-accent-fg;
+}
+.btn-segmented {
+    -fx-background-radius: 6;
+}
+.btn-segmented.active {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-text-fill: -color-fg-on-emphasis;
+    -fx-font-weight: bold;
+}
+
+/* === REPORTS KPI SUMMARY CARDS === */
+.kpi-value {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+/* === STEP EXECUTION TIMELINE BADGES === */
+.step-badge {
+    -fx-min-width: 28;
+    -fx-min-height: 28;
+    -fx-alignment: center;
+    -fx-cursor: default;
+}
+.step-badge-pass,
+.step-badge-fail,
+.step-badge-healed {
+    -fx-background-radius: 14;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 2 8;
+}
+.step-badge-pass {
+    -fx-background-color: -color-success-subtle;
+    -fx-text-fill: -color-success-fg;
+}
+.step-badge-fail {
+    -fx-background-color: -color-danger-subtle;
+    -fx-text-fill: -color-danger-fg;
+}
+.step-badge-healed {
+    -fx-background-color: -color-warning-subtle;
+    -fx-text-fill: -color-warning-fg;
+}
+
+/* === AI COPILOT DRAWER === */
+.ai-copilot-drawer {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 0 0 0 1;
+    -fx-pref-width: 360;
+    -fx-min-width: 300;
+    -fx-max-width: 420;
+    -fx-spacing: 0;
+}
+.ai-copilot-header {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 12 10 12 16;
+}
+.ai-copilot-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-default;
+}
+.ai-copilot-section {
+    -fx-padding: 10 16 0 16;
+}
+.ai-copilot-context {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-default;
+}
+.ai-copilot-hint {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-fg-muted;
+}
+.ai-copilot-input {
+    -fx-font-size: 12px;
+}
+.ai-copilot-status-row {
+    -fx-padding: 10 16 0 16;
+}
+.ai-copilot-busy {
+    -fx-text-fill: -color-fg-muted;
+}
+.ai-copilot-success {
+    -fx-text-fill: -color-success-fg;
+    -fx-font-weight: bold;
+}
+.ai-copilot-error {
+    -fx-text-fill: -color-danger-fg;
+    -fx-font-weight: bold;
+}
+.ai-copilot-output {
+    -fx-font-size: 12px;
 }
 
 /* === ENHANCED STATUS BAR (T2.3) === */
@@ -2848,4 +3258,47 @@
 .status-healed-label {
     -fx-text-fill: #9ece6a;
     -fx-font-size: 11px;
+}
+
+/* === THEMED ICON COLOURS ===
+   Toolbar icons used to take hard-coded hex values, which became unreadable on the light
+   background. The colour now comes from the same looked-up tokens in both themes. */
+.icon-danger .ui-svg-icon {
+    -fx-fill: -color-danger-emphasis;
+}
+.icon-success .ui-svg-icon {
+    -fx-fill: -color-success-emphasis;
+}
+.icon-accent .ui-svg-icon {
+    -fx-fill: -color-accent-emphasis;
+}
+.icon-warning .ui-svg-icon {
+    -fx-fill: -color-warning-emphasis;
+}
+/* Icons sitting on a filled (emphasised) surface need the inverse ink of that surface. */
+.icon-on-emphasis .ui-svg-icon {
+    -fx-fill: -color-fg-on-emphasis;
+}
+
+/* Visible keyboard focus for the step cards (drag reorder is also reachable with Alt+Up/Down). */
+.step-card:focused {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 2;
+}
+.step-drag-handle {
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+    -fx-alignment: center;
+}
+
+/* Reports detail: inline styles moved out of the controller. */
+.report-evidence-btn {
+    -fx-font-size: 11px;
+    -fx-padding: 2 8 2 8;
+    -fx-cursor: hand;
+}
+.assert-empty-placeholder {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-style: italic;
+    -fx-padding: 10;
 }

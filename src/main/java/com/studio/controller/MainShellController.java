@@ -15,9 +15,9 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
-import javafx.scene.control.ToggleButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
@@ -38,6 +38,8 @@ public class MainShellController implements Initializable {
 
     private static final double SIDEBAR_EXPANDED = 220;
     private static final double SIDEBAR_COLLAPSED = 56;
+    /** Run-all icon size, sized to the 13px button font. */
+    private static final int RUN_ALL_ICON_SIZE = 14;
 
     @FXML
     private StackPane contentArea;
@@ -45,6 +47,8 @@ public class MainShellController implements Initializable {
     private StackPane shellStack;
     @FXML
     private HBox tabContainer;
+    @FXML
+    private HBox tabStripBar;
     @FXML
     private ScrollPane tabScrollPane;
     @FXML
@@ -63,8 +67,6 @@ public class MainShellController implements Initializable {
     private Button cleanupBtn;
     @FXML
     private Button settingsBtn;
-    @FXML
-    private Label activeSuiteLabel;
     @FXML
     private Label sidebarSuiteSectionLabel;
     @FXML
@@ -106,16 +108,6 @@ public class MainShellController implements Initializable {
     @FXML
     private VBox toastContainer;
 
-    // Activity Rail buttons (T2.1)
-    @FXML
-    private ToggleButton railExplorerBtn;
-    @FXML
-    private ToggleButton railReportsBtn;
-    @FXML
-    private ToggleButton railAiBtn;
-    @FXML
-    private ToggleButton railSettingsBtn;
-
     private boolean sidebarExpanded = true;
     private boolean helpVisible = false;
     private String activeSuiteName;
@@ -137,12 +129,14 @@ public class MainShellController implements Initializable {
         if (tabContainer != null) {
             tabManager = new TabManager(tabContainer, contentArea);
             tabManager.setOnTabSelectedListener(this::updateBreadcrumbForTab);
+            tabManager.setOnTabsChanged(this::updateTabStripVisibility);
             ViewNavigator.init(contentArea, tabManager);
         } else {
             ViewNavigator.init(contentArea);
         }
+        ViewNavigator.setOnPageNavigated(this::applyPageChrome);
         ViewNavigator.navigateTo(ViewNavigator.Page.EXPLORER);
-        setActiveNavButton(navExplorerBtn);
+        updateTabStripVisibility();
         setActiveWorkspace(null, null);
         StatusBarService.ready();
         refreshBrowserLabel();
@@ -188,31 +182,16 @@ public class MainShellController implements Initializable {
         com.studio.util.UiTooltips.install(settingsBtn, "Cài đặt ứng dụng & Cấu hình OpenAI API");
         com.studio.util.UiIcons.setGraphic(helpBtn, com.studio.util.UiIcons.HELP, 13);
         com.studio.util.UiTooltips.install(helpBtn, "Trợ giúp nhanh & Hướng dẫn sử dụng đầy đủ");
-        com.studio.util.UiIcons.setGraphic(runAllBtn, com.studio.util.UiIcons.RUN_ALL, 14, "#ffffff");
-        com.studio.util.UiTooltips.install(runAllBtn, "Chạy tất cả các test case trong toàn bộ dự án");
-        if (stopRunBtn != null) {
-            com.studio.util.UiTooltips.install(stopRunBtn, "Dừng kịch bản đang chạy");
+        if (runAllBtn != null) {
+            com.studio.util.UiIcons.setThemedGraphic(runAllBtn, com.studio.util.UiIcons.RUN_ALL,
+                    RUN_ALL_ICON_SIZE, com.studio.util.UiIcons.STYLE_ON_EMPHASIS);
+            com.studio.util.UiTooltips.install(runAllBtn, "Chạy tất cả các test case trong toàn bộ dự án");
         }
         if (clearActiveSuiteBtn != null) {
             com.studio.util.UiTooltips.install(clearActiveSuiteBtn, "Đóng suite đang mở");
         }
         updateThemeButtonUI();
         com.studio.service.ThemeService.addListener(theme -> updateThemeButtonUI());
-
-        // Activity Rail tooltips (T2.1)
-        if (railExplorerBtn != null) {
-            com.studio.util.UiTooltips.install(railExplorerBtn, "Khám phá (Explorer)");
-            railExplorerBtn.setSelected(true);
-        }
-        if (railReportsBtn != null) {
-            com.studio.util.UiTooltips.install(railReportsBtn, "Báo cáo (Reports)");
-        }
-        if (railAiBtn != null) {
-            com.studio.util.UiTooltips.install(railAiBtn, "Trợ lý AI");
-        }
-        if (railSettingsBtn != null) {
-            com.studio.util.UiTooltips.install(railSettingsBtn, "Cài đặt");
-        }
     }
 
     @FXML
@@ -240,14 +219,6 @@ public class MainShellController implements Initializable {
                 }
             });
         }
-        if (activeSuiteLabel != null) {
-            activeSuiteLabel.setOnMouseClicked(e -> {
-                if (activeSuiteDir != null) {
-                    ViewNavigator.reopenActiveWorkspace();
-                    e.consume();
-                }
-            });
-        }
     }
 
     @FXML
@@ -256,7 +227,6 @@ public class MainShellController implements Initializable {
         setActiveWorkspace(null, null);
         if (wasOnWorkspace) {
             ViewNavigator.navigateTo(ViewNavigator.Page.EXPLORER);
-            setActiveNavButton(navExplorerBtn);
         }
         ToastService.info("📌 Đã bỏ suite đang mở");
     }
@@ -599,6 +569,10 @@ public class MainShellController implements Initializable {
             runAllBtn.setAlignment(Pos.CENTER);
             sidebarActiveSuite.setAlignment(Pos.CENTER_LEFT);
             sidebarActiveSuite.setMaxWidth(Double.MAX_VALUE);
+            // Single line + ellipsis: a long suite name must never wrap the section (or push the
+            // clear button out of the 220px panel), the tooltip carries the full name instead.
+            sidebarActiveSuite.setMinWidth(0);
+            sidebarActiveSuite.setTextOverrun(OverrunStyle.ELLIPSIS);
         } else {
             sidebar.getStyleClass().add("collapsed");
             if (setWidthImmediately) {
@@ -644,6 +618,7 @@ public class MainShellController implements Initializable {
             runAllBtn.setAlignment(Pos.CENTER);
             sidebarActiveSuite.setAlignment(Pos.CENTER);
             sidebarActiveSuite.setMaxWidth(Double.MAX_VALUE);
+            sidebarActiveSuite.setMinWidth(0);
         }
         navExplorerBtn.setVisible(true);
         navExplorerBtn.setManaged(true);
@@ -680,15 +655,6 @@ public class MainShellController implements Initializable {
             clearActiveSuiteBtn.setVisible(showClear);
             clearActiveSuiteBtn.setManaged(showClear);
         }
-        if (activeSuiteLabel != null) {
-            if (hasSuite) {
-                activeSuiteLabel.setText("Suite: " + activeSuiteName);
-                installTip(activeSuiteLabel, "Click để mở lại Workspace");
-            } else {
-                activeSuiteLabel.setText("");
-                clearTooltip(activeSuiteLabel);
-            }
-        }
     }
 
     public String getActiveSuiteName() {
@@ -720,64 +686,24 @@ public class MainShellController implements Initializable {
         com.studio.util.UiTooltips.clear(node);
     }
 
-    // ── Activity Rail handlers (T2.1) ───────────────────────────────────────
-
-    @FXML
-    private void onRailExplorer() {
-        showExplorer();
-        setRailActive(railExplorerBtn);
-    }
-
-    @FXML
-    private void onRailReports() {
-        showReports();
-        setRailActive(railReportsBtn);
-    }
-
-    @FXML
-    private void onRailAi() {
-        showAiAssistant();
-        setRailActive(railAiBtn);
-    }
-
-    @FXML
-    private void onRailSettings() {
-        openSettings();
-        // Settings is a dialog — deselect rail button after opening
-        if (railSettingsBtn != null) {
-            railSettingsBtn.setSelected(false);
-        }
-    }
-
-    private void setRailActive(ToggleButton active) {
-        for (ToggleButton btn : new ToggleButton[]{railExplorerBtn, railReportsBtn, railAiBtn, railSettingsBtn}) {
-            if (btn != null) {
-                btn.setSelected(btn == active);
-            }
-        }
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
+    // ── Sidebar navigation handlers ────────────────────────────────────────
 
     @FXML
     private void showExplorer() {
         hideHelp();
         ViewNavigator.navigateTo(ViewNavigator.Page.EXPLORER);
-        setActiveNavButton(navExplorerBtn);
     }
 
     @FXML
     private void showReports() {
         hideHelp();
         ViewNavigator.navigateTo(ViewNavigator.Page.REPORTS);
-        setActiveNavButton(navReportsBtn);
     }
 
     @FXML
     private void showAiAssistant() {
         hideHelp();
         ViewNavigator.navigateTo(ViewNavigator.Page.AI_ASSISTANT);
-        setActiveNavButton(navAiBtn);
     }
 
     @FXML
@@ -876,19 +802,7 @@ public class MainShellController implements Initializable {
         if (tab == null)
             return;
         String id = tab.getId();
-        if ("PAGE_EXPLORER".equals(id)) {
-            setBreadcrumb("Dự án / Khám phá");
-            setActiveNavButton(navExplorerBtn);
-            ViewNavigator.onPageShown(ViewNavigator.Page.EXPLORER);
-        } else if ("PAGE_REPORTS".equals(id)) {
-            setBreadcrumb("Dự án / Báo cáo");
-            setActiveNavButton(navReportsBtn);
-            ViewNavigator.onPageShown(ViewNavigator.Page.REPORTS);
-        } else if ("PAGE_AI_ASSISTANT".equals(id)) {
-            setBreadcrumb("Dự án / Trợ lý AI");
-            setActiveNavButton(navAiBtn);
-            ViewNavigator.onPageShown(ViewNavigator.Page.AI_ASSISTANT);
-        } else if (id.startsWith("SUITE:")) {
+        if (id.startsWith("SUITE:")) {
             setBreadcrumb("Dự án > Suite: " + tab.getTitle());
             setActiveNavButton(null);
         } else if (id.startsWith("REPORT:")) {
@@ -896,6 +810,36 @@ public class MainShellController implements Initializable {
             setActiveNavButton(navReportsBtn);
         } else {
             setBreadcrumb("Dự án > " + tab.getTitle());
+        }
+    }
+
+    /**
+     * Keeps breadcrumb/nav/rail selection in sync with the sidebar page that is on screen. Pages are
+     * not document tabs, so the tab-selection listener never sees them.
+     */
+    private void applyPageChrome(ViewNavigator.Page page) {
+        switch (page) {
+            case EXPLORER -> {
+                setBreadcrumb("Dự án / Khám phá");
+                setActiveNavButton(navExplorerBtn);
+            }
+            case REPORTS -> {
+                setBreadcrumb("Dự án / Báo cáo");
+                setActiveNavButton(navReportsBtn);
+            }
+            case AI_ASSISTANT -> {
+                setBreadcrumb("Dự án / Trợ lý AI");
+                setActiveNavButton(navAiBtn);
+            }
+        }
+    }
+
+    /** The strip only exists while documents are open, so it never shows an empty duplicate bar. */
+    private void updateTabStripVisibility() {
+        boolean visible = tabManager != null && tabManager.hasTabs();
+        if (tabStripBar != null) {
+            tabStripBar.setVisible(visible);
+            tabStripBar.setManaged(visible);
         }
     }
 

@@ -241,7 +241,6 @@ public final class DialogTheme {
         if (!scene.getStylesheets().contains(css)) {
             scene.getStylesheets().add(css);
         }
-        scrim.setStyle("-fx-background-color: rgba(10, 12, 20, 0.40);");
         StackPane.setAlignment(shell, Pos.CENTER);
         scene.setRoot(scrim);
         scene.setFill(Color.TRANSPARENT);

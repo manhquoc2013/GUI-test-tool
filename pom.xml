@@ -17,6 +17,7 @@
         <pdfbox.version>3.0.4</pdfbox.version>
         <jackson.version>2.18.2</jackson.version>
         <junit.version>5.11.4</junit.version>
+        <atlantafx.version>2.0.1</atlantafx.version>
         <!-- JVM flags for the forked test JVM (JDK 26 blocks native access by default) -->
         <surefire.jvm.options>--enable-native-access=javafx.graphics,ALL-UNNAMED</surefire.jvm.options>
     </properties>
@@ -62,6 +63,20 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <version>2.2.224</version>
+        </dependency>
+        <!-- AtlantaFX Theme Framework -->
+        <dependency>
+            <groupId>io.github.mkpaz</groupId>
+            <artifactId>atlantafx-base</artifactId>
+            <version>${atlantafx.version}</version>
+            <exclusions>
+                <!-- AtlantaFX declares its own JavaFX 20 POM; the project pins JavaFX 26 above.
+                     Excluding it removes the "effective model" warning without changing runtime. -->
+                <exclusion>
+                    <groupId>org.openjfx</groupId>
+                    <artifactId>javafx-controls</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Manages the embedded H2 database connection and schema lifecycle.
  * Provides high-speed in-process caching, indexing, and analytics.
  */
-public class DatabaseManager {
+public final class DatabaseManager {
 
     private static DatabaseManager instance;
 

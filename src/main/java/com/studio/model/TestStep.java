@@ -17,6 +17,11 @@ public class TestStep {
     private String testData = "";      // Input value, parameter, or expected text
     private String description = "";   // Human readable step description
     private String expectedResult = ""; // Verification outcome
+    /**
+     * UI authoring flag: a disabled step stays in the suite (never silently dropped)
+     * but is excluded from the generated Playwright script and execution.
+     */
+    private boolean enabled = true;
 
     public TestStep() {
     }
@@ -78,12 +83,21 @@ public class TestStep {
         this.expectedResult = expectedResult != null ? expectedResult : "";
     }
 
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TestStep testStep = (TestStep) o;
         return stepNumber == testStep.stepNumber &&
+                enabled == testStep.enabled &&
                 Objects.equals(action, testStep.action) &&
                 Objects.equals(target, testStep.target) &&
                 Objects.equals(testData, testStep.testData) &&
@@ -93,7 +107,7 @@ public class TestStep {
 
     @Override
     public int hashCode() {
-        return Objects.hash(stepNumber, action, target, testData, description, expectedResult);
+        return Objects.hash(stepNumber, action, target, testData, description, expectedResult, enabled);
     }
 
     @Override

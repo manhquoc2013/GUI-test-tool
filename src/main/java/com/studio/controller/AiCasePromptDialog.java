@@ -7,7 +7,6 @@ import com.studio.model.TestCase;
 import com.studio.service.AiLoggingService;
 import com.studio.service.AiTestGeneratorService;
 import com.studio.service.DocumentParserService;
-import com.studio.service.ThemeService;
 import com.studio.service.ToastService;
 import com.studio.store.ProjectStore;
 import com.studio.store.SettingsStore;
@@ -34,6 +33,12 @@ import java.util.function.BiConsumer;
  * Playwright scripts and Assertions for the active TestCase.
  */
 public class AiCasePromptDialog {
+
+    /** Status label classes; the colours live in CSS so both themes stay legible. */
+    private static final String STATUS_BASE = "ai-status";
+    private static final String STATUS_OK = "ai-status-ok";
+    private static final String STATUS_WARN = "ai-status-warn";
+    private static final String STATUS_ERROR = "ai-status-error";
 
     public static void show(TestCase activeCase, String currentScript, Path suiteDir,
                             ProjectStore projectStore, SettingsStore settingsStore,
@@ -209,7 +214,7 @@ public class AiCasePromptDialog {
         progress.setManaged(false);
 
         Label statusLbl = new Label("");
-        statusLbl.setStyle("-fx-font-size: 12px;");
+        statusLbl.getStyleClass().add(STATUS_BASE);
         statusLbl.setWrapText(true);
         statusLbl.setMaxWidth(340);
         HBox.setHgrow(statusLbl, Priority.ALWAYS);
@@ -297,16 +302,14 @@ public class AiCasePromptDialog {
                             assertTab.setText("Danh sách Assertions (" + generated.getAssertions().size() + ")");
 
                             statusLbl.setText(result.getSummary());
-                            statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
-                                    + (ThemeService.isDark() ? "#a6e3a1" : "#15803d") + ";");
+                            applyStatusStyle(statusLbl, STATUS_OK);
                             viewLogBtn.setVisible(false);
                             viewLogBtn.setManaged(false);
                             applyBtn.setDisable(false);
                             ToastService.success("Đã sinh kịch bản thành công! Hãy xem trước và bấm Áp dụng.");
                         } else {
                             statusLbl.setText("AI không thể tạo cấu trúc: " + result.getSummary());
-                            statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
-                                    + (ThemeService.isDark() ? "#f9e2af" : "#b45309") + ";");
+                            applyStatusStyle(statusLbl, STATUS_WARN);
                             viewLogBtn.setVisible(true);
                             viewLogBtn.setManaged(true);
                         }
@@ -320,8 +323,7 @@ public class AiCasePromptDialog {
                         String shortMsg = errMsg.length() > 140 ? errMsg.substring(0, 140) + "..." : errMsg;
                         statusLbl.setText("Lỗi: " + shortMsg);
                         com.studio.util.UiTooltips.install(statusLbl, errMsg);
-                        statusLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: "
-                                + (ThemeService.isDark() ? "#f38ba8" : "#b91c1c") + ";");
+                        applyStatusStyle(statusLbl, STATUS_ERROR);
                         viewLogBtn.setVisible(true);
                         viewLogBtn.setManaged(true);
                         ToastService.error("Lỗi AI: " + errMsg);
@@ -392,6 +394,12 @@ public class AiCasePromptDialog {
             activeCase.setStartUrl(gen.getStartUrl());
             activeCase.setStatus("Ready");
         }
+    }
+
+    /** Swaps the AI progress message styling without touching the theme: CSS owns the colours. */
+    private static void applyStatusStyle(Label statusLabel, String stateClass) {
+        statusLabel.getStyleClass().removeAll(STATUS_OK, STATUS_WARN, STATUS_ERROR);
+        statusLabel.getStyleClass().add(stateClass);
     }
 
     private static void addChip(FlowPane container, DocumentParserService.ParsedDocument doc,

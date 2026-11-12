@@ -299,7 +299,7 @@ public class ReportsPageController {
                 allReports.addAll(reports);
             }
         } catch (Exception e) {
-            ToastService.error("❌ Không thể tải báo cáo: " + e.getMessage());
+            ToastService.error("Không thể tải báo cáo: " + e.getMessage());
         }
         allReports.sort(newestFirst());
         updateSuiteFilter();
@@ -359,20 +359,20 @@ public class ReportsPageController {
             }
             // Result filter
             if (!StatusDisplay.isAll(resultVal)) {
-                if (resultVal.contains("Đạt") || resultVal.startsWith("✅")) {
+                if (resultVal.contains("Đạt") || resultVal.startsWith("")) {
                     if (r.getFailed() > 0 || r.getPassed() == 0)
                         continue;
-                } else if (resultVal.contains("Thất bại") || resultVal.startsWith("❌")) {
+                } else if (resultVal.contains("Thất bại") || resultVal.startsWith("")) {
                     if (r.getFailed() == 0)
                         continue;
-                } else if (resultVal.contains("Bỏ qua") || resultVal.startsWith("⏭️")) {
+                } else if (resultVal.contains("Bỏ qua") || resultVal.startsWith("")) {
                     if (r.getSkipped() == 0)
                         continue;
                 }
             }
             // Suite filter
             if (!StatusDisplay.isAll(suiteVal)) {
-                String want = suiteVal.replace("📁 ", "").trim();
+                String want = suiteVal.replace("", "").trim();
                 String reportName = r.getScopeName();
                 if (!want.equals(reportName))
                     continue;
@@ -410,13 +410,13 @@ public class ReportsPageController {
     public void openDetail(String runId) {
         ReportDetailPageController ctrl = ViewNavigator.navigateToReportDetail(runId);
         if (ctrl == null) {
-            ToastService.error("❌ Không mở được báo cáo: " + runId);
+            ToastService.error("Không mở được báo cáo: " + runId);
         }
     }
 
     private void exportExcel(RunReport listItem) {
         if (listItem == null || listItem.getRunId() == null || listItem.getRunId().isBlank()) {
-            ToastService.warn("⚠️ Không có báo cáo để xuất.");
+            ToastService.warn("Không có báo cáo để xuất.");
             return;
         }
         String runId = listItem.getRunId();
@@ -425,7 +425,7 @@ public class ReportsPageController {
             // List view strips cases — reload full report for export
             full = reportStore.loadReport(runId);
         } catch (Exception e) {
-            ToastService.error("❌ Không tải được báo cáo: " + e.getMessage());
+            ToastService.error("Không tải được báo cáo: " + e.getMessage());
             return;
         }
 
@@ -456,15 +456,15 @@ public class ReportsPageController {
         }
         try {
             ExcelReportService.export(full, file.toPath(), lang);
-            ToastService.success("📤 Đã xuất Excel: " + file.getName());
+            ToastService.success("Đã xuất Excel: " + file.getName());
         } catch (Exception e) {
-            ToastService.error("❌ Xuất thất bại: " + e.getMessage());
+            ToastService.error("Xuất thất bại: " + e.getMessage());
         }
     }
 
     private void exportHtml(RunReport listItem) {
         if (listItem == null || listItem.getRunId() == null || listItem.getRunId().isBlank()) {
-            ToastService.warn("⚠️ Không có báo cáo để xuất.");
+            ToastService.warn("Không có báo cáo để xuất.");
             return;
         }
         String runId = listItem.getRunId();
@@ -472,7 +472,7 @@ public class ReportsPageController {
         try {
             full = reportStore.loadReport(runId);
         } catch (Exception e) {
-            ToastService.error("❌ Không tải được báo cáo: " + e.getMessage());
+            ToastService.error("Không tải được báo cáo: " + e.getMessage());
             return;
         }
 
@@ -512,7 +512,7 @@ public class ReportsPageController {
             } catch (Exception ignored) {
             }
         } catch (Exception e) {
-            ToastService.error("❌ Xuất HTML thất bại: " + e.getMessage());
+            ToastService.error("Xuất HTML thất bại: " + e.getMessage());
         }
     }
 
@@ -524,7 +524,7 @@ public class ReportsPageController {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         DialogTheme.apply(confirm);
         confirm.setTitle("Xóa báo cáo");
-        confirm.setHeaderText("🗑️ Xóa báo cáo " + runId + "?");
+        confirm.setHeaderText("Xóa báo cáo " + runId + "?");
         confirm.setContentText(
                 "Sẽ xóa report.json, ảnh chụp và dữ liệu harness liên quan. Không thể hoàn tác.");
         if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
@@ -535,9 +535,9 @@ public class ReportsPageController {
             allReports.removeIf(r -> runId.equals(r.getRunId()));
             filteredReports.removeIf(r -> runId.equals(r.getRunId()));
             updateSuiteFilter();
-            ToastService.success("🗑️ Đã xóa báo cáo: " + runId);
+            ToastService.success("Đã xóa báo cáo: " + runId);
         } catch (Exception e) {
-            ToastService.error("❌ Không xóa được báo cáo: " + e.getMessage());
+            ToastService.error("Không xóa được báo cáo: " + e.getMessage());
             reload();
         }
     }

@@ -9,6 +9,7 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -23,7 +24,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -40,8 +43,8 @@ class MainShellChromeLayoutTest {
     private static final double HEADER_HEIGHT = 44;
     private static final double TAB_STRIP_HEIGHT = 34;
     private static final double HEADER_SIDE_PADDING = 14;
-    /** A suite name may eat the identity half, but never the actions. */
-    private static final double SUITE_LABEL_MAX_WIDTH = 300;
+    /** Fixed sidebar width owned by the shell (see {@code MainShellController.SIDEBAR_EXPANDED}). */
+    private static final double SIDEBAR_WIDTH = 220;
     private static final double EPSILON = 1.5;
     private static final double WIDE_WIDTH = 1200;
     private static final double MIN_WIDTH = 900;
@@ -49,6 +52,7 @@ class MainShellChromeLayoutTest {
     private static final String LONG_SUITE_NAME =
             "Suite_QuanLyNguoiDung_TheoVaiTro_KiemThu_ToanBoManHinh_2026";
     private static final double TAB_MAX_SANE_WIDTH = 320;
+    private static final String DUMMY_TAB_ID = "SUITE:layout-test";
 
     @BeforeAll
     static void initJavaFX() {
@@ -84,22 +88,60 @@ class MainShellChromeLayoutTest {
     }
 
     @Test
-    void aLongSuiteNameEllipsizesInsteadOfPushingTheActionsOut(@TempDir Path tempHome) throws Exception {
+    void navigationLivesInOnePlaceOnly(@TempDir Path tempHome) throws Exception {
+        StudioPaths.setPathsForTesting(tempHome, null);
+        withShell(WIDE_WIDTH, "studio.css", shell -> {
+            assertNull(shell.root().lookup(".activity-rail"),
+                    "The 48px activity rail repeated the sidebar's three destinations; it must stay removed");
+            assertTrue(shell.root().lookupAll(".rail-btn").isEmpty(),
+                    "No rail buttons may come back next to the sidebar");
+
+            Node sidebar = shell.lookup("#sidebar");
+            assertEquals(0, sceneMinX(sidebar), EPSILON,
+                    "The single sidebar owns the left edge — there is no second nav column before it");
+            assertEquals(3, sidebar.lookupAll(".sidebar-btn").size(),
+                    "Exactly one sidebar entry per page (Explorer / Reports / AI Assistant)");
+        });
+    }
+
+    @Test
+    void theActiveSuiteIsShownInOnePlaceOnly(@TempDir Path tempHome) throws Exception {
+        StudioPaths.setPathsForTesting(tempHome, null);
+        withShell(WIDE_WIDTH, "studio.css", shell -> {
+            MainShellController.getInstance().setActiveWorkspace(LONG_SUITE_NAME, tempHome);
+            shell.root().applyCss();
+            layoutTree(shell.root());
+
+            assertNull(shell.root().lookup("#activeSuiteLabel"),
+                    "The header chip repeated the sidebar's \"SUITE ĐANG MỞ\" section");
+            Label sidebarSuite = (Label) shell.lookup("#sidebarActiveSuite");
+            assertEquals(LONG_SUITE_NAME, sidebarSuite.getText(),
+                    "The sidebar is the single place that names the open suite");
+        });
+    }
+
+    @Test
+    void aLongSuiteNameEllipsizesInsideTheSidebar(@TempDir Path tempHome) throws Exception {
         StudioPaths.setPathsForTesting(tempHome, null);
         withShell(MIN_WIDTH, "studio.css", shell -> {
-            Label suiteLabel = (Label) shell.lookup("#activeSuiteLabel");
-            shell.applySuiteName(suiteLabel, LONG_SUITE_NAME);
+            MainShellController.getInstance().setActiveWorkspace(LONG_SUITE_NAME, tempHome);
+            shell.root().applyCss();
+            layoutTree(shell.root());
 
-            Node identity = shell.lookup("#headerIdentity");
-            Node actions = shell.lookup("#headerActions");
-            Node header = shell.lookup("#headerBar");
+            Label suiteLabel = (Label) shell.lookup("#sidebarActiveSuite");
+            Node clearBtn = shell.lookup("#clearActiveSuiteBtn");
+            Node sidebar = shell.lookup(".sidebar");
 
-            assertEquals(sceneMaxX(header) - HEADER_SIDE_PADDING, sceneMaxX(actions), EPSILON,
-                    "A long suite name must not move the actions off the right edge");
-            assertTrue(sceneMaxX(identity) <= sceneMinX(actions) + EPSILON,
-                    "The identity cluster shrinks (label ellipsizes) instead of overlapping the actions");
-            assertTrue(suiteLabel.getWidth() <= SUITE_LABEL_MAX_WIDTH + EPSILON,
-                    "The suite label is capped at " + SUITE_LABEL_MAX_WIDTH + "px");
+            assertEquals(SIDEBAR_WIDTH, ((Region) sidebar).getWidth(), EPSILON,
+                    "A long suite name must not widen the fixed-width sidebar");
+            assertTrue(sceneMaxX(suiteLabel) <= sceneMaxX(sidebar) + EPSILON,
+                    "The suite name stays inside the panel and ellipsizes instead of overflowing");
+            assertTrue(clearBtn.isVisible() && clearBtn.isManaged(),
+                    "The clear button appears once a suite is open");
+            assertTrue(sceneMaxX(clearBtn) <= sceneMaxX(sidebar) + EPSILON,
+                    "The clear button must stay reachable, not be pushed out by a long name");
+            assertTrue(suiteLabel.getWidth() < suiteLabel.prefWidth(-1),
+                    "The label is narrower than its full text, i.e. it ellipsizes");
         });
     }
 
@@ -107,6 +149,7 @@ class MainShellChromeLayoutTest {
     void theHeaderAndTabStripUseTheAgreedHeights(@TempDir Path tempHome) throws Exception {
         StudioPaths.setPathsForTesting(tempHome, null);
         withShell(WIDE_WIDTH, "studio.css", shell -> {
+            openDocumentTab(shell.root);
             assertEquals(HEADER_HEIGHT, ((Region) shell.lookup("#headerBar")).getHeight(), EPSILON,
                     "Header row height");
             assertEquals(TAB_STRIP_HEIGHT, ((Region) shell.lookup(".tab-strip-bar")).getHeight(), EPSILON,
@@ -115,16 +158,61 @@ class MainShellChromeLayoutTest {
     }
 
     @Test
+    void pagesAreNotDuplicatedAsDocumentTabs(@TempDir Path tempHome) throws Exception {
+        StudioPaths.setPathsForTesting(tempHome, null);
+        withShell(WIDE_WIDTH, "studio.css", shell -> {
+            TabManager tabs = MainShellController.getInstance().getTabManager();
+            assertNotNull(tabs, "The shell must expose its document tab manager");
+            assertFalse(tabs.hasTabs(), "Explorer is a sidebar page, not an open document");
+            assertNull(shell.root().lookup(".tab-item"),
+                    "The sidebar page must not also be rendered as a tab");
+            assertNotNull(shell.lookup(".explorer-page"),
+                    "The page itself belongs in the content area, driven by the sidebar");
+
+            Region strip = (Region) shell.lookup(".tab-strip-bar");
+            assertFalse(strip.isManaged(),
+                    "A visible but empty strip reads as a second, duplicate navigation bar");
+            assertEquals(0, strip.getHeight(), EPSILON, "A hidden strip must take no vertical space");
+        });
+    }
+
+    @Test
+    void theStripAppearsOnlyWhileDocumentsAreOpen(@TempDir Path tempHome) throws Exception {
+        StudioPaths.setPathsForTesting(tempHome, null);
+        withShell(WIDE_WIDTH, "studio.css", shell -> {
+            Region strip = (Region) shell.lookup(".tab-strip-bar");
+            Node content = shell.lookup("#contentArea");
+            openDocumentTab(shell.root);
+            assertTrue(strip.isManaged(), "Opening a suite must bring the document strip back");
+            assertEquals(TAB_STRIP_HEIGHT, strip.getHeight(), EPSILON, "Strip height with a document");
+            double contentYWithStrip = sceneMinY(content);
+
+            TabManager tabs = MainShellController.getInstance().getTabManager();
+            tabs.closeTab(DUMMY_TAB_ID);
+            shell.root().applyCss();
+            layoutTree(shell.root());
+
+            assertFalse(strip.isManaged(), "Closing the last document hides the strip again");
+            assertEquals(TAB_STRIP_HEIGHT, contentYWithStrip - sceneMinY(content), EPSILON,
+                    "Hiding the strip must hand its 34px back to the page, not leave a blank bar");
+            assertNotNull(shell.lookup(".explorer-page"),
+                    "Closing the last tab returns to the page the sidebar had on screen");
+        });
+    }
+
+    @Test
     void lightThemeKeepsTheSameChromeGeometry(@TempDir Path tempHome) throws Exception {
         StudioPaths.setPathsForTesting(tempHome, null);
         double[] dark = new double[4];
         withShell(WIDE_WIDTH, "studio.css", shell -> {
+            openDocumentTab(shell.root);
             dark[0] = ((Region) shell.lookup("#headerBar")).getHeight();
             dark[1] = ((Region) shell.lookup(".tab-strip-bar")).getHeight();
             dark[2] = sceneMaxX(shell.lookup("#headerActions"));
             dark[3] = ((Region) shell.lookup(".tab-item")).getHeight();
         });
         withShell(WIDE_WIDTH, "studio-light.css", shell -> {
+            openDocumentTab(shell.root);
             assertEquals(dark[0], ((Region) shell.lookup("#headerBar")).getHeight(), EPSILON,
                     "A theme swap must not change the header height");
             assertEquals(dark[1], ((Region) shell.lookup(".tab-strip-bar")).getHeight(), EPSILON,
@@ -140,6 +228,7 @@ class MainShellChromeLayoutTest {
     void tabsHugTheirContentAndFillTheStrip(@TempDir Path tempHome) throws Exception {
         StudioPaths.setPathsForTesting(tempHome, null);
         withShell(WIDE_WIDTH, "studio.css", shell -> {
+            openDocumentTab(shell.root);
             Region strip = (Region) shell.lookup(".tab-strip-bar");
             Region firstTab = (Region) shell.lookup(".tab-item");
             assertEquals(strip.getHeight() - 1, firstTab.getHeight(), EPSILON,
@@ -147,6 +236,17 @@ class MainShellChromeLayoutTest {
             assertTrue(firstTab.getWidth() < TAB_MAX_SANE_WIDTH,
                     "A tab hugs its label; stretching tabs across the bar is what made the strip look empty");
         });
+    }
+
+    /** Opens one document tab, the same way a suite does, and settles the layout for measurement. */
+    private static void openDocumentTab(Parent root) {
+        MainShellController shell = MainShellController.getInstance();
+        assertNotNull(shell, "The shell controller must be attached to the loaded FXML");
+        TabManager tabs = shell.getTabManager();
+        assertNotNull(tabs, "The shell must expose its document tab manager");
+        tabs.openTab(DUMMY_TAB_ID, "Suite kiểm thử", "", new VBox(new Label("nội dung")), true, null, null);
+        root.applyCss();
+        layoutTree(root);
     }
 
     /** Loads the shell at {@code width}, lets CSS + layout settle, then runs the assertions on the FX thread. */
@@ -207,6 +307,10 @@ class MainShellChromeLayoutTest {
         return sceneBounds(node).getMinX();
     }
 
+    private static double sceneMinY(Node node) {
+        return sceneBounds(node).getMinY();
+    }
+
     private static double sceneMaxX(Node node) {
         return sceneBounds(node).getMaxX();
     }
@@ -223,13 +327,6 @@ class MainShellChromeLayoutTest {
             Node node = root.lookup(selector);
             assertNotNull(node, "No node matches " + selector);
             return node;
-        }
-
-        /** Mirrors what the shell does when a suite is opened: new text, then a relayout. */
-        void applySuiteName(Label label, String name) {
-            label.setText(name);
-            root.applyCss();
-            root.layout();
         }
     }
 }

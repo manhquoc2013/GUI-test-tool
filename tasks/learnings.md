@@ -824,3 +824,56 @@
    chỉ tăng bộ đếm ký tự để không dán JSON thô vào bubble.
 5. **Proxy có thể reset HTTP/2**: `RST_STREAM: Protocol error` từng tốn 55s retry. Host gặp lỗi được ghi nhớ và chuyển
    sang HTTP/1.1 một lần cho cả process (`HTTP11_HOSTS`).
+
+## UI Redesign / No-Code Builder Learnings (2026-11-12)
+1. **Một Node chỉ có một parent**: bản đầu vừa `addAll(stepPane, codePane, splitPane)` vào `StackPane` vừa đưa
+   `stepPane/codePane` vào `SplitPane` → Split View rỗng/đè nhau. Quy tắc: mỗi lần đổi view phải `clear()` container
+   cũ rồi reparent node; test `SuiteWorkspaceDualViewTest` khoá contract này.
+2. **Không được lọc bước bị tắt khi lưu**: `getSteps()` cũ trả về bước enabled, nên tắt một bước rồi Lưu là mất luôn
+   bước đó. Nay `TestStep.enabled` (mặc định `true`) + `getAllSteps()` (persist) và `getEnabledSteps()` (sinh script).
+3. **Dữ liệu người dùng không được nội suy thô vào code**: `DELAY` từng chèn thẳng `testData` vào
+   `page.waitForTimeout(...)`. Nay chỉ nhận `\d+` và clamp còn tối đa 300000ms.
+4. **Token CSS phải tự resolve**: `studio.css` được test load mà không có AtlantaFX user-agent nên lookup
+   `-color-bg-*`/`-color-fg-*` chưa tồn tại → warning `ClassCastException String -> Paint`. Định nghĩa palette token
+   ngay trong `.root` của cả hai theme (dark/light) để stylesheet standalone vẫn sạch warning.
+5. **Inline style làm theme vỡ**: chuyển `-fx-font-size`, màu hex và opacity sang class CSS
+   (`.step-card*`, `.kpi-value`, `.step-badge*`, `.ai-copilot-*`) để đổi theme không cần sửa Java.
+6. **AI Copilot tách khỏi JavaFX**: prompt/normalize nằm trong `AiCopilotService` (unit-test được), drawer chỉ lo
+   threading + trạng thái; DOM quét best-effort và cắt còn 6.000 ký tự trước khi gửi model.
+7. **RichTextFX chưa dùng được với JavaFX 26**: giữ editor native + line gutter; syntax highlighting để lại backlog
+   thay vì thêm dependency không tương thích.
+8. **"Chạy 1 bước" cần backend runner riêng**: chưa có API chạy một step đơn lẻ, nên nút chạy đơn được thay bằng
+   "Sao chép lệnh Playwright" để không có nút chết; single-step execution ghi nhận là backlog.
+
+## Bidirectional code ⇄ steps (this round)
+- A code→steps parser that *ignores* unrecognised lines is a data-loss bug, not a lenient parser: every skipped line is deleted on the next render. Keep them as `RAW` steps.
+- Escaping is a round-trip contract: if the emitter escapes `\n` the parser must unescape it, otherwise multi-line test data generates uncompilable Java.
+- Reparsing on every keystroke fights the user: debounce (250ms) and restore caret/scroll after replacing the text.
+- Async AI suggestions need a generation token, not just an "is the drawer open" flag; otherwise a late reply lands on the wrong step.
+- A docked drawer belongs in a `BorderPane` right slot with managed=false when hidden — a `StackPane` overlay covers the editor and blocks clicks.
+- Do not leave icon packs for a UI that ships a hand-written SVG set: unused Ikonli deps pulled a second `javafx-controls:20` and triggered a Maven warning.
+
+## TreeView scrollbar flicker (long title + hover buttons)
+- VirtualFlow sizes cells from the cell's *preferred* width. A graphic wider than the viewport grows a horizontal
+  scrollbar; that bar eats height, the vertical bar appears, and both flip on the next layout pass — visible as
+  "scrollbar lúc mất lúc thấy" on hover.
+- Fix at the source: cap the row graphic's `maxWidth` from the tree width (minus padding/arrow/scrollbar/indent per
+  level) and let the title label shrink (`minWidth 0`, `TextOverrun.ELLIPSIS`). Never hide the scrollbar in CSS —
+  that only clips content.
+- Don't change `-fx-border-width` for `:selected`: border insets are part of the preferred width, so every selection
+  resizes the cell and shifts the whole tree. Reserve the rail width on all rows.
+
+## No-Code builder usability (accordion round)
+- A step editor that always renders every field is not "complete", it is unreadable: the value input was
+  disabled for RAW steps and still claimed half the row. Render only the fields the chosen action consumes.
+- Keep the persisted action code (`NAVIGATE`, `RAW`) in the model and put the human label in a presentation
+  enum. Renaming what a person reads must never change a generated script or an existing suite file.
+- Identity row + description row beats one packed line: at a ~300px code panel the action chip alone is
+  120-150px, so a single row squeezed the summary to 24px and pushed the card past the viewport. Two rows
+  keep every control at its preferred width and give the summary ~170px.
+- Measure "roomy" header widths after the CSS pass. The first layout reports an icon-sized `prefWidth`, and
+  latching that value makes compact mode unreachable (the header keeps clipping instead).
+- A SplitPane honours item min widths, so a 360px min on the editor panel silently overflowed a 520px window;
+  pair a smaller min with an auto-hide rule plus a visible way back (header toggle).
+- Modal confirmation only for steps that carry a selector or value; an empty step is cheap to recreate and a
+  dialog on every delete trains people to click through dialogs.

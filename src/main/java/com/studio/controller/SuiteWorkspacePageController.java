@@ -1,6 +1,7 @@
 package com.studio.controller;
 
 import com.studio.model.*;
+import com.studio.service.AiLoggingService;
 import com.studio.service.I18nService;
 import com.studio.service.ResourceReleaseService;
 import com.studio.service.RunProgressService;
@@ -21,15 +22,24 @@ import com.studio.util.StudioPaths;
 import com.studio.util.UiIcons;
 import com.studio.util.UiMotion;
 import com.studio.util.UiTooltips;
+import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
+import javafx.util.Duration;
+import com.studio.ui.AiCopilotDrawer;
+import com.studio.ui.PlaywrightCodeArea;
+import com.studio.ui.StepScriptBidirectionalSync;
+import com.studio.ui.VisualStepFlowPane;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -76,10 +86,37 @@ public class SuiteWorkspacePageController {
     @FXML private TabPane workspaceTabs;
     @FXML private Tab codeTab;
     @FXML private SplitPane workspaceSplitPane;
+    @FXML private BorderPane workspaceLayer;
+    @FXML private Button copilotBtn;
     @FXML private VBox codePanel;
     @FXML private VBox assertsPanel;
     @FXML private Label codeDirtyLabel;
     @FXML private Label codeStatsLabel;
+
+    private VisualStepFlowPane visualStepFlowPane;
+    private PlaywrightCodeArea playwrightCodeArea;
+    private StackPane editorContainer;
+    private SplitPane dualSplitPane;
+    private AiCopilotDrawer aiCopilotDrawer;
+    private Button viewNoCodeBtn;
+    private Button viewJavaBtn;
+    private Button viewSplitBtn;
+    private Button assertsToggleBtn;
+    /** True once the header's roomy width was measured with the view-mode labels attached. */
+    private boolean headerMeasured;
+    private double headerLabelsWidth;
+    private boolean compactHeader;
+    /** Divider to restore when the Asserts panel rejoins the split. */
+    private double lastAssertsDivider = 0.6;
+    private boolean suppressDualSync;
+    /** Envelope (package/import/class/main) + parsed body of the script currently in the editor. */
+    private StepScriptBidirectionalSync.Document scriptDocument;
+    /** Script last produced from the step list; a different editor text means the user typed code. */
+    private String lastGeneratedScript = "";
+    private PauseTransition codeSyncDebounce;
+    private boolean saveIconReady;
+    private static final int CODE_REPARSE_DELAY_MS = 250;
+
     @FXML private VBox suiteInfoPanel;
     @FXML private Label suiteInfoTitle;
     @FXML private Label suiteInfoStatus;
@@ -196,7 +233,7 @@ public class SuiteWorkspacePageController {
         } else {
             showSuiteInfoMode();
             if (startRecord) {
-                ToastService.warn("⚠️ Không chọn được case để ghi hình");
+                ToastService.warn("Không chọn được case để ghi hình");
             }
         }
     }
@@ -278,41 +315,41 @@ public class SuiteWorkspacePageController {
             }
             if (recordBtn != null) {
                 recordBtn.setOnAction(e -> startRecord());
-                UiIcons.setGraphic(recordBtn, UiIcons.RECORD, 12, "#f7768e");
+                UiIcons.setThemedGraphic(recordBtn, UiIcons.RECORD, TOOLBAR_ICON_SIZE, UiIcons.STYLE_DANGER);
                 com.studio.util.UiTooltips.install(recordBtn, "Ghi hình thao tác trình duyệt qua Playwright Codegen");
             }
             if (runCaseBtn != null) {
                 runCaseBtn.setOnAction(e -> runCase());
-                UiIcons.setGraphic(runCaseBtn, UiIcons.PLAY, 12, "#9ece6a");
+                UiIcons.setThemedGraphic(runCaseBtn, UiIcons.PLAY, TOOLBAR_ICON_SIZE, UiIcons.STYLE_SUCCESS);
                 com.studio.util.UiTooltips.install(runCaseBtn, "Chạy riêng test case đang chọn");
             }
             if (runSuiteBtn != null) {
                 runSuiteBtn.setOnAction(e -> runSuite());
-                UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
+                UiIcons.setThemedGraphic(runSuiteBtn, UiIcons.RUN_ALL, TOOLBAR_ICON_SIZE, UiIcons.STYLE_SUCCESS);
                 com.studio.util.UiTooltips.install(runSuiteBtn, "Chạy toàn bộ các test case trong Suite");
             }
             if (aiAssistBtn != null) {
-                UiIcons.setGraphic(aiAssistBtn, UiIcons.AI_SPARKLES, 12, "#bb9af7");
+                UiIcons.setThemedGraphic(aiAssistBtn, UiIcons.AI_SPARKLES, TOOLBAR_ICON_SIZE, UiIcons.STYLE_ACCENT);
                 com.studio.util.UiTooltips.install(aiAssistBtn, "AI Hỗ trợ — Sinh kịch bản và Assertions tự động");
             }
             if (saveBtn != null) {
                 saveBtn.setOnAction(e -> saveCode());
-                UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, "#7aa2f7");
+                UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12);
                 com.studio.util.UiTooltips.install(saveBtn, "Lưu kịch bản Playwright (Ctrl+S)");
             }
             if (exportExcelBtn != null) {
                 exportExcelBtn.setOnAction(e -> exportSuiteExcel());
-                UiIcons.setGraphic(exportExcelBtn, UiIcons.EXCEL, 12, "#10b981");
+                UiIcons.setThemedGraphic(exportExcelBtn, UiIcons.EXCEL, TOOLBAR_ICON_SIZE, UiIcons.STYLE_SUCCESS);
                 com.studio.util.UiTooltips.install(exportExcelBtn, "Xuất toàn bộ kịch bản kiểm thử ra file Excel chuẩn QA");
             }
             if (deleteCaseBtn != null) {
                 deleteCaseBtn.setOnAction(e -> deleteSelectedCase());
-                UiIcons.setGraphic(deleteCaseBtn, UiIcons.TRASH, 12, "#f7768e");
+                UiIcons.setThemedGraphic(deleteCaseBtn, UiIcons.TRASH, TOOLBAR_ICON_SIZE, UiIcons.STYLE_DANGER);
                 com.studio.util.UiTooltips.install(deleteCaseBtn, "Xóa case đang chọn");
             }
             if (deleteSuiteBtn != null) {
                 deleteSuiteBtn.setOnAction(e -> deleteCurrentSuite());
-                UiIcons.setGraphic(deleteSuiteBtn, UiIcons.TRASH, 12, "#f7768e");
+                UiIcons.setThemedGraphic(deleteSuiteBtn, UiIcons.TRASH, TOOLBAR_ICON_SIZE, UiIcons.STYLE_DANGER);
                 com.studio.util.UiTooltips.install(deleteSuiteBtn, "Xóa toàn bộ Suite này");
             }
             if (toggleSplitBtn != null) {
@@ -380,10 +417,483 @@ public class SuiteWorkspacePageController {
                 suiteStatusCombo.setButtonCell(statusComboCell());
                 suiteStatusCombo.setOnAction(e -> onSuiteStatusChosen());
             }
+            setupDualViewInCodePanel();
             controlsWired = true;
         }
         updateCaseActionButtons();
         updateSaveButtonState();
+    }
+
+    private static final int VIEW_NO_CODE = 0;
+    private static final int VIEW_CODE = 1;
+    private static final int VIEW_SPLIT = 2;
+    private static final int VIEW_MODE_ICON_SIZE = 12;
+    private static final int TOOLBAR_ICON_SIZE = 12;
+    /** {@code editor-header-bar} padding, left + right (see {@code studio.css}). */
+    private static final double HEADER_HORIZONTAL_INSETS = 20;
+    /** Gaps around the caption: title↔caption and caption↔switcher. */
+    private static final double HEADER_GAPS = 2;
+    /** Width the title must keep before the view switcher drops its labels instead of the title. */
+    private static final double HEADER_TITLE_MIN_WIDTH = 96;
+    /** Below this the switcher preference cannot be a measured, styled label row. */
+    private static final double HEADER_MEASURABLE_TOOLS_WIDTH = 120;
+    /** Below this the Asserts panel is lifted out of the split so the editor stays usable. */
+    private static final double ASSERTS_HIDE_BELOW_WIDTH = 700;
+    /** Above this the Asserts panel comes back on its own (hysteresis avoids flapping). */
+    private static final double ASSERTS_SHOW_ABOVE_WIDTH = 800;
+    private static final double ASSERTS_DEFAULT_DIVIDER = 0.6;
+    /** Marks the header toggle that mirrors the Asserts panel's visibility. */
+    private static final String CSS_TOGGLE_ACTIVE = "active";
+    private void setupDualViewInCodePanel() {
+        if (codePanel == null || visualStepFlowPane != null) return;
+
+        visualStepFlowPane = new VisualStepFlowPane();
+        playwrightCodeArea = new PlaywrightCodeArea();
+        VBox.setVgrow(playwrightCodeArea, Priority.ALWAYS);
+        VBox.setVgrow(visualStepFlowPane, Priority.ALWAYS);
+
+        dualSplitPane = new SplitPane();
+        dualSplitPane.getStyleClass().add("workspace-dual-split");
+        dualSplitPane.setDividerPositions(0.5);
+        VBox.setVgrow(dualSplitPane, Priority.ALWAYS);
+
+        editorContainer = new StackPane();
+        editorContainer.getStyleClass().add("workspace-editor-container");
+        VBox.setVgrow(editorContainer, Priority.ALWAYS);
+
+        // Keep codeEditor in hierarchy for backwards compatibility and test bindings
+        if (codeEditor != null) {
+            codeEditor.setVisible(false);
+            codeEditor.setManaged(false);
+        }
+
+        // Header view mode switcher: No-Code, Java Code, Split
+        HBox viewSwitcher = new HBox(4);
+        viewSwitcher.setAlignment(Pos.CENTER_RIGHT);
+        viewSwitcher.getStyleClass().add("view-mode-switcher");
+
+        viewNoCodeBtn = createViewModeButton("No-Code", UiIcons.GRID, "Xem và sắp xếp các bước trực quan");
+        viewJavaBtn = createViewModeButton("Java Code", UiIcons.CODE, "Xem mã Playwright Java");
+        viewSplitBtn = createViewModeButton("Chia đôi", UiIcons.SPLIT, "Xem song song No-Code và mã Java");
+
+        viewNoCodeBtn.setOnAction(e -> switchWorkspaceViewMode(VIEW_NO_CODE));
+        viewJavaBtn.setOnAction(e -> switchWorkspaceViewMode(VIEW_CODE));
+        viewSplitBtn.setOnAction(e -> switchWorkspaceViewMode(VIEW_SPLIT));
+
+        viewSwitcher.getChildren().addAll(viewNoCodeBtn, viewJavaBtn, viewSplitBtn);
+
+        // The Asserts panel toggle rides with the view switcher: when the workspace is too narrow
+        // for both panes the split drops Asserts, and this is the way back.
+        HBox headerTools = new HBox(4);
+        headerTools.setAlignment(Pos.CENTER_RIGHT);
+        headerTools.getStyleClass().add("editor-header-tools");
+        assertsToggleBtn = createAssertsToggleButton();
+        headerTools.getChildren().addAll(assertsToggleBtn, viewSwitcher);
+        updateAssertsToggleState();
+
+        if (!codePanel.getChildren().isEmpty() && codePanel.getChildren().get(0) instanceof HBox headerBar) {
+            headerBar.getChildren().add(headerTools);
+            installHeaderCompaction(headerBar, headerTools);
+        }
+        installResponsiveAsserts();
+
+        codePanel.getChildren().add(editorContainer);
+
+        // Synchronize No-Code steps change -> script updates (disabled steps are skipped).
+        // The script is rendered through the parsed document so a recorded Java class keeps its
+        // package/import/main envelope instead of being replaced by bare statements.
+        visualStepFlowPane.setOnStepsChanged(() -> {
+            if (suppressDualSync || suppressDirtyTracking) return;
+            String script = renderScriptFromSteps();
+            lastGeneratedScript = script;
+            suppressDualSync = true;
+            try {
+                if (codeEditor != null) {
+                    codeEditor.setText(script);
+                }
+                if (playwrightCodeArea != null && !script.equals(playwrightCodeArea.getText())) {
+                    playwrightCodeArea.replaceTextPreservingView(script);
+                }
+            } finally {
+                suppressDualSync = false;
+            }
+            updateSaveButtonState();
+        });
+
+        // Synchronize PlaywrightCodeArea text change -> codeEditor, then re-parse after a pause.
+        // Re-parsing on every keystroke would rebuild every step card many times per second.
+        codeSyncDebounce = new PauseTransition(Duration.millis(CODE_REPARSE_DELAY_MS));
+        codeSyncDebounce.setOnFinished(event -> syncStepsFromCode(false));
+        playwrightCodeArea.textProperty().addListener((obs, oldText, newText) -> {
+            if (suppressDualSync || suppressDirtyTracking) return;
+            suppressDualSync = true;
+            try {
+                if (codeEditor != null) {
+                    codeEditor.setText(newText != null ? newText : "");
+                }
+            } finally {
+                suppressDualSync = false;
+            }
+            updateSaveButtonState();
+            if (aiCopilotDrawer != null && aiCopilotDrawer.isVisible()) {
+                aiCopilotDrawer.refreshContext();
+            }
+            codeSyncDebounce.playFromStart();
+        });
+
+        visualStepFlowPane.setOnStepSelected(step -> {
+            if (aiCopilotDrawer != null && aiCopilotDrawer.isVisible()) {
+                aiCopilotDrawer.refreshContext();
+            }
+        });
+
+        setupAiCopilot();
+        switchWorkspaceViewMode(VIEW_NO_CODE); // Default to No-Code First!
+    }
+
+    private Button createViewModeButton(String text, String iconPath, String tooltip) {
+        Button button = new Button(text);
+        button.getStyleClass().addAll("btn-segmented", "small");
+        // A segmented control whose labels collapse to "No-C…" / "Chia…" is unusable: the switcher
+        // keeps its natural width and the header gives up its secondary text instead.
+        button.setMinWidth(Region.USE_PREF_SIZE);
+        button.setAccessibleText(text);
+        UiIcons.setGraphic(button, iconPath, VIEW_MODE_ICON_SIZE);
+        UiTooltips.install(button, tooltip);
+        return button;
+    }
+
+    /**
+     * Keeps the editor header readable in a narrow code panel. Priority order is fixed:
+     * <ol>
+     *   <li>the view switcher keeps its icons, dropping only its labels;</li>
+     *   <li>the line-count caption steps aside;</li>
+     *   <li>the case title is the only text allowed to ellipsize.</li>
+     * </ol>
+     * Without this the header used to cut "No-C…", "Java C…" and "Chia …" mid-word, leaving three
+     * unidentifiable buttons.
+     */
+    private void installHeaderCompaction(HBox headerBar, HBox tools) {
+        if (codeStatsLabel == null) {
+            return;
+        }
+        tools.setMinWidth(Region.USE_PREF_SIZE);
+        codeStatsLabel.setMinWidth(0);
+        headerBar.widthProperty().addListener((obs, oldWidth, newWidth) -> refreshHeaderChrome(headerBar, tools));
+        // The first layout pass happens before the buttons know their styled font, so the switcher
+        // still reports an icon-sized preference. Re-measure once its layout bounds become real.
+        tools.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
+            if (!headerMeasured) {
+                refreshHeaderChrome(headerBar, tools);
+            }
+        });
+        refreshHeaderChrome(headerBar, tools);
+    }
+
+    /** Applies the compact/roomy header state for the current header width. */
+    private void refreshHeaderChrome(HBox headerBar, HBox tools) {
+        double width = headerBar.getWidth();
+        if (width <= 0) {
+            return;
+        }
+        // Measured once, while the labels are still on the buttons: after the first compaction the
+        // pref width shrinks and can no longer be used as the "roomy" baseline.
+        if (!headerMeasured) {
+            double measured = tools.prefWidth(-1);
+            if (measured < HEADER_MEASURABLE_TOOLS_WIDTH) {
+                // A styled switcher is always wider than this: the CSS pass has not run yet, so keep
+                // the labels and wait for the next measurement instead of guessing "compact".
+                return;
+            }
+            headerLabelsWidth = measured;
+            headerMeasured = true;
+        }
+        boolean compact = width < headerLabelsWidth + HEADER_TITLE_MIN_WIDTH + HEADER_HORIZONTAL_INSETS;
+        if (compact != compactHeader) {
+            compactHeader = compact;
+            applyCompactSwitcher(compact);
+        }
+        boolean showCaption = !compact
+                && width >= HEADER_HORIZONTAL_INSETS + codeStatsLabel.prefWidth(-1) + tools.prefWidth(-1)
+                + headerBar.getSpacing() * HEADER_GAPS + HEADER_TITLE_MIN_WIDTH;
+        codeStatsLabel.setVisible(showCaption);
+        codeStatsLabel.setManaged(showCaption);
+    }
+
+    /** Icon-only mode keeps every button identifiable through its tooltip and accessible text. */
+    private void applyCompactSwitcher(boolean compact) {
+        for (Button button : new Button[]{viewNoCodeBtn, viewJavaBtn, viewSplitBtn}) {
+            if (button == null) {
+                continue;
+            }
+            button.setText(compact ? "" : button.getAccessibleText());
+        }
+    }
+
+    private Button createAssertsToggleButton() {
+        Button button = new Button();
+        button.getStyleClass().addAll("flat", "editor-header-toggle");
+        button.setAccessibleText("Ẩn hoặc hiện danh mục Asserts");
+        UiTooltips.install(button, "Ẩn / hiện danh mục Asserts");
+        UiIcons.setGraphic(button, UiIcons.CHECK, VIEW_MODE_ICON_SIZE);
+        button.setOnAction(e -> toggleAssertsPanel());
+        return button;
+    }
+
+    /**
+     * Drops the Asserts panel out of the split when the workspace cannot hold both panes, and puts
+     * it back when there is room again. The split keeps a usable width for either side instead of
+     * squeezing both into unreadable columns.
+     */
+    private void installResponsiveAsserts() {
+        if (workspaceSplitPane == null) {
+            return;
+        }
+        workspaceSplitPane.widthProperty().addListener((obs, oldWidth, newWidth) ->
+                syncAssertsPanelVisibility(newWidth.doubleValue()));
+        syncAssertsPanelVisibility(workspaceSplitPane.getWidth());
+    }
+
+    private void syncAssertsPanelVisibility(double width) {
+        if (width <= 0) {
+            return;
+        }
+        boolean shown = isAssertsPanelShown();
+        if (shown && width < ASSERTS_HIDE_BELOW_WIDTH) {
+            setAssertsPanelVisible(false);
+        } else if (!shown && width > ASSERTS_SHOW_ABOVE_WIDTH) {
+            setAssertsPanelVisible(true);
+        }
+    }
+
+    /** @return true when the Asserts panel currently occupies a split slot. */
+    public boolean isAssertsPanelShown() {
+        return workspaceSplitPane != null && assertsPanel != null
+                && workspaceSplitPane.getItems().contains(assertsPanel);
+    }
+
+    /** Shows or hides the Asserts panel; also syncs the header toggle. */
+    public void setAssertsPanelVisible(boolean visible) {
+        if (workspaceSplitPane == null || assertsPanel == null) {
+            return;
+        }
+        boolean shown = isAssertsPanelShown();
+        if (visible && !shown) {
+            workspaceSplitPane.getItems().add(assertsPanel);
+            workspaceSplitPane.setDividerPositions(lastAssertsDivider);
+        } else if (!visible && shown) {
+            double[] dividers = workspaceSplitPane.getDividerPositions();
+            if (dividers.length > 0) {
+                lastAssertsDivider = dividers[0];
+            }
+            workspaceSplitPane.getItems().remove(assertsPanel);
+        }
+        updateAssertsToggleState();
+    }
+
+    private void toggleAssertsPanel() {
+        setAssertsPanelVisible(!isAssertsPanelShown());
+    }
+
+    private void updateAssertsToggleState() {
+        if (assertsToggleBtn == null) {
+            return;
+        }
+        boolean shown = isAssertsPanelShown();
+        if (shown) {
+            if (!assertsToggleBtn.getStyleClass().contains(CSS_TOGGLE_ACTIVE)) {
+                assertsToggleBtn.getStyleClass().add(CSS_TOGGLE_ACTIVE);
+            }
+        } else {
+            assertsToggleBtn.getStyleClass().remove(CSS_TOGGLE_ACTIVE);
+        }
+    }
+
+    /** Renders the enabled steps inside the parsed script envelope (class wrapper preserved). */
+    private String renderScriptFromSteps() {
+        List<TestStep> enabled = visualStepFlowPane.getEnabledSteps();
+        String startUrl = startUrlField != null ? startUrlField.getText() : "";
+        if (scriptDocument != null) {
+            return scriptDocument.render(enabled, startUrl);
+        }
+        return StepScriptBidirectionalSync.stepsToScript(enabled, startUrl);
+    }
+
+    /**
+     * Re-reads the script text into step cards. Only runs when the text was not produced by
+     * {@link #renderScriptFromSteps()}, i.e. the user actually typed in the code view.
+     *
+     * @param force re-parse even when the text is unchanged (used right before saving)
+     */
+    private void syncStepsFromCode(boolean force) {
+        if (visualStepFlowPane == null || playwrightCodeArea == null) {
+            return;
+        }
+        String code = playwrightCodeArea.getText();
+        if (code == null || (!force && code.equals(lastGeneratedScript))) {
+            return;
+        }
+        StepScriptBidirectionalSync.Document parsed = StepScriptBidirectionalSync.parseDocument(code);
+        List<TestStep> steps = mergeDisabledSteps(parsed.getSteps(), visualStepFlowPane.getAllSteps());
+        scriptDocument = parsed;
+        lastGeneratedScript = code;
+        suppressDualSync = true;
+        try {
+            visualStepFlowPane.loadSteps(steps);
+        } finally {
+            suppressDualSync = false;
+        }
+    }
+
+    /**
+     * Disabled steps are intentionally absent from the script, so re-parsing code cannot see them.
+     * Re-insert each one at its previous position instead of dropping authored work.
+     */
+    private static List<TestStep> mergeDisabledSteps(List<TestStep> parsed, List<TestStep> previous) {
+        if (previous == null || previous.isEmpty()) {
+            return parsed;
+        }
+        List<TestStep> merged = new ArrayList<>(parsed);
+        for (TestStep step : previous) {
+            if (step == null || step.isEnabled()) {
+                continue;
+            }
+            int index = Math.min(Math.max(step.getStepNumber() - 1, 0), merged.size());
+            merged.add(index, step);
+        }
+        if (merged.size() != parsed.size()) {
+            for (int i = 0; i < merged.size(); i++) {
+                merged.get(i).setStepNumber(i + 1);
+            }
+        }
+        return merged;
+    }
+
+    private void switchWorkspaceViewMode(int mode) {
+        if (editorContainer == null) return;
+
+        // Reparent the two editors instead of stacking them: a JavaFX node has exactly one parent,
+        // so adding the split pane on top of the same children used to leave Split view empty.
+        editorContainer.getChildren().clear();
+        dualSplitPane.getItems().clear();
+
+        switch (mode) {
+            case VIEW_CODE -> editorContainer.getChildren().add(playwrightCodeArea);
+            case VIEW_SPLIT -> {
+                dualSplitPane.getItems().setAll(visualStepFlowPane, playwrightCodeArea);
+                dualSplitPane.setDividerPositions(0.5);
+                editorContainer.getChildren().add(dualSplitPane);
+            }
+            case VIEW_NO_CODE -> editorContainer.getChildren().add(visualStepFlowPane);
+            default -> editorContainer.getChildren().add(visualStepFlowPane);
+        }
+
+        if (viewNoCodeBtn != null) {
+            viewNoCodeBtn.getStyleClass().removeAll("active");
+            viewJavaBtn.getStyleClass().removeAll("active");
+            viewSplitBtn.getStyleClass().removeAll("active");
+            switch (mode) {
+                case VIEW_CODE -> viewJavaBtn.getStyleClass().add("active");
+                case VIEW_SPLIT -> viewSplitBtn.getStyleClass().add("active");
+                default -> viewNoCodeBtn.getStyleClass().add("active");
+            }
+        }
+    }
+
+    /** Docks the AI Copilot drawer over the workspace and wires its actions to the selected step. */
+    private void setupAiCopilot() {
+        if (workspaceLayer == null && editorContainer == null) return;
+        if (aiCopilotDrawer == null) {
+            aiCopilotDrawer = new AiCopilotDrawer(new AiCopilotDrawer.CopilotContext() {
+                @Override
+                public TestCase testCase() {
+                    return selectedCase;
+                }
+
+                @Override
+                public TestStep step() {
+                    return visualStepFlowPane != null ? visualStepFlowPane.getSelectedStep() : null;
+                }
+
+                @Override
+                public String startUrl() {
+                    if (startUrlField != null && startUrlField.getText() != null && !startUrlField.getText().isBlank()) {
+                        return startUrlField.getText().trim();
+                    }
+                    return selectedCase != null ? selectedCase.getStartUrl() : "";
+                }
+
+                @Override
+                public String currentScript() {
+                    return codeEditor != null ? codeEditor.getText() : "";
+                }
+
+                @Override
+                public AiConfig aiConfig() {
+                    try {
+                        return settingsStore.load().getAiConfig();
+                    } catch (IOException ex) {
+                        AiLoggingService.error("AI-COPILOT", "Không đọc được cấu hình AI", ex);
+                        return null;
+                    }
+                }
+
+                @Override
+                public void applySelector(String selector) {
+                    if (visualStepFlowPane == null) return;
+                    visualStepFlowPane.updateSelectedStepTarget(selector);
+                    ToastService.success("Đã áp dụng selector vào bước.");
+                }
+
+                @Override
+                public void applyAssertion(TestStep assertionStep) {
+                    if (visualStepFlowPane == null || assertionStep == null) return;
+                    visualStepFlowPane.appendStep(assertionStep);
+                    switchWorkspaceViewMode(VIEW_NO_CODE);
+                }
+
+                @Override
+                public void requestConfiguration() {
+                    ToastService.warn("Chưa có API Key — cấu hình AI trước khi dùng AI Copilot.");
+                    AiSettingsDialog.show(settingsStore);
+                }
+
+                @Override
+                public void onVisibilityChanged(boolean visible) {
+                    if (workspaceLayer != null) {
+                        workspaceLayer.setRight(visible ? aiCopilotDrawer : null);
+                    }
+                }
+            });
+            aiCopilotDrawer.setVisible(false);
+            aiCopilotDrawer.setManaged(false);
+            if (workspaceLayer != null) {
+                workspaceLayer.setRight(null);
+            } else {
+                editorContainer.getChildren().add(aiCopilotDrawer);
+            }
+        }
+        if (copilotBtn != null) {
+            UiIcons.setGraphic(copilotBtn, UiIcons.AI_SPARKLES, VIEW_MODE_ICON_SIZE);
+            UiTooltips.install(copilotBtn, "AI Copilot — Sửa selector và sinh assertion ngay trong workspace");
+        }
+    }
+
+    /** FXML action: opens/closes the docked AI Copilot drawer. */
+    @FXML
+    public void toggleAiCopilot() {
+        if (selectedCase == null) {
+            ToastService.warn("Hãy chọn một test case trước khi mở AI Copilot.");
+            return;
+        }
+        setupAiCopilot();
+        if (aiCopilotDrawer == null) {
+            return;
+        }
+        aiCopilotDrawer.toggleDrawer();
+        if (aiCopilotDrawer.isVisible()) {
+            aiCopilotDrawer.refreshContext();
+        }
     }
 
     private ListCell<String> statusComboCell() {
@@ -409,9 +919,9 @@ public class SuiteWorkspacePageController {
             suite.setStatus(StatusDisplay.normalize(chosen));
             refreshSuiteInfoPanel();
             updateCaseActionButtons();
-            ToastService.success("✅ Đã cập nhật trạng thái suite: " + StatusDisplay.label(chosen));
+            ToastService.success("Đã cập nhật trạng thái suite: " + StatusDisplay.label(chosen));
         } catch (IOException ex) {
-            ToastService.error("❌ Không lưu được trạng thái suite: " + ex.getMessage());
+            ToastService.error("Không lưu được trạng thái suite: " + ex.getMessage());
             refreshSuiteInfoPanel();
         }
     }
@@ -442,7 +952,7 @@ public class SuiteWorkspacePageController {
                     statusLabel.getStyleClass().add("case-row-status");
                     statusLabel.setMinWidth(Label.USE_PREF_SIZE);
                     runBtn.getStyleClass().add("case-row-run-btn");
-                    UiIcons.setGraphic(runBtn, UiIcons.PLAY, 10, "#9ece6a");
+                    UiIcons.setThemedGraphic(runBtn, UiIcons.PLAY, TOOLBAR_ICON_SIZE, UiIcons.STYLE_SUCCESS);
                     com.studio.util.UiTooltips.install(runBtn, "Chạy case này");
                     runBtn.setFocusTraversable(false);
                     // Consume press so ListView does not change selection; run immediately
@@ -454,7 +964,7 @@ public class SuiteWorkspacePageController {
                         e.consume();
                     });
                     deleteBtn.getStyleClass().add("case-row-delete-btn");
-                    UiIcons.setGraphic(deleteBtn, UiIcons.TRASH, 10, "#f7768e");
+                    UiIcons.setThemedGraphic(deleteBtn, UiIcons.TRASH, TOOLBAR_ICON_SIZE, UiIcons.STYLE_DANGER);
                     com.studio.util.UiTooltips.install(deleteBtn, "Xóa case này");
                     deleteBtn.setFocusTraversable(false);
                     deleteBtn.setOnMousePressed(e -> {
@@ -471,13 +981,13 @@ public class SuiteWorkspacePageController {
                 protected void updateItem(String name, boolean empty) {
                     super.updateItem(name, empty);
                     getStyleClass().removeAll(
-                            "status-active", "status-draft", "status-inactive", "status-ready",
-                            "status-passed", "status-failed", "status-skipped", "status-error",
-                            "status-pending", "status-running", "status-unknown");
+ "status-active", "status-draft", "status-inactive", "status-ready",
+ "status-passed", "status-failed", "status-skipped", "status-error",
+ "status-pending", "status-running", "status-unknown");
                     statusLabel.getStyleClass().removeAll(
-                            "status-active", "status-draft", "status-inactive", "status-ready",
-                            "status-passed", "status-failed", "status-skipped", "status-error",
-                            "status-pending", "status-running", "status-unknown");
+ "status-active", "status-draft", "status-inactive", "status-ready",
+ "status-passed", "status-failed", "status-skipped", "status-error",
+ "status-pending", "status-running", "status-unknown");
                     UiMotion.stopPulse(statusLabel);
                     if (empty || name == null) {
                         setText(null);
@@ -747,7 +1257,7 @@ public class SuiteWorkspacePageController {
         runSuiteBtn.setVisible(show);
         runSuiteBtn.setManaged(show);
         runSuiteBtn.setText("Chạy suite");
-        UiIcons.setGraphic(runSuiteBtn, UiIcons.RUN_ALL, 12, "#73daca");
+        UiIcons.setThemedGraphic(runSuiteBtn, UiIcons.RUN_ALL, TOOLBAR_ICON_SIZE, UiIcons.STYLE_SUCCESS);
         runSuiteBtn.setOnAction(e -> runSuite());
         runSuiteBtn.setDisable(!suiteActive || !hasRunnableCases || BusyButtons.isBusy());
         com.studio.util.UiTooltips.install(runSuiteBtn,
@@ -784,6 +1294,9 @@ public class SuiteWorkspacePageController {
         }
         if (startUrlField != null) {
             startUrlField.setDisable(true);
+        }
+        if (aiCopilotDrawer != null) {
+            aiCopilotDrawer.hideDrawer();
         }
         updateCaseActionButtons();
     }
@@ -889,7 +1402,7 @@ public class SuiteWorkspacePageController {
         TestCase tc = findCaseByName(caseName);
 
         if (tc == null) {
-            ToastService.warn("⚠️ Không tìm thấy case: " + caseName);
+            ToastService.warn("Không tìm thấy case: " + caseName);
             return;
         }
 
@@ -901,14 +1414,17 @@ public class SuiteWorkspacePageController {
             code = projectStore.readCaseScript(suitePath, tc.getId());
             codeEditor.setEditable(true);
             setEditorText(code != null ? code
-                    : "// Chưa có script — dùng 🔴 Ghi hình lại hoặc viết tay rồi 💾 Lưu.\n", true);
+                    : "// Chưa có script — bấm \"Ghi hình\" hoặc viết tay rồi bấm Lưu.\n", true);
         } catch (IOException e) {
             codeEditor.setEditable(true);
             setEditorText("// Lỗi đọc script: " + e.getMessage() + "\n", true);
-            ToastService.error("❌ Không đọc được script: " + e.getMessage());
+            ToastService.error("Không đọc được script: " + e.getMessage());
         }
         applyCaseUrlToField(tc, code);
         refreshAssertsList();
+        if (aiCopilotDrawer != null && aiCopilotDrawer.isVisible()) {
+            aiCopilotDrawer.refreshContext();
+        }
     }
 
     private void applyCaseUrlToField(TestCase tc, String scriptCode) {
@@ -950,7 +1466,7 @@ public class SuiteWorkspacePageController {
         try {
             projectStore.updateCaseStartUrl(suitePath, selectedCase.getId(), url);
         } catch (IOException e) {
-            ToastService.error("❌ Không lưu được URL case: " + e.getMessage());
+            ToastService.error("Không lưu được URL case: " + e.getMessage());
         }
     }
 
@@ -972,7 +1488,7 @@ public class SuiteWorkspacePageController {
     @FXML
     public void addNewCase() {
         if (suite == null) {
-            ToastService.warn("⚠️ Chưa tải suite");
+            ToastService.warn("Chưa tải suite");
             return;
         }
 
@@ -980,7 +1496,7 @@ public class SuiteWorkspacePageController {
             boolean exists = suite.getCases().stream()
                     .anyMatch(c -> c.getName().equals(form.name()));
             if (exists) {
-                ToastService.warn("⚠️ Case '" + form.name() + "' đã tồn tại");
+                ToastService.warn("Case '" + form.name() + "' đã tồn tại");
                 return;
             }
             try {
@@ -997,12 +1513,12 @@ public class SuiteWorkspacePageController {
                 caseListView.getSelectionModel().select(tc.getName());
                 selectedCase = tc;
                 loadCase(tc.getName());
-                ToastService.success("✅ Đã tạo test case: " + form.name());
+                ToastService.success("Đã tạo test case: " + form.name());
                 if (form.startRecord()) {
                     Platform.runLater(this::startRecord);
                 }
             } catch (IOException e) {
-                ToastService.error("❌ Không thể tạo case: " + e.getMessage());
+                ToastService.error("Không thể tạo case: " + e.getMessage());
             }
         });
     }
@@ -1010,25 +1526,25 @@ public class SuiteWorkspacePageController {
     @FXML
     public void startRecord() {
         if (BusyButtons.isBusy()) {
-            ToastService.warn("⚠️ Đang có thao tác khác — chờ hoàn tất");
+            ToastService.warn("Đang có thao tác khác — chờ hoàn tất");
             return;
         }
         terminalPanel.setVisible(true);
         terminalPanel.setManaged(true);
 
         if (suitePath == null || !Files.isDirectory(suitePath)) {
-            ToastService.error("⚠️ Không tìm thấy thư mục suite: " + suitePath);
+            ToastService.error("Không tìm thấy thư mục suite: " + suitePath);
             return;
         }
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Ghi hình theo Case — hãy chọn hoặc tạo Case trước");
+            ToastService.warn("Ghi hình theo Case — hãy chọn hoặc tạo Case trước");
             return;
         }
 
         String url = startUrlField != null && startUrlField.getText() != null
                 ? startUrlField.getText().trim() : "";
         if (url.isEmpty()) {
-            ToastService.warn("⚠️ Điền 🔗 URL trang cần test trước khi ghi hình");
+            ToastService.warn("Điền URL trang cần test trước khi ghi hình");
             if (startUrlField != null) startUrlField.requestFocus();
             return;
         }
@@ -1038,20 +1554,20 @@ public class SuiteWorkspacePageController {
             return;
         }
 
-        StatusBarService.set("🔴 Đang ghi hình case: " + selectedCase.getName());
-        terminalAppend("🔴 Ghi hình lại case: " + selectedCase.getName());
-        terminalAppend("🔗 URL: " + url);
+        StatusBarService.set("Đang ghi hình case: " + selectedCase.getName());
+        terminalAppend("Ghi hình lại case: " + selectedCase.getName());
+        terminalAppend("URL: " + url);
         terminalAppend("Đang khởi động Playwright codegen...");
 
         final TestCase targetCase = selectedCase;
         BusyButtons.runAsync(
                 null,
-                "Đang ghi…",
+ "Đang ghi…",
                 () -> runCodegenBlocking(targetCase, url),
                 exitCode -> {
                     StatusBarService.ready();
                     if (exitCode == 0) {
-                        terminalAppend("✅ Ghi hình hoàn tất — đã ghi vào script của case.");
+                        terminalAppend("Ghi hình hoàn tất — đã ghi vào script của case.");
                         try {
                             projectStore.updateCaseStatus(suitePath, targetCase.getId(), "Ready");
                             targetCase.setStatus("Ready");
@@ -1062,12 +1578,12 @@ public class SuiteWorkspacePageController {
                             caseListView.refresh();
                             if (idx >= 0) caseListView.getSelectionModel().select(idx);
                         } catch (IOException ex) {
-                            terminalAppend("⚠️ Không reload được script: " + ex.getMessage());
+                            terminalAppend("Không reload được script: " + ex.getMessage());
                         }
                         openAssertBuilder();
                     } else {
                         terminalAppend("Codegen thoát với mã: " + exitCode);
-                        ToastService.error("⚠️ Codegen thoát với mã: " + exitCode);
+                        ToastService.error("Codegen thoát với mã: " + exitCode);
                     }
                 },
                 ex -> {
@@ -1079,7 +1595,7 @@ public class SuiteWorkspacePageController {
                         ToastService.warn("⏹️ Codegen bị ngắt");
                     } else {
                         terminalAppend("Không thể khởi động codegen: " + ex.getMessage());
-                        ToastService.error("❌ Không thể khởi chạy Playwright codegen: " + ex.getMessage());
+                        ToastService.error("Không thể khởi chạy Playwright codegen: " + ex.getMessage());
                     }
                 },
                 this::updateCaseActionButtons,
@@ -1104,7 +1620,7 @@ public class SuiteWorkspacePageController {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         DialogTheme.apply(confirm);
         confirm.setTitle("Ghi hình lại");
-        confirm.setHeaderText("🔴 Ghi hình lại case: " + tc.getName());
+        confirm.setHeaderText("Ghi hình lại case: " + tc.getName());
         confirm.setContentText("Script hiện tại sẽ bị ghi đè bởi codegen mới. Tiếp tục?");
         return confirm.showAndWait().filter(b -> b == ButtonType.OK).isPresent();
     }
@@ -1112,7 +1628,7 @@ public class SuiteWorkspacePageController {
     @FXML
     private void exportSuiteExcel() {
         if (suite == null || suitePath == null) {
-            ToastService.warn("⚠️ Không có Suite nào đang mở để xuất Excel");
+            ToastService.warn("Không có Suite nào đang mở để xuất Excel");
             return;
         }
 
@@ -1138,9 +1654,9 @@ public class SuiteWorkspacePageController {
         try {
             String groupName = suitePath.getParent() != null ? suitePath.getParent().getFileName().toString() : "Project";
             TestCaseExcelExportService.exportSuite(suite, groupName, suitePath, file.toPath(), lang);
-            ToastService.success("📤 Đã xuất tài liệu Test Cases: " + file.getName());
+            ToastService.success("Đã xuất tài liệu Test Cases: " + file.getName());
         } catch (Exception e) {
-            ToastService.error("❌ Lỗi xuất Excel: " + e.getMessage());
+            ToastService.error("Lỗi xuất Excel: " + e.getMessage());
         }
     }
 
@@ -1241,7 +1757,7 @@ public class SuiteWorkspacePageController {
         if (caseName == null || caseName.isBlank()) return;
         TestCase target = findCaseByName(caseName);
         if (target == null) {
-            ToastService.warn("⚠️ Không tìm thấy case: " + caseName);
+            ToastService.warn("Không tìm thấy case: " + caseName);
             return;
         }
         // Run without changing ListView selection / loaded editor
@@ -1251,7 +1767,7 @@ public class SuiteWorkspacePageController {
     @FXML
     public void runCase() {
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Chưa chọn test case");
+            ToastService.warn("Chưa chọn test case");
             return;
         }
         runCaseTarget(selectedCase);
@@ -1259,22 +1775,22 @@ public class SuiteWorkspacePageController {
 
     private void runCaseTarget(TestCase targetCase) {
         if (BusyButtons.isBusy()) {
-            ToastService.warn("⚠️ Đang có thao tác khác — chờ hoàn tất");
+            ToastService.warn("Đang có thao tác khác — chờ hoàn tất");
             return;
         }
         if (!StatusDisplay.isActive(suiteStatus())) {
-            ToastService.warn("⚠️ Suite chưa Đang hoạt động — đổi trạng thái ở Thông tin Suite");
+            ToastService.warn("Suite chưa Đang hoạt động — đổi trạng thái ở Thông tin Suite");
             return;
         }
         if (targetCase == null || !StatusDisplay.isRunnable(targetCase.getStatus())) {
-            ToastService.warn("⚠️ Case chưa Sẵn sàng — ghi hình trước khi chạy");
+            ToastService.warn("Case chưa Sẵn sàng — ghi hình trước khi chạy");
             return;
         }
         terminalPanel.setVisible(true);
         terminalPanel.setManaged(true);
 
         if (suitePath == null) {
-            ToastService.error("⚠️ Chưa tải suite");
+            ToastService.error("Chưa tải suite");
             return;
         }
 
@@ -1282,7 +1798,7 @@ public class SuiteWorkspacePageController {
         try {
             settings = new SettingsStore().load();
         } catch (IOException e) {
-            ToastService.error("❌ Không tải được cài đặt: " + e.getMessage());
+            ToastService.error("Không tải được cài đặt: " + e.getMessage());
             return;
         }
 
@@ -1312,18 +1828,18 @@ public class SuiteWorkspacePageController {
                     StatusBarService.ready();
                     if (report.getTotal() == 0) {
                         terminalAppend("Không có test case — không lưu báo cáo");
-                        ToastService.warn("⚠️ Không có test case nào để chạy");
+                        ToastService.warn("Không có test case nào để chạy");
                         return;
                     }
                     terminalAppend("Kết quả: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
-                    ToastService.success("✅ Case hoàn tất: " + report.getPassed() + " đạt, "
+                    ToastService.success("Case hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại");
                     ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
                     StatusBarService.ready();
-                    ToastService.error("❌ Chạy case thất bại: " + ex.getMessage());
+                    ToastService.error("Chạy case thất bại: " + ex.getMessage());
                 },
                 this::updateCaseActionButtons,
                 runSuiteBtn, addCaseBtn
@@ -1333,15 +1849,15 @@ public class SuiteWorkspacePageController {
     @FXML
     public void runSuite() {
         if (BusyButtons.isBusy()) {
-            ToastService.warn("⚠️ Đang có thao tác khác — chờ hoàn tất");
+            ToastService.warn("Đang có thao tác khác — chờ hoàn tất");
             return;
         }
         if (!StatusDisplay.isActive(suiteStatus())) {
-            ToastService.warn("⚠️ Suite chưa Đang hoạt động — đổi trạng thái ở Thông tin Suite");
+            ToastService.warn("Suite chưa Đang hoạt động — đổi trạng thái ở Thông tin Suite");
             return;
         }
         if (suite == null || suitePath == null) {
-            ToastService.warn("⚠️ Chưa tải suite");
+            ToastService.warn("Chưa tải suite");
             return;
         }
         long runnableCount = suite.getCases() != null
@@ -1350,7 +1866,7 @@ public class SuiteWorkspacePageController {
                         .count()
                 : 0;
         if (runnableCount == 0) {
-            ToastService.warn("⚠️ Suite không có test case nào đang hoạt động để chạy");
+            ToastService.warn("Suite không có test case nào đang hoạt động để chạy");
             return;
         }
         terminalPanel.setVisible(true);
@@ -1360,7 +1876,7 @@ public class SuiteWorkspacePageController {
         try {
             settings = new SettingsStore().load();
         } catch (IOException e) {
-            ToastService.error("❌ Không tải được cài đặt: " + e.getMessage());
+            ToastService.error("Không tải được cài đặt: " + e.getMessage());
             return;
         }
 
@@ -1376,7 +1892,7 @@ public class SuiteWorkspacePageController {
 
         BusyButtons.runAsync(
                 runSuiteBtn,
-                "Đang chạy…",
+ "Đang chạy…",
                 () -> {
                     TestRunnerService suiteRunner = new TestRunnerService(projectStore, reportStore);
                     return suiteRunner.run("SUITE", targetSuitePath, headless, browserId, stopOnFail, shareCtx,
@@ -1386,18 +1902,18 @@ public class SuiteWorkspacePageController {
                     StatusBarService.ready();
                     if (report.getTotal() == 0) {
                         terminalAppend("Không có test case — không lưu báo cáo");
-                        ToastService.warn("⚠️ Không có test case nào để chạy");
+                        ToastService.warn("Không có test case nào để chạy");
                         return;
                     }
                     terminalAppend("Suite hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
-                    ToastService.success("✅ Suite hoàn tất: " + report.getPassed() + " đạt, "
+                    ToastService.success("Suite hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại");
                     ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
                     StatusBarService.ready();
-                    ToastService.error("❌ Chạy suite thất bại: " + ex.getMessage());
+                    ToastService.error("Chạy suite thất bại: " + ex.getMessage());
                 },
                 this::updateCaseActionButtons,
                 addCaseBtn
@@ -1407,7 +1923,7 @@ public class SuiteWorkspacePageController {
     @FXML
     public void deleteSelectedCase() {
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Chưa chọn case nào");
+            ToastService.warn("Chưa chọn case nào");
             return;
         }
         deleteCaseFromRow(selectedCase.getName());
@@ -1436,9 +1952,9 @@ public class SuiteWorkspacePageController {
                     }
                     TestSuite reloaded = projectStore.loadAndMigrateSuite(suitePath);
                     loadSuite(reloaded, suitePath, null, false);
-                    ToastService.success("🗑️ Đã xóa case: " + caseName);
+                    ToastService.success("Đã xóa case: " + caseName);
                 } catch (IOException e) {
-                    ToastService.error("❌ Không thể xóa case: " + e.getMessage());
+                    ToastService.error("Không thể xóa case: " + e.getMessage());
                 }
             }
         });
@@ -1460,10 +1976,10 @@ public class SuiteWorkspacePageController {
             if (resp == ButtonType.OK) {
                 try {
                     projectStore.deleteSuite(suitePath);
-                    ToastService.success("🗑️ Đã xóa suite: " + suite.getName());
+                    ToastService.success("Đã xóa suite: " + suite.getName());
                     goBack();
                 } catch (IOException e) {
-                    ToastService.error("❌ Không thể xóa suite: " + e.getMessage());
+                    ToastService.error("Không thể xóa suite: " + e.getMessage());
                 }
             }
         });
@@ -1479,7 +1995,7 @@ public class SuiteWorkspacePageController {
     @FXML
     public void openAiCaseAssistant() {
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Hãy chọn một test case để AI hỗ trợ.");
+            ToastService.warn("Hãy chọn một test case để AI hỗ trợ.");
             return;
         }
         String currentCode = codeEditor != null ? codeEditor.getText() : "";
@@ -1502,20 +2018,37 @@ public class SuiteWorkspacePageController {
     /** @return true if saved or nothing to save; false on failure / no case */
     private boolean saveCodeInternal(boolean toastOnSuccess) {
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Chưa chọn case để lưu");
+            ToastService.warn("Chưa chọn case để lưu");
             return false;
+        }
+        // Flush a pending code->steps re-parse so the persisted step model matches the saved script.
+        if (codeSyncDebounce != null) {
+            codeSyncDebounce.stop();
+        }
+        if (playwrightCodeArea != null) {
+            syncStepsFromCode(true);
         }
         String code = codeEditor.getText() != null ? codeEditor.getText() : "";
         try {
             projectStore.saveCaseScript(suitePath, selectedCase.getId(), code);
+            if (visualStepFlowPane != null) {
+                // Persist every step, including disabled ones, so toggling a step off is reversible.
+                selectedCase.setTestSteps(visualStepFlowPane.getAllSteps());
+                if (suitePath != null && suite != null) {
+                    projectStore.saveSuite(suite, suitePath);
+                }
+            }
+            // Keep the envelope of hand-edited code for the next regeneration.
+            scriptDocument = StepScriptBidirectionalSync.parseDocument(code);
+            lastGeneratedScript = code;
             markCodeClean(code);
             if (toastOnSuccess) {
-                ToastService.success("💾 Đã lưu code: " + selectedCase.getName());
+                ToastService.success("Đã lưu code: " + selectedCase.getName());
             }
             terminalAppend("Đã lưu: " + selectedCase.getName() + " (" + code.length() + " ký tự)");
             return true;
         } catch (IOException e) {
-            ToastService.error("❌ Không thể lưu code: " + e.getMessage());
+            ToastService.error("Không thể lưu code: " + e.getMessage());
             terminalAppend("LỖI LƯU: " + e.getMessage());
             return false;
         }
@@ -1564,9 +2097,34 @@ public class SuiteWorkspacePageController {
 
     private void setEditorText(String text, boolean markClean) {
         if (codeEditor == null) return;
+        String script = text != null ? text : "";
         suppressDirtyTracking = true;
-        codeEditor.setText(text != null ? text : "");
-        suppressDirtyTracking = false;
+        suppressDualSync = true;
+        try {
+            codeEditor.setText(script);
+            if (playwrightCodeArea != null) {
+                playwrightCodeArea.replaceText(script);
+            }
+            // The script on disk is the source of truth: parsing it losslessly (RAW steps keep
+            // comments and hand-written calls) means a recorded Java class is never flattened.
+            scriptDocument = StepScriptBidirectionalSync.parseDocument(script);
+            lastGeneratedScript = script;
+            if (visualStepFlowPane != null) {
+                List<TestStep> modelSteps = selectedCase != null ? selectedCase.getTestSteps() : null;
+                List<TestStep> parsedSteps = scriptDocument.getSteps();
+                List<TestStep> steps;
+                if (parsedSteps.isEmpty() && modelSteps != null && !modelSteps.isEmpty()) {
+                    // Blank/placeholder script: keep the steps authored in a previous session.
+                    steps = modelSteps;
+                } else {
+                    steps = mergeDisabledSteps(parsedSteps, modelSteps);
+                }
+                visualStepFlowPane.loadSteps(steps);
+            }
+        } finally {
+            suppressDualSync = false;
+            suppressDirtyTracking = false;
+        }
         if (markClean) {
             markCodeClean(codeEditor.getText());
         } else {
@@ -1585,7 +2143,12 @@ public class SuiteWorkspacePageController {
         boolean canSave = selectedCase != null;
         saveBtn.setDisable(!canSave);
         saveBtn.setText(dirty ? "Lưu code *" : "Lưu code");
-        UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12, dirty ? "#e0af68" : "#7aa2f7");
+        if (!saveIconReady) {
+            UiIcons.setGraphic(saveBtn, UiIcons.SAVE, 12);
+            saveIconReady = true;
+        }
+        saveBtn.getStyleClass().removeAll(UiIcons.STYLE_WARNING, UiIcons.STYLE_ACCENT);
+        saveBtn.getStyleClass().add(dirty ? UiIcons.STYLE_WARNING : UiIcons.STYLE_ACCENT);
         if (codeTab != null) {
             codeTab.setText(dirty ? "Code *" : "Code");
         }
@@ -1595,7 +2158,7 @@ public class SuiteWorkspacePageController {
         }
         if (codeStatsLabel != null && codeEditor != null) {
             String text = codeEditor.getText();
-            int lines = (text == null || text.isEmpty()) ? 0 : text.split("\r\n|\r|\n", -1).length;
+            int lines = (text == null || text.isEmpty()) ? 0 : PlaywrightCodeArea.countLines(text);
             codeStatsLabel.setText(lines + " dòng · Java Script");
         }
         TabManager tm = ViewNavigator.getTabManager();
@@ -1774,8 +2337,8 @@ public class SuiteWorkspacePageController {
                 UiTooltips.install(infoLabel, infoLabel.getText());
                 String sc = StatusDisplay.styleClass(a.getStatus());
                 infoLabel.getStyleClass().removeAll(
-                        "status-active", "status-draft", "status-inactive", "status-ready",
-                        "status-unknown");
+ "status-active", "status-draft", "status-inactive", "status-ready",
+ "status-unknown");
                 infoLabel.getStyleClass().add(sc);
                 setText(null);
                 setGraphic(row);
@@ -1785,13 +2348,13 @@ public class SuiteWorkspacePageController {
 
     private static String formatAssertLine(Assertion a) {
         StringBuilder line = new StringBuilder();
-        line.append(StatusDisplay.label(a.getStatus())).append("  ").append(AssertTypeDisplay.label(a.getType()));
+        line.append(StatusDisplay.label(a.getStatus())).append(" ").append(AssertTypeDisplay.label(a.getType()));
         String effVal = a.getEffectiveValue();
         if (!effVal.isBlank()) {
             line.append(" = ").append(effVal);
         }
         if (a.getLocator() != null && !a.getLocator().isBlank()) {
-            line.append("  [").append(a.getLocator()).append("]");
+            line.append(" [").append(a.getLocator()).append("]");
         }
         return line.toString();
     }
@@ -1800,7 +2363,7 @@ public class SuiteWorkspacePageController {
         if (selectedCase == null || assertion == null) return;
         int index = selectedCase.getAssertions().indexOf(assertion);
         if (index < 0) {
-            ToastService.warn("⚠️ Không tìm thấy assertion");
+            ToastService.warn("Không tìm thấy assertion");
             return;
         }
         AssertBuilderPopupController popup = AssertBuilderPopupController.create();
@@ -1813,7 +2376,7 @@ public class SuiteWorkspacePageController {
         if (selectedCase == null || assertion == null || suitePath == null) return;
         int index = selectedCase.getAssertions().indexOf(assertion);
         if (index < 0) {
-            ToastService.warn("⚠️ Không tìm thấy assertion");
+            ToastService.warn("Không tìm thấy assertion");
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
@@ -1828,9 +2391,9 @@ public class SuiteWorkspacePageController {
             projectStore.deleteAssertion(suitePath, selectedCase.getId(), assertion);
             selectedCase.getAssertions().remove(index);
             refreshAssertsList();
-            ToastService.success("🗑️ Đã xóa assertion");
+            ToastService.success("Đã xóa assertion");
         } catch (IOException ex) {
-            ToastService.error("❌ Không xóa được: " + ex.getMessage());
+            ToastService.error("Không xóa được: " + ex.getMessage());
         }
     }
 
@@ -1872,7 +2435,7 @@ public class SuiteWorkspacePageController {
     @FXML
     public void openAssertBuilder() {
         if (selectedCase == null) {
-            ToastService.warn("⚠️ Chọn case trước khi sửa assertions");
+            ToastService.warn("Chọn case trước khi sửa assertions");
             return;
         }
         AssertBuilderPopupController popup = AssertBuilderPopupController.create();

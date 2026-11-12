@@ -1,48 +1,65 @@
-# Plan: Multi-Screen SRS Semantic Sectioning & Multi-Batch 4-Agent Orchestration
+# Plan: Comprehensive UI/UX Redesign with AtlantaFX, Low-Code/No-Code Step Builder & RichTextFX Dual View
 
-## Slice 1: Structure-Preserving Document Compression & RAG Expansion
+## Slice 1: Core Dependencies, AtlantaFX Theming & Vector Icons
 - **Files**:
-  - `src/main/java/com/studio/service/AiTokenOptimizer.java`
-  - `src/main/java/com/studio/service/AiAgentIndexService.java`
+  - `pom.xml`
+  - `src/main/java/com/studio/service/ThemeService.java`
+  - `src/main/java/com/studio/util/UiIcons.java`
+  - `src/main/resources/css/studio.css`
+  - `src/main/resources/css/studio-light.css`
 - **Details**:
-  - Replace hardcoded `compressDocument(doc, 4000)` in `buildOptimizedMessages()` with dynamic token-budget allocation (`DEFAULT_DOC_CHAR_BUDGET = 48000`) and semantic section-aware compression (`compressDocumentSmart`) that preserves all headings and balanced content from every section of a 60-page SRS.
-  - Expand `AiAgentIndexService.retrieveIndexedContextForAgent` chunk limit and scoring so multi-section documents retrieve coverage across sections.
+  - Add `atlantafx-base:2.0.1`, `ikonli-javafx:12.3.1`, `ikonli-feather-pack:12.3.1`, and `richtextfx:0.11.4` to `pom.xml`.
+  - Refactor `ThemeService` to initialize and toggle AtlantaFX themes (`PrimerDark`, `PrimerLight`, `Dracula`).
+  - Update `UiIcons` utility to produce high-resolution vector icons using `FontIcon` from Ikonli.
 
-## Slice 2: Agent 1 (Spec Miner) — Semantic Screen & Module Extractor
+## Slice 2: Modern App Shell (Activity Rail, Header, Tab Strip, Status Bar)
 - **Files**:
-  - `src/main/java/com/studio/service/AiMultiAgentCoordinator.java`
+  - `src/main/resources/fxml/main_shell.fxml`
+  - `src/main/java/com/studio/controller/MainShellController.java`
+  - `src/main/java/com/studio/service/StatusBarService.java`
 - **Details**:
-  - Create `ScreenSpecSection` model holding `index`, `screenName`, `featureToken`, `sectionContent`, `extractedFields`, and `extractedRules`.
-  - Implement `extractScreenSections(String userPrompt, List<ParsedDocument> attachedDocs)`:
-    - Normalize PDF page break markers (`### Trang \d+`, `Page \d+`) so multi-page screens stay contiguous.
-    - Detect functional screen/module sections (`Màn hình`, `Screen`, `Trang`, `Chức năng`, `Module`, `Phân hệ`, `Form`, `UC-\d+`, `FR-\d+`, or numbered SRS specification sections) while skipping non-functional frontmatter (`Giới thiệu`, `Mục đích`, `Phạm vi`, `Thuật ngữ`).
-    - Parse explicit screen count from prompt (e.g., `"10 màn hình"`, `"5 màn hình"`) and extract/partition matching screens from the SRS or prompt.
+  - Redesign `main_shell.fxml` with a 48px `ActivityRail` on the left.
+  - Implement collapsible sidebar and standard document tab strip.
+  - Add footer status bar showing Playwright engine, browser mode, self-healed locators, and test stats.
 
-## Slice 3: Agent 2 (Test Architect) — Multi-Batch Screen Orchestration
+## Slice 3: Low-Code / No-Code Visual Step Builder & RichTextFX Dual View
 - **Files**:
-  - `src/main/java/com/studio/service/AiTestGeneratorService.java`
-  - `src/main/java/com/studio/service/AiMultiAgentCoordinator.java`
+  - `src/main/java/com/studio/ui/StepCardView.java`
+  - `src/main/java/com/studio/ui/VisualStepFlowPane.java`
+  - `src/main/java/com/studio/ui/PlaywrightCodeArea.java`
+  - `src/main/resources/fxml/suite_workspace_page.fxml`
+  - `src/main/java/com/studio/controller/SuiteWorkspacePageController.java`
 - **Details**:
-  - When Agent 1 identifies multiple screens (`screens.size() >= 2`), orchestrate focused batch generation (2 screens per batch) when appropriate, passing the full untruncated `ScreenSpecSection` content of each screen in the batch and instructing the LLM to generate 4–5 test cases per screen (Happy Path, Negative Validation, Boundary BVA, Business Rule/Permission).
-  - Merge batch responses into a unified `GenerationResult` while deduplicating and preserving screen order.
+  - Build `StepCardView` representing individual `TestStep` items with action badges, selector inputs, parameter pills, and drag-and-drop handles.
+  - Build `PlaywrightCodeArea` using RichTextFX with Java syntax highlighting and line numbers.
+  - Implement a 3-way toggle (`No-Code`, `Code`, `Split`) in `SuiteWorkspacePageController` with bidirectional sync.
 
-## Slice 4: Agent 3 (Reality Checker) & Agent 4 (Loop Engineer) — Per-Screen Coverage Audit & Expansion
+## Slice 4: Explorer Page & AI Copilot Drawer Redesign
 - **Files**:
-  - `src/main/java/com/studio/service/AiMultiAgentCoordinator.java`
+  - `src/main/resources/fxml/explorer_page.fxml`
+  - `src/main/java/com/studio/controller/ExplorerPageController.java`
+  - `src/main/resources/fxml/ai_assistant_page.fxml`
+  - `src/main/java/com/studio/controller/AiAssistantPageController.java`
 - **Details**:
-  - Replace the naive `if (cases.size() == 1)` check with **Per-Screen / Per-Feature Coverage Auditing**:
-    - Group generated test cases by screen / feature token (`TCxx_<Feature>_...` or matched `ScreenSpecSection`).
-    - Enforce `minCasesPerScreen` (4 cases per screen for multi-screen SRS: Happy Path [P0], Negative Validation [P1], Boundary BVA [P1], Business Rule & Permission [P2]; minimum 3 cases per feature for standard requests).
-    - If the LLM returned only 1 case per screen (e.g., 10 cases for 10 screens) or missed any screen from the SRS inventory, Agent 4 synthesizes the missing screen-specific scenarios grounded in that screen's extracted SRS fields, actions, and business rules.
-    - Re-sequence all test case IDs (`TC01_<Screen1>_...` through `TC40_<Screen10>_...`).
+  - Upgrade `ExplorerPage`: Segmented filter control, hover quick actions (`[▶] [✎] [+]`), and structured Detail Card.
+  - Implement Contextual AI Copilot drawer inside `SuiteWorkspacePage` for 1-click selector fix and assertion generator.
 
-## Slice 5: Comprehensive TDD Verification
+## Slice 5: Reports Dashboard & Evidence Visualizer Redesign
 - **Files**:
-  - `src/test/java/com/studio/service/AiMultiAgentLargeSrsMultiScreenTest.java`
-  - `src/test/java/com/studio/service/AiTokenOptimizerTest.java`
-  - `src/test/java/com/studio/service/AiMultiAgentLoopAndNamingTest.java`
+  - `src/main/resources/fxml/reports_page.fxml`
+  - `src/main/java/com/studio/controller/ReportsPageController.java`
+  - `src/main/resources/fxml/report_detail_page.fxml`
+  - `src/main/java/com/studio/controller/ReportDetailPageController.java`
+  - `src/main/java/com/studio/controller/EvidenceViewerDialog.java`
 - **Details**:
-  - Write unit and integration tests simulating a 60-page SRS with 10 screens, verifying:
-    - Agent 1 extracts all 10 screens accurately across 60 PDF/Markdown pages.
-    - Agent 2 + Agent 3 + Agent 4 produce 35–40+ detailed test cases (3–5+ cases per screen) even when an LLM returns only 1 case per screen or across multi-batch calls.
-    - Every single screen has Happy Path, Negative Validation, Boundary BVA, and Business Rule scenarios with concrete steps, data sets, and assertions.
+  - Add 4 KPI Summary Cards at the top of the reports view.
+  - Display interactive Step Execution Timeline with pass/fail/healed badges.
+  - Polish Evidence Viewer modal with zoom/pan and comparison view.
+
+## Slice 6: Regression Verification & Polish
+- **Files**:
+  - All test suites in `src/test/java/`
+  - `tasks/learnings.md`
+- **Details**:
+  - Ensure all 411+ unit and controller tests pass with zero failures.
+  - Check dark and light theme consistency.

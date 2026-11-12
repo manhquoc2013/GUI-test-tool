@@ -4,9 +4,9 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Labeled;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
-import javafx.scene.paint.Paint;
 import javafx.scene.shape.SVGPath;
+
+import java.util.List;
 
 /**
  * Native vector SVG icon library for JavaFX buttons and indicators.
@@ -15,6 +15,21 @@ import javafx.scene.shape.SVGPath;
  * All paths are based on standard 24x24 viewBox coordinates.
  */
 public final class UiIcons {
+
+    /** Style class colouring an icon from the active theme's danger token. */
+    public static final String STYLE_DANGER = "icon-danger";
+    /** Style class colouring an icon from the active theme's success token. */
+    public static final String STYLE_SUCCESS = "icon-success";
+    /** Style class colouring an icon from the active theme's accent token. */
+    public static final String STYLE_ACCENT = "icon-accent";
+    /** Style class colouring an icon from the active theme's warning token. */
+    public static final String STYLE_WARNING = "icon-warning";
+    /** Style class for an icon drawn on an emphasised (filled) surface, e.g. the green run button. */
+    public static final String STYLE_ON_EMPHASIS = "icon-on-emphasis";
+
+    /** Every colour class this class may add, so a restyle never leaves two conflicting ones. */
+    private static final List<String> THEMED_STYLES = List.of(
+            STYLE_DANGER, STYLE_SUCCESS, STYLE_ACCENT, STYLE_WARNING, STYLE_ON_EMPHASIS);
 
     private UiIcons() {
     }
@@ -47,6 +62,15 @@ public final class UiIcons {
     /** Split view / 2 columns */
     public static final String SPLIT = "M 3 4 h 18 v 16 H 3 Z M 11 6 H 5 v 12 h 6 Z M 19 6 h -6 v 12 h 6 Z";
 
+    /** Grid / card layout toggle (No-Code view) */
+    public static final String GRID = "M 3 3 h 8 v 8 H 3 Z M 13 3 h 8 v 8 h -8 Z M 3 13 h 8 v 8 H 3 Z M 13 13 h 8 v 8 h -8 Z";
+
+    /** Code brackets (Code view) */
+    public static final String CODE = "M 9.4 16.6 L 4.8 12 l 4.6 -4.6 L 8 6 l -6 6 l 6 6 Z M 14.6 16.6 L 19.2 12 l -4.6 -4.6 L 16 6 l 6 6 l -6 6 Z";
+
+    /** Drag handle (six-dot grip) */
+    public static final String DRAG = "M 8 5 a 2 2 0 1 0 0.01 0 Z M 16 5 a 2 2 0 1 0 0.01 0 Z M 8 11 a 2 2 0 1 0 0.01 0 Z M 16 11 a 2 2 0 1 0 0.01 0 Z M 8 17 a 2 2 0 1 0 0.01 0 Z M 16 17 a 2 2 0 1 0 0.01 0 Z";
+
     /** Full screen / expand */
     public static final String FULLSCREEN = "M 7 14 H 5 v 5 h 5 v -2 H 7 Z M 5 10 h 2 V 7 h 3 V 5 H 5 Z M 19 14 h -2 v 3 h -3 v 2 h 5 Z M 14 5 v 2 h 3 v 3 h 2 V 5 Z";
 
@@ -76,6 +100,9 @@ public final class UiIcons {
 
     /** Undo / Revert */
     public static final String UNDO = "M 12.5 8 c -2.65 0 -5.05 1 -6.9 2.6 L 2 7 v 9 h 9 l -3.62 -3.62 c 1.39 -1.16 3.16 -1.88 5.12 -1.88 c 3.54 0 6.55 2.31 7.6 5.5 l 2.37 -0.78 C 21.08 11.03 17.15 8 12.5 8 Z";
+
+    /** Redo: {@link #UNDO} mirrored on the vertical axis */
+    public static final String REDO = "M 11.5 8 c 2.65 0 5.05 1 6.9 2.6 L 22 7 v 9 h -9 l 3.62 -3.62 c -1.39 -1.16 -3.16 -1.88 -5.12 -1.88 c -3.54 0 -6.55 2.31 -7.6 5.5 l -2.37 -0.78 C 2.92 11.03 6.85 8 11.5 8 Z";
 
     /** Search */
     public static final String SEARCH = "M 15.5 14 h -0.79 l -0.28 -0.27 A 6.47 6.47 0 0 0 16 9.5 A 6.5 6.5 0 1 0 9.5 16 c 1.61 0 3.09 -0.59 4.23 -1.57 l 0.27 0.28 v 0.79 l 5 4.99 L 20.49 19 Z m -6 0 C 7.01 14 5 11.99 5 9.5 S 7.01 5 9.5 5 S 14 7.01 14 9.5 S 11.99 14 9.5 14 Z";
@@ -110,6 +137,28 @@ public final class UiIcons {
     /** Hamburger Menu */
     public static final String MENU = "M 3 18 h 18 v -2 H 3 Z m 0 -5 h 18 v -2 H 3 Z m 0 -7 v 2 h 18 V 6 Z";
 
+    /** Speech bubble — a comment line the builder keeps as a note instead of a raw statement. */
+    public static final String COMMENT = "M 20 2 H 4 c -1.1 0 -2 0.9 -2 2 v 12 c 0 1.1 0.9 2 2 2 h 4 v 4 l 4 -4 h 8 c 1.1 0 2 -0.9 2 -2 V 4 c 0 -1.1 -0.9 -2 -2 -2 Z";
+
+    /** Pointer arrow — used by the No-Code builder for click/hover steps. */
+    public static final String CURSOR = "M 21 3 L 3 10.53 v 0.99 l 7.03 2.68 L 12.9 21 h 0.99 L 21 3 Z";
+
+    /** Mouse silhouette — hover steps. */
+    public static final String MOUSE = "M 13 1.07 V 9 h 7 c 0 -4.08 -3.05 -7.44 -7 -8.07 Z"
+            + " M 11 1.07 C 7.05 1.63 4 4.99 4 9 h 7 Z"
+            + " M 4 11 c 0 4.01 3.05 7.37 7 7.93 V 11 Z"
+            + " M 13 18.93 c 3.95 -0.56 7 -3.92 7 -7.93 h -7 Z";
+
+    /** Clock — wait / delay steps. */
+    public static final String TIMER = "M 15 1 H 9 v 2 h 6 Z M 11 14 h 2 V 8 h -2 Z"
+            + " M 19.03 7.39 l 1.42 -1.42 c -0.43 -0.51 -0.9 -0.99 -1.41 -1.41 l -1.42 1.42"
+            + " C 16.07 4.74 14.12 4 12 4 c -4.97 0 -9 4.03 -9 9 s 4.02 9 9 9 s 9 -4.03 9 -9"
+            + " c 0 -2.12 -0.74 -4.07 -1.97 -5.61 Z"
+            + " M 12 20 c -3.87 0 -7 -3.13 -7 -7 s 3.13 -7 7 -7 s 7 3.13 7 7 s -3.13 7 -7 7 Z";
+
+    /** Collapsible-section chevron. */
+    public static final String CHEVRON_DOWN = "M 16.59 8.59 L 12 13.17 L 7.41 8.59 L 6 10 l 6 6 l 6 -6 Z";
+
     /** Folder */
     public static final String FOLDER = "M 10 4 H 4 c -1.1 0 -1.99 0.9 -1.99 2 L 2 18 c 0 1.1 0.9 2 2 2 h 16 c 1.1 0 2 -0.9 2 -2 V 8 c 0 -1.1 -0.9 -2 -2 -2 h -8 l -2 -2 Z";
 
@@ -119,21 +168,16 @@ public final class UiIcons {
     // ── Factory Methods ──
 
     /**
-     * Create a scalable vector graphic node.
-     * 
+     * Create a scalable vector graphic node whose fill comes from CSS.
+     *
      * @param pathData SVG path coordinates in 24x24 viewBox
      * @param size     display size in pixels (e.g. 14, 16)
-     * @param fill     fill paint, or null to inherit CSS text-fill
-     * @return a Node suitable for Button.setGraphic()
+     * @return a Node suitable for {@code Button.setGraphic()}
      */
-    public static Node icon(String pathData, double size, Paint fill) {
+    public static Node icon(String pathData, double size) {
         SVGPath path = new SVGPath();
         path.setContent(pathData);
-        if (fill != null) {
-            path.setFill(fill);
-        } else {
-            path.getStyleClass().add("ui-svg-icon");
-        }
+        path.getStyleClass().add("ui-svg-icon");
 
         double scale = size / 24.0;
         path.setScaleX(scale);
@@ -148,29 +192,30 @@ public final class UiIcons {
     }
 
     /**
-     * Create an icon that uses CSS styling for its fill color.
-     */
-    public static Node icon(String pathData, double size) {
-        return icon(pathData, size, (Paint) null);
-    }
-
-    /**
-     * Create an icon with a specific hex color (e.g. "#f7768e").
-     */
-    public static Node icon(String pathData, double size, String hexColor) {
-        return icon(pathData, size, hexColor != null ? Color.web(hexColor) : null);
-    }
-
-    /**
      * Set an SVG graphic directly on a button or labeled control.
      */
-    public static void setGraphic(Labeled control, String pathData, double size, String hexColor) {
+    public static void setGraphic(Labeled control, String pathData, double size) {
         if (control == null)
             return;
-        control.setGraphic(icon(pathData, size, hexColor));
+        control.setGraphic(icon(pathData, size));
     }
 
-    public static void setGraphic(Labeled control, String pathData, double size) {
-        setGraphic(control, pathData, size, null);
+    /**
+     * Sets a graphic whose fill comes from a theme token instead of a literal colour.
+     *
+     * <p>Passing a hex value used to be the only option, which made icons unreadable after a theme
+     * switch. The style class resolves to a looked-up {@code -color-*} token, so the icon follows
+     * the active theme.</p>
+     *
+     * @param styleClass one of the {@code STYLE_*} constants; {@code null} leaves the icon untinted
+     */
+    public static void setThemedGraphic(Labeled control, String pathData, double size, String styleClass) {
+        if (control == null)
+            return;
+        control.getStyleClass().removeAll(THEMED_STYLES);
+        if (styleClass != null && !styleClass.isBlank()) {
+            control.getStyleClass().add(styleClass);
+        }
+        setGraphic(control, pathData, size);
     }
 }

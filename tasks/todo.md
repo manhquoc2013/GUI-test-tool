@@ -1,55 +1,57 @@
-# Todo — Fix toàn bộ findings của review hệ thống
+# Todo — Redesign Toàn Bộ Giao Diện Test Studio
 
-Mỗi mục phải xanh (test + compile) trước khi sang mục kế tiếp.
-Không tạo nhánh, không commit (theo quy ước dự án).
+## Nhóm 1: Core Dependencies & AtlantaFX Theme Service
+- [x] T1.1. Thêm `atlantafx-base:2.0.1`, `ikonli-javafx:12.3.1`, `ikonli-feather-pack:12.3.1` vào `pom.xml`
+- [x] T1.2. Cập nhật `ThemeService.java` áp dụng `PrimerDark`, `PrimerLight` từ AtlantaFX
+- [x] T1.3. Nâng cấp `UiIcons.java` hỗ trợ vector icon (SVGPath) + bộ icon GRID/CODE/DRAG
+- [x] T1.4. `studio.css` / `studio-light.css` đồng bộ palette token cho theme Sáng/Tối
 
-## Nhóm A — Toàn vẹn dữ liệu & bảo mật
+## Nhóm 2: Khung vỏ Hệ Thống (App Shell Frame)
+- [x] T2.1. `main_shell.fxml`: Activity Rail 48px, HBox{Rail+Sidebar}, handler methods
+- [x] T2.2. `MainShellController.java` điều khiển Tab Strip, Status Bar, Rail buttons
+- [x] T2.3. Footer Status Bar: `engineLabel`, `healedCountLabel`, `testStatsLabel` + `StatusBarService`
+- [x] T2.4. Rail buttons dùng vector icon (bỏ emoji 🗂 📊 ✨ ⚙)
 
-- [x] A1. `ProjectStore`: chặn path traversal cho tên group/suite (create/rename/delete)
-- [x] A2. `ProjectStore`: `createCase`/`deleteCase` không để lại trạng thái nửa vời
-- [x] A3. `SettingsStore`: ghi atomic + cách ly file hỏng + log/toast
-- [x] A4. `ApiKeyCipher`: fail-closed khi mã hoá lỗi
-- [x] A5. `HtmlReportService`: escape `status`/`priority` + whitelist enum
-- [x] A6. `ReportStore`: try/catch từng report + reconcile DB ⇄ disk
+## Nhóm 3: No-Code Step Builder & Dual View
+- [x] T3.1. `StepCardView.java` — card bước, badge action, icon vector, toggle bật/tắt
+- [x] T3.2. `PlaywrightCodeArea.java` — editor native + line gutter đồng bộ scroll
+- [x] T3.3. `SuiteWorkspacePageController.java` — 3-way toggle (No-Code / Code / Split)
+- [x] T3.4. `StepScriptBidirectionalSync.java` — chuyển đổi 2 chiều step ⇄ Playwright code
+- [x] T3.5. Kéo-thả đổi thứ tự bước (`VisualStepFlowPane.moveCard`) + đánh số lại
+- [x] T3.6. Nút "Sao chép lệnh Playwright" cho từng bước (thay nút chạy đơn chưa có backend)
+- [x] T3.7. Sửa lỗi Split View: reparent node thay vì add trùng vào StackPane + SplitPane
+- [x] T3.8. Bước bị tắt vẫn được lưu (`TestStep.enabled`) nhưng không sinh vào script
 
-## Nhóm B — Runtime & self-healing
+## Nhóm 4: Explorer Page & AI Copilot Drawer
+- [x] T4.1. `explorer_page.fxml` — Segmented filter chips, hover quick actions
+- [x] T4.2. AI Copilot Right Drawer: sửa selector từ DOM + sinh assertion, áp dụng 1 click
+- [x] T4.3. `AiCopilotService` — prompt builder/normalizer thuần Java, có unit test
 
-- [x] B1. `OptimizedSelfHealingExecutor`: re-read `suite.json` khi persist + reset counter theo run
-- [x] B2. `TestRunnerService`: cache settings/suite theo run (hết I/O storm per-case)
+## Nhóm 5: Reports Dashboard & Evidence Visualizer
+- [x] T5.1. `reports_page.fxml` — 4 KPI Summary Cards (styleClass `kpi-value`)
+- [x] T5.2. `report_detail_page.fxml` — Step Execution Timeline với badge PASS/FAIL/HEALED
+- [x] T5.3. `EvidenceViewerDialog.java` — zoom/pan controls
 
-## Nhóm C — Threading & UI
-
-- [x] C1. `AiChatSession`: message list an toàn đa luồng
-- [x] C2. `AiAssistantPageController`: guard nút Xác nhận clarification + lỗi lưu chat
-- [x] C3. `RunProgressService` listener: gỡ khi đóng tab
-- [x] C4. `SuiteWorkspacePageController`: filter không xoá editor; bỏ interrupt trên FX thread; xoá assert theo identity
-- [x] C5. `ViewNavigator`/`TabManager`: tab Reports luôn hiển thị controller mới
-
-## Nhóm D — Đúng đắn AI
-
-- [x] D1. `AiTestGeneratorService`: `Thread.sleep`/`close()` không phá control flow
-- [x] D2. `AiCoverageAnalyzer`: match theo token, coverage chỉ tính case traceable
-- [x] D3. `AiContinuation`: ghép mảnh trong cửa sổ giới hạn (hết O(n²))
-- [x] D4. `AiMultiAgentCoordinator`: `testId` khớp tên sau rename
-- [x] D5. `AiProjectAdvisorService`: đọc script qua `scriptFile`; điền `recommendedFix`
-- [x] D6. `LocalDataIndexService`: khoá group theo path (hết đè tên trùng)
-
-## Nhóm E — Dọn dẹp
-
-- [x] E1. Xoá dead code đã xác minh
-- [x] E2. `AiTokenOptimizer`: summary không bỏ sót snapshot sau lượt 6
-- [x] E3. Đồng bộ `docs/ARCHITECTURE.md` (self-healing tiers thật, H2 2.2.224 + schema)
-- [x] E4. Bỏ track `docs/intel/_intake` + `.gradle` lockfile, cập nhật `.gitignore`
+## Nhóm 6: Chất lượng & Dọn dẹp
+- [x] T6.1. Bỏ inline style/magic color trong `StepCardView`, `PlaywrightCodeArea`, KPI cards
+- [x] T6.2. Bỏ CSS RichTextFX không còn dùng; thêm CSS cho step badge, KPI, drawer
+- [x] T6.3. Bỏ property `richtextfx.version` không dùng trong `pom.xml`
+- [x] T6.4. Thay `catch (Exception ignored) {}` bằng xử lý lỗi có log
+- [x] T6.5. Escape/validate dữ liệu sinh code (`DELAY` chỉ nhận số, clamp 300000ms)
 
 ## Cổng cuối
+- [x] C1. `mvn -o clean test` xanh toàn bộ — **573 tests, 0 failures, 0 errors**
+- [x] C2. `mvn -o clean compile -DskipTests` — **0 error**, không có warning javac
+- [x] C3. Cập nhật `tasks/learnings.md` + `.ai-context.md`
 
-- [x] `mvn -o test` xanh toàn bộ — 411 tests, 0 failures, 0 errors
-- [x] `mvn clean compile` 0 warning / 0 deprecation
-- [x] Cập nhật `tasks/learnings.md`
-
-## Ghi chú kiểm chứng
-
-- Regression test mới: `AiTestGeneratorServiceTest.testValidateAndFixScriptKeepsUnrelatedCloseCalls`
-  (chỉ strip `close()` của handle Playwright, không đụng `out.close()`).
-- `OptimizedSelfHealingExecutor.persistSuiteMutation` nay khai báo `throws IOException`;
-  `persistMutation` bắt và ghi log, không burn mutation budget khi ghi đĩa thất bại.
+## Nhóm 7: No-Code Builder Usability (Iteration 2)
+- [x] T7.1. Thêm icon `CURSOR`, `MOUSE`, `TIMER`, `CHEVRON_DOWN` vào `UiIcons`
+- [x] T7.2. `StepAction` enum: mã lưu model → nhãn tiếng Việt + icon + field cần dùng + summary
+- [x] T7.3. `StepCardView`: card thu gọn 1 dòng (accordion), body chỉ render field cần thiết, overflow menu copy/xoá
+- [x] T7.4. `StepCardView`: xác nhận trước khi xoá bước có nội dung; bật/tắt nhanh vẫn ngoài menu
+- [x] T7.5. `VisualStepFlowPane`: empty state mới + CTA, tự mở rộng & focus field khi thêm bước, API selected cho card
+- [x] T7.6. `SuiteWorkspacePageController`: header responsive (nút view mode → icon), caption chỉ hiện khi đủ chỗ
+- [x] T7.7. `SuiteWorkspacePageController`: tự ẩn panel Asserts khi hẹp + nút toggle trên header + min width 2 panel
+- [x] T7.8. CSS cả 2 theme cho card mới, chip hành động, body field, empty state
+- [x] T7.9. Test: `StepActionTest`, `StepCardViewUxTest`, `WorkspaceResponsiveLayoutTest`, cập nhật `StepBuilderLayoutTest`
+- [x] T7.10. Cổng chất lượng: `mvn -o test` xanh (**619 tests**), `javac -Xlint:all` 0 warning
