@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import qtawesome as qta
 from PySide6.QtGui import QIcon
 
 from ai_qa_test_studio.constants import (
@@ -12,11 +11,7 @@ from ai_qa_test_studio.constants import (
     ICON_COLOR_SUCCESS,
     ICON_COLOR_WARN,
 )
-
-
-def fa_icon(name: str, color: str = ICON_COLOR_DEFAULT) -> QIcon:
-    return qta.icon(name, color=color)
-
+from ai_qa_test_studio.ui.qt_compat import ensure_qt_api
 
 ICON_WIZARD = "mdi6.auto-fix"
 ICON_NEW_CASE = "mdi6.file-plus-outline"
@@ -32,6 +27,12 @@ ICON_DRAWER_EXPAND = "mdi6.chevron-up"
 ICON_SUITE = "mdi6.folder-outline"
 ICON_CASE = "mdi6.file-document-outline"
 ICON_ELEMENT = "mdi6.vector-square"
+
+def fa_icon(name: str, color: str = ICON_COLOR_DEFAULT) -> QIcon:
+    ensure_qt_api()
+    import qtawesome as qta
+
+    return qta.icon(name, color=color)
 
 
 def wizard_icon() -> QIcon:

@@ -31,6 +31,10 @@ def main() -> int:
     import qasync
     from PySide6.QtWidgets import QApplication
 
+    from ai_qa_test_studio.ui.qt_compat import ensure_qt_api
+
+    ensure_qt_api()
+
     from ai_qa_test_studio.ui.main_window import MainWindow
     from ai_qa_test_studio.ui.theme import apply_theme
 
