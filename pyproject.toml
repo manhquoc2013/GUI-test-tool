@@ -21,7 +21,7 @@ dependencies = [
     "jinja2>=3.1.4",
     "openai>=1.50.0",
     "google-genai>=0.5.0",
-    "qtawesome>=1.4.2",
+    "pyside6-fluent-widgets[full]>=1.11.3",
 ]
 
 [project.optional-dependencies]
@@ -76,6 +76,8 @@ module = [
     "qasync",
     "qtawesome",
     "qtawesome.*",
+    "qfluentwidgets",
+    "qfluentwidgets.*",
     "openpyxl",
     "openpyxl.*",
     "headroom",

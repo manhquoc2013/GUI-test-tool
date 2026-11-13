@@ -10,7 +10,12 @@ from ai_qa_test_studio.agent.auto_binder import ShiftLeftAutoBinder, repo_from_p
 from ai_qa_test_studio.agent.dual_loop_agent import DualLoopAgent
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.engine import BrowserEngine
-from ai_qa_test_studio.constants import DEFAULT_TARGET_URL, UI_VIEWPORT_HEIGHT, UI_VIEWPORT_WIDTH
+from ai_qa_test_studio.constants import (
+    DEFAULT_TARGET_URL,
+    FALLBACK_BLANK_URL,
+    UI_VIEWPORT_HEIGHT,
+    UI_VIEWPORT_WIDTH,
+)
 from ai_qa_test_studio.core.models import Project, RunReport, SharedElement, TestCase
 
 logger = logging.getLogger(__name__)
@@ -40,12 +45,27 @@ class SessionController:
         self._started = True
         emit(f"Trình duyệt sẵn sàng — CDP {cdp.http_endpoint}")
 
-    async def launch_url(self, url: str, log: LogFn | None = None) -> None:
+    async def launch_url(self, url: str, log: LogFn | None = None) -> str:
+        """Start Chromium and navigate. On nav failure keep browser open at blank page."""
         emit = log or (lambda _m: None)
         target = (url or "").strip() or DEFAULT_TARGET_URL
         await self.ensure_started(headless=False, log=emit)
-        await self.engine.goto(target)
-        emit(f"Đã mở {target}")
+        try:
+            await self.engine.goto(target)
+            emit(f"Đã mở {target}")
+            return target
+        except Exception as exc:  # noqa: BLE001
+            emit(f"Không điều hướng được tới {target}: {exc}")
+            if target != FALLBACK_BLANK_URL:
+                try:
+                    await self.engine.goto(FALLBACK_BLANK_URL)
+                    emit(
+                        f"Đã mở {FALLBACK_BLANK_URL} — sửa Target URL rồi Launch/Sync lại"
+                    )
+                    return FALLBACK_BLANK_URL
+                except Exception as blank_exc:  # noqa: BLE001
+                    emit(f"Fallback {FALLBACK_BLANK_URL} cũng thất bại: {blank_exc}")
+            raise
 
     async def stop(self, log: LogFn | None = None) -> None:
         emit = log or (lambda _m: None)

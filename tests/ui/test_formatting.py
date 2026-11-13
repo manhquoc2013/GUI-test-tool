@@ -10,7 +10,7 @@ from ai_qa_test_studio.ui.formatting import (
 
 
 def test_format_param_cell_dict() -> None:
-    assert format_param_cell({"loaiHoSo": "Cấp mới", "x": 1}) == "loaiHoSo: Cấp mới; x: 1"
+    assert format_param_cell({"loaiHoSo": "Cấp mới", "x": 1}) == "loaiHoSo: Cấp mới | x: 1"
 
 
 def test_humanize_expected_outcome() -> None:

@@ -10,20 +10,23 @@ from ai_qa_test_studio.constants import ICON_COLOR_DANGER, ICON_COLOR_SUCCESS, I
 
 
 class AgentFeed(QWidget):
-    def __init__(self, parent=None) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName("Agent Execution Feed")
         self._lines: list[str] = []
-        title = QLabel("Luồng thực thi Agent")
-        title.setObjectName("muted")
+        self._title = QLabel("Luồng thực thi Agent")
+        self._title.setObjectName("muted")
         self.list = QListWidget()
         self.list.setAccessibleName("Danh sách bước chạy")
         self.list.itemClicked.connect(self._toggle_detail)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(title)
+        layout.addWidget(self._title)
         layout.addWidget(self.list)
+
+    def set_title_visible(self, visible: bool) -> None:
+        self._title.setVisible(visible)
 
     def clear(self) -> None:
         self._lines.clear()

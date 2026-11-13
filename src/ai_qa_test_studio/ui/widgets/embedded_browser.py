@@ -1,4 +1,4 @@
-"""CDP screencast canvas viewport with Launch / Inspect chrome — no QtWebEngine."""
+"""CDP screencast canvas viewport — no QtWebEngine."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+from qfluentwidgets import CaptionLabel, PrimaryPushButton, TogglePushButton
+from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.browser.visual_inspector import ViewportMapping, widget_to_css_point
-from ai_qa_test_studio.constants import UI_VIEWPORT_HEIGHT, UI_VIEWPORT_WIDTH
-from ai_qa_test_studio.ui.icons import inspect_icon, launch_icon
+from ai_qa_test_studio.constants import UI_VIEWPORT_HEIGHT, UI_VIEWPORT_MIN_HEIGHT, UI_VIEWPORT_WIDTH
 
 
 class ScreencastViewport(QWidget):
@@ -24,7 +24,7 @@ class ScreencastViewport(QWidget):
     launch_requested = Signal()
     inspect_toggled = Signal(bool)
 
-    def __init__(self, parent=None) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName("Khung trình duyệt nhúng")
         self._pixmap = QPixmap()
@@ -32,22 +32,19 @@ class ScreencastViewport(QWidget):
         self._inspecting = False
         self._has_frame = False
 
-        self.btn_inspect = QPushButton("Inspect Element")
-        self.btn_inspect.setIcon(inspect_icon())
-        self.btn_inspect.setCheckable(True)
+        self.btn_inspect = TogglePushButton(FIF.SEARCH, "Inspect Element", self)
         self.btn_inspect.setAccessibleName("Bật chế độ Inspect Element")
         self.btn_inspect.toggled.connect(self._on_inspect_toggled)
 
-        self.btn_launch = QPushButton("Launch Browser")
-        self.btn_launch.setIcon(launch_icon())
-        self.btn_launch.setObjectName("primary")
+        self.btn_launch = PrimaryPushButton(FIF.GLOBE, "Launch Browser", self)
         self.btn_launch.setAccessibleName("Mở trình duyệt")
         self.btn_launch.clicked.connect(self.launch_requested.emit)
 
-        self.resolution = QLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT}")
-        self.resolution.setObjectName("muted")
+        self.resolution = CaptionLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT}", self)
 
-        chrome = QHBoxLayout()
+        self._chrome = QWidget(self)
+        chrome = QHBoxLayout(self._chrome)
+        chrome.setContentsMargins(0, 0, 0, 0)
         chrome.setSpacing(8)
         chrome.addWidget(self.btn_inspect)
         chrome.addWidget(self.btn_launch)
@@ -56,7 +53,7 @@ class ScreencastViewport(QWidget):
 
         self.label = QLabel()
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label.setMinimumHeight(240)
+        self.label.setMinimumHeight(UI_VIEWPORT_MIN_HEIGHT)
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.label.setScaledContents(False)
         self.label.setAccessibleName("Screencast")
@@ -65,12 +62,9 @@ class ScreencastViewport(QWidget):
         self.empty = QWidget()
         empty_layout = QVBoxLayout(self.empty)
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_hint = QLabel("Chưa mở trình duyệt")
-        empty_hint.setObjectName("muted")
+        empty_hint = CaptionLabel("Chưa mở trình duyệt", self.empty)
         empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_cta = QPushButton("Mở trình duyệt để Inspect / Chạy thử")
-        self.empty_cta.setObjectName("primary")
-        self.empty_cta.setIcon(launch_icon())
+        self.empty_cta = PrimaryPushButton(FIF.PLAY, "Mở trình duyệt để Inspect / Chạy thử", self.empty)
         self.empty_cta.setAccessibleName("Mở trình duyệt để Inspect hoặc chạy thử")
         self.empty_cta.clicked.connect(self.launch_requested.emit)
         empty_layout.addWidget(empty_hint)
@@ -83,7 +77,7 @@ class ScreencastViewport(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addLayout(chrome)
+        layout.addWidget(self._chrome)
         layout.addWidget(self.stack, stretch=1)
         self.set_placeholder("")
 
@@ -91,13 +85,19 @@ class ScreencastViewport(QWidget):
     def inspect_mode(self) -> bool:
         return self._inspecting
 
+    def set_chrome_visible(self, visible: bool) -> None:
+        self._chrome.setVisible(visible)
+
+    def set_inspect_mode(self, enabled: bool) -> None:
+        if self.btn_inspect.isChecked() != enabled:
+            self.btn_inspect.setChecked(enabled)
+        else:
+            self._on_inspect_toggled(enabled)
+
     def _on_inspect_toggled(self, checked: bool) -> None:
         self._inspecting = checked
         self.inspect_toggled.emit(checked)
-        if checked:
-            self.btn_inspect.setText("Inspect ON")
-        else:
-            self.btn_inspect.setText("Inspect Element")
+        self.btn_inspect.setText("Inspect ON" if checked else "Inspect Element")
 
     def set_placeholder(self, text: str) -> None:
         self._pixmap = QPixmap()

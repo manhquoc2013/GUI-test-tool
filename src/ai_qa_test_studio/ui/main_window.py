@@ -1,3 +1,5 @@
+"""QMainWindow shell — Fluent panes inside standard window (no FramelessWindow)."""
+
 from __future__ import annotations
 
 import uuid
@@ -6,32 +8,26 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QComboBox,
-    QDockWidget,
-    QFrame,
-    QHBoxLayout,
     QInputDialog,
-    QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPushButton,
-    QSizePolicy,
     QSplitter,
-    QStatusBar,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
 from qasync import asyncSlot
+from qfluentwidgets import CaptionLabel, InfoBadge, InfoBar, InfoBarPosition
 
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.visual_inspector import element_from_point
 from ai_qa_test_studio.constants import (
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
+    FALLBACK_BLANK_URL,
     TOKEN_CONTEXT_BUDGET,
-    UI_DRAWER_COLLAPSED_HEIGHT,
+    UI_INFOBAR_DURATION_MS,
+    UI_SPLIT_SIZES_H,
+    UI_SPLIT_SIZES_V,
 )
 from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
@@ -42,22 +38,14 @@ from ai_qa_test_studio.reporting.code_exporter import CodeExporter
 from ai_qa_test_studio.reporting.excel_exporter import ExcelExporter
 from ai_qa_test_studio.reporting.html_reporter import HtmlReporter
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
-from ai_qa_test_studio.ui.icons import (
-    drawer_collapse_icon,
-    drawer_expand_icon,
-    export_icon,
-    new_case_icon,
-    run_icon,
-    stop_icon,
-    sync_icon,
-    wizard_icon,
-)
+from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
-from ai_qa_test_studio.ui.widgets.agent_feed import AgentFeed
-from ai_qa_test_studio.ui.widgets.data_grid import DataGrid
-from ai_qa_test_studio.ui.widgets.embedded_browser import ScreencastViewport
-from ai_qa_test_studio.ui.widgets.step_builder import StepBuilder
-from ai_qa_test_studio.ui.widgets.test_explorer import TestExplorer
+from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
+from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
+from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
+from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
+from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
+from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 from ai_qa_test_studio.ui.wizards.ai_test_wizard import AiTestWizard
 
 
@@ -74,11 +62,9 @@ class MainWindow(QMainWindow):
         self.project: Project | None = self.storage.load()
         self.session = SessionController()
         self._busy = False
-        self._drawer_collapsed = False
         self._last_report: RunReport | None = None
         self._token_budget = TokenBudget()
         self._skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
-        self._run_logs = AgentFeed()
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
@@ -87,69 +73,59 @@ class MainWindow(QMainWindow):
         self._refresh_status_pills()
 
     def _build_chrome(self) -> None:
-        toolbar = QToolBar("Thanh hành động")
-        toolbar.setMovable(False)
-        toolbar.setFloatable(False)
-        toolbar.setAccessibleName("Thanh hành động trên cùng")
-        self.addToolBar(toolbar)
+        central = QWidget(self)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        act_wizard = QAction(wizard_icon(), "AI Wizard", self)
-        act_wizard.setToolTip("Mở AI Test Wizard")
-        act_wizard.triggered.connect(self._open_wizard)
-        toolbar.addAction(act_wizard)
-
-        act_new = QAction(new_case_icon(), "New Case", self)
-        act_new.setToolTip("Tạo Test Case mới")
-        act_new.triggered.connect(self._new_case)
-        toolbar.addAction(act_new)
-
-        toolbar.addSeparator()
-
-        url_host = QWidget()
-        url_row = QHBoxLayout(url_host)
-        url_row.setContentsMargins(4, 0, 4, 0)
-        url_row.setSpacing(8)
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText(DEFAULT_TARGET_URL)
-        self.url_edit.setText(DEFAULT_TARGET_URL)
-        self.url_edit.setMinimumWidth(280)
-        self.url_edit.setAccessibleName("Ô nhập Target URL")
-        self.btn_sync = QPushButton("Sync URL")
-        self.btn_sync.setIcon(sync_icon())
-        self.btn_sync.setAccessibleName("Đồng bộ URL và bind selector")
-        self.btn_sync.clicked.connect(self._sync_url)
-        self.unbound_badge = QLabel("")
-        self.unbound_badge.setObjectName("bannerWarn")
-        self.unbound_badge.setVisible(False)
-        url_row.addWidget(self.url_edit, stretch=1)
-        url_row.addWidget(self.btn_sync)
-        url_row.addWidget(self.unbound_badge)
-        toolbar.addWidget(url_host)
-
-        toolbar.addSeparator()
-
-        self.skill_combo = QComboBox()
-        self.skill_combo.setMinimumWidth(160)
-        self.skill_combo.setAccessibleName("Chọn Agent Skill")
+        self.top_bar = UnifiedTopBar(central)
         skills = list(self._skills.registry.keys()) or [
             "web-e2e-functional",
             "boundary-value-analysis",
             "shift-left-figma-sync",
         ]
-        self.skill_combo.addItems(skills)
-        toolbar.addWidget(self.skill_combo)
+        self.top_bar.set_skills(skills)
+        self.top_bar.wizard_clicked.connect(self._open_wizard)
+        self.top_bar.new_case_clicked.connect(self._new_case)
+        self.top_bar.sync_url_clicked.connect(lambda _url: self._sync_url())
+        self.top_bar.run_clicked.connect(self._run_current)
+        self.top_bar.stop_clicked.connect(self._stop_browser)
+        self.top_bar.export_requested.connect(self._export)
+        root_layout.addWidget(self.top_bar)
 
-        act_run = QAction(run_icon(), "Run", self)
-        act_run.triggered.connect(self._run_current)
-        toolbar.addAction(act_run)
-        act_stop = QAction(stop_icon(), "Stop", self)
-        act_stop.triggered.connect(self._stop_browser)
-        toolbar.addAction(act_stop)
+        # Compatibility aliases used by tests / handlers
+        self.url_edit = self.top_bar.url_input
+        self.skill_combo = self.top_bar.skill_combo
+        self.unbound_badge = self.top_bar.unbound_badge
 
-        export_trigger = QAction(export_icon(), "Export ▾", self)
-        export_trigger.setToolTip("Xuất HTML / Excel / Pytest")
-        export_trigger.triggered.connect(self._export_menu)
-        toolbar.addAction(export_trigger)
+        v_splitter = QSplitter(Qt.Orientation.Vertical, central)
+        h_splitter = QSplitter(Qt.Orientation.Horizontal, v_splitter)
+
+        self.explorer = ExplorerPane(h_splitter)
+        self.explorer.case_selected.connect(self._on_case_selected)
+        self.builder = EditorPane(h_splitter)
+        self.builder.case_changed.connect(self._on_case_fields_changed)
+        self.builder.sync_requested.connect(self._sync_url)
+
+        self.browser_agent = BrowserAgentPane(h_splitter)
+        self.viewport = self.browser_agent
+        self._run_logs = self.browser_agent.agent_feed
+        self.browser_agent.launch_browser_clicked.connect(self._launch_browser)
+        self.browser_agent.clicked_css.connect(self._on_viewport_click)
+
+        h_splitter.addWidget(self.explorer)
+        h_splitter.addWidget(self.builder)
+        h_splitter.addWidget(self.browser_agent)
+        h_splitter.setSizes(list(UI_SPLIT_SIZES_H))
+
+        self.data_drawer = TestDataDrawer(v_splitter)
+        self.data_grid = self.data_drawer.table
+        v_splitter.addWidget(h_splitter)
+        v_splitter.addWidget(self.data_drawer)
+        v_splitter.setSizes(list(UI_SPLIT_SIZES_V))
+
+        root_layout.addWidget(v_splitter, stretch=1)
+        self.setCentralWidget(central)
 
         act_save = QAction("Save", self)
         act_save.setShortcut(QKeySequence.StandardKey.Save)
@@ -161,89 +137,23 @@ class MainWindow(QMainWindow):
         palette.triggered.connect(self._command_palette)
         self.addAction(palette)
 
-        self.explorer = TestExplorer()
-        self.explorer.case_selected.connect(self._on_case_selected)
-        self.builder = StepBuilder()
-        self.builder.case_changed.connect(self._on_case_fields_changed)
-        self.viewport = ScreencastViewport()
-        self.viewport.clicked_css.connect(self._on_viewport_click)
-        self.viewport.launch_requested.connect(self._launch_browser)
-
-        right = QWidget()
-        right.setAccessibleName("Cột Browser và Agent")
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 8, 8, 8)
-        right_layout.setSpacing(8)
-        right_layout.addWidget(self.viewport, stretch=2)
-        right_layout.addWidget(self._run_logs, stretch=1)
-
-        splitter = QSplitter()
-        splitter.addWidget(self.explorer)
-        splitter.addWidget(self.builder)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 22)
-        splitter.setStretchFactor(1, 40)
-        splitter.setStretchFactor(2, 38)
-        splitter.setSizes([280, 520, 480])
-        self.setCentralWidget(splitter)
-
-        self.drawer = QDockWidget("Bottom Drawer", self)
-        self.drawer.setAccessibleName("Bottom Drawer")
-        self.drawer.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        drawer_body = QWidget()
-        drawer_layout = QVBoxLayout(drawer_body)
-        drawer_layout.setContentsMargins(8, 8, 8, 8)
-        drawer_layout.setSpacing(8)
-
-        header = QHBoxLayout()
-        title = QLabel("Test Data")
-        title.setObjectName("title")
-        self.btn_drawer = QPushButton()
-        self.btn_drawer.setIcon(drawer_collapse_icon())
-        self.btn_drawer.setObjectName("ghost")
-        self.btn_drawer.setToolTip("Thu gọn / mở rộng drawer")
-        self.btn_drawer.setAccessibleName("Thu gọn Bottom Drawer")
-        self.btn_drawer.clicked.connect(self._toggle_drawer)
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.btn_drawer)
-        drawer_layout.addLayout(header)
-
-        self.data_grid = DataGrid()
-        self._drawer_content = self.data_grid
-        drawer_layout.addWidget(self.data_grid)
-        self.drawer.setWidget(drawer_body)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.drawer)
-
-        status = QStatusBar()
+        status = self.statusBar()
         status.setAccessibleName("Thanh trạng thái")
-        self._pill_mcp = self._make_pill("● MCP: Playwright (Ready)")
-        self._pill_skills = self._make_pill(f"● Skills: {len(self._skills.registry)} Active")
-        self._pill_tokens = self._make_pill(f"Token Budget: 0 / {TOKEN_CONTEXT_BUDGET}")
+        self._status_caption = CaptionLabel("Sẵn sàng", self)
+        status.addWidget(self._status_caption, stretch=1)
+        self._pill_mcp = InfoBadge.success("MCP: Playwright Ready", self)
+        self._pill_mcp.setAccessibleName("Trạng thái MCP Playwright")
+        self._pill_skills = InfoBadge.info("Skills: 0 Active", self)
+        self._pill_skills.setAccessibleName("Số Skills đang active")
+        self._pill_tokens = InfoBadge.attension(f"Tokens: 0 / {TOKEN_CONTEXT_BUDGET:,}", self)
+        self._pill_tokens.setAccessibleName("Token budget")
         for pill in (self._pill_mcp, self._pill_skills, self._pill_tokens):
             status.addPermanentWidget(pill)
         self._status = status
-        self._status.showMessage("Sẵn sàng")
-        self.setStatusBar(self._status)
 
-    def _make_pill(self, text: str) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("statusPill")
-        lay = QHBoxLayout(frame)
-        lay.setContentsMargins(8, 2, 8, 2)
-        label = QLabel(text)
-        label.setObjectName("muted")
-        lay.addWidget(label)
-        frame.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
-        return frame
-
-    def _set_pill(self, frame: QWidget, text: str) -> None:
-        label = frame.findChild(QLabel)
-        if label is not None:
-            label.setText(text)
+    @property
+    def _drawer_collapsed(self) -> bool:
+        return self.data_drawer.collapsed
 
     def _import_or_empty(self) -> Project:
         legacy = Path("data/project")
@@ -259,7 +169,7 @@ class MainWindow(QMainWindow):
         case = self._first_case(self.project)
         if case:
             self._load_case(case)
-        self._status.showMessage(
+        self._status_caption.setText(
             f"{self.project.name} · {len(self.project.shared_elements)} shared elements"
         )
         self._refresh_status_pills()
@@ -283,22 +193,17 @@ class MainWindow(QMainWindow):
         if case.start_url:
             self.url_edit.setText(case.start_url)
         if case.test_data_rows:
-            self.data_grid.load_rows(case.test_data_rows)
+            self.data_drawer.load_rows(case.test_data_rows)
         else:
-            self.data_grid.load_rows([])
+            self.data_drawer.load_rows([])
         self._update_unbound_badge(case)
-        self._status.showMessage(f"Case {case.code} · {len(case.steps)} bước")
+        self._status_caption.setText(f"Case {case.code} · {len(case.steps)} bước")
 
     def _update_unbound_badge(self, case: TestCase | None) -> None:
         if case is None:
-            self.unbound_badge.setVisible(False)
+            self.top_bar.set_unbound_count(0)
             return
-        unbound = count_unbound_steps(case)
-        if unbound > 0:
-            self.unbound_badge.setText(f"{unbound} UNBOUND")
-            self.unbound_badge.setVisible(True)
-        else:
-            self.unbound_badge.setVisible(False)
+        self.top_bar.set_unbound_count(count_unbound_steps(case))
 
     def _on_case_fields_changed(self) -> None:
         self._update_unbound_badge(self.builder.peek_case())
@@ -366,7 +271,7 @@ class MainWindow(QMainWindow):
             self._merge_case(case)
         self.storage.save(self.project)
         self._append_log(f"Đã lưu {self.storage.project_path}")
-        self._status.showMessage("Đã lưu")
+        self._status_caption.setText("Đã lưu")
 
     def _merge_case(self, case: TestCase) -> None:
         if self.project is None:
@@ -391,17 +296,30 @@ class MainWindow(QMainWindow):
         return case
 
     def _toggle_drawer(self) -> None:
-        self._drawer_collapsed = not self._drawer_collapsed
-        body = self.drawer.widget()
-        if body is None:
-            return
-        self.data_grid.setVisible(not self._drawer_collapsed)
-        if self._drawer_collapsed:
-            self.btn_drawer.setIcon(drawer_expand_icon())
-            self.drawer.setMaximumHeight(UI_DRAWER_COLLAPSED_HEIGHT + 48)
-        else:
-            self.btn_drawer.setIcon(drawer_collapse_icon())
-            self.drawer.setMaximumHeight(16777215)
+        self.data_drawer.toggle_collapse()
+
+    def _toast_error(self, title: str, content: str) -> None:
+        """Non-modal error — avoid QMessageBox inside asyncSlot (qasync/Playwright clash)."""
+        InfoBar.error(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=UI_INFOBAR_DURATION_MS,
+            parent=self,
+        )
+
+    def _toast_warn(self, title: str, content: str) -> None:
+        InfoBar.warning(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=UI_INFOBAR_DURATION_MS,
+            parent=self,
+        )
 
     @asyncSlot()
     async def _launch_browser(self) -> None:
@@ -410,12 +328,17 @@ class MainWindow(QMainWindow):
         self._busy = True
         try:
             url = self.url_edit.text().strip() or DEFAULT_TARGET_URL
-            await self.session.launch_url(url, log=self._append_log)
+            opened = await self.session.launch_url(url, log=self._append_log)
             await self._refresh_viewport()
-            self._set_pill(self._pill_mcp, "● MCP: Playwright (Ready)")
+            self._set_pill(self._pill_mcp, "MCP: Playwright Ready")
+            if opened == FALLBACK_BLANK_URL and url not in {"", FALLBACK_BLANK_URL}:
+                self._toast_warn(
+                    "URL không mở được",
+                    f"Không resolve được «{url}». Đã mở trang trống — nhập URL thật rồi Launch lại.",
+                )
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Không mở được trình duyệt: {exc}")
-            QMessageBox.warning(self, "Launch Browser", str(exc))
+            self._toast_error("Launch Browser", str(exc))
         finally:
             self._busy = False
 
@@ -436,7 +359,7 @@ class MainWindow(QMainWindow):
             url = url.strip()
             self.url_edit.setText(url)
         self._busy = True
-        self._status.showMessage("Đang đồng bộ…")
+        self._status_caption.setText("Đang đồng bộ…")
         try:
             case.start_url = url
             updated = await self.session.sync_bind(
@@ -449,13 +372,13 @@ class MainWindow(QMainWindow):
             self._update_unbound_badge(updated)
             await self._refresh_viewport()
             endpoint = self.session.engine.cdp_http_for_mcp() if self.session.started else "n/a"
-            self._set_pill(self._pill_mcp, f"● MCP: Playwright ({endpoint})")
+            self._set_pill(self._pill_mcp, f"MCP: Playwright ({endpoint})")
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Sync thất bại: {exc}")
-            QMessageBox.warning(self, "Sync URL", str(exc))
+            self._toast_error("Sync URL", str(exc))
         finally:
             self._busy = False
-            self._status.showMessage("Sẵn sàng")
+            self._status_caption.setText("Sẵn sàng")
 
     @asyncSlot()
     async def _run_current(self) -> None:
@@ -465,7 +388,7 @@ class MainWindow(QMainWindow):
         if case is None:
             return
         self._busy = True
-        self._status.showMessage("Đang chạy…")
+        self._status_caption.setText("Đang chạy…")
         self._run_logs.clear()
         try:
             skill = self.skill_combo.currentText()
@@ -486,24 +409,25 @@ class MainWindow(QMainWindow):
             out = self.data_root / "exports" / f"{report.run_id}.html"
             HtmlReporter().write(report, out)
             self._append_log(f"Báo cáo HTML: {out}")
-            self._set_pill(self._pill_mcp, f"● MCP: Playwright ({report.cases[0].status})")
+            self._set_pill(self._pill_mcp, f"MCP: Playwright ({report.cases[0].status})")
             used = self._token_budget.count(self._run_logs.to_plain_text())
             self._set_pill(
-                self._pill_tokens, f"Token Budget: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k"
+                self._pill_tokens,
+                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
             )
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Chạy thất bại: {exc}")
-            QMessageBox.warning(self, "Run", str(exc))
+            self._toast_error("Run", str(exc))
         finally:
             self._busy = False
-            self._status.showMessage("Sẵn sàng")
+            self._status_caption.setText("Sẵn sàng")
 
     @asyncSlot()
     async def _stop_browser(self) -> None:
         try:
             await self.session.stop(log=self._append_log)
             self.viewport.set_placeholder("")
-            self._set_pill(self._pill_mcp, "● MCP: Playwright (Stopped)")
+            self._set_pill(self._pill_mcp, "MCP: Playwright (Stopped)")
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Stop thất bại: {exc}")
 
@@ -541,24 +465,6 @@ class MainWindow(QMainWindow):
         png, w, h = await self.session.capture_png()
         self.viewport.set_frame_png(png, w, h)
 
-    def _export_menu(self) -> None:
-        choice, ok = QInputDialog.getItem(
-            self,
-            "Export",
-            "Định dạng:",
-            ["HTML Report", "Excel IEEE 829", "Pytest"],
-            0,
-            False,
-        )
-        if not ok:
-            return
-        mapping = {
-            "HTML Report": "html",
-            "Excel IEEE 829": "excel",
-            "Pytest": "pytest",
-        }
-        self._export(mapping[choice])
-
     def _export(self, kind: str) -> None:
         if self.project is None:
             return
@@ -582,51 +488,107 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Export", str(exc))
 
-    def _command_palette(self) -> None:
-        choice, ok = QInputDialog.getItem(
-            self,
-            "Command Palette",
-            "Hành động:",
-            [
+    def _palette_commands(self) -> list[PaletteCommand]:
+        return [
+            PaletteCommand(
+                "wizard",
                 "AI Wizard",
+                "Tạo kịch bản draft từ SRS / mô tả",
+                ("ai", "wizard", "srs", "figma"),
+                self._open_wizard,
+            ),
+            PaletteCommand(
+                "new_case",
                 "New Case",
+                "Thêm test case mới vào scenario hiện tại",
+                ("new", "case", "add"),
+                self._new_case,
+            ),
+            PaletteCommand(
+                "sync",
                 "Sync URL",
+                "Ánh xạ bước UNBOUND sang selector thật",
+                ("sync", "bind", "url"),
+                self._sync_url,
+            ),
+            PaletteCommand(
+                "run",
                 "Run",
+                "Chạy test case đang chọn",
+                ("run", "play", "execute"),
+                self._run_current,
+            ),
+            PaletteCommand(
+                "stop",
                 "Stop",
+                "Dừng trình duyệt / phiên chạy",
+                ("stop", "cancel"),
+                self._stop_browser,
+            ),
+            PaletteCommand(
+                "launch",
                 "Launch Browser",
-                "Export",
-                "Save",
-            ],
-            0,
-            False,
-        )
-        if not ok:
-            return
-        mapping = {
-            "AI Wizard": self._open_wizard,
-            "New Case": self._new_case,
-            "Sync URL": self._sync_url,
-            "Run": self._run_current,
-            "Stop": self._stop_browser,
-            "Launch Browser": self._launch_browser,
-            "Export": self._export_menu,
-            "Save": self._save_project,
-        }
-        mapping[choice]()
+                "Mở Chromium + CDP screencast",
+                ("launch", "browser", "cdp"),
+                self._launch_browser,
+            ),
+            PaletteCommand(
+                "export_html",
+                "Export HTML Report",
+                "Xuất báo cáo HTML Visual Replay",
+                ("export", "html", "report"),
+                lambda: self._export("html"),
+            ),
+            PaletteCommand(
+                "export_excel",
+                "Export Excel IEEE 829",
+                "Xuất Excel IEEE 829 + RTM",
+                ("export", "excel", "ieee"),
+                lambda: self._export("excel"),
+            ),
+            PaletteCommand(
+                "export_pytest",
+                "Export Pytest Project",
+                "Xuất bộ pytest + scaffold CI",
+                ("export", "pytest", "code"),
+                lambda: self._export("pytest"),
+            ),
+            PaletteCommand(
+                "save",
+                "Save Project",
+                "Lưu project.v4.json",
+                ("save", "persist"),
+                self._save_project,
+            ),
+        ]
+
+    def _command_palette(self) -> None:
+        palette = CommandPalette(self._palette_commands(), self)
+        if palette.exec():
+            chosen = palette.chosen()
+            if chosen is not None:
+                chosen.callback()
 
     def _append_log(self, message: str) -> None:
         self._run_logs.append_message(message)
         used = self._token_budget.count(self._run_logs.to_plain_text())
         self._set_pill(
             self._pill_tokens,
-            f"Token Budget: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
+            f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
         )
+
+    def _set_pill(self, badge: InfoBadge, text: str) -> None:
+        badge.setText(text)
 
     def _refresh_status_pills(self) -> None:
         active = len(self._skills.registry) or self.skill_combo.count()
-        self._set_pill(self._pill_skills, f"● Skills: {active} Active")
+        self._set_pill(self._pill_skills, f"Skills: {active} Active")
         state = "Ready" if not self.session.started else "Connected"
-        self._set_pill(self._pill_mcp, f"● MCP: Playwright ({state})")
+        self._set_pill(self._pill_mcp, f"MCP: Playwright ({state})")
+
+    def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        super().showEvent(event)
+        bind_accessible_root(self)
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         if self.session.started:

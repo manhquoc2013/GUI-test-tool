@@ -31,15 +31,16 @@ def main() -> int:
     import qasync
     from PySide6.QtWidgets import QApplication
 
-    from ai_qa_test_studio.ui.qt_compat import ensure_qt_api
+    from ai_qa_test_studio.ui.qt_compat import ensure_qt_api, install_platform_noise_filters
 
     ensure_qt_api()
+    install_platform_noise_filters()
 
     from ai_qa_test_studio.ui.main_window import MainWindow
-    from ai_qa_test_studio.ui.theme import apply_theme
+    from ai_qa_test_studio.ui.theme import apply_studio_theme
 
     app = QApplication(sys.argv)
-    apply_theme(app, "dark")
+    apply_studio_theme(app)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 

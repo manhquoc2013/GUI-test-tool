@@ -62,9 +62,9 @@ def test_open_project_select_case(qapp: QApplication, tmp_path: Path) -> None:
         window.data_grid.horizontalHeaderItem(i).text()
         for i in range(window.data_grid.columnCount())
     ]
-    assert "Expected Outcome" in headers
-    assert "Parameters" in headers
-    param_item = window.data_grid.item(0, headers.index("Parameters"))
+    assert any("Expected Outcome" in h for h in headers)
+    assert any("Parameters" in h for h in headers)
+    param_item = window.data_grid.item(0, 1)
     assert param_item is not None
     assert "loaiHoSo: Cấp mới" in param_item.text()
     window._toggle_drawer()

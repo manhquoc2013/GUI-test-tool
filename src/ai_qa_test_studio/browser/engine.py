@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from ai_qa_test_studio.constants import CDP_HOST
+from ai_qa_test_studio.constants import CDP_HOST, GOTO_TIMEOUT_MS
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +74,8 @@ class BrowserEngine:
         logger.info("browser_started cdp=%s", self._cdp.http_endpoint)
         return self._cdp
 
-    async def goto(self, url: str) -> None:
-        await self.page.goto(url, wait_until="domcontentloaded")
+    async def goto(self, url: str, *, timeout_ms: int = GOTO_TIMEOUT_MS) -> None:
+        await self.page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
 
     async def stop(self) -> None:
         if self._context is not None:

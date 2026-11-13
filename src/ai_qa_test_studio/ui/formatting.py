@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai_qa_test_studio.constants import BINDING_BOUND, BINDING_UNBOUND
+from ai_qa_test_studio.constants import BINDING_BOUND, BINDING_UNBOUND, PARAM_CELL_SEP
 from ai_qa_test_studio.core.models import TestCase
 
 
@@ -23,15 +23,15 @@ def case_binding_rollups(case: TestCase) -> str:
 
 
 def format_param_cell(value: Any) -> str:
-    """Render dict/list parameters as compact QA-friendly text."""
+    """Render dict/list parameters as a single-line QA-friendly summary."""
     if value is None:
         return ""
     if isinstance(value, dict):
         if not value:
             return ""
-        return "; ".join(f"{key}: {value[key]}" for key in value)
+        return PARAM_CELL_SEP.join(f"{key}: {value[key]}" for key in value)
     if isinstance(value, list):
-        return "; ".join(format_param_cell(item) for item in value)
+        return PARAM_CELL_SEP.join(format_param_cell(item) for item in value)
     return str(value)
 
 
