@@ -18,6 +18,8 @@ from ai_qa_test_studio.constants import (
     STATUS_DOT,
     THEME_BG_PANEL,
     UI_EXPLORER_MIN_WIDTH,
+    UI_TREE_INDENT,
+    UI_TREE_ROW_HEIGHT,
 )
 from ai_qa_test_studio.core.models import Project, SharedElement, TestCase
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
@@ -72,9 +74,12 @@ class ExplorerPane(QWidget):
     def _make_tree(self, accessible_name: str) -> TreeWidget:
         tree = TreeWidget(self)
         tree.setHeaderHidden(True)
-        tree.setIndentation(16)
+        tree.setIndentation(UI_TREE_INDENT)
+        tree.setUniformRowHeights(True)
+        tree.setTextElideMode(Qt.TextElideMode.ElideRight)
         tree.setAccessibleName(accessible_name)
         tree.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        tree.setStyleSheet(f"TreeWidget::item {{ height: {UI_TREE_ROW_HEIGHT}px; }}")
         return tree
 
     def _on_pivot_changed(self, key: str) -> None:
@@ -161,19 +166,24 @@ class ExplorerPane(QWidget):
         node = QTreeWidgetItem([group.name])
         node.setIcon(0, FIF.FOLDER.icon())
         node.setData(0, _SEARCH_ROLE, group.name)
+        node.setToolTip(0, group.name)
         parent.addChild(node)
         for scenario in group.scenarios:
-            sc = QTreeWidgetItem([f"{scenario.code}: {scenario.title}"])
+            label = f"{scenario.code}: {scenario.title}"
+            sc = QTreeWidgetItem([label])
             sc.setIcon(0, FIF.DOCUMENT.icon())
             sc.setData(0, _SEARCH_ROLE, f"{scenario.code} {scenario.title}")
+            sc.setToolTip(0, label)
             for case in scenario.cases:
                 sc.addChild(self._case_item(case))
             node.addChild(sc)
             sc.setExpanded(True)
         for suite in group.suites:
-            su = QTreeWidgetItem([f"Suite: {suite.name}"])
+            label = f"Suite: {suite.name}"
+            su = QTreeWidgetItem([label])
             su.setIcon(0, FIF.FOLDER.icon())
             su.setData(0, _SEARCH_ROLE, suite.name)
+            su.setToolTip(0, label)
             for case in suite.cases:
                 su.addChild(self._case_item(case))
             node.addChild(su)
@@ -184,11 +194,12 @@ class ExplorerPane(QWidget):
 
     def _case_item(self, case: TestCase) -> QTreeWidgetItem:
         rollup = case_binding_rollups(case)
-        item = QTreeWidgetItem([f"{STATUS_DOT} {case.code}: {case.title}"])
+        label = f"{STATUS_DOT} {case.code}: {case.title}"
+        item = QTreeWidgetItem([label])
         item.setIcon(0, FIF.DOCUMENT.icon())
         item.setData(0, Qt.ItemDataRole.UserRole, case)
         item.setData(0, _SEARCH_ROLE, f"{case.code} {case.title}")
-        item.setToolTip(0, f"{case.code} — {rollup}")
+        item.setToolTip(0, f"{case.code}: {case.title}\n{rollup}")
         color = {
             "FAILED": ICON_COLOR_DANGER,
             BINDING_UNBOUND: ICON_COLOR_WARN,

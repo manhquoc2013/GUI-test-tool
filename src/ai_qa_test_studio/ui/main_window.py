@@ -52,10 +52,13 @@ from ai_qa_test_studio.constants import (
     UI_DRAWER_WIDTH,
     UI_DRAWER_WIDTH_COMPACT,
     UI_DRAWER_WIDTH_NARROW,
+    UI_EXPLORER_MIN_WIDTH,
     UI_INFOBAR_DURATION_MS,
     UI_SIDEBAR_WIDTH,
     UI_SIDEBAR_WIDTH_COMPACT,
+    UI_SIDEBAR_WIDTH_MAX,
     UI_SPLIT_SIZES_V,
+    UI_WIDGET_SIZE_MAX,
     UI_WINDOW_DEFAULT_HEIGHT,
     UI_WINDOW_DEFAULT_WIDTH,
     UI_WINDOW_MIN_HEIGHT,
@@ -166,6 +169,7 @@ class MainWindow(QMainWindow):
         self.builder.sync_requested.connect(self._sync_url)
         self.h_splitter.addWidget(self.explorer)
         self.h_splitter.addWidget(self.builder)
+        self.h_splitter.setChildrenCollapsible(False)
         self.h_splitter.setStretchFactor(0, 0)
         self.h_splitter.setStretchFactor(1, 1)
         self.h_splitter.setSizes([UI_SIDEBAR_WIDTH, UI_WINDOW_DEFAULT_WIDTH - UI_SIDEBAR_WIDTH])
@@ -189,6 +193,8 @@ class MainWindow(QMainWindow):
 
         self.data_drawer = TestDataDrawer(v_splitter)
         self.data_grid = self.data_drawer.table
+        self.data_drawer.add_requested.connect(self._add_test_data_row)
+        self.data_drawer.rows_changed.connect(self._on_test_data_rows_changed)
         v_splitter.addWidget(self.workspace)
         v_splitter.addWidget(self.data_drawer)
         v_splitter.setSizes(list(UI_SPLIT_SIZES_V))
@@ -245,32 +251,38 @@ class MainWindow(QMainWindow):
         return self.data_drawer.collapsed
 
     def apply_layout_breakpoint(self, width: int) -> None:
+        # Right drawer is always a right-edge overlay; breakpoints only size chrome.
+        self._overlay_mode = True
         if width >= UI_BREAKPOINT_WIDE:
             self._narrow_auto_collapsed = False
             sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH
             self._drawer_width = UI_DRAWER_WIDTH
-            self._overlay_mode = False
         elif width >= UI_BREAKPOINT_MEDIUM:
             self._narrow_auto_collapsed = False
             sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
             self._drawer_width = UI_DRAWER_WIDTH_COMPACT
-            self._overlay_mode = False
         else:
             if not self._narrow_auto_collapsed:
                 self._sidebar_collapsed = True
                 self._narrow_auto_collapsed = True
             sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
             self._drawer_width = UI_DRAWER_WIDTH_NARROW
-            self._overlay_mode = True
         if sidebar <= 0:
             self.explorer.hide()
         else:
+            was_hidden = self.explorer.isHidden()
             self.explorer.show()
-            self.explorer.setMinimumWidth(max(160, sidebar - 20))
-            self.explorer.setMaximumWidth(sidebar + 40)
+            # Floor stays at EXPLORER_MIN so drag-resize cannot squash tabs/tree.
+            self.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
+            self.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
             sizes = self.h_splitter.sizes()
-            editor = max(400, sum(sizes) - sidebar) if sizes else 800
-            self.h_splitter.setSizes([sidebar, editor])
+            current = sizes[0] if len(sizes) >= 2 else 0
+            if was_hidden or current < UI_EXPLORER_MIN_WIDTH:
+                total = max(self.h_splitter.width(), sum(sizes), 1)
+                editor = max(320, total - sidebar)
+                self.h_splitter.setSizes([sidebar, editor])
+        self.top_bar.apply_density(width)
+        self.builder.apply_density(width)
         self._sync_drawer_geometry()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # type: ignore[override]
@@ -283,20 +295,18 @@ class MainWindow(QMainWindow):
         wh = self.workspace.height()
         if ww <= 0 or wh <= 0:
             return
+        # Canvas always fills workspace; drawer overlays from the right edge.
+        self.h_splitter.setGeometry(0, 0, ww, wh)
         if self.right_drawer.is_open:
-            dw = self._drawer_width
-            self.right_drawer.setFixedWidth(dw)
+            dw = min(self._drawer_width, max(1, ww))
+            x = max(0, ww - dw)
+            self.right_drawer.setMinimumSize(0, 0)
+            self.right_drawer.setMaximumSize(UI_WIDGET_SIZE_MAX, UI_WIDGET_SIZE_MAX)
+            self.right_drawer.setGeometry(x, 0, dw, wh)
             self.right_drawer.show()
             self.right_drawer.raise_()
-            if self._overlay_mode:
-                self.h_splitter.setGeometry(0, 0, ww, wh)
-                self.right_drawer.setGeometry(ww - dw, 0, dw, wh)
-            else:
-                self.h_splitter.setGeometry(0, 0, max(1, ww - dw), wh)
-                self.right_drawer.setGeometry(ww - dw, 0, dw, wh)
         else:
             self.right_drawer.hide()
-            self.h_splitter.setGeometry(0, 0, ww, wh)
 
     def _toggle_sidebar(self) -> None:
         self._sidebar_collapsed = not self._sidebar_collapsed
@@ -389,6 +399,23 @@ class MainWindow(QMainWindow):
 
     def _on_case_fields_changed(self) -> None:
         self._update_unbound_badge(self.builder.peek_case())
+
+    def _add_test_data_row(self) -> None:
+        if self.project is None or self.builder.current_case() is None:
+            self._toast_warn("Test Data", "Chọn một test case trước khi thêm bộ dữ liệu.")
+            return
+        self.data_drawer.add_blank_row()
+
+    def _on_test_data_rows_changed(self, rows: list[dict[str, Any]]) -> None:
+        if self.project is None:
+            return
+        case = self.builder.current_case()
+        if case is None:
+            return
+        case.test_data_rows = list(rows)
+        self._merge_case(case)
+        self.storage.save(self.project)
+        self._status_caption.setText(f"Case {case.code} · {len(case.test_data_rows)} bộ Test Data")
 
     def _open_copilot(self) -> None:
         self.right_drawer.show_copilot(compose=True)

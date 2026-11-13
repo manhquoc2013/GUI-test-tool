@@ -6,6 +6,7 @@ import yaml
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QHeaderView,
     QSizePolicy,
     QStackedWidget,
     QTableWidgetItem,
@@ -36,8 +37,14 @@ from qfluentwidgets import (
 from ai_qa_test_studio.constants import (
     BINDING_UNBOUND,
     THEME_BG_CANVAS,
+    UI_BREAKPOINT_MEDIUM,
+    UI_BREAKPOINT_WIDE,
     UI_CANVAS_MARGIN_H,
+    UI_CANVAS_MARGIN_H_COMPACT,
     UI_CANVAS_MARGIN_V,
+    UI_CANVAS_MARGIN_V_COMPACT,
+    UI_STEPS_COL_BINDING_WIDTH,
+    UI_STEPS_COL_INDEX_WIDTH,
 )
 from ai_qa_test_studio.core.models import TestCase, TestStep
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
@@ -66,6 +73,7 @@ class EditorPane(QWidget):
 
         self.title_label = SubtitleLabel("Chọn một test case", self)
         self.title_label.setAccessibleName("Tiêu đề kịch bản")
+        self.title_label.setWordWrap(True)
         layout.addWidget(self.title_label)
 
         header_row = QHBoxLayout()
@@ -90,7 +98,7 @@ class EditorPane(QWidget):
         )
         self.unbound_banner.setAccessibleName("Cảnh báo bước UNBOUND")
         btn_quick_sync = PrimaryPushButton("Sync ngay", self.unbound_banner)
-        btn_quick_sync.clicked.connect(self.sync_requested.emit)
+        btn_quick_sync.clicked.connect(lambda: self.sync_requested.emit())
         self.unbound_banner.addWidget(btn_quick_sync)
         self.unbound_banner.hide()
         layout.addWidget(self.unbound_banner)
@@ -210,7 +218,39 @@ class EditorPane(QWidget):
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["#", "Action", "Intent", "Data", "Binding"])
         table.setAccessibleName("Bảng bước No-Code")
+        table.setWordWrap(False)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        table.verticalHeader().setVisible(False)
+        table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._apply_steps_header(table)
         return table
+
+    def _apply_steps_header(self, table: TableWidget) -> None:
+        hdr = table.horizontalHeader()
+        hdr.setMinimumSectionSize(64)
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(0, UI_STEPS_COL_INDEX_WIDTH)
+        table.setColumnWidth(1, 100)
+        table.setColumnWidth(4, UI_STEPS_COL_BINDING_WIDTH)
+
+    def apply_density(self, width: int) -> None:
+        if width >= UI_BREAKPOINT_WIDE:
+            h, v = UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V
+        elif width >= UI_BREAKPOINT_MEDIUM:
+            h, v = UI_CANVAS_MARGIN_H_COMPACT + 4, UI_CANVAS_MARGIN_V_COMPACT + 4
+        else:
+            h, v = UI_CANVAS_MARGIN_H_COMPACT, UI_CANVAS_MARGIN_V_COMPACT
+        layout = self.layout()
+        if layout is not None:
+            layout.setContentsMargins(h, v, h, v)
+        self._apply_steps_header(self.table)
 
     def _toggle_details(self) -> None:
         self._details_expanded = not self._details_expanded
@@ -296,7 +336,10 @@ class EditorPane(QWidget):
                 step.binding_status,
             ]
             for col, value in enumerate(values):
-                self.table.setItem(row, col, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                self.table.setItem(row, col, item)
+        self._apply_steps_header(self.table)
 
         payload = {
             "code": self._case.code,

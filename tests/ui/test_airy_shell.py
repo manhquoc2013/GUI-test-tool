@@ -12,6 +12,9 @@ from PySide6.QtWidgets import QApplication
 from ai_qa_test_studio.constants import (
     COPILOT_STARTER_PROMPTS,
     UI_BREAKPOINT_MEDIUM,
+    UI_BREAKPOINT_WIDE,
+    UI_EXPLORER_MIN_WIDTH,
+    UI_SIDEBAR_WIDTH_COMPACT,
     UI_WINDOW_DEFAULT_HEIGHT,
     UI_WINDOW_DEFAULT_WIDTH,
     UI_WINDOW_MIN_HEIGHT,
@@ -101,4 +104,142 @@ def test_chat_undo_from_message(qapp: QApplication, tmp_path: Path) -> None:
     assert pane.session.messages == []
     assert pane.input_box.toPlainText() == "hello"
     assert not pane.starters.isHidden()
+    window.close()
+
+
+def test_settings_signal_emits_without_arity_error(qapp: QApplication) -> None:
+    """clicked/triggered must not pass checked=bool into Signal() with 0 args."""
+    from qfluentwidgets import Action, RoundMenu
+    from qfluentwidgets import FluentIcon as FIF
+
+    from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
+    from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
+
+    hits: list[str] = []
+    bar = UnifiedTopBar()
+    bar.settings_requested.connect(lambda: hits.append("bar"))
+    menu = RoundMenu(parent=bar)
+    action = Action(
+        FIF.SETTING,
+        "System Settings",
+        triggered=lambda: bar.settings_requested.emit(),
+    )
+    menu.addAction(action)
+    action.trigger()
+
+    pane = CopilotChatPane()
+    pane.settings_requested.connect(lambda: hits.append("pane"))
+    pane.btn_settings.click()
+    assert hits == ["bar", "pane"]
+
+
+def test_run_button_icon_stays_left_of_text(qapp: QApplication, tmp_path: Path) -> None:
+    """Run button uses left-pinned icon painter; labels toggle Chạy/Dừng."""
+    from ai_qa_test_studio.ui.widgets.top_toolbar import _IconLeftPrimaryButton
+
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    btn = window.top_bar.btn_run
+    assert isinstance(btn, _IconLeftPrimaryButton)
+    window.top_bar.set_running(True)
+    assert btn.text() == "Dừng"
+    window.top_bar.set_running(False)
+    assert btn.text() == "Chạy"
+    window.close()
+
+
+def test_top_bar_density_compacts_labels(qapp: QApplication, tmp_path: Path) -> None:
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.top_bar.apply_density(UI_BREAKPOINT_WIDE)
+    assert window.top_bar.btn_wizard.text() == "Tạo bằng AI"
+    window.top_bar.apply_density(UI_BREAKPOINT_MEDIUM)
+    assert window.top_bar.btn_wizard.text() == "Tạo AI"
+    window.top_bar.apply_density(UI_BREAKPOINT_MEDIUM - 40)
+    assert window.top_bar.btn_wizard.text() == ""
+    assert window.top_bar.btn_copilot.text() == ""
+    window.close()
+
+
+def test_sidebar_and_steps_table_readable(qapp: QApplication, tmp_path: Path) -> None:
+    """Sidebar fits 3 explorer tabs; Steps table keeps Intent/Data/Binding on-screen."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+
+    assert window.explorer.isVisible()
+    assert window.explorer.width() >= UI_EXPLORER_MIN_WIDTH
+    assert window.h_splitter.sizes()[0] >= UI_SIDEBAR_WIDTH_COMPACT - 1
+
+    table = window.builder.table
+    assert table.columnCount() == 5
+    visible_cols = sum(1 for c in range(5) if table.columnWidth(c) > 0)
+    assert visible_cols == 5
+    assert table.columnWidth(2) > 0  # Intent stretches
+    assert table.columnWidth(3) > 0  # Data stretches
+    window.close()
+
+
+def test_sidebar_splitter_rejects_collapse(qapp: QApplication, tmp_path: Path) -> None:
+    """Dragging the H-splitter must not squash explorer below EXPLORER_MIN."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+
+    assert window.h_splitter.childrenCollapsible() is False
+    total = sum(window.h_splitter.sizes()) or window.workspace.width()
+    window.h_splitter.setSizes([40, max(1, total - 40)])
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+
+    assert window.explorer.isVisible()
+    assert window.explorer.width() >= UI_EXPLORER_MIN_WIDTH
+    assert window.h_splitter.sizes()[0] >= UI_EXPLORER_MIN_WIDTH
+    window.close()
+
+
+def test_right_drawer_overlay_survives_resize(qapp: QApplication, tmp_path: Path) -> None:
+    """Drawer stays a full-height right overlay; canvas width is not shrunk."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.top_bar.btn_copilot.setChecked(True)
+    window._sync_drawer_geometry()
+    qapp.processEvents()
+
+    drawer = window.right_drawer
+    ws = window.workspace
+    assert drawer.is_open is True
+    assert drawer.isVisible()
+    assert window._overlay_mode is True
+    assert window.h_splitter.width() == ws.width()
+    assert drawer.x() + drawer.width() == ws.width()
+    assert drawer.height() == ws.height()
+    assert drawer.width() > 0
+
+    for width in (UI_BREAKPOINT_WIDE + 40, UI_BREAKPOINT_MEDIUM + 10, UI_BREAKPOINT_MEDIUM - 40, 900):
+        window.resize(width, 700)
+        qapp.processEvents()
+        window.apply_layout_breakpoint(window.width())
+        qapp.processEvents()
+        assert drawer.is_open is True
+        assert drawer.isVisible()
+        assert drawer.width() > 0
+        assert drawer.height() == ws.height()
+        assert drawer.x() + drawer.width() == ws.width()
+        assert window.h_splitter.geometry().width() == ws.width()
+
     window.close()

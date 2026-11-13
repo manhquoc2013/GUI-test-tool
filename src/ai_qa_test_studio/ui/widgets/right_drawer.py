@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import SegmentedWidget
@@ -10,7 +10,7 @@ from qfluentwidgets import SegmentedWidget
 from ai_qa_test_studio.constants import (
     THEME_BG_SURFACE,
     THEME_BORDER_SUBTLE,
-    UI_DRAWER_WIDTH,
+    UI_WIDGET_SIZE_MAX,
 )
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
 from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
@@ -27,10 +27,11 @@ class RightDrawer(QWidget):
         super().__init__(parent)
         self.setAccessibleName("Right Drawer Copilot Browser")
         self.setMinimumWidth(0)
-        self.setMaximumWidth(UI_DRAWER_WIDTH + 40)
+        self.setMaximumWidth(UI_WIDGET_SIZE_MAX)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(
-            f"background-color: {THEME_BG_SURFACE};"
-            f"border-left: 1px solid {THEME_BORDER_SUBTLE};"
+            f"RightDrawer {{ background-color: {THEME_BG_SURFACE};"
+            f"border-left: 1px solid {THEME_BORDER_SUBTLE}; }}"
         )
         self._open = False
 
