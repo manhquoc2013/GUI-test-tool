@@ -11,6 +11,8 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
+    COPILOT_SUMMARY_MAX_CHARS,
+    EVENT_STATUS_SUMMARY,
     LLM_PROVIDER_OFFLINE,
     ROLE_COMPOSER,
     ROLE_CRITIC,
@@ -90,3 +92,17 @@ async def test_cancel_stops_before_critic() -> None:
         if event.kind == "stopped":
             break
     assert ROLE_CRITIC not in roles
+
+
+@pytest.mark.asyncio
+async def test_status_summaries_are_short() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    async for event in orch.run(
+        user_text="Giải thích bước lỗi đăng nhập",
+        mode=COPILOT_MODE_CASE,
+        context={},
+    ):
+        if event.kind == EVENT_STATUS_SUMMARY:
+            assert len(event.text) <= COPILOT_SUMMARY_MAX_CHARS

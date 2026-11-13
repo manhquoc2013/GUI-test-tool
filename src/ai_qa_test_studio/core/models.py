@@ -111,13 +111,59 @@ class TestDataProfile(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AiModelEntry(BaseModel):
+    id: str
+    label: str = ""
+    tier: str = "mid"
+    is_default: bool = False
+
+
+class AiConnection(BaseModel):
+    id: str
+    label: str = ""
+    provider: str = "offline"
+    base_url: str = ""
+    api_key_ref: str = ""
+    enabled: bool = True
+    models: list[AiModelEntry] = Field(default_factory=list)
+
+
+class AiRoutingSettings(BaseModel):
+    mode: str = "auto"
+    manual_model_ref: str = ""
+    complexity_enabled: bool = True
+    task_complexity_models: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class CopilotRuntimeSettings(BaseModel):
+    summary_max_chars: int = 160
+    debate_max_rounds: int = 3
+    loop_repeat_limit: int = 2
+    clarify_timeout_ms: int = 60_000
+    lean_tail_max_tokens: int = 2400
+
+
+class McpExternalSettings(BaseModel):
+    playwright: bool = True
+    midscene: bool = False
+
+
+class McpSettings(BaseModel):
+    external: McpExternalSettings = Field(default_factory=McpExternalSettings)
+
+
 class AiSettings(BaseModel):
+    """Legacy flat fields kept for gateway helpers; prefer `connections`."""
+
     api_key_ref: str = ""
     base_url: str = ""
     model: str = ""
     provider: str = ""
     temperature: float = 0.2
     max_tokens: int = 512
+    connections: list[AiConnection] = Field(default_factory=list)
+    default_connection_id: str = ""
+    routing: AiRoutingSettings = Field(default_factory=AiRoutingSettings)
 
 
 class AppSettings(BaseModel):
@@ -126,6 +172,8 @@ class AppSettings(BaseModel):
     theme: str = "dark"
     ai: AiSettings = Field(default_factory=AiSettings)
     active_environment: str = "DEV"
+    copilot: CopilotRuntimeSettings = Field(default_factory=CopilotRuntimeSettings)
+    mcp: McpSettings = Field(default_factory=McpSettings)
 
 
 class Project(BaseModel):

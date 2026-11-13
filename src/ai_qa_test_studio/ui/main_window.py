@@ -20,8 +20,14 @@ from PySide6.QtWidgets import (
 from qasync import asyncSlot
 from qfluentwidgets import CaptionLabel, InfoBadge, InfoBar, InfoBarPosition
 
+from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
-from ai_qa_test_studio.agent.orchestrator import CopilotOrchestrator
+from ai_qa_test_studio.agent.model_router import ModelRouter
+from ai_qa_test_studio.agent.orchestrator import (
+    ClarifyRequest,
+    ClarifyResponse,
+    CopilotOrchestrator,
+)
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.dom_distiller import DomDistiller
 from ai_qa_test_studio.browser.visual_inspector import element_from_point
@@ -31,6 +37,11 @@ from ai_qa_test_studio.constants import (
     COPILOT_MODE_COMPOSE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
+    EVENT_AGENT_MESSAGE,
+    EVENT_CLARIFY_REQUEST,
+    EVENT_CLARIFY_RESOLVED,
+    EVENT_LOOP_HALTED,
+    EVENT_STATUS_SUMMARY,
     FALLBACK_BLANK_URL,
     ROLE_COMPOSER,
     SCREENCAST_STATUS_NAV_FAILED,
@@ -53,10 +64,12 @@ from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
+from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
 from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
 from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
+from ai_qa_test_studio.ui.widgets.system_settings_dialog import SystemSettingsDialog
 from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 
 
@@ -80,11 +93,14 @@ class MainWindow(QMainWindow):
         self._chat_store = ChatHistoryStore(self.data_root)
         self._copilot_cancel: asyncio.Event | None = None
         self._dom_distiller = DomDistiller(self._token_budget)
+        self._bundled_mcp = BundledMcpRegistry()
+        self._bundled_mcp.start()
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
             self.storage.save(self.project)
         self._reload_ui()
+        self._refresh_model_catalog()
         self._refresh_status_pills()
 
     def _build_chrome(self) -> None:
@@ -164,8 +180,8 @@ class MainWindow(QMainWindow):
         status.setAccessibleName("Thanh trạng thái")
         self._status_caption = CaptionLabel("Sẵn sàng", self)
         status.addWidget(self._status_caption, stretch=1)
-        self._pill_mcp = InfoBadge.success("MCP: Playwright Ready", self)
-        self._pill_mcp.setAccessibleName("Trạng thái MCP Playwright")
+        self._pill_mcp = InfoBadge.success("MCP: bundled ready", self)
+        self._pill_mcp.setAccessibleName("Trạng thái MCP")
         self._pill_skills = InfoBadge.info("Skills: 0 Active", self)
         self._pill_skills.setAccessibleName("Số Skills đang active")
         self._pill_tokens = InfoBadge.attension(f"Tokens: 0 / {TOKEN_CONTEXT_BUDGET:,}", self)
@@ -258,6 +274,40 @@ class MainWindow(QMainWindow):
             self._copilot_cancel.set()
         self.copilot.mark_stopped()
 
+    def _refresh_model_catalog(self) -> None:
+        router = ModelRouter(self.env.settings.ai)
+        self.copilot.set_model_catalog(router.catalog_labels())
+
+    async def _clarify_from_ui(self, request: ClarifyRequest) -> ClarifyResponse:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[ClarifyResponse] = loop.create_future()
+        dialog = ClarifyDialog(
+            question=request.question,
+            suggestions=list(request.suggestions),
+            default_answer=request.default_answer,
+            parent=self,
+            timeout_ms=self.env.settings.copilot.clarify_timeout_ms,
+        )
+
+        def _on_answered(answer: str, source: str) -> None:
+            if not future.done():
+                future.set_result(ClarifyResponse(answer=answer, source=source))
+
+        dialog.answered.connect(_on_answered)
+        dialog.show()
+        return await future
+
+    def _open_system_settings(self) -> None:
+        dialog = SystemSettingsDialog(self.env.settings, self)
+        if dialog.exec():
+            result = dialog.result_settings()
+            if result is not None:
+                self.env._settings = result
+                self.env.save_settings()
+                self._refresh_model_catalog()
+                self._refresh_status_pills()
+                self._toast_info("Settings", "Đã lưu cấu hình hệ thống.")
+
     @asyncSlot(str, dict)
     async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:
         self.copilot.set_busy(True)
@@ -270,7 +320,20 @@ class MainWindow(QMainWindow):
                 mode = COPILOT_MODE_COMPOSE
                 self.copilot.session.mode = mode
             gateway = UnifiedLLMGateway.from_settings(self.env.settings.ai)
-            orch = CopilotOrchestrator(gateway)
+            router = ModelRouter(
+                self.env.settings.ai,
+                pin_ref=str(flags.get("model") or self.copilot.selected_model_ref()),
+            )
+            copilot_cfg = self.env.settings.copilot
+            orch = CopilotOrchestrator(
+                gateway,
+                mcp=self._bundled_mcp,
+                router=router,
+                clarify_handler=self._clarify_from_ui,
+                debate_max_rounds=copilot_cfg.debate_max_rounds,
+                loop_repeat_limit=copilot_cfg.loop_repeat_limit,
+                summary_max_chars=copilot_cfg.summary_max_chars,
+            )
             history = [
                 ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
                 for m in self.copilot.session.llm_window()
@@ -292,6 +355,24 @@ class MainWindow(QMainWindow):
                 elif event.kind == "role_end" and event.role:
                     self.copilot.end_role(event.role, event.text)
                     current_role = None
+                elif event.kind == EVENT_STATUS_SUMMARY and event.role:
+                    if current_role:
+                        self.copilot.end_role(event.role, event.text)
+                        current_role = None
+                    else:
+                        self.copilot.append_status_summary(event.role, event.text)
+                elif event.kind == EVENT_AGENT_MESSAGE:
+                    self.copilot.append_agent_message(
+                        event.from_role or "critic",
+                        event.to_role or "composer",
+                        event.text,
+                    )
+                elif event.kind == EVENT_CLARIFY_REQUEST:
+                    self.copilot.append_clarify_note(event.role or "crew", event.question or event.text)
+                elif event.kind == EVENT_CLARIFY_RESOLVED:
+                    self.copilot.append_clarify_note(event.role or "crew", event.text)
+                elif event.kind == EVENT_LOOP_HALTED:
+                    self.copilot.append_clarify_note(event.role or "crew", event.text)
                 elif event.kind == "apply_ready" and event.apply_payload:
                     self.copilot.set_apply_payload(event.apply_payload)
                 elif event.kind == "stopped":
@@ -712,6 +793,13 @@ class MainWindow(QMainWindow):
                 ("save", "persist"),
                 self._save_project,
             ),
+            PaletteCommand(
+                "settings",
+                "System Settings",
+                "Cấu hình hệ thống, AI API, models, routing, MCP",
+                ("settings", "config", "ai", "model", "api"),
+                self._open_system_settings,
+            ),
         ]
 
     def _command_palette(self) -> None:
@@ -735,14 +823,16 @@ class MainWindow(QMainWindow):
     def _refresh_status_pills(self) -> None:
         active = len(self._skills.registry) or self.skill_combo.count()
         self._set_pill(self._pill_skills, f"Skills: {active} Active")
-        state = "Ready" if not self.session.started else "Connected"
-        self._set_pill(self._pill_mcp, f"MCP: Playwright ({state})")
+        bundled = "ready" if self._bundled_mcp.ready else "off"
+        ext = "on" if self.env.settings.mcp.external.playwright else "off"
+        self._set_pill(self._pill_mcp, f"MCP: bundled {bundled} · PW {ext}")
 
     def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().showEvent(event)
         bind_accessible_root(self)
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._bundled_mcp.stop()
         if self.session.started:
             self._append_log("Đang đóng — trình duyệt sẽ dừng ở phiên tiếp theo")
         super().closeEvent(event)

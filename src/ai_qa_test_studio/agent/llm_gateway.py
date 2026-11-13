@@ -85,11 +85,32 @@ class UnifiedLLMGateway:
         messages: list[ChatMessage],
         cancel: asyncio.Event | None,
     ) -> AsyncIterator[str]:
+        system = next((m.content for m in messages if m.role == "system"), "")
         last = next((m.content for m in reversed(messages) if m.role == "user"), "")
-        text = (
-            f"[offline] Đã nhận yêu cầu: {last[:240]}\n"
-            "1) Phân tích ngữ cảnh\n2) Soạn artifact\n3) Rà soát Critic"
-        )
+        sys_l = system.lower()
+        if "classify" in sys_l and "complexity" in sys_l:
+            text = "normal"
+        elif "clarification question" in sys_l or "draft one clarification" in sys_l:
+            text = (
+                '{"question":"Bạn muốn phạm vi nào?","suggestions":'
+                '["Happy path","Full BVA","Chỉ smoke"],"default":"Happy path"}'
+            )
+        elif "critic" in sys_l:
+            text = "APPROVE — offline review OK."
+        elif "debate" in sys_l:
+            text = "Critic→Composer: giữ draft hiện tại, bổ sung expected outcome."
+        elif "planner" in sys_l:
+            text = (
+                "Kế hoạch:\n1. Làm rõ mục tiêu\n2. Composer soạn artifact\n"
+                "3. Critic rà soát 1 lần"
+            )
+        elif "composer" in sys_l:
+            text = f"[offline] Artifact cho: {last[:200]}"
+        else:
+            text = (
+                f"[offline] Đã nhận yêu cầu: {last[:240]}\n"
+                "1) Phân tích ngữ cảnh\n2) Soạn artifact\n3) Rà soát Critic"
+            )
         for word in text.split(" "):
             if cancel is not None and cancel.is_set():
                 return

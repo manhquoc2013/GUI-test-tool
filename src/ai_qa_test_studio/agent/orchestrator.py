@@ -1,23 +1,48 @@
-"""Default Copilot pipeline: Planner → Composer → Critic (one review pass)."""
+"""Copilot crew: Planner → Composer → Critic + bounded debate + clarify."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import re
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
+from ai_qa_test_studio.agent.complexity_classifier import ComplexityClassifier
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
+from ai_qa_test_studio.agent.model_router import ModelRouter
 from ai_qa_test_studio.agent.spec_generator import SpecGenerator
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CLARIFY_SOURCE_DEFAULT_SKIP,
+    CLARIFY_SOURCE_DEFAULT_TIMEOUT,
+    CLARIFY_SOURCE_USER,
+    COPILOT_AGENT_DEBATE_MAX_ROUNDS,
+    COPILOT_AGENT_LOOP_REPEAT_LIMIT,
     COPILOT_CHAT_MAX_TOKENS,
     COPILOT_MODE_COMPOSE,
+    COPILOT_SUMMARY_MAX_CHARS,
     DEFAULT_EXPECTED_OUTCOME,
+    EVENT_AGENT_MESSAGE,
+    EVENT_CLARIFY_REQUEST,
+    EVENT_CLARIFY_RESOLVED,
+    EVENT_LOOP_HALTED,
+    EVENT_STATUS_SUMMARY,
+    LLM_PROVIDER_OFFLINE,
+    LLM_TASK_CLARIFY_DRAFT,
+    LLM_TASK_COMPOSE,
+    LLM_TASK_CRITIQUE,
+    LLM_TASK_DEBATE,
+    LLM_TASK_PLAN,
+    LLM_TASK_REVISE,
+    LLM_TASK_SUMMARIZE,
+    MCP_QA_CREW_MEMORY,
     MSG_STATUS_STOPPED,
     ROLE_COMPOSER,
     ROLE_CRITIC,
@@ -27,6 +52,22 @@ from ai_qa_test_studio.core.token_budget import ContextCompressor
 
 logger = logging.getLogger(__name__)
 
+ClarifyHandler = Callable[["ClarifyRequest"], Awaitable["ClarifyResponse"]]
+
+
+@dataclass
+class ClarifyRequest:
+    role: str
+    question: str
+    suggestions: list[str]
+    default_answer: str
+
+
+@dataclass
+class ClarifyResponse:
+    answer: str
+    source: str = CLARIFY_SOURCE_USER
+
 
 @dataclass
 class OrchestratorEvent:
@@ -35,14 +76,30 @@ class OrchestratorEvent:
     text: str = ""
     apply_payload: dict[str, Any] | None = None
     status: str = ""
+    question: str = ""
+    suggestions: list[str] = field(default_factory=list)
+    default_answer: str = ""
+    from_role: str | None = None
+    to_role: str | None = None
+    fingerprint: str = ""
+    model: str = ""
+    artifact_ref: str = ""
+    clarify: ClarifyRequest | None = None
 
 
 @dataclass
 class _RoleResult:
     text: str = ""
+    summary: str = ""
     apply_payload: dict[str, Any] | None = None
     revise_notes: str = ""
     approved: bool = True
+    needs_clarify: bool = False
+    clarify_question: str = ""
+    clarify_suggestions: list[str] = field(default_factory=list)
+    clarify_default: str = ""
+    artifact_ref: str = ""
+    model: str = ""
 
 
 @dataclass
@@ -50,6 +107,13 @@ class CopilotOrchestrator:
     gateway: UnifiedLLMGateway
     generator: SpecGenerator = field(default_factory=SpecGenerator)
     compressor: ContextCompressor = field(default_factory=ContextCompressor)
+    mcp: BundledMcpRegistry | None = None
+    router: ModelRouter | None = None
+    clarify_handler: ClarifyHandler | None = None
+    classifier: ComplexityClassifier = field(default_factory=ComplexityClassifier)
+    debate_max_rounds: int = COPILOT_AGENT_DEBATE_MAX_ROUNDS
+    loop_repeat_limit: int = COPILOT_AGENT_LOOP_REPEAT_LIMIT
+    summary_max_chars: int = COPILOT_SUMMARY_MAX_CHARS
 
     async def run(
         self,
@@ -62,89 +126,403 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         stop = cancel or asyncio.Event()
         hist = list(history or [])
+        mcp = self.mcp or BundledMcpRegistry(compressor=self.compressor)
+        if not mcp.ready:
+            mcp.start()
+        self._bind_project_context(mcp, context)
         ctx_block = self._format_context(context)
 
+        complexity = await self.classifier.classify(
+            user_text, mode, context, gateway=self._gw(LLM_TASK_SUMMARIZE, "simple"), cancel=stop
+        )
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_PLANNER,
+            text=self._clip(f"Phân loại độ phức tạp: {complexity}"),
+        )
+
         # --- Planner ---
+        plan_route = self._route(LLM_TASK_PLAN, complexity)
         yield OrchestratorEvent(kind="role_start", role=ROLE_PLANNER)
-        plan = await self._plan(user_text, mode, ctx_block, hist, stop, max_tokens)
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_PLANNER,
+            text=self._clip(f"Planner · {complexity} · {plan_route.model}"),
+            model=plan_route.model,
+        )
+        plan = await self._plan(user_text, mode, ctx_block, hist, stop, max_tokens, plan_route.gateway())
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_PLANNER, status=MSG_STATUS_STOPPED)
             return
-        async for chunk in self._emit_text(ROLE_PLANNER, plan.text):
-            yield chunk
-        yield OrchestratorEvent(kind="role_end", role=ROLE_PLANNER, text=plan.text)
+        plan_ref = self._put_artifact(mcp, ROLE_PLANNER, "plan", plan.text)
+        plan.artifact_ref = plan_ref
+        plan.summary = self._summary_of(mcp, plan_ref, plan.text)
+        async for ev in self._maybe_clarify(ROLE_PLANNER, plan, user_text, complexity, stop, max_tokens):
+            if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
+                user_text = f"{user_text}\n\n[Clarify] {ev.text}"
+            yield ev
+            if stop.is_set():
+                return
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_PLANNER,
+            text=plan.summary,
+            artifact_ref=plan_ref,
+            model=plan_route.model,
+        )
+        yield OrchestratorEvent(kind="role_end", role=ROLE_PLANNER, text=plan.summary)
 
         # --- Composer ---
+        compose_route = self._route(LLM_TASK_COMPOSE, complexity)
         yield OrchestratorEvent(kind="role_start", role=ROLE_COMPOSER)
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COMPOSER,
+            text=self._clip(f"Composer · {complexity} · {compose_route.model}"),
+            model=compose_route.model,
+        )
+        composed = await self._compose(
+            user_text, mode, ctx_block, plan.text, hist, stop, max_tokens, compose_route.gateway()
+        )
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
             return
-        composed = await self._compose(user_text, mode, ctx_block, plan.text, hist, stop, max_tokens)
-        if stop.is_set():
-            yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
-            return
-        async for chunk in self._emit_text(ROLE_COMPOSER, composed.text):
-            yield chunk
+        composed_ref = self._put_artifact(mcp, ROLE_COMPOSER, "compose", composed.text)
+        composed.artifact_ref = composed_ref
+        composed.summary = self._summary_of(mcp, composed_ref, composed.text)
+        async for ev in self._maybe_clarify(ROLE_COMPOSER, composed, user_text, complexity, stop, max_tokens):
+            if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
+                user_text = f"{user_text}\n\n[Clarify] {ev.text}"
+            yield ev
+            if stop.is_set():
+                return
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COMPOSER,
+            text=composed.summary,
+            artifact_ref=composed_ref,
+            model=compose_route.model,
+        )
         if composed.apply_payload:
             yield OrchestratorEvent(
                 kind="apply_ready",
                 role=ROLE_COMPOSER,
                 apply_payload=composed.apply_payload,
-                text=composed.text,
+                text=composed.summary,
             )
-        yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=composed.text)
+        yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=composed.summary)
 
-        # --- Critic (exactly one pass) ---
+        # --- Critic ---
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
             return
+        critique_route = self._route(LLM_TASK_CRITIQUE, complexity)
         yield OrchestratorEvent(kind="role_start", role=ROLE_CRITIC)
-        if stop.is_set():
-            yield OrchestratorEvent(kind="stopped", role=ROLE_CRITIC, status=MSG_STATUS_STOPPED)
-            return
-        critique = await self._critique(user_text, composed.text, stop, max_tokens)
-        if stop.is_set():
-            yield OrchestratorEvent(kind="stopped", role=ROLE_CRITIC, status=MSG_STATUS_STOPPED)
-            return
-        async for chunk in self._emit_text(ROLE_CRITIC, critique.text):
-            yield chunk
-        yield OrchestratorEvent(kind="role_end", role=ROLE_CRITIC, text=critique.text)
-
-        if critique.approved or not critique.revise_notes:
-            yield OrchestratorEvent(kind="pipeline_complete")
-            return
-
-        # Single Composer revise — no second Critic
-        yield OrchestratorEvent(kind="role_start", role=ROLE_COMPOSER)
-        revised = await self._compose(
-            user_text,
-            mode,
-            ctx_block,
-            plan.text + "\n\nCritic notes:\n" + critique.revise_notes,
-            hist,
-            stop,
-            max_tokens,
-            revise=True,
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_CRITIC,
+            text=self._clip(f"Critic · {complexity} · {critique_route.model}"),
+            model=critique_route.model,
+        )
+        critique = await self._critique(
+            user_text, composed.text, stop, max_tokens, critique_route.gateway()
         )
         if stop.is_set():
-            yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
+            yield OrchestratorEvent(kind="stopped", role=ROLE_CRITIC, status=MSG_STATUS_STOPPED)
             return
-        async for chunk in self._emit_text(ROLE_COMPOSER, revised.text):
-            yield chunk
-        if revised.apply_payload:
+        critique_ref = self._put_artifact(mcp, ROLE_CRITIC, "critique", critique.text)
+        critique.summary = self._summary_of(mcp, critique_ref, critique.text)
+        async for ev in self._maybe_clarify(ROLE_CRITIC, critique, user_text, complexity, stop, max_tokens):
+            yield ev
+            if stop.is_set():
+                return
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_CRITIC,
+            text=critique.summary,
+            artifact_ref=critique_ref,
+            model=critique_route.model,
+        )
+        yield OrchestratorEvent(kind="role_end", role=ROLE_CRITIC, text=critique.summary)
+
+        # Bounded debate when not approved
+        if not critique.approved and critique.revise_notes:
+            async for ev in self._debate(
+                user_text=user_text,
+                composed_text=composed.text,
+                critique_notes=critique.revise_notes,
+                complexity=complexity,
+                stop=stop,
+                max_tokens=max_tokens,
+                mcp=mcp,
+            ):
+                yield ev
+                if stop.is_set():
+                    return
+                if ev.kind == EVENT_LOOP_HALTED:
+                    break
+            # Single revise after debate / notes
+            revise_route = self._route(LLM_TASK_REVISE, complexity)
+            yield OrchestratorEvent(kind="role_start", role=ROLE_COMPOSER)
             yield OrchestratorEvent(
-                kind="apply_ready",
+                kind=EVENT_STATUS_SUMMARY,
                 role=ROLE_COMPOSER,
-                apply_payload=revised.apply_payload,
-                text=revised.text,
+                text=self._clip(f"Composer revise · {revise_route.model}"),
+                model=revise_route.model,
             )
-        yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=revised.text)
+            revised = await self._compose(
+                user_text,
+                mode,
+                ctx_block,
+                plan.text + "\n\nCritic notes:\n" + critique.revise_notes,
+                hist,
+                stop,
+                max_tokens,
+                revise_route.gateway(),
+                revise=True,
+            )
+            if stop.is_set():
+                yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
+                return
+            rev_ref = self._put_artifact(mcp, ROLE_COMPOSER, "revise", revised.text)
+            revised.summary = self._summary_of(mcp, rev_ref, revised.text)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_COMPOSER,
+                text=revised.summary,
+                artifact_ref=rev_ref,
+                model=revise_route.model,
+            )
+            if revised.apply_payload:
+                yield OrchestratorEvent(
+                    kind="apply_ready",
+                    role=ROLE_COMPOSER,
+                    apply_payload=revised.apply_payload,
+                    text=revised.summary,
+                )
+            yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=revised.summary)
+
         yield OrchestratorEvent(kind="pipeline_complete")
 
-    async def _emit_text(self, role: str, text: str) -> AsyncIterator[OrchestratorEvent]:
-        for word in text.split(" "):
-            yield OrchestratorEvent(kind="chunk", role=role, text=word + " ")
-            await asyncio.sleep(0)
+    def _route(self, task: str, complexity: str) -> Any:
+        if self.router is not None:
+            return self.router.resolve(task, complexity)
+        return _FallbackRoute(self.gateway, task, complexity)
+
+    def _gw(self, task: str, complexity: str) -> UnifiedLLMGateway:
+        route = self._route(task, complexity)
+        gw: UnifiedLLMGateway = route.gateway()
+        return gw
+
+    def _bind_project_context(self, mcp: BundledMcpRegistry, context: dict[str, Any]) -> None:
+        mcp.project_context.bind(
+            case_json=str(context.get("case") or ""),
+            srs=str(context.get("srs") or ""),
+            test_data_rows=list(context.get("test_data_rows") or []),
+        )
+
+    def _put_artifact(self, mcp: BundledMcpRegistry, role: str, kind: str, text: str) -> str:
+        result = mcp.invoke(MCP_QA_CREW_MEMORY, "put_artifact", {"role": role, "kind": kind, "text": text})
+        return str(result.get("ref") or "")
+
+    def _summary_of(self, mcp: BundledMcpRegistry, ref: str, fallback: str) -> str:
+        if ref:
+            got = mcp.invoke(MCP_QA_CREW_MEMORY, "get_summary", {"ref": ref})
+            if got.get("found"):
+                return self._clip(str(got.get("summary") or fallback))
+        return self._clip(fallback)
+
+    def _clip(self, text: str) -> str:
+        compact = " ".join((text or "").split())
+        if len(compact) <= self.summary_max_chars:
+            return compact
+        return compact[: self.summary_max_chars - 1] + "…"
+
+    def _fingerprint(self, text: str) -> str:
+        norm = re.sub(r"\s+", " ", (text or "").lower()).strip()
+        return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+
+    async def _maybe_clarify(
+        self,
+        role: str,
+        result: _RoleResult,
+        user_text: str,
+        complexity: str,
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        ambiguous = result.needs_clarify or self._looks_ambiguous(user_text, result.text)
+        if not ambiguous:
+            return
+        draft = await self._draft_clarify(role, user_text, result.text, complexity, stop, max_tokens)
+        req = ClarifyRequest(
+            role=role,
+            question=draft["question"],
+            suggestions=list(draft["suggestions"]),
+            default_answer=draft["default"],
+        )
+        yield OrchestratorEvent(
+            kind=EVENT_CLARIFY_REQUEST,
+            role=role,
+            question=req.question,
+            suggestions=req.suggestions,
+            default_answer=req.default_answer,
+            clarify=req,
+            text=self._clip(req.question),
+        )
+        answer = req.default_answer
+        source = CLARIFY_SOURCE_DEFAULT_SKIP
+        if self.clarify_handler is not None:
+            try:
+                resp = await self.clarify_handler(req)
+                answer = resp.answer or req.default_answer
+                source = resp.source or CLARIFY_SOURCE_USER
+            except TimeoutError:
+                source = CLARIFY_SOURCE_DEFAULT_TIMEOUT
+                answer = req.default_answer
+        note = answer
+        if source != CLARIFY_SOURCE_USER:
+            note = f"(mặc định) {answer}"
+        yield OrchestratorEvent(
+            kind=EVENT_CLARIFY_RESOLVED,
+            role=role,
+            text=self._clip(note),
+            status=source,
+        )
+
+    def _looks_ambiguous(self, user_text: str, role_text: str) -> bool:
+        blob = f"{user_text}\n{role_text}".lower()
+        markers = ("chưa rõ", "unclear", "ambiguous", "cần làm rõ", "clarify", "???")
+        if any(m in blob for m in markers):
+            return True
+        # Bare "?" alone in very short prompts
+        return len(user_text.strip()) < 8 and "?" in user_text
+
+    async def _draft_clarify(
+        self,
+        role: str,
+        user_text: str,
+        role_text: str,
+        complexity: str,
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        gw = self._gw(LLM_TASK_CLARIFY_DRAFT, complexity)
+        system = (
+            "Draft one clarification question for a QA user. "
+            "Reply JSON: {\"question\":\"...\",\"suggestions\":[\"a\",\"b\"],\"default\":\"a\"}"
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            ChatMessage(
+                role="user",
+                content=f"Role={role}\nRequest:{user_text}\nDraft:{role_text[:800]}",
+            ),
+        ]
+        buf: list[str] = []
+        async for chunk in gw.stream_chat(messages, max_tokens=min(max_tokens, 256), cancel=stop):
+            buf.append(chunk)
+        raw = "".join(buf)
+        parsed = self._parse_json_obj(raw)
+        if parsed:
+            suggestions = [str(s) for s in (parsed.get("suggestions") or [])][:4]
+            fallback = "Tiếp tục với giả định mặc định"
+            default = str(parsed.get("default") or (suggestions[0] if suggestions else fallback))
+            return {
+                "question": str(parsed.get("question") or "Bạn muốn làm rõ yêu cầu thế nào?"),
+                "suggestions": suggestions or [fallback, "Bổ sung chi tiết sau"],
+                "default": default,
+            }
+        return {
+            "question": "Yêu cầu còn điểm mờ — bạn muốn tiếp tục theo hướng nào?",
+            "suggestions": ["Tiếp tục với giả định mặc định", "Bổ sung chi tiết sau"],
+            "default": "Tiếp tục với giả định mặc định",
+        }
+
+    def _parse_json_obj(self, raw: str) -> dict[str, Any] | None:
+        text = raw.strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    async def _debate(
+        self,
+        *,
+        user_text: str,
+        composed_text: str,
+        critique_notes: str,
+        complexity: str,
+        stop: asyncio.Event,
+        max_tokens: int,
+        mcp: BundledMcpRegistry,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        seen: dict[str, int] = {}
+        notes = critique_notes
+        for round_i in range(self.debate_max_rounds):
+            if stop.is_set():
+                yield OrchestratorEvent(kind="stopped", role=ROLE_CRITIC, status=MSG_STATUS_STOPPED)
+                return
+            fp = self._fingerprint(notes)
+            seen[fp] = seen.get(fp, 0) + 1
+            if seen[fp] >= self.loop_repeat_limit:
+                yield OrchestratorEvent(
+                    kind=EVENT_LOOP_HALTED,
+                    role=ROLE_CRITIC,
+                    text=self._clip("Anti-loop: agents lặp cùng vấn đề — dừng debate."),
+                    fingerprint=fp,
+                )
+                return
+            debate_route = self._route(LLM_TASK_DEBATE, complexity)
+            gw = debate_route.gateway()
+            system = (
+                "You are continuing a short agent debate between Critic and Composer. "
+                "Reply with one short resolution note under 120 words. "
+                "If stuck repeating, say LOOP."
+            )
+            messages = [
+                ChatMessage(role="system", content=system),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        f"Round {round_i + 1}/{self.debate_max_rounds}\n"
+                        f"Request:{user_text}\nComposer:{composed_text[:600]}\nCritic:{notes}"
+                    ),
+                ),
+            ]
+            buf: list[str] = []
+            async for chunk in gw.stream_chat(messages, max_tokens=min(max_tokens, 400), cancel=stop):
+                buf.append(chunk)
+            reply = "".join(buf).strip() or notes
+            if "LOOP" in reply.upper():
+                yield OrchestratorEvent(
+                    kind=EVENT_LOOP_HALTED,
+                    role=ROLE_CRITIC,
+                    text=self._clip("Debate báo LOOP — escalate."),
+                    fingerprint=fp,
+                )
+                return
+            summary = self._clip(reply)
+            yield OrchestratorEvent(
+                kind=EVENT_AGENT_MESSAGE,
+                role=ROLE_CRITIC,
+                from_role=ROLE_CRITIC,
+                to_role=ROLE_COMPOSER,
+                text=summary,
+                fingerprint=fp,
+                model=debate_route.model,
+            )
+            mcp.invoke(
+                MCP_QA_CREW_MEMORY,
+                "put_artifact",
+                {"role": ROLE_CRITIC, "kind": "debate", "text": reply},
+            )
+            notes = reply
 
     def _format_context(self, context: dict[str, Any]) -> str:
         parts: list[str] = []
@@ -155,8 +533,22 @@ class CopilotOrchestrator:
         if context.get("include_last_error") and context.get("last_error"):
             parts.append("LAST_ERROR:\n" + str(context["last_error"])[:1000])
         if context.get("srs"):
-            parts.append("SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000))
+            parts.append(
+                "SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
+            )
         return "\n\n".join(parts)
+
+    async def _collect(
+        self,
+        gw: UnifiedLLMGateway,
+        messages: list[ChatMessage],
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> str:
+        buf: list[str] = []
+        async for chunk in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+            buf.append(chunk)
+        return "".join(buf).strip()
 
     async def _plan(
         self,
@@ -166,8 +558,20 @@ class CopilotOrchestrator:
         hist: list[ChatMessage],
         stop: asyncio.Event,
         max_tokens: int,
+        gw: UnifiedLLMGateway,
     ) -> _RoleResult:
-        if self.gateway.provider == "offline" or not self.gateway.api_key:
+        system = (
+            "You are the Planner role for AI QA Test Studio. "
+            "Output a short numbered plan (3-7 steps). Do not mutate test assets. "
+            "If the request is ambiguous, include the word CLARIFY."
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            *hist[-6:],
+            ChatMessage(role="user", content=f"Mode={mode}\n{ctx_block}\n\nRequest:\n{user_text}"),
+        ]
+        text = await self._collect(gw, messages, stop, max_tokens)
+        if not text:
             steps = [
                 "1. Làm rõ mục tiêu từ yêu cầu người dùng",
                 "2. Composer soạn artifact / draft",
@@ -175,23 +579,9 @@ class CopilotOrchestrator:
             ]
             if mode == COPILOT_MODE_COMPOSE:
                 steps.insert(1, "1b. Sinh outline scenario UNBOUND từ SRS/mô tả")
-            return _RoleResult(text="Kế hoạch:\n" + "\n".join(steps))
-        system = (
-            "You are the Planner role for AI QA Test Studio. "
-            "Output a short numbered plan (3-7 steps). Do not mutate test assets."
-        )
-        messages = [
-            ChatMessage(role="system", content=system),
-            *hist[-6:],
-            ChatMessage(
-                role="user",
-                content=f"Mode={mode}\n{ctx_block}\n\nRequest:\n{user_text}",
-            ),
-        ]
-        buf: list[str] = []
-        async for chunk in self.gateway.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            buf.append(chunk)
-        return _RoleResult(text="".join(buf).strip() or "Kế hoạch: phân tích → soạn → rà soát")
+            text = "Kế hoạch:\n" + "\n".join(steps)
+        needs = "CLARIFY" in text.upper() or self._looks_ambiguous(user_text, text)
+        return _RoleResult(text=text, needs_clarify=needs)
 
     async def _compose(
         self,
@@ -202,6 +592,7 @@ class CopilotOrchestrator:
         hist: list[ChatMessage],
         stop: asyncio.Event,
         max_tokens: int,
+        gw: UnifiedLLMGateway,
         revise: bool = False,
     ) -> _RoleResult:
         lowered = user_text.lower()
@@ -209,46 +600,11 @@ class CopilotOrchestrator:
         wants_compose = mode == COPILOT_MODE_COMPOSE or any(
             k in lowered for k in ("tạo kịch bản", "srs", "scenario", "draft")
         )
-
-        if self.gateway.provider == "offline" or not self.gateway.api_key:
-            if wants_bva and mode != COPILOT_MODE_COMPOSE:
-                rows = self._offline_bva_rows()
-                body = "Đề xuất Test Data (BVA):\n" + json.dumps(rows, ensure_ascii=False, indent=2)
-                return _RoleResult(
-                    text=body,
-                    apply_payload={"kind": APPLY_KIND_TEST_DATA, "rows": rows},
-                )
-            if wants_compose:
-                srs = ""
-                if "SRS:" in ctx_block:
-                    srs = ctx_block.split("SRS:", 1)[-1].strip()
-                srs = srs or user_text
-                scenarios = self.generator.generate_outline_sync(srs)
-                for sc in scenarios:
-                    sc.cases = self.generator.generate_cases_sync(sc, batch_size=2)
-                payload_scenarios = [s.model_dump(mode="json") for s in scenarios]
-                body = (
-                    "Draft UNBOUND scenarios:\n"
-                    + "\n".join(f"- {s.code}: {s.title} ({len(s.cases)} cases)" for s in scenarios)
-                )
-                if revise:
-                    body = "[Revised] " + body
-                return _RoleResult(
-                    text=body,
-                    apply_payload={"kind": APPLY_KIND_COMPOSE, "scenarios": payload_scenarios},
-                )
-            answer = (
-                f"{'[Revised] ' if revise else ''}"
-                f"Phân tích yêu cầu «{user_text[:160]}».\n"
-                f"Plan ref:\n{plan_text[:400]}\n"
-                "Gợi ý: bật @Case/@DOM nếu cần ngữ cảnh; dùng Apply khi có artifact."
-            )
-            return _RoleResult(text=answer)
-
         system = (
             "You are the Composer role. Produce the deliverable for the QA request. "
             "If proposing test data, include a JSON block with key rows. "
-            "If proposing scenarios, describe them clearly for Apply."
+            "If proposing scenarios, describe them clearly for Apply. "
+            "If ambiguous, include the word CLARIFY."
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -258,22 +614,37 @@ class CopilotOrchestrator:
                 content=f"Plan:\n{plan_text}\n\nContext:\n{ctx_block}\n\nRequest:\n{user_text}",
             ),
         ]
-        buf: list[str] = []
-        async for chunk in self.gateway.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            buf.append(chunk)
-        text = "".join(buf).strip()
+        text = await self._collect(gw, messages, stop, max_tokens)
         apply_payload = None
-        if wants_bva:
-            apply_payload = {"kind": APPLY_KIND_TEST_DATA, "rows": self._offline_bva_rows()}
+        if wants_bva and mode != COPILOT_MODE_COMPOSE:
+            rows = self._offline_bva_rows()
+            apply_payload = {"kind": APPLY_KIND_TEST_DATA, "rows": rows}
+            if not text or gw.provider == LLM_PROVIDER_OFFLINE:
+                text = "Đề xuất Test Data (BVA):\n" + json.dumps(rows, ensure_ascii=False, indent=2)
         elif wants_compose:
-            scenarios = self.generator.generate_outline_sync(user_text)
+            srs = ""
+            if "SRS:" in ctx_block:
+                srs = ctx_block.split("SRS:", 1)[-1].strip()
+            srs = srs or user_text
+            scenarios = self.generator.generate_outline_sync(srs)
             for sc in scenarios:
                 sc.cases = self.generator.generate_cases_sync(sc, batch_size=2)
-            apply_payload = {
-                "kind": APPLY_KIND_COMPOSE,
-                "scenarios": [s.model_dump(mode="json") for s in scenarios],
-            }
-        return _RoleResult(text=text or "Không có nội dung", apply_payload=apply_payload)
+            payload_scenarios = [s.model_dump(mode="json") for s in scenarios]
+            apply_payload = {"kind": APPLY_KIND_COMPOSE, "scenarios": payload_scenarios}
+            if not text or gw.provider == LLM_PROVIDER_OFFLINE:
+                body = (
+                    "Draft UNBOUND scenarios:\n"
+                    + "\n".join(f"- {s.code}: {s.title} ({len(s.cases)} cases)" for s in scenarios)
+                )
+                text = ("[Revised] " + body) if revise else body
+        if not text:
+            text = (
+                f"{'[Revised] ' if revise else ''}"
+                f"Phân tích yêu cầu «{user_text[:160]}».\n"
+                f"Plan ref:\n{plan_text[:400]}"
+            )
+        needs = "CLARIFY" in text.upper()
+        return _RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs)
 
     async def _critique(
         self,
@@ -281,8 +652,21 @@ class CopilotOrchestrator:
         composer_text: str,
         stop: asyncio.Event,
         max_tokens: int,
+        gw: UnifiedLLMGateway,
     ) -> _RoleResult:
-        if self.gateway.provider == "offline" or not self.gateway.api_key:
+        system = (
+            "You are the Critic. Reply with APPROVE or REVISE and short notes. "
+            "One review only. If ambiguous user intent, include CLARIFY."
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            ChatMessage(
+                role="user",
+                content=f"Request:\n{user_text}\n\nComposer output:\n{composer_text}",
+            ),
+        ]
+        text = await self._collect(gw, messages, stop, max_tokens)
+        if not text:
             notes = []
             if "UNBOUND" not in composer_text and "Draft" in composer_text:
                 notes.append("Nhắc: case draft cần Sync URL để bind selector.")
@@ -295,25 +679,20 @@ class CopilotOrchestrator:
                     revise_notes="\n".join(notes),
                 )
             return _RoleResult(text="Critic: APPROVE — không phát hiện lỗ hổng lớn.", approved=True)
-
-        system = (
-            "You are the Critic. Reply with APPROVE or REVISE and short notes. "
-            "One review only."
-        )
-        messages = [
-            ChatMessage(role="system", content=system),
-            ChatMessage(
-                role="user",
-                content=f"Request:\n{user_text}\n\nComposer output:\n{composer_text}",
-            ),
-        ]
-        buf: list[str] = []
-        async for chunk in self.gateway.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            buf.append(chunk)
-        text = "".join(buf).strip()
-        approved = "REVISE" not in text.upper() or "APPROVE" in text.upper()
+        upper = text.upper()
+        if "REVISE" in upper and "APPROVE" not in upper:
+            approved = False
+        elif "APPROVE" in upper:
+            approved = True
+        else:
+            approved = "REVISE" not in upper
         revise_notes = text if not approved else ""
-        return _RoleResult(text=text, approved=approved, revise_notes=revise_notes)
+        return _RoleResult(
+            text=text,
+            approved=approved,
+            revise_notes=revise_notes,
+            needs_clarify="CLARIFY" in upper,
+        )
 
     def _offline_bva_rows(self) -> list[dict[str, Any]]:
         return [
@@ -332,6 +711,20 @@ class CopilotOrchestrator:
                 ]
             )
         ]
+
+
+@dataclass
+class _FallbackRoute:
+    _gateway: UnifiedLLMGateway
+    task: str
+    complexity: str
+
+    @property
+    def model(self) -> str:
+        return self._gateway.model
+
+    def gateway(self) -> UnifiedLLMGateway:
+        return self._gateway
 
 
 def new_message_id() -> str:

@@ -1,27 +1,220 @@
-"""Environment profiles, test-data profiles, and settings (no plaintext key logging)."""
+"""Settings + environment variable resolution."""
 
 from __future__ import annotations
 
 import json
 import logging
+import uuid
 from pathlib import Path
+from typing import Any
 
-from ai_qa_test_studio.constants import SETTINGS_FILENAME
+from ai_qa_test_studio.constants import (
+    COMPLEXITY_COMPLEX,
+    COMPLEXITY_NORMAL,
+    COMPLEXITY_SIMPLE,
+    LLM_PROVIDER_OFFLINE,
+    LLM_TASK_CLARIFY_DRAFT,
+    LLM_TASK_COMPOSE,
+    LLM_TASK_CRITIQUE,
+    LLM_TASK_DEBATE,
+    LLM_TASK_PLAN,
+    LLM_TASK_REVISE,
+    LLM_TASK_SUMMARIZE,
+    LLM_TIER_FAST,
+    LLM_TIER_MID,
+    LLM_TIER_STRONG,
+    SETTINGS_FILENAME,
+)
 from ai_qa_test_studio.core.models import (
+    AiConnection,
+    AiModelEntry,
+    AiRoutingSettings,
     AiSettings,
     AppSettings,
+    CopilotRuntimeSettings,
     EnvironmentProfile,
+    McpExternalSettings,
+    McpSettings,
     TestDataProfile,
 )
 
 logger = logging.getLogger(__name__)
 
 
+def default_task_complexity_matrix() -> dict[str, dict[str, str]]:
+    return {
+        LLM_TASK_SUMMARIZE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_FAST,
+            COMPLEXITY_COMPLEX: LLM_TIER_MID,
+        },
+        LLM_TASK_CLARIFY_DRAFT: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_FAST,
+            COMPLEXITY_COMPLEX: LLM_TIER_MID,
+        },
+        LLM_TASK_PLAN: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            COMPLEXITY_COMPLEX: LLM_TIER_MID,
+        },
+        LLM_TASK_COMPOSE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_MID,
+            COMPLEXITY_NORMAL: LLM_TIER_STRONG,
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+        LLM_TASK_REVISE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_MID,
+            COMPLEXITY_NORMAL: LLM_TIER_STRONG,
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+        LLM_TASK_CRITIQUE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_MID,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+        LLM_TASK_DEBATE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_MID,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+    }
+
+
+def migrate_ai_config(ai_raw: dict[str, Any]) -> AiSettings:
+    """Build AiSettings from flat or multi-connection JSON."""
+    connections_raw = ai_raw.get("connections")
+    if isinstance(connections_raw, list) and connections_raw:
+        connections: list[AiConnection] = []
+        for item in connections_raw:
+            if not isinstance(item, dict):
+                continue
+            models = [
+                AiModelEntry(
+                    id=str(m.get("id") or ""),
+                    label=str(m.get("label") or m.get("id") or ""),
+                    tier=str(m.get("tier") or LLM_TIER_MID),
+                    is_default=bool(m.get("isDefault", m.get("is_default", False))),
+                )
+                for m in (item.get("models") or [])
+                if isinstance(m, dict) and str(m.get("id") or "")
+            ]
+            connections.append(
+                AiConnection(
+                    id=str(item.get("id") or uuid.uuid4()),
+                    label=str(item.get("label") or "API"),
+                    provider=str(item.get("provider") or LLM_PROVIDER_OFFLINE),
+                    base_url=str(item.get("baseUrl") or item.get("base_url") or ""),
+                    api_key_ref=str(item.get("apiKeyRef") or item.get("apiKey") or item.get("api_key") or ""),
+                    enabled=bool(item.get("enabled", True)),
+                    models=models,
+                )
+            )
+        routing_raw = ai_raw.get("routing") or {}
+        matrix = routing_raw.get("taskComplexityModels") or routing_raw.get("task_complexity_models")
+        routing = AiRoutingSettings(
+            mode=str(routing_raw.get("mode") or "auto"),
+            manual_model_ref=str(
+                routing_raw.get("manualModelRef") or routing_raw.get("manual_model_ref") or ""
+            ),
+            complexity_enabled=bool(
+                routing_raw.get("complexityEnabled", routing_raw.get("complexity_enabled", True))
+            ),
+            task_complexity_models=matrix
+            if isinstance(matrix, dict) and matrix
+            else default_task_complexity_matrix(),
+        )
+        default_id = str(ai_raw.get("defaultConnectionId") or ai_raw.get("default_connection_id") or "")
+        if not default_id and connections:
+            default_id = connections[0].id
+        primary = next((c for c in connections if c.id == default_id), connections[0])
+        default_model = next((m for m in primary.models if m.is_default), None)
+        if default_model is None and primary.models:
+            default_model = primary.models[0]
+        return AiSettings(
+            api_key_ref=primary.api_key_ref,
+            base_url=primary.base_url,
+            model=default_model.id if default_model else "",
+            provider=primary.provider,
+            temperature=float(ai_raw.get("temperature") or 0.2),
+            max_tokens=int(ai_raw.get("maxTokens") or ai_raw.get("max_tokens") or 512),
+            connections=connections,
+            default_connection_id=default_id,
+            routing=routing,
+        )
+
+    api_key = str(ai_raw.get("apiKey") or ai_raw.get("api_key") or "")
+    base_url = str(ai_raw.get("baseUrl") or ai_raw.get("base_url") or "")
+    model = str(ai_raw.get("model") or "offline")
+    provider = str(ai_raw.get("provider") or (LLM_PROVIDER_OFFLINE if not api_key else "openai_compatible"))
+    conn_id = str(uuid.uuid4())
+    connection = AiConnection(
+        id=conn_id,
+        label="Default",
+        provider=provider or LLM_PROVIDER_OFFLINE,
+        base_url=base_url,
+        api_key_ref=api_key,
+        enabled=True,
+        models=[
+            AiModelEntry(id=model or "offline", label=model or "Offline", tier=LLM_TIER_MID, is_default=True)
+        ],
+    )
+    return AiSettings(
+        api_key_ref=api_key,
+        base_url=base_url,
+        model=model,
+        provider=provider,
+        temperature=float(ai_raw.get("temperature") or 0.2),
+        max_tokens=int(ai_raw.get("maxTokens") or ai_raw.get("max_tokens") or 512),
+        connections=[connection],
+        default_connection_id=conn_id,
+        routing=AiRoutingSettings(task_complexity_models=default_task_complexity_matrix()),
+    )
+
+
+def ai_settings_to_payload(ai: AiSettings) -> dict[str, Any]:
+    return {
+        "apiKey": ai.api_key_ref,
+        "baseUrl": ai.base_url,
+        "model": ai.model,
+        "provider": ai.provider,
+        "temperature": ai.temperature,
+        "maxTokens": ai.max_tokens,
+        "defaultConnectionId": ai.default_connection_id,
+        "connections": [
+            {
+                "id": c.id,
+                "label": c.label,
+                "provider": c.provider,
+                "baseUrl": c.base_url,
+                "apiKeyRef": c.api_key_ref,
+                "enabled": c.enabled,
+                "models": [
+                    {
+                        "id": m.id,
+                        "label": m.label,
+                        "tier": m.tier,
+                        "isDefault": m.is_default,
+                    }
+                    for m in c.models
+                ],
+            }
+            for c in ai.connections
+        ],
+        "routing": {
+            "mode": ai.routing.mode,
+            "manualModelRef": ai.routing.manual_model_ref,
+            "complexityEnabled": ai.routing.complexity_enabled,
+            "taskComplexityModels": ai.routing.task_complexity_models
+            or default_task_complexity_matrix(),
+        },
+    }
+
+
 class EnvManager:
-    def __init__(self, config_dir: Path) -> None:
-        self.config_dir = config_dir
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.settings_path = self.config_dir / SETTINGS_FILENAME
+    def __init__(self, data_root: Path) -> None:
+        self.data_root = data_root
+        self.settings_path = data_root / SETTINGS_FILENAME
         self._settings = AppSettings()
         self._profiles: dict[str, TestDataProfile] = {}
 
@@ -31,30 +224,35 @@ class EnvManager:
 
     def load_settings(self) -> AppSettings:
         if not self.settings_path.is_file():
+            self._settings = AppSettings(ai=migrate_ai_config({}))
             return self._settings
-        try:
-            payload = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("settings_load_failed path=%s err=%s", self.settings_path, exc)
-            return self._settings
+        payload = json.loads(self.settings_path.read_text(encoding="utf-8"))
         ai_raw = payload.get("aiConfig") or payload.get("ai") or {}
-        api_key = ai_raw.get("apiKey") or ai_raw.get("api_key") or ""
         # Keep ciphertext/ref only — never decode into logs.
+        copilot_raw = payload.get("copilot") or {}
+        mcp_raw = payload.get("mcp") or {}
+        ext = mcp_raw.get("external") or {}
         self._settings = AppSettings(
             browser=str(payload.get("browser") or "CHROMIUM"),
             headless_default=bool(
                 payload.get("headlessDefault", payload.get("headless_default", False))
             ),
             theme=str(payload.get("theme") or "dark"),
-            ai=AiSettings(
-                api_key_ref=str(api_key),
-                base_url=str(ai_raw.get("baseUrl") or ai_raw.get("base_url") or ""),
-                model=str(ai_raw.get("model") or ""),
-                provider=str(ai_raw.get("provider") or ""),
-                temperature=float(ai_raw.get("temperature") or 0.2),
-                max_tokens=int(ai_raw.get("maxTokens") or ai_raw.get("max_tokens") or 512),
-            ),
+            ai=migrate_ai_config(ai_raw if isinstance(ai_raw, dict) else {}),
             active_environment=str(payload.get("active_environment") or "DEV"),
+            copilot=CopilotRuntimeSettings(
+                summary_max_chars=int(copilot_raw.get("summaryMaxChars") or 160),
+                debate_max_rounds=int(copilot_raw.get("debateMaxRounds") or 3),
+                loop_repeat_limit=int(copilot_raw.get("loopRepeatLimit") or 2),
+                clarify_timeout_ms=int(copilot_raw.get("clarifyTimeoutMs") or 60_000),
+                lean_tail_max_tokens=int(copilot_raw.get("leanTailMaxTokens") or 2400),
+            ),
+            mcp=McpSettings(
+                external=McpExternalSettings(
+                    playwright=bool(ext.get("playwright", True)),
+                    midscene=bool(ext.get("midscene", False)),
+                )
+            ),
         )
         return self._settings
 
@@ -64,13 +262,19 @@ class EnvManager:
             "headlessDefault": self._settings.headless_default,
             "theme": self._settings.theme,
             "active_environment": self._settings.active_environment,
-            "aiConfig": {
-                "apiKey": self._settings.ai.api_key_ref,
-                "baseUrl": self._settings.ai.base_url,
-                "model": self._settings.ai.model,
-                "provider": self._settings.ai.provider,
-                "temperature": self._settings.ai.temperature,
-                "maxTokens": self._settings.ai.max_tokens,
+            "aiConfig": ai_settings_to_payload(self._settings.ai),
+            "copilot": {
+                "summaryMaxChars": self._settings.copilot.summary_max_chars,
+                "debateMaxRounds": self._settings.copilot.debate_max_rounds,
+                "loopRepeatLimit": self._settings.copilot.loop_repeat_limit,
+                "clarifyTimeoutMs": self._settings.copilot.clarify_timeout_ms,
+                "leanTailMaxTokens": self._settings.copilot.lean_tail_max_tokens,
+            },
+            "mcp": {
+                "external": {
+                    "playwright": self._settings.mcp.external.playwright,
+                    "midscene": self._settings.mcp.external.midscene,
+                }
             },
         }
         tmp = self.settings_path.with_suffix(".tmp")
@@ -97,5 +301,4 @@ class EnvManager:
         result = text
         for key, value in merged.items():
             result = result.replace(f"{{{{{key}}}}}", value)
-            result = result.replace(f"{{{{ {key} }}}}", value)
         return result

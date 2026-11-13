@@ -29,12 +29,14 @@ from ai_qa_test_studio.constants import (
     COPILOT_INPUT_HEIGHT,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
+    COPILOT_MODEL_AUTO,
     COPILOT_MODEL_COMBO_HEIGHT,
-    DEFAULT_COPILOT_MODELS,
     ICON_COLOR_PRIMARY,
     ROLE_COMPOSER,
+    ROLE_CREW,
     ROLE_CRITIC,
     ROLE_PLANNER,
+    ROLE_SYSTEM,
 )
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
 from ai_qa_test_studio.core.models import TestScenario
@@ -45,6 +47,8 @@ _ROLE_LABEL = {
     ROLE_PLANNER: "Planner",
     ROLE_COMPOSER: "Composer",
     ROLE_CRITIC: "Critic",
+    ROLE_CREW: "Crew",
+    ROLE_SYSTEM: "Hệ thống",
     "assistant": "AI",
 }
 
@@ -71,9 +75,9 @@ class CopilotChatPane(QWidget):
         top = QHBoxLayout()
         top.setSpacing(6)
         self.model_combo = ComboBox(self)
-        self.model_combo.addItems(list(DEFAULT_COPILOT_MODELS))
         self.model_combo.setFixedHeight(COPILOT_MODEL_COMBO_HEIGHT)
         self.model_combo.setAccessibleName("Chọn model Copilot")
+        self.set_model_catalog([(COPILOT_MODEL_AUTO, "Auto (theo tác vụ)")])
         top.addWidget(self.model_combo)
 
         self.chip_case = PillPushButton("@Case", self)
@@ -260,14 +264,55 @@ class CopilotChatPane(QWidget):
         self.focus_case_chat()
         self.session_changed.emit()
 
+    def set_model_catalog(self, items: list[tuple[str, str]]) -> None:
+        current = self.selected_model_ref()
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        for ref, label in items:
+            self.model_combo.addItem(label, ref)
+        self.model_combo.blockSignals(False)
+        if not items:
+            self.model_combo.addItem("Auto (theo tác vụ)", COPILOT_MODEL_AUTO)
+        idx = max(0, self.model_combo.findData(current))
+        self.model_combo.setCurrentIndex(idx)
+
+    def selected_model_ref(self) -> str:
+        data = self.model_combo.currentData()
+        if isinstance(data, str) and data:
+            return data
+        return COPILOT_MODEL_AUTO
+
     def context_flags(self) -> dict[str, Any]:
         return {
-            "model": self.model_combo.currentText(),
+            "model": self.selected_model_ref(),
             "mode": self._session.mode,
             "include_case": self.chip_case.isChecked(),
             "include_dom": self.chip_dom.isChecked(),
             "include_last_error": self.chip_error.isChecked(),
         }
+
+    def append_status_summary(self, role: str, text: str) -> None:
+        if self._streaming_item is not None:
+            self._streaming_item = None
+        msg = CopilotMessage(role=role, content=text)
+        self._session.messages.append(msg)
+        self._append_item(role, text, streaming=False)
+        self.session_changed.emit()
+
+    def append_agent_message(self, from_role: str, to_role: str, text: str) -> None:
+        label_role = ROLE_CREW
+        body = f"{from_role} → {to_role}: {text}"
+        msg = CopilotMessage(role=label_role, content=body)
+        self._session.messages.append(msg)
+        self._append_item(label_role, body, streaming=False)
+        self.session_changed.emit()
+
+    def append_clarify_note(self, role: str, text: str) -> None:
+        body = f"Clarify ({role}): {text}"
+        msg = CopilotMessage(role=ROLE_SYSTEM, content=body)
+        self._session.messages.append(msg)
+        self._append_item(ROLE_SYSTEM, body, streaming=False)
+        self.session_changed.emit()
 
     def append_user(self, text: str) -> None:
         msg = CopilotMessage(role="user", content=text)
@@ -400,6 +445,8 @@ class CopilotChatPane(QWidget):
             item.setForeground(Qt.GlobalColor.yellow)
         elif role == ROLE_CRITIC:
             item.setForeground(Qt.GlobalColor.magenta)
+        elif role in {ROLE_CREW, ROLE_SYSTEM}:
+            item.setForeground(Qt.GlobalColor.lightGray)
         else:
             item.setForeground(QBrush(QColor(ICON_COLOR_PRIMARY)))
         self.history.addItem(item)
