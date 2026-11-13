@@ -11,10 +11,13 @@ Source of truth: `docs/Bản Thiết Kế Tổng Thể AI QA Test Studio.md` + `
 | `mcp-host-skills` | MCP Host + `BinaryResolver` + `mcp_servers.json` (stdio subset); Progressive Skill Loader + 4 skills; stub MCP for tests | `foundation-scaffold` |
 | `browser-engine` | Single Playwright context + ephemeral CDP (`127.0.0.1`); `DOMDistiller`; locator resolver; screencast/thumbnail APIs | `core-models-storage`, `token-governance` |
 | `agent-runtime` | Spec generator, ShiftLeft Auto-Binder, Dual-Loop, Healer (CDP-shared browser) | `mcp-host-skills`, `browser-engine`, `token-governance` |
-| `ui-workspace` | PySide6 + qasync; CDP screencast viewport (no QtWebEngine); Wizard; 4-mode editor (drawer = pane 4) | `agent-runtime`, `core-models-storage`, `browser-engine` |
+| `qa-copilot` | Embedded Copilot UI; chat history/stop/copy/undo; `UnifiedLLMGateway` stream; **default orchestrator Planner→Composer→Critic**; Compose replaces Wizard | `agent-runtime`, `token-governance`, `ui-workspace`, `core-models-storage` |
+| `ui-workspace` | PySide6 + qasync; CDP screencast viewport (no QtWebEngine); 4-mode editor (drawer = pane 4); Copilot tab in BrowserAgentPane | `agent-runtime`, `core-models-storage`, `browser-engine` |
 | `reporting-packaging` | HTML Visual Replay, IEEE 829 Excel/RTM, pytest+CI export, PyInstaller | `core-models-storage`, `agent-runtime` |
 
-**Build order:** `foundation-scaffold` → `core-models-storage` + `mcp-host-skills` → `token-governance` → `browser-engine` → `agent-runtime` → (`ui-workspace` ∥ `reporting-packaging`).
+**Build order:** `foundation-scaffold` → `core-models-storage` + `mcp-host-skills` → `token-governance` → `browser-engine` → `agent-runtime` → (`ui-workspace` ∥ `reporting-packaging`) → `qa-copilot`.
+
+**Orchestrator default (Phase 5):** every Copilot user turn runs Planner → Composer → Critic (one Critic pass). See `docs/adr/0001-qa-copilot-three-role-orchestrator.md`.
 
 **Hard rule:** `reporting-packaging` must **not** depend on `ui-workspace` (headless CI / no X11).
 
