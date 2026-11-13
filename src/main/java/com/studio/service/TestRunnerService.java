@@ -45,6 +45,12 @@ public class TestRunnerService {
     private final com.studio.store.TestDataProfileStore testDataProfileStore;
     private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
+    /**
+     * Closes the step trace once the authored body is over but before the assertions run, so a
+     * failing assertion is never reported as a step failure.
+     */
+    private static final String STEP_TRACE_COMPLETE_CALL = "com.studio.runtime.StudioRuntime.stepTraceComplete();";
+
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore) {
         this(projectStore, reportStore, new SettingsStore(), new OpenAiClient());
     }
@@ -316,9 +322,7 @@ public class TestRunnerService {
                     @Override
                     public void onStepFinished(StepResult finished) {
                         RunProgressService.stepUpdated(traceKey, finished);
-                        // Only executed steps reach the log: a failure would otherwise print one
-                        // "did not run" line per remaining step and bury the error.
-                        if (finished.isExecuted()) {
+                        if (logsToTerminal(finished)) {
                             terminal(StepTracer.terminalLine(finished), terminalOutput);
                         }
                     }
@@ -789,27 +793,51 @@ public class TestRunnerService {
         return loaded;
     }
 
-    /** Inject soft-assert block inside the screenshot try, before its finally. */
-    private String injectAssertBlock(String code, String assertBlock) {
+    /**
+     * Only a failed step is written to the terminal.
+     *
+     * <p>A suite of 100 cases × 40 steps would otherwise append thousands of lines while the FX
+     * thread is painting badges; a passing step is already visible on its card, in the report, and
+     * in the per-case summary line. A failure is the one thing a terminal reader must not miss, so
+     * it is the one step verdict that is echoed.</p>
+     *
+     * <p>Package-private so the rule is pinned by a test instead of drifting with a refactor.</p>
+     */
+    static boolean logsToTerminal(StepResult result) {
+        return result != null && StepResult.FAILED.equals(result.getStatus());
+    }
+
+    /**
+     * Inject soft-assert block inside the screenshot try, before its finally.
+     *
+     * <p>The block is prefixed with a call that closes the last step: assertions run after every
+     * authored step, so without it a failing assertion would be reported as the last step's failure
+     * and the tester would be pointed at a step that actually passed.</p>
+     *
+     * <p>Package-private so the placement can be pinned by a test: the completion marker must land
+     * inside the try, ahead of the assertions and the screenshot {@code finally}.</p>
+     */
+    static String injectAssertBlock(String code, String assertBlock) {
         if (assertBlock == null || assertBlock.isBlank()) {
             return code;
         }
+        String block = "\n        " + STEP_TRACE_COMPLETE_CALL + assertBlock;
         String marker = "\n        } finally {";
         int idx = code.lastIndexOf(marker);
         if (idx >= 0) {
-            return code.substring(0, idx) + assertBlock + code.substring(idx);
+            return code.substring(0, idx) + block + code.substring(idx);
         }
         // Fallback: before closing brace of main()
         int mainStart = code.indexOf("public static void main");
         if (mainStart < 0) {
             int lastBrace = code.lastIndexOf("}");
             if (lastBrace >= 0) {
-                return code.substring(0, lastBrace) + assertBlock + "\n    }";
+                return code.substring(0, lastBrace) + block + "\n    }";
             }
-            return code + "\n" + assertBlock;
+            return code + "\n" + block;
         }
         int braceStart = code.indexOf("{", mainStart);
-        if (braceStart < 0) return code + "\n" + assertBlock;
+        if (braceStart < 0) return code + "\n" + block;
 
         int depth = 1;
         int pos = braceStart + 1;
@@ -820,7 +848,7 @@ public class TestRunnerService {
             pos++;
         }
         int closingBrace = pos - 1;
-        return code.substring(0, closingBrace) + assertBlock + "\n    }" + code.substring(closingBrace + 1);
+        return code.substring(0, closingBrace) + block + "\n    }" + code.substring(closingBrace + 1);
     }
 
     /**

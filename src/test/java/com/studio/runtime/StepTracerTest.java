@@ -224,4 +224,56 @@ class StepTracerTest {
         assertFalse(tracer.hasAnyResult() && tracer.snapshot().get(0).isExecuted(),
                 "Nothing ran, so no card may be painted as passed");
     }
+
+    /**
+     * Studio appends its assertion block after the last step. A failing assertion used to arrive while
+     * the last step was still open, so a step that ran perfectly collected the ✗ and the report
+     * pointed the tester at the wrong line.
+     */
+    @Test
+    void finishingBeforeTheAssertionBlockKeepsTheLastStepPassed() {
+        StepTracer tracer = new StepTracer(statements(2));
+        tracer.enter(1);
+        tracer.enter(2);
+        tracer.finish();
+        tracer.close(true, "Failed asserts (1): URL does not match");
+
+        List<StepResult> results = tracer.snapshot();
+        assertEquals(StepResult.PASSED, results.get(0).getStatus());
+        assertEquals(StepResult.PASSED, results.get(1).getStatus(),
+                "An assertion failure belongs to the assertion list, not to the last step");
+        assertFalse(results.stream().anyMatch(StepResult::isFailed),
+                "No step may be blamed for a failing assertion: " + results);
+    }
+
+    /** Reaching the end of the body must also be safe when the tracer was never installed. */
+    @Test
+    void completingTheTraceWithoutATracerIsAnHarmlessNoOp() {
+        StudioRuntime.setStepTracer(null);
+        StudioRuntime.stepTraceComplete();
+        assertNull(StudioRuntime.stepTracer());
+    }
+
+    /**
+     * Every step persists its statement and failure reason into the run report, which is re-read each
+     * time the report list opens. One runaway stack trace would then slow down that listing forever.
+     */
+    @Test
+    void textStoredPerStepIsCappedSoTheReportStaysSmall() {
+        String longStatement = "page.locator(\"#x\").click();".repeat(200);
+        String longMessage = "TimeoutError: waiting for locator(\"#x\")".repeat(200);
+        StepTracer tracer = new StepTracer(List.of("", longStatement));
+        tracer.enter(1);
+        tracer.close(true, longMessage);
+
+        StepResult result = tracer.snapshot().get(0);
+        assertTrue(result.getStatement().length() < longStatement.length(),
+                "The statement must be shortened before it is stored");
+        assertTrue(result.getMessage().length() < longMessage.length(),
+                "The failure reason must be shortened before it is stored");
+        assertTrue(result.getStatement().startsWith("page.locator(\"#x\")"),
+                "The head of the statement is what identifies the step");
+        assertTrue(result.getMessage().startsWith("TimeoutError"),
+                "The head of the message is what explains the failure");
+    }
 }

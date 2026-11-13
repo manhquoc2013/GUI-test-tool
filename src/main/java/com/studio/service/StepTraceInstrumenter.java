@@ -92,6 +92,12 @@ public final class StepTraceInstrumenter {
     /**
      * @return true when {@code trimmed} continues the previous line rather than beginning a
      *         statement of its own, so no marker may be inserted before it
+     *
+     * <p>Known limitation: a braceless control line ({@code if (x)}) makes the following statement
+     * look like a continuation, so that step is reported as carried by the previous one instead of
+     * getting its own marker. The builder always emits braces, so only hand-written scripts can hit
+     * this — and the alternative (inserting a marker between an {@code if} and its body) would not
+     * compile, which would be a worse failure than an approximate step number.</p>
      */
     private static boolean startsContinuation(String previousSignificant, String trimmed) {
         if (previousSignificant == null) {

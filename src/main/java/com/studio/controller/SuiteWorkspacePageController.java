@@ -710,14 +710,21 @@ public class SuiteWorkspacePageController {
         }
     }
 
-    /** Renders the enabled steps inside the parsed script envelope (class wrapper preserved). */
+    /**
+     * Renders every authored step inside the parsed script envelope (class wrapper preserved).
+     *
+     * <p>A disabled step is included on purpose: it emits {@link
+     * StepScriptBidirectionalSync#DISABLED_STEP_PLACEHOLDER} instead of a statement, which keeps the
+     * executed line count — and therefore the run's step numbers — aligned with the card numbers.
+     * Dropping it here would shift every later verdict onto the wrong card.</p>
+     */
     private String renderScriptFromSteps() {
-        List<TestStep> enabled = visualStepFlowPane.getEnabledSteps();
+        List<TestStep> steps = visualStepFlowPane.getAllSteps();
         String startUrl = startUrlField != null ? startUrlField.getText() : "";
         if (scriptDocument != null) {
-            return scriptDocument.render(enabled, startUrl);
+            return scriptDocument.render(steps, startUrl);
         }
-        return StepScriptBidirectionalSync.stepsToScript(enabled, startUrl);
+        return StepScriptBidirectionalSync.stepsToScript(steps, startUrl);
     }
 
     /**
@@ -747,8 +754,8 @@ public class SuiteWorkspacePageController {
     }
 
     /**
-     * Disabled steps are intentionally absent from the script, so re-parsing code cannot see them.
-     * Re-insert each one at its previous position instead of dropping authored work.
+     * A switched-off step emits a placeholder line instead of a statement, so re-parsing the code
+     * cannot see it. Re-insert each one at its previous position instead of dropping authored work.
      */
     private static List<TestStep> mergeDisabledSteps(List<TestStep> parsed, List<TestStep> previous) {
         if (previous == null || previous.isEmpty()) {
@@ -1883,21 +1890,44 @@ public class SuiteWorkspacePageController {
         if (selectedCase == null || !Objects.equals(selectedCase.getId(), ranCase.getId())) {
             return;
         }
-        List<StepResult> results = null;
-        for (CaseResult cr : report.getCases()) {
-            if (cr.getStepResults() != null && !cr.getStepResults().isEmpty()) {
-                results = cr.getStepResults();
-                break;
-            }
+        CaseResult ranResult = findCaseResult(report, ranCase);
+        if (ranResult == null) {
+            return;
         }
-        if (results == null) {
+        List<StepResult> results = ranResult.getStepResults();
+        if (results.isEmpty()) {
             return;
         }
         visualStepFlowPane.applyStepResults(results);
         long failed = results.stream().filter(StepResult::isFailed).count();
+        // Only steps that actually executed: the trace also carries a NOT_RUN entry for a step that
+        // was switched off, and counting it would claim the run walked a step it never emitted.
+        long ran = results.stream().filter(StepResult::isExecuted).count();
         terminalAppend(failed > 0
                 ? "Bước lỗi đầu tiên đã được đánh dấu trên kịch bản No-Code."
-                : "Tất cả " + results.size() + " bước đã chạy — kết quả hiện trên từng thẻ bước.");
+                : "Tất cả " + ran + " bước đã chạy — kết quả hiện trên từng thẻ bước.");
+    }
+
+    /**
+     * @return the result row of {@code ranCase} in {@code report}, matched by case id
+     *         (falling back to the name when an older report has no id), or {@code null} when the
+     *         report does not contain it
+     *
+     * <p>Package-private so a test can pin the matching rule: taking "the first row that has step
+     * results" paints one case's verdicts on another case's cards whenever a suite run is involved.</p>
+     */
+    static CaseResult findCaseResult(RunReport report, TestCase ranCase) {
+        for (CaseResult cr : report.getCases()) {
+            if (Objects.equals(cr.getTestCaseId(), ranCase.getId())) {
+                return cr;
+            }
+        }
+        for (CaseResult cr : report.getCases()) {
+            if (Objects.equals(cr.getTestCaseName(), ranCase.getName())) {
+                return cr;
+            }
+        }
+        return null;
     }
 
     @FXML

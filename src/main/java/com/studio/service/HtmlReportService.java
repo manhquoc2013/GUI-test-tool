@@ -7,6 +7,7 @@ import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
 import com.studio.model.StepResult;
 import com.studio.util.PlaywrightDescribe;
+import com.studio.util.StatusDisplay;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -399,7 +400,8 @@ public class HtmlReportService {
               .append("\" data-priority=\"").append(priority.toLowerCase(java.util.Locale.ROOT)).append("\">\n");
             sb.append("<div class=\"case-header\" onclick=\"toggleCaseBody(this)\">\n");
             sb.append("<div class=\"case-title-row\">\n");
-            sb.append("<span class=\"badge ").append(badgeClass).append("\">").append(escapeHtml(status)).append("</span>\n");
+            sb.append("<span class=\"badge ").append(badgeClass).append("\">")
+              .append(escapeHtml(statusLabel(effectiveLang, status))).append("</span>\n");
             sb.append("<span class=\"badge ").append(priority.toLowerCase(java.util.Locale.ROOT))
               .append("\">").append(escapeHtml(priority)).append("</span>\n");
             if (cr.getHealedSteps() != null && !cr.getHealedSteps().isEmpty()) {
@@ -445,8 +447,10 @@ public class HtmlReportService {
                   .append(I18nService.get(effectiveLang, "export.html.steps_col_duration")).append("</th><th>")
                   .append(I18nService.get(effectiveLang, "export.html.steps_col_msg")).append("</th></tr></thead><tbody>\n");
                 for (StepResult sr : steps) {
-                    String sStatus = sr.getStatus() != null ? sr.getStatus().toUpperCase(java.util.Locale.ROOT) : "";
-                    String sBadge = switch (sStatus) {
+                    // Same label the workspace card and the report drawer print, in the report's own
+                    // language: one verdict never appears under two different names.
+                    String sLabel = statusLabel(effectiveLang, sr.getStatus());
+                    String sBadge = switch (StatusDisplay.normalize(sr.getStatus())) {
                         case "PASSED" -> "passed";
                         case "FAILED" -> "failed";
                         default -> "skipped";
@@ -455,7 +459,7 @@ public class HtmlReportService {
                     sb.append("<td>").append(sr.getStepNumber()).append("</td>");
                     sb.append("<td>").append(escapeHtml(describeStatement(sr.getStatement()))).append("</td>");
                     sb.append("<td><span class=\"badge ").append(sBadge).append("\">")
-                      .append(escapeHtml(sStatus)).append("</span></td>");
+                      .append(escapeHtml(sLabel)).append("</span></td>");
                     // A step that never ran has no duration; "-" keeps "0" from implying it executed.
                     sb.append("<td>").append(sr.getDurationMs() > 0 ? sr.getDurationMs() + " ms" : "-").append("</td>");
                     String sMsg = (sr.getMessage() != null && !sr.getMessage().isBlank()) ? sr.getMessage() : "";
@@ -489,7 +493,9 @@ public class HtmlReportService {
                     sb.append("<td><code>").append(escapeHtml(ar.getType())).append("</code></td>");
                     String detail = (ar.getDetail() != null && !ar.getDetail().isBlank()) ? ar.getDetail() : "-";
                     sb.append("<td>").append(escapeHtml(detail)).append("</td>");
-                    sb.append("<td><span class=\"badge ").append(aBadge).append("\">").append(aStatus).append("</span></td>");
+                    sb.append("<td><span class=\"badge ").append(aBadge).append("\">")
+                      .append(escapeHtml(statusLabel(effectiveLang, ar.getStatus())))
+                      .append("</span></td>");
                     String msg = (ar.getMessage() != null && !ar.getMessage().isBlank()) ? ar.getMessage() : "";
                     sb.append("<td>").append(escapeHtml(msg)).append("</td>");
                     sb.append("</tr>\n");
@@ -633,6 +639,26 @@ public class HtmlReportService {
         }
         String described = PlaywrightDescribe.describe(statement);
         return described != null ? described : statement.trim();
+    }
+
+    /**
+     * @return the verdict word in the report's own language. A report exported in English must not
+     *         print Vietnamese, and an unrecognised status keeps its raw code so nothing is invented;
+     *         the CSS class on the badge is chosen separately, so localising the text never affects
+     *         the colour or the {@code data-status} filter.
+     */
+    private static String statusLabel(ExportLanguage lang, String status) {
+        return switch (StatusDisplay.normalize(status)) {
+            case "PASSED", "PASS", "OK" -> I18nService.get(lang, "export.status.passed");
+            case "FAILED", "FAIL" -> I18nService.get(lang, "export.status.failed");
+            case "SKIPPED", "SKIP" -> I18nService.get(lang, "export.status.skipped");
+            case "ERROR" -> I18nService.get(lang, "export.status.error");
+            case "RUNNING" -> I18nService.get(lang, "export.status.running");
+            case "NOT_RUN" -> I18nService.get(lang, "export.status.not_run");
+            case "PENDING" -> I18nService.get(lang, "export.status.pending");
+            case "" -> I18nService.get(lang, "export.status.unknown");
+            default -> status.trim();
+        };
     }
 
     private static String escapeHtml(String input) {

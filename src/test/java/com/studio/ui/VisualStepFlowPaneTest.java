@@ -94,10 +94,11 @@ class VisualStepFlowPaneTest {
             pane.loadSteps(steps);
 
             assertEquals(3, pane.getAllSteps().size(), "Disabled steps must stay in the model");
-            assertEquals(2, pane.getEnabledSteps().size());
-            assertFalse(StepScriptBidirectionalSync
-                            .stepsToScript(pane.getEnabledSteps(), "").contains("#b"),
+            String script = StepScriptBidirectionalSync.stepsToScript(pane.getAllSteps(), "");
+            assertFalse(script.contains("#b"),
                     "A disabled step must not be generated into the script");
+            assertTrue(script.contains(StepScriptBidirectionalSync.DISABLED_STEP_PLACEHOLDER),
+                    "It must still hold its line, or every later step number shifts");
         });
     }
 

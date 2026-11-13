@@ -230,6 +230,27 @@ public class StepScriptBidirectionalSyncTest {
                         .describe(steps.get(0).getTarget(), steps.get(0).getTestData()));
     }
 
+    /**
+     * The saved script carries a placeholder line for a switched-off step so run numbering stays
+     * aligned. Re-reading that script must not resurrect the placeholder as a second card next to
+     * the disabled one the model still holds.
+     */
+    @Test
+    void aDisabledPlaceholderIsASlotNotACardWhenTheScriptIsReadBack() {
+        TestStep first = new TestStep(1, "CLICK", "#a", "", "", "");
+        TestStep switchedOff = new TestStep(2, "CLICK", "#b", "", "", "");
+        switchedOff.setEnabled(false);
+        TestStep last = new TestStep(3, "CLICK", "#c", "", "", "");
+
+        String script = StepScriptBidirectionalSync.stepsToScript(
+                List.of(first, switchedOff, last), "");
+        List<TestStep> parsed = StepScriptBidirectionalSync.scriptToSteps(script);
+
+        assertEquals(List.of("CLICK", "CLICK"), parsed.stream().map(TestStep::getAction).toList(),
+                "The placeholder must not be read as an authored step: " + script);
+        assertEquals(List.of("#a", "#c"), parsed.stream().map(TestStep::getTarget).toList());
+    }
+
     @Test
     void everyLineOfANoteIsCommentedAndIndented() {
         String script = """

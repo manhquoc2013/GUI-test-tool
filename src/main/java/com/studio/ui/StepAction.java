@@ -1,9 +1,9 @@
 package com.studio.ui;
 
+import com.studio.util.PlaywrightDescribe;
 import com.studio.util.UiIcons;
 
 import java.util.Locale;
-import com.studio.util.PlaywrightDescribe;
 
 /**
  * Presentation metadata for every persisted {@code TestStep.action} code.

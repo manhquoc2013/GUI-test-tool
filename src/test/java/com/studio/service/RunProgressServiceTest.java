@@ -8,7 +8,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -147,6 +150,96 @@ class RunProgressServiceTest {
         RunProgressService.stepUpdated("tc-1", new StepResult(1, "x();", StepResult.PASSED, 1, null));
         assertFalse(RunProgressService.stepTraceFor("tc-2").iterator().hasNext());
         assertEquals(1, RunProgressService.stepTraceFor("tc-1").size());
+    }
+
+    /**
+     * The workspace paints the last step results from the notification the closing case fires. If the
+     * active marker is released first, that paint is skipped and the final step keeps the "running"
+     * badge until the case is reloaded — while the run is actually over.
+     */
+    @Test
+    void theClosingNotificationStillSeesItsCaseAsActive() throws Exception {
+        CaseResult cr = sampleCase("tc-1", "case 1", "g", "s");
+        RunProgressService.beginRun("CASE", null);
+        RunProgressService.caseStarted(cr);
+        cr.setStatus("PASSED");
+
+        AtomicReference<Boolean> sawActiveCase = new AtomicReference<>();
+        CountDownLatch painted = new CountDownLatch(1);
+        Runnable listener = () -> {
+            if (!"PASSED".equals(RunProgressService.statusForCaseId("tc-1"))) {
+                return;
+            }
+            if (sawActiveCase.compareAndSet(null,
+                    RunProgressService.isActiveCase("tc-1", "case 1"))) {
+                painted.countDown();
+            }
+        };
+        RunProgressService.addListener(listener);
+        try {
+            RunProgressService.caseFinished(cr);
+            assertTrue(painted.await(5, TimeUnit.SECONDS),
+                    "The finished case must publish one notification the workspace can paint");
+        } finally {
+            RunProgressService.removeListener(listener);
+        }
+        assertTrue(sawActiveCase.get(),
+                "The closing notification must still identify the case, or its trace is never painted");
+    }
+
+    /**
+     * The live trace exists to paint the workspace while a case runs. Keeping it for every case of a
+     * suite would hold tens of thousands of step entries at once, so the next case drops the previous
+     * one — after the finished case has had its chance to be painted.
+     */
+    @Test
+    void onlyTheRunningCaseKeepsALiveTrace() {
+        RunProgressService.beginRun("SUITE", null);
+        CaseResult first = sampleCase("tc-1", "case 1", "g", "s");
+        RunProgressService.caseStarted(first);
+        RunProgressService.stepUpdated("tc-1", new StepResult(1, "a();", StepResult.PASSED, 1, null));
+
+        first.setStatus("PASSED");
+        RunProgressService.caseFinished(first);
+        assertFalse(RunProgressService.stepTraceFor("tc-1").isEmpty(),
+                "The case that just finished must keep its trace while it is still on screen");
+
+        RunProgressService.caseStarted(sampleCase("tc-2", "case 2", "g", "s"));
+        assertTrue(RunProgressService.stepTraceFor("tc-1").isEmpty(),
+                "A suite must not accumulate the steps of every case it already ran");
+    }
+
+    /**
+     * The release of the active marker is deferred until the closing notification is delivered. A
+     * retry of the same case reuses the same key, so a queued release from the failed attempt must
+     * not clear the marker of the attempt that is running now — otherwise its live trace stops
+     * painting mid-case.
+     */
+    @Test
+    void aQueuedReleaseCannotClearARetriedCase() throws Exception {
+        RunProgressService.beginRun("CASE", null);
+        CaseResult cr = sampleCase("tc-1", "case 1", "g", "s");
+        RunProgressService.caseStarted(cr);
+
+        cr.setStatus("FAILED");
+        RunProgressService.caseFinished(cr);
+        RunProgressService.caseStarted(cr); // retry starts before the FX queue drains
+
+        drainFxQueue();
+
+        assertTrue(RunProgressService.isActiveCase("tc-1", "case 1"),
+                "The retried case must still own its live trace");
+    }
+
+    /** Lets any task the service queued on the FX thread run, so the assertion sees their effect. */
+    private static void drainFxQueue() throws InterruptedException {
+        CountDownLatch drained = new CountDownLatch(1);
+        try {
+            javafx.application.Platform.runLater(drained::countDown);
+        } catch (IllegalStateException noToolkit) {
+            return; // tasks already ran inline
+        }
+        assertTrue(drained.await(5, TimeUnit.SECONDS), "The FX queue must drain");
     }
 
     private static CaseResult sampleCase(String id, String name, String group, String suite) {

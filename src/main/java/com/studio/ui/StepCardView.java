@@ -4,6 +4,7 @@ import com.studio.model.StepResult;
 import com.studio.model.TestStep;
 import com.studio.util.DialogTheme;
 import com.studio.util.PlaywrightDescribe;
+import com.studio.util.StatusDisplay;
 import com.studio.util.UiIcons;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanProperty;
@@ -97,6 +98,11 @@ public final class StepCardView extends VBox {
     private Button expandBtn;
 
     private Label statusBadge;
+    /**
+     * Reused across verdicts: a run repaints every card up to ten times a second, so allocating a
+     * tooltip per refresh would churn garbage for the whole duration of a suite.
+     */
+    private final Tooltip statusTooltip = new Tooltip();
     private Label resultLine;
     private VBox resultRow;
 
@@ -122,6 +128,8 @@ public final class StepCardView extends VBox {
 
         migrateRawComment();
         initUI();
+        statusTooltip.setWrapText(true);
+        statusTooltip.setMaxWidth(RESULT_TOOLTIP_WIDTH);
         applyActionState();
         applyEnabledVisualState();
     }
@@ -547,9 +555,9 @@ public final class StepCardView extends VBox {
      * earlier one failed.</p>
      */
     public void applyExecution(StepResult result) {
-        // A note is not an action: painting "not run" on a comment would be noise dressed as a
-        // result, so notes stay out of the run feedback entirely.
-        if (result == null || isNote()) {
+        // A note is not an action, and a disabled step never runs by design: painting "not run" on
+        // either would be noise dressed as a result, so both stay out of the run feedback entirely.
+        if (result == null || isNote() || !step.isEnabled()) {
             clearExecution();
             return;
         }
@@ -575,7 +583,7 @@ public final class StepCardView extends VBox {
         statusBadge.setVisible(true);
         statusBadge.setManaged(true);
 
-        String detail = statusLabel(status);
+        String detail = StatusDisplay.text(status);
         if (result.isExecuted()) {
             detail += " · " + result.getDurationMs() + "ms";
         }
@@ -583,10 +591,8 @@ public final class StepCardView extends VBox {
         if (hasMessage) {
             detail += " — " + result.getMessage();
         }
-        Tooltip tooltip = new Tooltip(detail);
-        tooltip.setWrapText(true);
-        tooltip.setMaxWidth(RESULT_TOOLTIP_WIDTH);
-        statusBadge.setTooltip(tooltip);
+        statusTooltip.setText(detail);
+        statusBadge.setTooltip(statusTooltip);
         statusBadge.setAccessibleText("Kết quả bước " + stepNumLabel.getText() + ": " + detail);
 
         boolean failed = StepResult.FAILED.equals(status);
@@ -603,7 +609,7 @@ public final class StepCardView extends VBox {
         statusBadge.setVisible(false);
         statusBadge.setManaged(false);
         statusBadge.setText("");
-        statusBadge.setTooltip(null);
+        statusTooltip.setText("");
         statusBadge.setAccessibleText(null);
         replaceFamily(statusBadge, CSS_STATUS_IDLE);
         resultRow.setVisible(false);
@@ -615,16 +621,6 @@ public final class StepCardView extends VBox {
         node.getStyleClass().removeAll(CSS_STATUS_PASSED, CSS_STATUS_FAILED, CSS_STATUS_IDLE,
                 CSS_STATUS_RUNNING);
         node.getStyleClass().add(family);
-    }
-
-    private static String statusLabel(String status) {
-        return switch (status) {
-            case StepResult.RUNNING -> "Đang chạy";
-            case StepResult.PASSED -> "Đạt";
-            case StepResult.FAILED -> "Lỗi";
-            case StepResult.SKIPPED -> "Bỏ qua";
-            default -> "Không chạy";
-        };
     }
 
     /** @return true when this card renders as a one-line comment instead of a step. */

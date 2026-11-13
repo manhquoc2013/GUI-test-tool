@@ -1,5 +1,8 @@
 package com.studio.service;
 
+import com.studio.model.StepResult;
+import com.studio.model.TestStep;
+import com.studio.runtime.StepTracer;
 import com.studio.ui.StepScriptBidirectionalSync;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -178,6 +181,88 @@ class StepTraceInstrumenterTest {
             }
             return ok;
         }
+    }
+
+    /**
+     * A disabled step emits no Playwright statement, but it must still consume one body line: the
+     * tracer numbers lines, the builder numbers cards, and dropping the slot slides every later
+     * verdict one card up — a failure would then be printed on the step that was switched off.
+     */
+    @Test
+    void aDisabledStepKeepsItsSlotSoLaterVerdictsStayOnTheirOwnCard() {
+        TestStep before = new TestStep(1, "CLICK", "#a", "", "", "");
+        TestStep switchedOff = new TestStep(2, "CLICK", "#b", "", "", "");
+        switchedOff.setEnabled(false);
+        TestStep after = new TestStep(3, "CLICK", "#c", "", "", "");
+
+        String script = StepScriptBidirectionalSync.stepsToScript(
+                List.of(before, switchedOff, after), "");
+        StepTraceInstrumenter.Instrumented traced = StepTraceInstrumenter.instrument(script);
+
+        assertFalse(script.contains("#b"), "A disabled step must never reach the browser: " + script);
+        assertEquals(3, traced.statements().size() - 1,
+                "Three cards, so the tracer must know three steps: " + traced.statements());
+        assertEquals(StepScriptBidirectionalSync.DISABLED_STEP_PLACEHOLDER, traced.statements().get(2),
+                "The disabled card keeps its own slot instead of being squeezed out");
+        assertEquals("page.locator(\"#c\").click();", traced.statements().get(3));
+        assertTrue(traced.script().contains("stepEnter(3);"),
+                "Card 3 is the third step, not the second: " + traced.script());
+    }
+
+    /**
+     * The placeholder is emitted into real Java source, so it has to survive the harness transform and
+     * still compile. A slot that breaks the build would turn every case with a switched-off step into
+     * a compilation error — the exact failure this feature exists to explain.
+     */
+    @Test
+    void aPlaceholderSlotCompilesInsideTheHarness(@TempDir Path tmp) throws Exception {
+        String wrapped = """
+                package com.test;
+
+                import com.microsoft.playwright.*;
+
+                public class Recorded {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                        page.locator("#a").click();
+                        // @step-off
+                        page.locator("#c").click();
+                    }
+                }
+                """;
+        StepTraceInstrumenter.Instrumented traced = StepTraceInstrumenter.instrument(wrapped);
+
+        assertEquals(3, traced.statements().size() - 1, "The slot counts as a step: " + traced.statements());
+        assertTrue(traced.script().contains("stepEnter(3);"), traced.script());
+
+        String harness = ScriptHarnessTransformer.transform(traced.script(), false,
+                tmp.resolve("shot").toString(), "TracedHarness");
+        assertTrue(harness.contains(StepScriptBidirectionalSync.DISABLED_STEP_PLACEHOLDER), harness);
+        assertTrue(compiles(harness, tmp), "A placeholder slot must still compile:\n" + harness);
+    }
+
+    @Test
+    void aDisabledSlotIsReachedAsNotRunInsteadOfAsAPass() {
+        String script = StepScriptBidirectionalSync.stepsToScript(List.of(
+                new TestStep(1, "CLICK", "#a", "", "", ""),
+                disabledStep(2, "#b"),
+                new TestStep(3, "CLICK", "#c", "", "", "")), "");
+        StepTracer tracer = new StepTracer(StepTraceInstrumenter.instrument(script).statements());
+        tracer.enter(1);
+        tracer.enter(3);
+        tracer.close(false, null);
+
+        List<StepResult> results = tracer.snapshot();
+        assertEquals(StepResult.PASSED, results.get(0).getStatus());
+        assertEquals(StepResult.NOT_RUN, results.get(1).getStatus(),
+                "A switched-off step did not run, and must not borrow the pass of its neighbour");
+        assertEquals(StepResult.PASSED, results.get(2).getStatus());
+    }
+
+    private static TestStep disabledStep(int number, String target) {
+        TestStep step = new TestStep(number, "CLICK", target, "", "", "");
+        step.setEnabled(false);
+        return step;
     }
 
     @Test

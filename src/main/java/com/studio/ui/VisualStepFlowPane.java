@@ -42,8 +42,9 @@ import java.util.function.Consumer;
  * Visual canvas holding ordered {@link StepCardView}s.
  * Enables No-code / Low-code authoring, drag re-ordering, and quick step creation.
  *
- * <p>Disabled steps stay in the list (and in the model) so toggling one off is reversible;
- * only {@link #getEnabledSteps()} is used for script generation and execution.</p>
+ * <p>Disabled steps stay in the list (and in the model) so toggling one off is reversible. They are
+ * still handed to the script renderer, which emits a placeholder line for them, so the card numbers
+ * the runner reports stay aligned with the cards on screen.</p>
  *
  * <p>Reordering is the most destructive thing a builder does without a confirmation, so every
  * delete and every move lands on an undo stack ({@link #undo()} / {@link #redo()}, also bound to
@@ -883,13 +884,15 @@ public final class VisualStepFlowPane extends VBox {
         if (step == null) {
             return;
         }
-        String command = StepScriptBidirectionalSync.stepsToScript(List.of(step), "");
+        // The single statement, not a rendered script: a disabled step renders a placeholder line,
+        // and copying that would look like a successful copy of a command that does not exist.
+        String command = StepScriptBidirectionalSync.statement(step).trim();
         if (command.isBlank()) {
             ToastService.warn("Bước đang tắt hoặc chưa có lệnh — bật bước để sao chép.");
             return;
         }
         ClipboardContent content = new ClipboardContent();
-        content.putString(command.trim());
+        content.putString(command);
         Clipboard.getSystemClipboard().setContent(content);
         ToastService.success("Đã sao chép lệnh Playwright của bước.");
     }
@@ -909,23 +912,15 @@ public final class VisualStepFlowPane extends VBox {
         return steps;
     }
 
-    /** Only enabled steps — used when generating the executable script. */
-    public List<TestStep> getEnabledSteps() {
-        List<TestStep> steps = new ArrayList<>(cardViews.size());
-        for (StepCardView view : cardViews) {
-            if (view.isStepEnabled()) {
-                steps.add(view.getStep());
-            }
-        }
-        return steps;
-    }
-
     /**
      * Paints a finished run onto the cards: each step gets the verdict recorded for its number, and
      * the footer states the tally in one line.
      *
      * <p>Steps with no recorded result are cleared rather than left with an older verdict, because a
      * run that stopped early must not keep showing check marks from a previous one.</p>
+     *
+     * <p>A disabled card is skipped entirely: the run emitted only a placeholder for it, so it has
+     * no verdict, and counting it as "not run" would blame the tester for a step they switched off.</p>
      */
     public void applyStepResults(List<StepResult> results) {
         Map<Integer, StepResult> byStep = new HashMap<>();
@@ -943,7 +938,7 @@ public final class VisualStepFlowPane extends VBox {
         for (StepCardView card : cardViews) {
             StepResult result = byStep.get(card.getStep().getStepNumber());
             card.applyExecution(result);
-            if (result == null) {
+            if (result == null || !card.getStep().isEnabled()) {
                 continue;
             }
             switch (result.getStatus()) {

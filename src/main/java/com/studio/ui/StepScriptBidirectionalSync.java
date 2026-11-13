@@ -34,6 +34,13 @@ public final class StepScriptBidirectionalSync {
     public static final String ACTION_RAW = "RAW";
     /** Step action for a {@code //} line: still a script line, read as a sentence. */
     public static final String ACTION_NOTE = "NOTE";
+    /**
+     * Stands in for a step the tester switched off. A disabled step emits no Playwright statement,
+     * but it must still occupy exactly one body line: the runner numbers the executing body line by
+     * line, so dropping the slot would shift every later step's verdict onto the wrong card. The
+     * parser skips this line for the same reason — it is a slot, not an authored step.
+     */
+    public static final String DISABLED_STEP_PLACEHOLDER = "// @step-off";
     /** Indentation applied to each emitted statement of a full-class script body. */
     public static final String BODY_INDENT = "        ";
 
@@ -50,6 +57,9 @@ public final class StepScriptBidirectionalSync {
      *
      * <p>A leading {@code page.navigate} is emitted from {@code startUrl} only when no enabled
      * {@code NAVIGATE} step already performs that navigation — otherwise the script navigated twice.</p>
+     *
+     * <p>A disabled step keeps its line as {@link #DISABLED_STEP_PLACEHOLDER}, so the statement
+     * index of every later step still matches the card number the builder prints.</p>
      */
     public static String stepsToScript(List<TestStep> steps, String startUrl) {
         StringBuilder sb = new StringBuilder();
@@ -58,6 +68,13 @@ public final class StepScriptBidirectionalSync {
         }
         if (steps != null) {
             for (TestStep step : steps) {
+                if (step == null) {
+                    continue;
+                }
+                if (!step.isEnabled()) {
+                    sb.append(DISABLED_STEP_PLACEHOLDER).append('\n');
+                    continue;
+                }
                 String statement = statement(step);
                 if (!statement.isBlank()) {
                     sb.append(statement).append('\n');
@@ -193,7 +210,13 @@ public final class StepScriptBidirectionalSync {
             if (raw == null || raw.isBlank()) {
                 continue;
             }
-            TestStep parsed = parseStatement(raw.strip(), stepNum);
+            String trimmed = raw.strip();
+            // A placeholder holds a disabled step's slot in the executed script. It is not authored
+            // content: re-reading it as a step would duplicate the card the model still holds.
+            if (DISABLED_STEP_PLACEHOLDER.equals(trimmed)) {
+                continue;
+            }
+            TestStep parsed = parseStatement(trimmed, stepNum);
             if (parsed != null) {
                 steps.add(parsed);
                 stepNum++;
@@ -463,7 +486,13 @@ public final class StepScriptBidirectionalSync {
             }
             if (steps != null) {
                 for (TestStep step : steps) {
-                    String statement = StepScriptBidirectionalSync.statement(step);
+                    if (step == null) {
+                        continue;
+                    }
+                    // A disabled step keeps its slot (see DISABLED_STEP_PLACEHOLDER) so the runner's
+                    // step numbers stay aligned with the card numbers.
+                    String statement = step.isEnabled() ? StepScriptBidirectionalSync.statement(step)
+                            : DISABLED_STEP_PLACEHOLDER;
                     if (statement.isBlank()) {
                         continue;
                     }

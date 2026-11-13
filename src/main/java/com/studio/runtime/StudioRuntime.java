@@ -51,6 +51,21 @@ public class StudioRuntime {
         }
     }
 
+    /**
+     * Closes the last step as passed, once the authored body is over.
+     *
+     * <p>Studio appends its assertion block <em>after</em> the last step. Without this call a failing
+     * assertion would be attributed to whichever step happened to be still open — the last one — so a
+     * healthy step would collect the ✗ and the footer would point the tester at the wrong line. The
+     * no-op when no tracer is installed keeps an uninstrumented script unchanged.</p>
+     */
+    public static void stepTraceComplete() {
+        StepTracer tracer = stepTracer.get();
+        if (tracer != null) {
+            tracer.finish();
+        }
+    }
+
     public static void setExecutor(OptimizedSelfHealingExecutor executor) {
         currentExecutor.set(executor);
     }

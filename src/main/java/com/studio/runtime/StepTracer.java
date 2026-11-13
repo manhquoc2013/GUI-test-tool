@@ -30,6 +30,16 @@ public final class StepTracer {
     private static final String AFTER_FAILURE = "Không chạy vì bước trước bị lỗi";
 
     /**
+     * Caps on the text stored per step. Every step of every case persists its statement and failure
+     * reason into the run report, which is re-read whenever the report list is opened; an unbounded
+     * Playwright stack trace would make that listing progressively slower. The caps are far above
+     * any statement the builder emits, so only genuinely sprawling text is shortened.
+     */
+    private static final int MAX_STATEMENT_CHARS = 240;
+    private static final int MAX_MESSAGE_CHARS = 400;
+    private static final String ELLIPSIS = "…";
+
+    /**
      * Live observer of a run. Both methods are optional so an implementation can care about only one
      * side of the lifecycle — and both are called on the runner's thread, never the FX thread.
      */
@@ -87,7 +97,7 @@ public final class StepTracer {
             currentStep = stepNumber;
             currentStartNanos = System.nanoTime();
             if (listener != null) {
-                listener.onStepStarted(new StepResult(stepNumber, statement(stepNumber),
+                listener.onStepStarted(result(stepNumber, statement(stepNumber),
                         StepResult.RUNNING, 0, null));
             }
         } catch (RuntimeException ignored) {
@@ -108,7 +118,7 @@ public final class StepTracer {
         }
         for (int step = failedStep + 1; step <= stepCount(); step++) {
             if (!results.containsKey(step)) {
-                publish(new StepResult(step, statement(step), StepResult.SKIPPED, 0, AFTER_FAILURE));
+                publish(result(step, statement(step), StepResult.SKIPPED, 0, AFTER_FAILURE));
             }
         }
     }
@@ -119,7 +129,7 @@ public final class StepTracer {
         currentStep = 0;
         for (int step = 1; step <= stepCount(); step++) {
             if (!results.containsKey(step)) {
-                publish(new StepResult(step, statement(step), StepResult.NOT_RUN, 0, NO_STATEMENT));
+                publish(result(step, statement(step), StepResult.NOT_RUN, 0, NO_STATEMENT));
             }
         }
     }
@@ -180,9 +190,9 @@ public final class StepTracer {
             }
             String text = statement(step);
             if (PlaywrightDescribe.isComment(text) || text.isBlank()) {
-                publish(new StepResult(step, text, StepResult.NOT_RUN, 0, NO_STATEMENT));
+                publish(result(step, text, StepResult.NOT_RUN, 0, NO_STATEMENT));
             } else {
-                publish(new StepResult(step, text, StepResult.PASSED, 0,
+                publish(result(step, text, StepResult.PASSED, 0,
                         "Nằm trong câu lệnh của bước " + currentStep));
             }
         }
@@ -193,7 +203,27 @@ public final class StepTracer {
             return;
         }
         long durationMs = Math.max(0, (System.nanoTime() - currentStartNanos) / 1_000_000L);
-        publish(new StepResult(currentStep, statement(currentStep), status, durationMs, message));
+        publish(result(currentStep, statement(currentStep), status, durationMs, message));
+    }
+
+    /**
+     * Builds the stored entry, capping the text that will be persisted with the report.
+     *
+     * <p>The statement keeps its leading characters (the part that identifies the step) and the
+     * message keeps its head (the exception type and the locator), which is what a report reader
+     * needs; the tail of a stack trace is noise there.</p>
+     */
+    private static StepResult result(int stepNumber, String statement, String status, long durationMs,
+                                     String message) {
+        return new StepResult(stepNumber, cap(statement, MAX_STATEMENT_CHARS), status, durationMs,
+                cap(message, MAX_MESSAGE_CHARS));
+    }
+
+    private static String cap(String text, int max) {
+        if (text == null || text.length() <= max) {
+            return text;
+        }
+        return text.substring(0, max) + ELLIPSIS;
     }
 
     /** Stores the verdict and hands it to the live observer, if any. */

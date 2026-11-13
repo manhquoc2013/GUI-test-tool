@@ -22,6 +22,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -62,6 +63,35 @@ class StepRunFeedbackUxTest {
             assertFalse(resultRow.isManaged(), "A passing step must not grow a reason row");
             assertTrue(badge.getTooltip().getText().contains("132ms"),
                     "The tooltip says how long the step took");
+        });
+    }
+
+    /**
+     * A suite repaints every card up to ten times a second for its whole duration. Allocating a
+     * tooltip per verdict would churn garbage the entire run, so the badge keeps one instance and
+     * only its text changes.
+     */
+    @Test
+    void theVerdictTooltipIsReusedAcrossRepaints() throws Exception {
+        TestStep step = new TestStep(1, "CLICK", "#go", "", "", "");
+        withCard(step, card -> {
+            card.applyExecution(new StepResult(1, "page.locator(\"#go\").click();",
+                    StepResult.RUNNING, 0, null));
+            var running = badge(card).getTooltip();
+            assertNotNull(running);
+
+            card.applyExecution(new StepResult(1, "page.locator(\"#go\").click();",
+                    StepResult.PASSED, 21, null));
+            assertSame(running, badge(card).getTooltip(),
+                    "A repaint must not allocate a new tooltip");
+            assertTrue(badge(card).getTooltip().getText().contains("21ms"));
+
+            card.clearExecution();
+            card.applyExecution(new StepResult(1, "page.locator(\"#go\").click();",
+                    StepResult.FAILED, 900, "TimeoutError"));
+            assertSame(running, badge(card).getTooltip(),
+                    "Clearing a verdict must keep the single attached tooltip");
+            assertTrue(badge(card).getTooltip().getText().contains("TimeoutError"));
         });
     }
 
@@ -193,6 +223,42 @@ class StepRunFeedbackUxTest {
             assertTrue(hasStatus(cards.get(1), StepCardView.CSS_STATUS_RUNNING));
             assertFalse(hasStatus(cards.get(2), StepCardView.CSS_STATUS_IDLE),
                     "A step not reached yet must stay blank while the run is still going");
+        });
+    }
+
+    /**
+     * A switched-off step keeps its slot in the executed script, so it does receive a trace entry —
+     * "did not run". Painting that on the card would blame the tester for a step they deliberately
+     * disabled, and counting it in the footer would inflate "chưa chạy".
+     */
+    @Test
+    void aSwitchedOffStepNeitherShowsAVerdictNorJoinsTheTally() throws Exception {
+        TestStep disabled = new TestStep(2, "CLICK", "#b", "", "", "");
+        disabled.setEnabled(false);
+        withPane(pane -> {
+            pane.loadSteps(List.of(
+                    new TestStep(1, "CLICK", "#a", "", "", ""),
+                    disabled,
+                    new TestStep(3, "CLICK", "#c", "", "", "")));
+
+            pane.applyStepResults(List.of(
+                    new StepResult(1, "page.locator(\"#a\").click();", StepResult.PASSED, 12, null),
+                    new StepResult(2, StepScriptBidirectionalSync.DISABLED_STEP_PLACEHOLDER,
+                            StepResult.NOT_RUN, 0, "Bước không sinh câu lệnh để thực thi"),
+                    new StepResult(3, "page.locator(\"#c\").click();", StepResult.PASSED, 8, null)));
+
+            List<Node> cards = pane.lookupAll(".step-card").stream().toList();
+            assertEquals(3, cards.size());
+            assertTrue(hasStatus(cards.get(0), StepCardView.CSS_STATUS_PASSED));
+            assertFalse(cards.get(1).lookup(".step-status-badge").isVisible(),
+                    "A switched-off step must not display a run verdict");
+            assertTrue(hasStatus(cards.get(2), StepCardView.CSS_STATUS_PASSED));
+
+            Label summary = (Label) pane.lookup(".step-run-summary");
+            assertNotNull(summary);
+            assertTrue(summary.getText().contains("2 đạt"), summary.getText());
+            assertFalse(summary.getText().contains("chưa chạy"),
+                    "The disabled step must not be reported as a step that failed to run");
         });
     }
 

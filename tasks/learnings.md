@@ -877,3 +877,16 @@
   pair a smaller min with an auto-hide rule plus a visible way back (header toggle).
 - Modal confirmation only for steps that carry a selector or value; an empty step is cheap to recreate and a
   dialog on every delete trains people to click through dialogs.
+## Step tracing: three sources of a step number (review round)
+- A step number exists three times — card order, body line index, tracer entry — and only two of them were
+  pinned together. Any line the builder drops (a disabled step) slides every later verdict one card up. The
+  fix is to keep the line and emit a placeholder comment (`// @step-off`) that the parser skips, so the body
+  keeps exactly one line per card.
+- Studio appends assertions AFTER the authored body. Without an explicit "body finished" call the last step
+  stays open and collects the assertion failure. `StudioRuntime.stepTraceComplete()` closes it inside the
+  harness `try`; `StepTracer.close` is first-exit-wins, so the later failure path cannot reopen it.
+- A deferred UI update needs a generation token: `Platform.runLater(() -> clear(activeKey))` can fire after the
+  next case (or a retry with the same key) has started, silently killing its live trace. `CASE_EPOCH` makes a
+  stale release a no-op.
+- An export that supports two languages must not borrow the app's Vietnamese label constants: localise through
+  i18n keys (`export.status.*`) and keep the raw code where a spreadsheet needs to filter on it.

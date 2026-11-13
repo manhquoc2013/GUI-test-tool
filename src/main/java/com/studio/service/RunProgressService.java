@@ -49,6 +49,13 @@ public final class RunProgressService {
     private static final Map<String, Map<Integer, StepResult>> STEP_TRACE = new ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicLong LAST_STEP_NOTIFY_NS =
             new java.util.concurrent.atomic.AtomicLong(0L);
+    /**
+     * Bumped on every case boundary. The release of the active marker is deferred until the closing
+     * notification has been delivered, and this counter makes a queued release harmless if another
+     * case (or a retry of the same one) has started in the meantime.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong CASE_EPOCH =
+            new java.util.concurrent.atomic.AtomicLong(0L);
 
     private RunProgressService() {}
 
@@ -62,6 +69,7 @@ public final class RunProgressService {
 
     public static void beginRun(String scope, Path scopePath) {
         cancelClearTimer();
+        CASE_EPOCH.incrementAndGet();
         BY_CASE.clear();
         STEP_TRACE.clear();
         LAST_STEP_NOTIFY_NS.set(0L);
@@ -72,8 +80,14 @@ public final class RunProgressService {
 
     public static void caseStarted(CaseResult cr) {
         if (cr == null) return;
+        String key = caseKey(cr);
+        CASE_EPOCH.incrementAndGet();
+        // A new case starts: the previous trace has already been painted by the closing notification,
+        // and dropping it here keeps a long suite from accumulating every step it has run. Clearing
+        // also means a retried case begins without the previous attempt's verdicts.
+        STEP_TRACE.clear();
         put(cr, "RUNNING");
-        ACTIVE_CASE_KEY.set(caseKey(cr));
+        ACTIVE_CASE_KEY.set(key);
         notifyListeners();
     }
 
@@ -85,10 +99,28 @@ public final class RunProgressService {
         }
         put(cr, status);
         String key = caseKey(cr);
-        if (key.equals(ACTIVE_CASE_KEY.get())) {
-            ACTIVE_CASE_KEY.set(null);
-        }
+        long epoch = CASE_EPOCH.get();
+        // Listeners run before the active marker is released: the workspace paints the last step
+        // results only while this case is still the active one, and step notifications are
+        // throttled, so the closing verdict can otherwise arrive with nothing left to paint it.
         notifyListeners();
+        Runnable releaseActive = () -> {
+            // A release queued by an earlier case must not clear the marker of a case that has
+            // started since — including a retry of the same case, which reuses the same key.
+            if (CASE_EPOCH.get() == epoch && key.equals(ACTIVE_CASE_KEY.get())) {
+                ACTIVE_CASE_KEY.set(null);
+            }
+        };
+        if (Platform.isFxApplicationThread()) {
+            releaseActive.run();
+        } else {
+            try {
+                // Queued behind the listener tasks notifyListeners() just posted, so they still see it.
+                Platform.runLater(releaseActive);
+            } catch (IllegalStateException noToolkit) {
+                releaseActive.run();
+            }
+        }
     }
 
     /**
@@ -159,6 +191,7 @@ public final class RunProgressService {
 
     public static void endRun(RunReport report) {
         RUN_ACTIVE.set(false);
+        CASE_EPOCH.incrementAndGet();
         ACTIVE_CASE_KEY.set(null);
         notifyListeners();
         scheduleClear(CLEAR_DELAY_MS);
@@ -166,6 +199,7 @@ public final class RunProgressService {
 
     public static void clearNow() {
         cancelClearTimer();
+        CASE_EPOCH.incrementAndGet();
         BY_CASE.clear();
         STEP_TRACE.clear();
         ACTIVE_CASE_KEY.set(null);
