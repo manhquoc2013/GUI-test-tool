@@ -5,7 +5,7 @@
 - [x] T0.2 Write `SPEC.md` / `tasks/plan.md` / this `tasks/todo.md`
 
 ## Implementation
-- [ ] T1 Theme + `qtawesome` + UI constants
+- [x] T1 Theme + `qtawesome` + UI constants
 - [ ] T2 Unified Top Action Bar (URL, Sync badge, Skill, Run/Stop, Export, New Case)
 - [ ] T3 Test Explorer split + search + status dots
 - [ ] T4 Spec form + UNBOUND banner + field persist
