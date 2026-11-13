@@ -1,12 +1,12 @@
-"""QA Copilot chat pane — history, Stop, Copy, Undo→fill, context chips."""
+"""QA Copilot — Case Chat + embedded AI Wizard (Compose) in one pane."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QKeyEvent
-from PySide6.QtWidgets import QHBoxLayout, QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QGuiApplication, QKeyEvent
+from PySide6.QtWidgets import QHBoxLayout, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (
     ComboBox,
     ListWidget,
@@ -15,6 +15,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PrimaryToolButton,
     PushButton,
+    SegmentedWidget,
     ToolButton,
 )
 from qfluentwidgets import (
@@ -22,6 +23,7 @@ from qfluentwidgets import (
 )
 
 from ai_qa_test_studio.constants import (
+    APPLY_KIND_COMPOSE,
     COPILOT_BTN_SEND_SIZE,
     COPILOT_CHIP_HEIGHT,
     COPILOT_INPUT_HEIGHT,
@@ -35,6 +37,8 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
 )
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
+from ai_qa_test_studio.core.models import TestScenario
+from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
 
 _ROLE_LABEL = {
     "user": "Bạn",
@@ -100,11 +104,26 @@ class CopilotChatPane(QWidget):
         top.addWidget(self.btn_clear)
         layout.addLayout(top)
 
-        self.starters = QWidget(self)
+        self.mode_pivot = SegmentedWidget(self)
+        self.mode_pivot.setAccessibleName("Chat hoặc AI Wizard trong Copilot")
+        self.mode_pivot.addItem(routeKey="chat", text="Chat", icon=FIF.CHAT)
+        self.mode_pivot.addItem(routeKey="wizard", text="AI Wizard", icon=FIF.EDUCATION)
+        self.mode_pivot.setCurrentItem("chat")
+        self.mode_pivot.currentItemChanged.connect(self._on_mode_pivot)
+        layout.addWidget(self.mode_pivot)
+
+        self.body_stack = QStackedWidget(self)
+
+        # --- Chat body ---
+        chat_body = QWidget(self.body_stack)
+        chat_layout = QVBoxLayout(chat_body)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(6)
+
+        self.starters = QWidget(chat_body)
         starters_layout = QHBoxLayout(self.starters)
         starters_layout.setContentsMargins(0, 0, 0, 0)
         starters_layout.setSpacing(6)
-        self._starter_buttons: list[PushButton] = []
         for label in (
             "Giải thích lỗi bước vừa chạy",
             "Sinh thêm 5 bộ Test Data biên (BVA)",
@@ -115,24 +134,23 @@ class CopilotChatPane(QWidget):
             btn.setFixedHeight(COPILOT_CHIP_HEIGHT + 4)
             btn.clicked.connect(lambda _=False, t=label: self._starter_clicked(t))
             starters_layout.addWidget(btn)
-            self._starter_buttons.append(btn)
         starters_layout.addStretch(1)
-        layout.addWidget(self.starters)
+        chat_layout.addWidget(self.starters)
 
-        self.history = ListWidget(self)
+        self.history = ListWidget(chat_body)
         self.history.setWordWrap(True)
         self.history.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.history.setAccessibleName("Lịch sử hội thoại Copilot")
-        layout.addWidget(self.history, stretch=1)
+        chat_layout.addWidget(self.history, stretch=1)
 
         action_row = QHBoxLayout()
-        self.btn_copy = PushButton(FIF.COPY, "Copy", self)
+        self.btn_copy = PushButton(FIF.COPY, "Copy", chat_body)
         self.btn_copy.setToolTip("Copy tin đang chọn")
         self.btn_copy.clicked.connect(self.copy_selected)
-        self.btn_undo = PushButton(FIF.CANCEL, "Undo", self)
+        self.btn_undo = PushButton(FIF.CANCEL, "Undo", chat_body)
         self.btn_undo.setToolTip("Hoàn tác tin user gần nhất → điền lại ô nhập")
         self.btn_undo.clicked.connect(self.undo_last_user)
-        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "Apply", self)
+        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "Apply", chat_body)
         self.btn_apply.setEnabled(False)
         self.btn_apply.setToolTip("Áp dụng artifact vào Editor / Test Data")
         self.btn_apply.clicked.connect(self._emit_apply)
@@ -140,20 +158,20 @@ class CopilotChatPane(QWidget):
         action_row.addWidget(self.btn_undo)
         action_row.addStretch(1)
         action_row.addWidget(self.btn_apply)
-        layout.addLayout(action_row)
+        chat_layout.addLayout(action_row)
 
         input_row = QHBoxLayout()
         input_row.setSpacing(6)
-        self.input_box = PlainTextEdit(self)
+        self.input_box = PlainTextEdit(chat_body)
         self.input_box.setPlaceholderText("Nhập yêu cầu (Enter gửi, Shift+Enter xuống dòng)...")
         self.input_box.setFixedHeight(COPILOT_INPUT_HEIGHT)
         self.input_box.setAccessibleName("Ô nhập Copilot")
         self.input_box.installEventFilter(self)
-        self.btn_send = PrimaryToolButton(FIF.SEND, self)
+        self.btn_send = PrimaryToolButton(FIF.SEND, chat_body)
         self.btn_send.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
         self.btn_send.setToolTip("Gửi")
         self.btn_send.clicked.connect(self._emit_send)
-        self.btn_stop = ToolButton(FIF.CANCEL, self)
+        self.btn_stop = ToolButton(FIF.CANCEL, chat_body)
         self.btn_stop.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
         self.btn_stop.setToolTip("Dừng LLM / orchestrator")
         self.btn_stop.setVisible(False)
@@ -161,7 +179,16 @@ class CopilotChatPane(QWidget):
         input_row.addWidget(self.input_box, stretch=1)
         input_row.addWidget(self.btn_send, alignment=Qt.AlignmentFlag.AlignBottom)
         input_row.addWidget(self.btn_stop, alignment=Qt.AlignmentFlag.AlignBottom)
-        layout.addLayout(input_row)
+        chat_layout.addLayout(input_row)
+
+        # --- Wizard body (AI Wizard is part of Copilot) ---
+        self.wizard = ComposeWizardPanel(self.body_stack)
+        self.wizard.drafts_ready.connect(self._on_wizard_drafts)
+        self.wizard.cancelled.connect(self.focus_case_chat)
+
+        self.body_stack.addWidget(chat_body)
+        self.body_stack.addWidget(self.wizard)
+        layout.addWidget(self.body_stack, stretch=1)
 
     @property
     def session(self) -> CopilotSession:
@@ -176,6 +203,12 @@ class CopilotChatPane(QWidget):
                 return True
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
 
+    def _on_mode_pivot(self, key: str) -> None:
+        if key == "wizard":
+            self.focus_compose()
+        else:
+            self.focus_case_chat()
+
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.btn_send.setVisible(not busy)
@@ -183,16 +216,18 @@ class CopilotChatPane(QWidget):
         self.input_box.setReadOnly(busy)
 
     def focus_compose(self) -> None:
+        """Open AI Wizard (Compose) — the structured half of Copilot."""
         self._session.mode = COPILOT_MODE_COMPOSE
         self.chip_case.setChecked(False)
-        self.input_box.setPlaceholderText(
-            "Dán SRS / mô tả / URL rồi Enter — Composer tạo draft UNBOUND..."
-        )
-        self.input_box.setFocus()
+        self.mode_pivot.setCurrentItem("wizard")
+        self.body_stack.setCurrentWidget(self.wizard)
+        self.wizard.reset()
 
     def focus_case_chat(self) -> None:
         self._session.mode = COPILOT_MODE_CASE
         self.chip_case.setChecked(True)
+        self.mode_pivot.setCurrentItem("chat")
+        self.body_stack.setCurrentIndex(0)
         self.input_box.setPlaceholderText("Nhập yêu cầu (Enter gửi, Shift+Enter xuống dòng)...")
         self.input_box.setFocus()
 
@@ -222,6 +257,7 @@ class CopilotChatPane(QWidget):
         for msg in session.messages:
             self._append_item(msg.role, msg.content, streaming=False)
         self.starters.setVisible(len(session.messages) == 0)
+        self.focus_case_chat()
         self.session_changed.emit()
 
     def context_flags(self) -> dict[str, Any]:
@@ -308,15 +344,35 @@ class CopilotChatPane(QWidget):
         for msg in self._session.messages:
             self._append_item(msg.role, msg.content, streaming=False)
         self.input_box.setPlainText(text)
-        self.input_box.setFocus()
+        self.focus_case_chat()
         self._pending_apply = None
         self.btn_apply.setEnabled(False)
         self.starters.setVisible(len(self._session.messages) == 0)
         self.session_changed.emit()
 
+    def _on_wizard_drafts(self, scenarios: list[TestScenario], start_url: str) -> None:
+        typed = [s for s in scenarios if isinstance(s, TestScenario)]
+        if not typed:
+            self.info_message.emit("AI Wizard", "Không có scenario nào được chọn.")
+            return
+        payload = {
+            "kind": APPLY_KIND_COMPOSE,
+            "scenarios": [s.model_dump(mode="json") for s in typed],
+            "start_url": start_url,
+        }
+        self.set_apply_payload(payload)
+        self.apply_requested.emit(payload)
+        self.append_user(f"[AI Wizard] Tạo draft {len(typed)} scenario")
+        self.begin_role(ROLE_COMPOSER)
+        summary = "\n".join(f"- {s.code}: {s.title} ({len(s.cases)} cases)" for s in typed)
+        self.end_role(ROLE_COMPOSER, f"Đã Apply draft UNBOUND:\n{summary}")
+        self.focus_case_chat()
+        self.info_message.emit("AI Wizard", f"Đã Apply {len(typed)} scenario vào Explorer.")
+
     def _starter_clicked(self, text: str) -> None:
         if "SRS" in text or "kịch bản" in text.lower():
-            self._session.mode = COPILOT_MODE_COMPOSE
+            self.focus_compose()
+            return
         self.input_box.setPlainText(text)
         self._emit_send()
 
@@ -345,8 +401,6 @@ class CopilotChatPane(QWidget):
         elif role == ROLE_CRITIC:
             item.setForeground(Qt.GlobalColor.magenta)
         else:
-            from PySide6.QtGui import QBrush, QColor
-
             item.setForeground(QBrush(QColor(ICON_COLOR_PRIMARY)))
         self.history.addItem(item)
         self.history.scrollToBottom()

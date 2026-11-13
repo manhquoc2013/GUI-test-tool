@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
         self.browser_agent.show_copilot(compose=True)
         self._toast_info(
             "QA Copilot",
-            "Compose mode — mô tả SRS/URL rồi gửi. Pipeline mặc định: Planner→Composer→Critic.",
+            "Tab AI Wizard (3 bước) nằm trong Copilot. Chat dùng Planner→Composer→Critic.",
         )
 
     def _toast_info(self, title: str, content: str) -> None:
@@ -342,25 +342,31 @@ class MainWindow(QMainWindow):
             scenarios = [TestScenario.model_validate(item) for item in scenarios_raw]
             if not scenarios:
                 return
+            start_url = str(payload.get("start_url") or "").strip()
+            if start_url:
+                self.url_edit.setText(start_url)
+                for scenario in scenarios:
+                    for case in scenario.cases:
+                        case.start_url = start_url
             self.project.root_group.scenarios.extend(scenarios)
             self.storage.save(self.project)
             self._reload_ui()
             self._append_log(
-                f"Copilot Apply: {len(scenarios)} scenario, "
+                f"Copilot/AI Wizard Apply: {len(scenarios)} scenario, "
                 f"{sum(len(s.cases) for s in scenarios)} case UNBOUND"
             )
             self._toast_info("Apply", f"Đã thêm {len(scenarios)} scenario draft.")
             return
         if kind == APPLY_KIND_TEST_DATA:
             rows = list(payload.get("rows") or [])
-            case = self.builder.current_case()
-            if case is None:
+            target = self.builder.current_case()
+            if target is None:
                 self._toast_warn("Apply", "Chọn một test case trước khi thêm Test Data.")
                 return
-            case.test_data_rows = list(case.test_data_rows) + rows
-            self._merge_case(case)
+            target.test_data_rows = list(target.test_data_rows) + rows
+            self._merge_case(target)
             self.storage.save(self.project)
-            self.data_drawer.load_rows(case.test_data_rows)
+            self.data_drawer.load_rows(target.test_data_rows)
             self._append_log(f"Copilot Apply: +{len(rows)} Test Data rows")
             self._toast_info("Apply", f"Đã thêm {len(rows)} bộ Test Data.")
             return

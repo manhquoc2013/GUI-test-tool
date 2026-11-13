@@ -24,7 +24,7 @@ Thay **AI Wizard modal** bằng **một QA Copilot** nhúng nửa dưới cột 
 | # | Decision |
 |---|---|
 | Shell | 1 Copilot trong cột phải; Segmented `AI Copilot` \| `Agent Live Feed`; CDP viewport phía trên |
-| Wizard | Modal `AiTestWizard` deprecated sau Compose; Top Bar / Palette → focus Copilot mode Compose |
+| Wizard | **AI Wizard là một phần của Copilot** (tab `Chat` \| `AI Wizard` trong pane); Top Bar/Palette mở Copilot → tab Wizard; modal chỉ còn vỏ tương thích |
 | Orchestrator | **Mặc định bắt buộc** 3 role: Planner → Composer → Critic (đúng 1 vòng Critic) |
 | Handoff | Structured JSON/artifacts giữa role — **không** chat tự do agent↔agent trên UI |
 | Apply | Mọi ghi `TestCase` / Test Data / steps qua preview → **Apply** (trừ khi user bật auto-apply sau này) |

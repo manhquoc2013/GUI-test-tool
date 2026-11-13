@@ -12,3 +12,4 @@
 - Copilot: default orchestrator is Planner→Composer→Critic (one Critic pass) — not free-form multi-agent chat. Undo user turn must drop all following role artifacts and refill input.
 - No API key → `LLM_PROVIDER_OFFLINE` keeps UI/tests deterministic; live OpenAI-compat/Gemini only when `api_key_ref` set in EnvManager.
 - Wire Copilot with `@asyncSlot` + `asyncio.Event` cancel — never nested QMessageBox during stream.
+- AI Wizard is a Copilot sub-mode (`ComposeWizardPanel` tab), not a separate Top Bar product; modal `AiTestWizard` is only a compatibility shell.

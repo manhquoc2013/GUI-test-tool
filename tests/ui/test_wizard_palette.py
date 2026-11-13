@@ -6,6 +6,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QWidget
 
 from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
+from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
 from ai_qa_test_studio.ui.widgets.step_progress_bar import StepProgressBar
 from ai_qa_test_studio.ui.wizards.ai_test_wizard import AiTestWizard
 
@@ -59,17 +60,27 @@ def test_command_palette_filters(host: QWidget) -> None:
     palette.close()
 
 
-def test_wizard_three_steps_produce_drafts(host: QWidget) -> None:
-    wizard = AiTestWizard(host)
-    wizard.source_page.markdown.setPlainText("Feature: tạo hồ sơ người yếu thế")
-    wizard.source_page.url.setText("https://staging.example.com/ho-so")
-    assert wizard.validate() is False
-    assert wizard.progress.current_index == 1
-    assert wizard.scenario_page.list.count() >= 1
-    assert wizard.validate() is False
-    assert wizard.progress.current_index == 2
-    assert wizard.validate() is True
-    scenarios = wizard.result_scenarios()
+def test_compose_wizard_panel_three_steps_emit_drafts(host: QWidget) -> None:
+    panel = ComposeWizardPanel(host)
+    caught: list[object] = []
+    panel.drafts_ready.connect(lambda scenarios, url: caught.append((scenarios, url)))
+    panel.source_page.markdown.setPlainText("Feature: tạo hồ sơ người yếu thế")
+    panel.source_page.url.setText("https://staging.example.com/ho-so")
+    panel._go_next()
+    assert panel.progress.current_index == 1
+    assert panel.scenario_page.list.count() >= 1
+    panel._go_next()
+    assert panel.progress.current_index == 2
+    panel._go_next()
+    assert caught
+    scenarios, url = caught[0]  # type: ignore[misc]
     assert scenarios
+    assert url.startswith("https://")
     assert any(case.steps for sc in scenarios for case in sc.cases)
+    panel.close()
+
+
+def test_ai_test_wizard_embeds_compose_panel(host: QWidget) -> None:
+    wizard = AiTestWizard(host)
+    assert isinstance(wizard.panel, ComposeWizardPanel)
     wizard.close()

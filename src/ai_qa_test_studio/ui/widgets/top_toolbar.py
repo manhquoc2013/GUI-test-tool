@@ -58,7 +58,7 @@ class UnifiedTopBar(QWidget):
         self.btn_wizard = PrimaryPushButton(FIF.ROBOT, "Copilot", self)
         self.btn_wizard.setMinimumWidth(UI_BTN_COPILOT_MIN_WIDTH)
         self.btn_wizard.setToolTip(
-            "Mở QA Copilot (Compose / Case chat) — Planner→Composer→Critic"
+            "Mở QA Copilot — Chat (Planner→Composer→Critic) + AI Wizard 3 bước"
         )
         self.btn_wizard.setAccessibleName("AI Copilot")
         self.btn_wizard.clicked.connect(self.wizard_clicked.emit)
