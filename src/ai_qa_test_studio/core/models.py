@@ -115,6 +115,7 @@ class AiSettings(BaseModel):
     api_key_ref: str = ""
     base_url: str = ""
     model: str = ""
+    provider: str = ""
     temperature: float = 0.2
     max_tokens: int = 512
 
