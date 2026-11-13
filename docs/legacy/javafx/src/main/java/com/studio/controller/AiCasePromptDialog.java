@@ -1,0 +1,468 @@
+package com.studio.controller;
+
+import com.studio.model.AiConfig;
+import com.studio.model.AiGeneratedCase;
+import com.studio.model.Assertion;
+import com.studio.model.TestCase;
+import com.studio.service.AiLoggingService;
+import com.studio.service.AiTestGeneratorService;
+import com.studio.service.DocumentParserService;
+import com.studio.service.ToastService;
+import com.studio.store.ProjectStore;
+import com.studio.store.SettingsStore;
+import com.studio.util.DialogTheme;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.control.*;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.BiConsumer;
+
+/**
+ * Modal dialog launched from Suite Workspace to prompt AI to generate or refine
+ * Playwright scripts and Assertions for the active TestCase.
+ */
+public class AiCasePromptDialog {
+
+    /** Status label classes; the colours live in CSS so both themes stay legible. */
+    private static final String STATUS_BASE = "ai-status";
+    private static final String STATUS_OK = "ai-status-ok";
+    private static final String STATUS_WARN = "ai-status-warn";
+    private static final String STATUS_ERROR = "ai-status-error";
+
+    public static void show(TestCase activeCase, String currentScript, Path suiteDir,
+                            ProjectStore projectStore, SettingsStore settingsStore,
+                            BiConsumer<String, List<Assertion>> onApplied) {
+        if (activeCase == null) {
+            ToastService.warn("⚠️ Vui lòng chọn một TestCase trước khi mở AI Hỗ trợ.");
+            return;
+        }
+
+        SettingsStore.Settings settings;
+        try {
+            settings = settingsStore.load();
+        } catch (IOException e) {
+            settings = new SettingsStore.Settings();
+        }
+        AiConfig aiConfig = settings.getAiConfig();
+
+        if (!aiConfig.hasApiKey()) {
+            ToastService.warn("⚠️ Chưa có API Key. Vui lòng mở Cài đặt OpenAI để điền API Key.");
+            boolean updated = AiSettingsDialog.show(settingsStore);
+            if (!updated) {
+                return;
+            }
+            try {
+                settings = settingsStore.load();
+                aiConfig = settings.getAiConfig();
+            } catch (IOException e) {
+                return;
+            }
+            if (!aiConfig.hasApiKey()) {
+                return;
+            }
+        }
+        final AiConfig effectiveAiConfig = aiConfig;
+
+        Dialog<Boolean> dialog = new Dialog<>();
+        dialog.setTitle("AI Hỗ trợ Case: " + activeCase.getName());
+        dialog.setHeaderText("Sinh hoặc tối ưu hóa kịch bản Playwright & Assertions từ yêu cầu");
+
+        DialogPane pane = dialog.getDialogPane();
+        pane.getButtonTypes().addAll(ButtonType.CLOSE);
+        Button closeButton = (Button) pane.lookupButton(ButtonType.CLOSE);
+        closeButton.setText("Đóng");
+        closeButton.setMinWidth(80);
+        com.studio.util.UiTooltips.install(closeButton, "Đóng hộp thoại AI Hỗ trợ");
+
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(14));
+        content.setPrefWidth(680);
+        content.setMaxWidth(720);
+        content.setMinHeight(420);
+        content.setPrefHeight(530);
+
+        // Case Info header
+        HBox infoBox = new HBox(16);
+        infoBox.setAlignment(Pos.CENTER_LEFT);
+        infoBox.getStyleClass().add("ai-target-box");
+
+        Label caseNameLbl = new Label("Case: " + activeCase.getName());
+        caseNameLbl.setStyle("-fx-font-weight: bold;");
+
+        Label caseUrlLbl = new Label((activeCase.getStartUrl().isBlank() ? "(Chưa có URL)" : activeCase.getStartUrl()));
+        caseUrlLbl.getStyleClass().add("ai-target-subtext");
+        HBox.setHgrow(caseUrlLbl, Priority.ALWAYS);
+
+        Label assertsCountLbl = new Label(activeCase.getAssertions().size() + " asserts");
+        infoBox.getChildren().addAll(caseNameLbl, caseUrlLbl, assertsCountLbl);
+
+        // Specialist Agent / Skill Selector
+        HBox skillRow = new HBox(10);
+        skillRow.setAlignment(Pos.CENTER_LEFT);
+        Label skillLabel = new Label("Agent chuyên môn:");
+        skillLabel.getStyleClass().add("field-label");
+
+        ComboBox<com.studio.model.AiSkill> skillComboBox = new ComboBox<>();
+        skillComboBox.getItems().setAll(com.studio.model.AiSkill.values());
+        skillComboBox.setValue(com.studio.model.AiSkill.PLAYWRIGHT_E2E);
+        skillComboBox.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.getDisplayName());
+            }
+        });
+        skillComboBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(com.studio.model.AiSkill item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.getDisplayName());
+            }
+        });
+        com.studio.util.UiTooltips.install(skillComboBox, "Chọn kỹ năng chuyên sâu của AI Agent hoặc để Tự động nhận diện");
+        skillRow.getChildren().addAll(skillLabel, skillComboBox);
+
+        // Prompt input area
+        Label promptTitle = new Label("Mô tả yêu cầu kịch bản hoặc hành động cần test:");
+        promptTitle.getStyleClass().add("field-label");
+
+        TextArea promptArea = new TextArea();
+        promptArea.setPromptText("Ví dụ: Mở trang và điền form đăng ký với email hợp lệ, kiểm tra thông báo chào mừng và chuyển hướng đến trang dashboard...");
+        promptArea.setPrefRowCount(3);
+        promptArea.setWrapText(true);
+
+        // Quick action chips
+        HBox quickActions = new HBox(8);
+        quickActions.setAlignment(Pos.CENTER_LEFT);
+
+        Button chipFull = new Button("Sinh kịch bản đầy đủ");
+        chipFull.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipFull, com.studio.util.UiIcons.PLAY, 11);
+        com.studio.util.UiTooltips.install(chipFull, "Điền gợi ý: Sinh toàn bộ thao tác Playwright và Assertions kiểm tra");
+        chipFull.setOnAction(e -> promptArea.setText("Sinh toàn bộ các thao tác Playwright cần thiết để thực thi kịch bản này trên URL " + activeCase.getStartUrl() + ", kèm các Assertions kiểm tra kết quả mong đợi."));
+
+        Button chipAsserts = new Button("Bổ sung Assertions");
+        chipAsserts.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipAsserts, com.studio.util.UiIcons.CHECK, 11);
+        com.studio.util.UiTooltips.install(chipAsserts, "Điền gợi ý: Bổ sung các Assertions kiểm tra chặt chẽ");
+        chipAsserts.setOnAction(e -> promptArea.setText("Dựa trên kịch bản hiện tại, bổ sung các Assertions chặt chẽ (kiểm tra trạng thái hiển thị của các phần tử chính, text thông báo, URL chuyển hướng)."));
+
+        Button chipEdge = new Button("Thêm test biên / ngoại lệ");
+        chipEdge.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(chipEdge, com.studio.util.UiIcons.SETTINGS, 11);
+        com.studio.util.UiTooltips.install(chipEdge, "Điền gợi ý: Kiểm thử trường hợp dữ liệu sai hoặc để trống");
+        chipEdge.setOnAction(e -> promptArea.setText("Tạo kịch bản kiểm thử trường hợp dữ liệu sai hoặc để trống các trường bắt buộc, xác minh thông báo lỗi hiển thị đúng."));
+
+        quickActions.getChildren().addAll(new Label("Gợi ý:"), chipFull, chipAsserts, chipEdge);
+
+        // Attachment row
+        List<DocumentParserService.ParsedDocument> attachedDocs = new ArrayList<>();
+        FlowPane chipsContainer = new FlowPane(6, 6);
+
+        Button attachBtn = new Button("Đính kèm tài liệu / Ảnh UI");
+        attachBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(attachBtn, com.studio.util.UiIcons.CLIP, 12);
+        com.studio.util.UiTooltips.install(attachBtn, "Đính kèm file tài liệu (txt, md, json, csv, docx, pdf) hoặc ảnh giao diện (png, jpg)");
+
+        attachBtn.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Chọn tài liệu hoặc ảnh chụp giao diện");
+            chooser.getExtensionFilters().addAll(
+                    new FileChooser.ExtensionFilter("Tất cả tài liệu hỗ trợ", "*.txt", "*.md", "*.json", "*.csv", "*.docx", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.webp"),
+                    new FileChooser.ExtensionFilter("Văn bản & Specs", "*.txt", "*.md", "*.json", "*.csv", "*.docx", "*.pdf"),
+                    new FileChooser.ExtensionFilter("Hình ảnh / Screenshots", "*.png", "*.jpg", "*.jpeg", "*.webp")
+            );
+            List<File> files = chooser.showOpenMultipleDialog(pane.getScene().getWindow());
+            if (files != null) {
+                DocumentParserService parser = new DocumentParserService();
+                for (File f : files) {
+                    try {
+                        DocumentParserService.ParsedDocument doc = parser.parse(f.toPath());
+                        attachedDocs.add(doc);
+                        addChip(chipsContainer, doc, attachedDocs);
+                    } catch (Exception ex) {
+                        ToastService.error("Không thể đọc file: " + f.getName());
+                    }
+                }
+            }
+        });
+
+        HBox attachRow = new HBox(10, attachBtn, chipsContainer);
+        attachRow.setAlignment(Pos.CENTER_LEFT);
+
+        // Action generate button & progress indicator
+        Button generateBtn = new Button("Tạo kịch bản với AI (" + aiConfig.getEffectiveModel() + ")");
+        generateBtn.getStyleClass().add("toolbar-btn-run");
+        generateBtn.setMinWidth(Region.USE_PREF_SIZE);
+        com.studio.util.UiIcons.setGraphic(generateBtn, com.studio.util.UiIcons.AI_SPARKLES, 13);
+        com.studio.util.UiTooltips.install(generateBtn, "Gửi yêu cầu tới OpenAI để sinh hoặc tinh chỉnh kịch bản");
+
+        ProgressIndicator progress = new ProgressIndicator();
+        progress.setPrefSize(20, 20);
+        progress.setVisible(false);
+        progress.setManaged(false);
+
+        Label statusLbl = new Label("");
+        statusLbl.getStyleClass().add(STATUS_BASE);
+        statusLbl.setWrapText(true);
+        statusLbl.setMaxWidth(340);
+        HBox.setHgrow(statusLbl, Priority.ALWAYS);
+
+        Button viewLogBtn = new Button("Xem Log AI");
+        viewLogBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(viewLogBtn, com.studio.util.UiIcons.TERMINAL, 12);
+        viewLogBtn.setVisible(false);
+        viewLogBtn.setManaged(false);
+        viewLogBtn.setOnAction(ev -> showAiLogDialog(dialog.getOwner()));
+
+        HBox genActionRow = new HBox(10, generateBtn, progress, statusLbl, viewLogBtn);
+        genActionRow.setAlignment(Pos.CENTER_LEFT);
+
+        // Result Preview tabpane
+        TabPane previewTabs = new TabPane();
+        previewTabs.getStyleClass().add("workspace-tabs");
+        previewTabs.setMinHeight(140);
+        previewTabs.setPrefHeight(200);
+        VBox.setVgrow(previewTabs, Priority.ALWAYS);
+
+        TextArea codePreview = new TextArea();
+        codePreview.setPromptText("// Mã Playwright Java sinh ra sẽ hiển thị tại đây...");
+        codePreview.setWrapText(false);
+        codePreview.getStyleClass().add("code-editor");
+
+        Tab codeTab = new Tab("Kịch bản Playwright", codePreview);
+        codeTab.setClosable(false);
+
+        ListView<String> assertsPreview = new ListView<>();
+        Tab assertTab = new Tab("Danh sách Assertions (0)", assertsPreview);
+        assertTab.setClosable(false);
+
+        previewTabs.getTabs().addAll(codeTab, assertTab);
+
+        // Apply Button
+        Button applyBtn = new Button("Áp dụng vào Case này");
+        applyBtn.getStyleClass().add("toolbar-btn-save");
+        com.studio.util.UiIcons.setGraphic(applyBtn, com.studio.util.UiIcons.CHECK, 13);
+        com.studio.util.UiTooltips.install(applyBtn, "Lưu kịch bản và Assertions đã sinh vào Case này");
+        applyBtn.setDisable(true);
+
+        final AiGeneratedCase[] lastGenerated = new AiGeneratedCase[1];
+
+        generateBtn.setOnAction(e -> {
+            String prompt = promptArea.getText().trim();
+            if (prompt.isEmpty() && attachedDocs.isEmpty()) {
+                ToastService.warn("⚠️ Vui lòng nhập yêu cầu hoặc đính kèm tài liệu trước khi bấm Tạo.");
+                return;
+            }
+
+            generateBtn.setDisable(true);
+            progress.setVisible(true);
+            progress.setManaged(true);
+            com.studio.model.AiSkill chosenSkill = skillComboBox.getValue() != null ? skillComboBox.getValue() : com.studio.model.AiSkill.PLAYWRIGHT_E2E;
+            statusLbl.setText("Agent [" + chosenSkill.getDisplayName() + "] đang phân tích...");
+            applyBtn.setDisable(true);
+
+            Thread thread = new Thread(() -> {
+                try {
+                    AiTestGeneratorService generator = new AiTestGeneratorService();
+                    AiTestGeneratorService.GenerationResult result = generator.generateOrUpdateSingleCase(
+                            effectiveAiConfig, prompt, attachedDocs, activeCase, currentScript, chosenSkill
+                    );
+
+                    Platform.runLater(() -> {
+                        generateBtn.setDisable(false);
+                        progress.setVisible(false);
+                        progress.setManaged(false);
+
+                        if (!result.getCases().isEmpty()) {
+                            AiGeneratedCase generated = result.getCases().get(0);
+                            generated.setTargetCaseId(activeCase.getId());
+                            lastGenerated[0] = generated;
+
+                            codePreview.setText(generated.getScriptCode());
+
+                            assertsPreview.getItems().clear();
+                            for (Assertion a : generated.getAssertions()) {
+                                String loc = a.getLocator() != null && !a.getLocator().isBlank() ? " | locator: " + a.getLocator() : "";
+                                String effVal = a.getEffectiveValue();
+                                String val = !effVal.isBlank() ? " | value: " + effVal : "";
+                                assertsPreview.getItems().add(a.getType() + loc + val);
+                            }
+                            assertTab.setText("Danh sách Assertions (" + generated.getAssertions().size() + ")");
+
+                            statusLbl.setText(result.getSummary());
+                            applyStatusStyle(statusLbl, STATUS_OK);
+                            viewLogBtn.setVisible(false);
+                            viewLogBtn.setManaged(false);
+                            applyBtn.setDisable(false);
+                            ToastService.success("Đã sinh kịch bản thành công! Hãy xem trước và bấm Áp dụng.");
+                        } else {
+                            statusLbl.setText("AI không thể tạo cấu trúc: " + result.getSummary());
+                            applyStatusStyle(statusLbl, STATUS_WARN);
+                            viewLogBtn.setVisible(true);
+                            viewLogBtn.setManaged(true);
+                        }
+                    });
+                } catch (Exception ex) {
+                    Platform.runLater(() -> {
+                        generateBtn.setDisable(false);
+                        progress.setVisible(false);
+                        progress.setManaged(false);
+                        String errMsg = ex.getMessage() != null ? ex.getMessage() : "Lỗi không xác định";
+                        String shortMsg = errMsg.length() > 140 ? errMsg.substring(0, 140) + "..." : errMsg;
+                        statusLbl.setText("Lỗi: " + shortMsg);
+                        com.studio.util.UiTooltips.install(statusLbl, errMsg);
+                        applyStatusStyle(statusLbl, STATUS_ERROR);
+                        viewLogBtn.setVisible(true);
+                        viewLogBtn.setManaged(true);
+                        ToastService.error("Lỗi AI: " + errMsg);
+                    });
+                }
+            }, "Ai-Generate-Case");
+            thread.setDaemon(true);
+            thread.start();
+        });
+
+        applyBtn.setOnAction(e -> {
+            if (lastGenerated[0] != null) {
+                try {
+                    AiGeneratedCase gen = lastGenerated[0];
+                    applyGeneratedCaseToStore(projectStore, suiteDir, activeCase, gen);
+                    if (onApplied != null) {
+                        onApplied.accept(gen.getScriptCode(), gen.getAssertions());
+                    }
+                    ToastService.success("⚡ Đã cập nhật kịch bản và Assertions vào case!");
+                    dialog.close();
+                } catch (Exception ex) {
+                    ToastService.error("Lỗi khi lưu vào case: " + ex.getMessage());
+                }
+            }
+        });
+
+        HBox footer = new HBox(12, applyBtn);
+        footer.setAlignment(Pos.CENTER_RIGHT);
+
+        content.getChildren().addAll(infoBox, skillRow, promptTitle, promptArea, quickActions, attachRow, genActionRow, previewTabs, footer);
+        pane.setContent(content);
+        DialogTheme.apply(dialog);
+
+        dialog.showAndWait();
+    }
+
+    public static void applyGeneratedCaseToStore(ProjectStore projectStore, Path suiteDir, TestCase activeCase,
+                                                 AiGeneratedCase gen) throws java.io.IOException {
+        if (projectStore == null || suiteDir == null || activeCase == null || gen == null) {
+            return;
+        }
+        if (gen.getScriptCode() != null && !gen.getScriptCode().isBlank()) {
+            projectStore.saveCaseScript(suiteDir, activeCase.getId(), gen.getScriptCode());
+        }
+        if (gen.getAssertions() != null) {
+            projectStore.replaceAssertions(suiteDir, activeCase.getId(), gen.getAssertions());
+            activeCase.setAssertions(new ArrayList<>(gen.getAssertions()));
+        }
+        if ((gen.getTestSteps() != null && !gen.getTestSteps().isEmpty())
+                || (gen.getTestDataSets() != null && !gen.getTestDataSets().isEmpty())) {
+            projectStore.updateCaseStepsAndData(suiteDir, activeCase.getId(),
+                    gen.getTestSteps(), gen.getTestDataSets());
+            if (gen.getTestSteps() != null && !gen.getTestSteps().isEmpty()) {
+                activeCase.setTestSteps(new ArrayList<>(gen.getTestSteps()));
+            }
+            if (gen.getTestDataSets() != null && !gen.getTestDataSets().isEmpty()) {
+                activeCase.setTestDataSets(new ArrayList<>(gen.getTestDataSets()));
+            }
+        }
+        if (gen.getPriority() != null && !gen.getPriority().isBlank()) {
+            projectStore.updateCasePriority(suiteDir, activeCase.getId(), gen.getPriority());
+            activeCase.setPriority(gen.getPriority());
+        }
+        if (gen.getStartUrl() != null && !gen.getStartUrl().isBlank()
+                && (activeCase.getStartUrl() == null || activeCase.getStartUrl().isBlank())) {
+            projectStore.updateCaseMeta(suiteDir, activeCase.getId(), activeCase.getDescription(),
+                    "Ready", gen.getStartUrl(), activeCase.getBrowser(), activeCase.getHeadless());
+            activeCase.setStartUrl(gen.getStartUrl());
+            activeCase.setStatus("Ready");
+        }
+    }
+
+    /** Swaps the AI progress message styling without touching the theme: CSS owns the colours. */
+    private static void applyStatusStyle(Label statusLabel, String stateClass) {
+        statusLabel.getStyleClass().removeAll(STATUS_OK, STATUS_WARN, STATUS_ERROR);
+        statusLabel.getStyleClass().add(stateClass);
+    }
+
+    private static void addChip(FlowPane container, DocumentParserService.ParsedDocument doc,
+                                List<DocumentParserService.ParsedDocument> docList) {
+        HBox chip = new HBox(4);
+        chip.setAlignment(Pos.CENTER_LEFT);
+        chip.getStyleClass().add("filter-chip");
+        chip.setStyle("-fx-padding: 3px 8px; -fx-background-radius: 12px; -fx-border-radius: 12px;");
+
+        Label label = new Label((doc.isImage() ? "[Ảnh] " : "[Tài liệu] ") + doc.getFileName());
+        label.setStyle("-fx-font-size: 11px;");
+
+        Button removeBtn = new Button("✕");
+        removeBtn.setStyle("-fx-background-color: transparent; -fx-padding: 0 2px; -fx-cursor: hand; -fx-font-size: 10px;");
+        removeBtn.setOnAction(e -> {
+            container.getChildren().remove(chip);
+            docList.remove(doc);
+        });
+
+        chip.getChildren().addAll(label, removeBtn);
+        container.getChildren().add(chip);
+    }
+
+    private static void showAiLogDialog(Window owner) {
+        Dialog<Void> logDialog = new Dialog<>();
+        logDialog.setTitle("Nhật ký tương tác AI (AI Diagnostic Log)");
+        logDialog.setHeaderText("Chi tiết các lượt gọi API, độ trễ và phản hồi thô từ mô hình");
+        if (owner != null) {
+            logDialog.initOwner(owner);
+        }
+
+        DialogPane pane = logDialog.getDialogPane();
+        pane.getButtonTypes().add(ButtonType.CLOSE);
+
+        VBox box = new VBox(10);
+        box.setPadding(new Insets(12));
+        box.setPrefSize(700, 450);
+
+        TextArea logArea = new TextArea();
+        logArea.setEditable(false);
+        logArea.setWrapText(false);
+        logArea.getStyleClass().add("code-editor");
+        logArea.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
+        logArea.setText(AiLoggingService.getRecentLogsAsString(200));
+        VBox.setVgrow(logArea, Priority.ALWAYS);
+
+        Button copyBtn = new Button("Sao chép Log");
+        copyBtn.getStyleClass().add("btn-secondary");
+        com.studio.util.UiIcons.setGraphic(copyBtn, com.studio.util.UiIcons.COPY, 12);
+        copyBtn.setOnAction(e -> {
+            ClipboardContent cc = new ClipboardContent();
+            cc.putString(logArea.getText());
+            Clipboard.getSystemClipboard().setContent(cc);
+            ToastService.success("Đã sao chép toàn bộ log AI vào Clipboard!");
+        });
+
+        HBox bar = new HBox(10, copyBtn);
+        bar.setAlignment(Pos.CENTER_RIGHT);
+
+        box.getChildren().addAll(logArea, bar);
+        pane.setContent(box);
+        DialogTheme.apply(logDialog);
+
+        logDialog.showAndWait();
+    }
+}

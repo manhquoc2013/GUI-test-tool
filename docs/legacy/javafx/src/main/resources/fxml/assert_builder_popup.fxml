@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.Spinner?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.studio.controller.AssertBuilderPopupController"
+      styleClass="assert-builder-popup" spacing="10"
+      prefWidth="720" prefHeight="480">
+    <padding><Insets top="16" right="16" bottom="16" left="16"/></padding>
+
+    <Label fx:id="titleLabel" text="Assertions cho " styleClass="popup-title" wrapText="true"/>
+    <Label text="Thêm điều kiện đạt/không đạt cho test case này. Chọn một dòng để sửa."
+           styleClass="popup-subtitle"/>
+
+    <TextField fx:id="assertSearchField" promptText="Tìm theo loại, giá trị, locator…" styleClass="toolbar-search"/>
+
+    <ListView fx:id="assertListView" VBox.vgrow="ALWAYS" styleClass="assert-builder-list" prefHeight="200"/>
+
+    <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row assert-add-row">
+        <ComboBox fx:id="typeCombo" prefWidth="220" minWidth="200" promptText="Loại kiểm tra"/>
+        <TextField fx:id="valueField" HBox.hgrow="ALWAYS" promptText="Giá trị / text cần kiểm tra"/>
+        <ComboBox fx:id="statusCombo" prefWidth="170" minWidth="160" promptText="Trạng thái"/>
+        <Button text="Thêm" fx:id="addBtn" onAction="#addAssert" styleClass="btn-sm-primary" minWidth="100"/>
+    </HBox>
+
+    <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="field-row">
+        <Label text="Locator" styleClass="field-label" minWidth="70"/>
+        <TextField fx:id="locatorField" HBox.hgrow="ALWAYS"
+                   promptText="Selector Playwright — vd: #submit, .btn-login, text=Đăng nhập (bắt buộc với ELEMENT_*)"/>
+    </HBox>
+    <Label text="Locator do bạn nhập tay (CSS / text= / role=…), không tự lấy từ ghi hình."
+           styleClass="field-hint"/>
+
+    <HBox spacing="12" alignment="CENTER_LEFT" styleClass="field-row assert-options-row">
+        <CheckBox fx:id="exactCheck" text="Khớp chính xác"/>
+        <Label text="Timeout" styleClass="field-label"/>
+        <Spinner fx:id="timeoutSpinner" prefWidth="100" editable="true" styleClass="number-spinner"/>
+        <Label text="ms" styleClass="field-label"/>
+    </HBox>
+
+    <HBox spacing="12" alignment="CENTER_RIGHT" maxWidth="Infinity" styleClass="field-row dialog-actions">
+        <HBox HBox.hgrow="ALWAYS" minWidth="0"/>
+        <Button text="Đóng" fx:id="closeBtn" onAction="#closeDialog" styleClass="btn-secondary"/>
+        <Button text="Lưu Assertions" fx:id="saveBtn" onAction="#save" styleClass="btn-primary" defaultButton="true"/>
+    </HBox>
+</VBox>

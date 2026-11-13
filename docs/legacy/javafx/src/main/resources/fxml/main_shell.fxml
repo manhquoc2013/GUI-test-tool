@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.studio.controller.MainShellController"
+            styleClass="root-pane">
+    <top>
+        <!-- Two clusters in one row: identity on the left, actions pinned to the right edge. The bar
+             used to be a FlowPane, which never grows a child, so the action cluster sat right after the
+             breadcrumb and left roughly half the width empty. The identity cluster may shrink (and the
+             suite label ellipsizes) so a long suite name can never push the actions off-screen. -->
+        <HBox fx:id="headerBar" styleClass="header-bar" spacing="10" alignment="CENTER_LEFT">
+            <padding><Insets top="0" right="14" bottom="0" left="14"/></padding>
+            <HBox fx:id="headerIdentity" styleClass="header-identity" spacing="10" alignment="CENTER_LEFT"
+                  minWidth="0">
+                <Button fx:id="toggleSidebarBtn" text="" styleClass="icon-btn" onAction="#toggleSidebar"/>
+                <Label text="Test Studio" styleClass="app-title"/>
+                <Separator orientation="VERTICAL" styleClass="header-separator"/>
+                <HBox fx:id="breadcrumbBox" spacing="6" alignment="CENTER_LEFT" styleClass="header-breadcrumb-box">
+                    <Label fx:id="headerBreadcrumb" text="Dự án" styleClass="header-breadcrumb-label"/>
+                </HBox>
+                <Button fx:id="stopRunBtn" text="Dừng" styleClass="header-stop-btn" onAction="#stopRun"
+                        visible="false" managed="false"/>
+            </HBox>
+            <!-- Pushes the action cluster to the right edge; the only child that grows. -->
+            <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+            <HBox fx:id="headerActions" styleClass="header-actions" spacing="6" alignment="CENTER_RIGHT">
+                <Button fx:id="themeToggleBtn" text="Sáng" styleClass="header-help-btn" onAction="#toggleTheme"/>
+                <Button fx:id="cleanupBtn" text="Dọn dẹp" styleClass="header-help-btn" onAction="#openCleanupDialog"/>
+                <Button fx:id="settingsBtn" text="Cài đặt" styleClass="header-help-btn" onAction="#openSettings"/>
+                <Button fx:id="helpBtn" text="Trợ giúp" styleClass="header-help-btn" onAction="#toggleHelp"/>
+            </HBox>
+        </HBox>
+    </top>
+    <left>
+        <!-- One collapsible sidebar owns the navigation. It shrinks to its own 56px icon rail, so a
+             separate activity rail would only repeat the same three destinations (and the settings
+             entry) twice on screen. -->
+        <VBox fx:id="sidebar" styleClass="sidebar" prefWidth="220" minWidth="220">
+            <padding><Insets top="10" right="0" bottom="10" left="0"/></padding>
+            <Button fx:id="navExplorerBtn" text="Khám phá" styleClass="sidebar-btn" onAction="#showExplorer"/>
+            <Button fx:id="navReportsBtn" text="Báo cáo" styleClass="sidebar-btn" onAction="#showReports"/>
+            <Button fx:id="navAiBtn" text="Trợ lý AI" styleClass="sidebar-btn" onAction="#showAiAssistant"/>
+            <Separator fx:id="sidebarSep" styleClass="sidebar-separator"/>
+            <Label fx:id="sidebarSuiteSectionLabel" text="SUITE ĐANG MỞ" styleClass="sidebar-section-label">
+                <VBox.margin><Insets left="14" top="10" bottom="4"/></VBox.margin>
+            </Label>
+            <HBox fx:id="sidebarActiveSuiteRow" spacing="4" alignment="CENTER_LEFT">
+                <VBox.margin><Insets left="14" right="10"/></VBox.margin>
+                <Label fx:id="sidebarActiveSuite" styleClass="sidebar-active-label" text="(trống)"
+                       HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
+                <Button fx:id="clearActiveSuiteBtn" text="✕" styleClass="sidebar-clear-suite-btn"
+                        onAction="#clearActiveSuite" visible="false" managed="false"
+                        focusTraversable="false"/>
+            </HBox>
+            <VBox VBox.vgrow="ALWAYS"/>
+            <Button fx:id="runAllBtn" text="Chạy tất cả" styleClass="sidebar-run-btn" onAction="#runAll">
+                <VBox.margin><Insets left="12" right="12" bottom="8"/></VBox.margin>
+            </Button>
+        </VBox>
+    </left>
+    <center>
+        <VBox spacing="0" styleClass="center-vbox">
+            <!-- Multi-tab Document Bar (VS Code style) -->
+            <HBox fx:id="tabStripBar" styleClass="tab-strip-bar" alignment="CENTER_LEFT" spacing="0" visible="false" managed="false">
+                <ScrollPane fx:id="tabScrollPane" fitToHeight="true" vbarPolicy="NEVER" hbarPolicy="AS_NEEDED"
+                            HBox.hgrow="ALWAYS" styleClass="tab-scroll-pane">
+                    <HBox fx:id="tabContainer" spacing="2" alignment="CENTER_LEFT" styleClass="tab-container"/>
+                </ScrollPane>
+            </HBox>
+
+            <StackPane fx:id="shellStack" styleClass="shell-stack" VBox.vgrow="ALWAYS">
+                <StackPane fx:id="contentArea" styleClass="content-area">
+                    <Label text="Chọn một trang từ thanh bên" styleClass="placeholder-label"/>
+                </StackPane>
+
+                <!-- Help: overlay + right drawer (hidden by default) -->
+                <StackPane fx:id="helpLayer" styleClass="help-layer" visible="false" managed="false"
+                           mouseTransparent="false">
+                    <Region fx:id="helpScrim" styleClass="help-scrim" maxWidth="Infinity" maxHeight="Infinity"/>
+                    <VBox fx:id="helpDrawer" styleClass="help-drawer"
+                          StackPane.alignment="CENTER_RIGHT" spacing="0" maxHeight="Infinity">
+                        <HBox styleClass="help-drawer-header" spacing="8" alignment="CENTER_LEFT">
+                            <padding><Insets top="14" right="12" bottom="14" left="16"/></padding>
+                            <Label text="Hướng dẫn sử dụng" styleClass="help-drawer-title" HBox.hgrow="ALWAYS"
+                                   maxWidth="Infinity"/>
+                            <Button fx:id="helpCloseBtn" text="✕" styleClass="icon-btn" onAction="#hideHelp"
+                                    focusTraversable="false"/>
+                        </HBox>
+                        <Separator/>
+                        <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="help-drawer-scroll">
+                            <VBox fx:id="helpContent" spacing="12" styleClass="help-drawer-body">
+                                <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
+                            </VBox>
+                        </ScrollPane>
+                    </VBox>
+                </StackPane>
+
+                <VBox fx:id="toastContainer" styleClass="toast-container" pickOnBounds="false"
+                      maxWidth="380" maxHeight="Infinity" alignment="BOTTOM_RIGHT"
+                      StackPane.alignment="BOTTOM_RIGHT">
+                    <padding><Insets top="12" right="12" bottom="48" left="12"/></padding>
+                </VBox>
+            </StackPane>
+        </VBox>
+    </center>
+    <bottom>
+        <HBox styleClass="status-bar" spacing="8">
+            <padding><Insets top="4" right="14" bottom="4" left="14"/></padding>
+            <Label fx:id="statusLabel" text="Sẵn sàng"/>
+            <Label fx:id="testStatsLabel" text=""/>
+            <HBox HBox.hgrow="ALWAYS"/>
+            <Label fx:id="healedCountLabel" text="0 healed" styleClass="status-healed-label"/>
+            <Separator orientation="VERTICAL"/>
+            <Label fx:id="engineLabel" text="Playwright" styleClass="status-engine-label"/>
+            <Separator orientation="VERTICAL"/>
+            <Label fx:id="browserLabel" text="Chromium"/>
+        </HBox>
+    </bottom>
+</BorderPane>

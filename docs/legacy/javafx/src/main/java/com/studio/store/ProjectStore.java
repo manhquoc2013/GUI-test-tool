@@ -1,0 +1,1175 @@
+package com.studio.store;
+
+import com.studio.model.*;
+import com.studio.service.ScriptHarnessTransformer;
+import com.studio.util.EntityTime;
+import com.studio.util.StatusDisplay;
+import com.studio.util.StudioPaths;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class ProjectStore {
+
+    public static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper()
+            .enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper mapper = DEFAULT_MAPPER;
+    private static final String GROUP_JSON = "group.json";
+    private static final String SUITE_JSON = "suite.json";
+    /** Suffix used to stage a script while its case is being removed, so a failed write can be undone. */
+    private static final String DELETING_SUFFIX = ".deleting";
+    /** Path separators and characters Windows forbids in a directory name. */
+    private static final java.util.regex.Pattern INVALID_DIR_NAME_CHARS =
+            java.util.regex.Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
+    private final com.studio.db.LocalDataIndexService indexService = new com.studio.db.LocalDataIndexService();
+
+    /** H2 index identity of the group that contains {@code dir}: relative path, not leaf name. */
+    private static String groupKeyFor(Path dir) {
+        return com.studio.db.LocalDataIndexService.resolveGroupKey(dir);
+    }
+
+    public ProjectStore() {
+    }
+
+    // ---- load ----
+
+    /**
+     * Recursively walk project dir and build root TestGroup.
+     * Hierarchy is Group → Suite → Case (suites live on {@link TestGroup#getSuites()},
+     * nested groups on {@link TestGroup#getChildren()} — never mixed).
+     */
+    public TestGroup loadTree() throws IOException {
+        return loadTree(StudioPaths.getProjectDir());
+    }
+
+    public TestGroup loadTree(Path projectDir) throws IOException {
+        TestGroup root = new TestGroup("Project", "Root project group");
+        root.setType("group");
+        if (projectDir != null && Files.exists(projectDir)) {
+            root.setChildren(loadChildGroups(projectDir));
+            root.setSuites(loadSuitesInDir(projectDir));
+        }
+        return root;
+    }
+
+    /** Only directories that contain group.json. */
+    private List<TestGroup> loadChildGroups(Path dir) throws IOException {
+        List<TestGroup> result = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                if (!Files.exists(entry.resolve(GROUP_JSON))) continue;
+
+                TestGroup group = mapper.readValue(entry.resolve(GROUP_JSON).toFile(), TestGroup.class);
+                group.setType("group");
+                group.setChildren(loadChildGroups(entry));
+                group.setSuites(loadSuitesInDir(entry));
+                result.add(group);
+            }
+        }
+        return result;
+    }
+
+    /** Only directories that contain suite.json (not groups). */
+    private List<TestSuite> loadSuitesInDir(Path dir) throws IOException {
+        List<TestSuite> suites = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                if (!Files.exists(entry.resolve(SUITE_JSON))) continue;
+                if (Files.exists(entry.resolve(GROUP_JSON))) continue;
+
+                TestSuite suite = loadAndMigrateSuite(entry);
+                mergeOrphanJavaCases(suite, entry);
+                suites.add(suite);
+            }
+        }
+        return suites;
+    }
+
+    /** Attach .java files not yet listed in suite.json as draft cases. */
+    private void mergeOrphanJavaCases(TestSuite suite, Path suiteDir) throws IOException {
+        if (suite.getCases() == null) {
+            suite.setCases(new ArrayList<>());
+        }
+        try (DirectoryStream<Path> js = Files.newDirectoryStream(suiteDir, "*.java")) {
+            for (Path javaFile : js) {
+                String fileName = javaFile.getFileName().toString().replace(".java", "");
+                boolean found = suite.getCases().stream().anyMatch(c -> c.getName().equals(fileName));
+                if (!found) {
+                    TestCase tc = new TestCase();
+                    tc.setId("tc-" + fileName.toLowerCase().replaceAll("[^a-z0-9]", "-"));
+                    tc.setName(fileName);
+                    tc.setScriptFile(fileName + ".java");
+                    tc.setStatus("Draft");
+                    suite.getCases().add(tc);
+                }
+            }
+        }
+    }
+
+    // ---- save ----
+
+    /**
+     * Atomically writes an object to a JSON file via a temporary sibling file and atomic move.
+     * Prevents partial/corrupted files in case of sudden power loss or process kill.
+     */
+    public static void writeJsonAtomic(Path targetPath, Object value) throws IOException {
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent != null ? parent : Path.of("."), targetPath.getFileName().toString(), ".tmp");
+        try {
+            mapper.writeValue(tempFile.toFile(), value);
+            try {
+                Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tempFile, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Atomically writes string content (e.g. Java source code) to a file via a temporary sibling file and atomic move.
+     * Prevents partial/corrupted files in case of sudden power loss or process kill.
+     */
+    public static void writeTextAtomic(Path targetPath, String content) throws IOException {
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent != null ? parent : Path.of("."), targetPath.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(tempFile, content != null ? content : "");
+            try {
+                Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tempFile, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // ---- name safety ----
+
+    /**
+     * Coerces an auto-generated label (AI group/suite name) into a safe single-segment directory
+     * name. Used where failing is not acceptable: the name is derived, not typed by the user.
+     */
+    public static String sanitizeDirectoryName(String raw) {
+        String safe = com.studio.util.StringEscapeUtil.safeFileName(raw, "noi-dung");
+        if (safe.isBlank() || ".".equals(safe) || "..".equals(safe)) {
+            return "noi-dung";
+        }
+        return safe;
+    }
+
+    /**
+     * Validates a group/suite directory name and returns it trimmed.
+     *
+     * <p>The name becomes a real directory under {@code parentDir}, so a separator, {@code ..},
+     * or a Windows-reserved character would let a create/rename escape the project tree — and the
+     * matching delete then walks whatever path it produced. The check is a directory-name
+     * whitelist plus a proof that the resolved child stays a direct child of its parent.</p>
+     *
+     * @throws IOException when the name is blank, reserved, contains a path/forbidden character,
+     *                     or would resolve outside {@code parentDir}
+     */
+    public static String requireChildDirectoryName(Path parentDir, String name) throws IOException {
+        if (name == null || name.isBlank()) {
+            throw new IOException("Tên không được để trống");
+        }
+        String trimmed = name.trim();
+        if (".".equals(trimmed) || "..".equals(trimmed)) {
+            throw new IOException("Tên không hợp lệ: \"" + trimmed + "\"");
+        }
+        if (INVALID_DIR_NAME_CHARS.matcher(trimmed).find()) {
+            throw new IOException("Tên không được chứa ký tự đường dẫn hoặc ký tự cấm: \"" + trimmed + "\"");
+        }
+        if (parentDir != null) {
+            Path parent = parentDir.toAbsolutePath().normalize();
+            Path target = parent.resolve(trimmed).normalize();
+            if (!parent.equals(target.getParent())) {
+                throw new IOException("Tên không hợp lệ: \"" + trimmed + "\"");
+            }
+        }
+        return trimmed;
+    }
+
+    /**
+     * Refuses to delete the project root or any path outside it, so a corrupted tree name can never
+     * turn a node deletion into a recursive delete elsewhere on disk.
+     */
+    private static void requireDeletable(Path dir) throws IOException {
+        if (dir == null) {
+            throw new IOException("Đường dẫn không hợp lệ");
+        }
+        Path abs = dir.toAbsolutePath().normalize();
+        Path project = StudioPaths.getProjectDir().toAbsolutePath().normalize();
+        if (abs.equals(project)) {
+            throw new IOException("Không thể xoá thư mục gốc của project");
+        }
+        if (!abs.startsWith(project)) {
+            throw new IOException("Đường dẫn nằm ngoài project: " + abs);
+        }
+    }
+
+    public void saveGroup(TestGroup group, Path groupDir) throws IOException {
+        Files.createDirectories(groupDir);
+        writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
+        indexService.indexGroup(group, groupDir);
+    }
+
+    public void saveSuite(TestSuite suite, Path suiteDir) throws IOException {
+        Files.createDirectories(suiteDir);
+        suite.migrateLegacyAssertionsToCases();
+        suite.clearLegacyAssertions();
+        backfillSuiteTimestamps(suite);
+        writeJsonAtomic(suiteDir.resolve(SUITE_JSON), suite);
+        String groupName = groupKeyFor(suiteDir.getParent());
+        indexService.indexSuite(suite, suiteDir, groupName);
+    }
+
+    /** Load suite.json and migrate legacy suite-level assertions onto cases. */
+    public TestSuite loadAndMigrateSuite(Path suiteDir) throws IOException {
+        Path suiteJsonPath = suiteDir.resolve(SUITE_JSON);
+        if (!Files.exists(suiteJsonPath)) {
+            Files.createDirectories(suiteDir);
+            String name = suiteDir.getFileName().toString();
+            TestSuite suite = new TestSuite(name, "");
+            suite.setStatus("ACTIVE");
+            suite.setBrowser("CHROMIUM");
+            suite.setHeadless(false);
+            suite.setCases(new ArrayList<>());
+            String now = EntityTime.nowIso();
+            suite.setCreatedAt(now);
+            suite.setUpdatedAt(now);
+            saveSuite(suite, suiteDir);
+            return suite;
+        }
+        TestSuite suite = mapper.readValue(suiteJsonPath.toFile(), TestSuite.class);
+        boolean changed = suite.migrateLegacyAssertionsToCases();
+        if (changed) {
+            suite.clearLegacyAssertions();
+        }
+        if (backfillSuiteTimestamps(suite)) {
+            changed = true;
+        }
+        if (changed) {
+            writeJsonAtomic(suiteJsonPath, suite);
+        }
+        return suite;
+    }
+
+    private boolean backfillSuiteTimestamps(TestSuite suite) {
+        boolean changed = EntityTime.backfill(
+                suite.getCreatedAt(), suite.getUpdatedAt(),
+                suite::setCreatedAt, suite::setUpdatedAt);
+        for (TestCase tc : suite.getCases()) {
+            if (EntityTime.backfill(
+                    tc.getCreatedAt(), tc.getUpdatedAt(),
+                    tc::setCreatedAt, tc::setUpdatedAt)) {
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    // ---- create ----
+
+    public TestGroup createGroup(Path parentDir, String name) throws IOException {
+        return createGroup(parentDir, name, "");
+    }
+
+    public TestGroup loadGroup(Path groupDir) throws IOException {
+        Path groupJson = groupDir.resolve(GROUP_JSON);
+        if (!Files.exists(groupJson)) {
+            Files.createDirectories(groupDir);
+            String name = groupDir.getFileName().toString();
+            TestGroup group = new TestGroup(name, "");
+            group.setType("group");
+            saveGroup(group, groupDir);
+            return group;
+        }
+        return mapper.readValue(groupJson.toFile(), TestGroup.class);
+    }
+
+    public TestGroup createGroup(Path parentDir, String name, String description) throws IOException {
+        String safeName = requireChildDirectoryName(parentDir, name);
+        Path groupDir = parentDir.resolve(safeName);
+        Files.createDirectories(groupDir);
+        TestGroup group = new TestGroup(safeName, description != null ? description : "");
+        group.setType("group");
+        writeJsonAtomic(groupDir.resolve(GROUP_JSON), group);
+        indexService.indexGroup(group, groupDir);
+        return group;
+    }
+
+    public TestSuite createSuite(Path groupDir, String name) throws IOException {
+        return createSuite(groupDir, name, "", "DRAFT", "", null);
+    }
+
+    public TestSuite createSuite(Path groupDir, String name, String description,
+                                 String status, String browser, Boolean headless) throws IOException {
+        String safeName = requireChildDirectoryName(groupDir, name);
+        Path suiteDir = groupDir.resolve(safeName);
+        Files.createDirectories(suiteDir);
+        TestSuite suite = new TestSuite(name, description != null ? description : "");
+        suite.setStatus(status != null && !status.isBlank() ? status : "DRAFT");
+        suite.setBrowser(browser != null ? browser : "");
+        suite.setHeadless(headless);
+        String now = EntityTime.nowIso();
+        suite.setCreatedAt(now);
+        suite.setUpdatedAt(now);
+        writeJsonAtomic(suiteDir.resolve(SUITE_JSON), suite);
+        String groupName = groupKeyFor(groupDir);
+        indexService.indexSuite(suite, suiteDir, groupName);
+        return suite;
+    }
+
+    public TestCase createCase(Path suiteDir, String name, String description) throws IOException {
+        return createCase(suiteDir, name, description, "Draft", "", "", null);
+    }
+
+    public TestCase createCase(Path suiteDir, String name, String description,
+                               String status, String startUrl, String browser, Boolean headless)
+            throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        String caseId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
+        TestCase tc = new TestCase(caseId, name,
+                description != null ? description : "",
+                "",
+                status != null && !status.isBlank() ? status : "Draft");
+        // Named through the collision-aware derivation: two case names that sanitise to one file must
+        // not share it, or the second save would overwrite the first case's code.
+        String scriptFileName = scriptFileName(suite, tc);
+        tc.setScriptFile(scriptFileName);
+        tc.setStartUrl(startUrl != null ? startUrl : "");
+        tc.setBrowser(browser != null ? browser : "");
+        tc.setHeadless(headless);
+        String now = EntityTime.nowIso();
+        tc.setCreatedAt(now);
+        tc.setUpdatedAt(now);
+
+        // The script is written before the suite records the case: a failed write must not leave a
+        // case whose script does not exist (readCaseScript would then fail on every later run).
+        String stub = scriptSkeleton(name);
+        Path scriptPath = suiteDir.resolve(scriptFileName);
+        writeTextAtomic(scriptPath, stub);
+        try {
+            suite.getCases().add(tc);
+            suite.setUpdatedAt(now);
+            backfillSuiteTimestamps(suite);
+            writeJsonAtomic(suiteJson, suite);
+        } catch (IOException e) {
+            try {
+                Files.deleteIfExists(scriptPath);
+            } catch (IOException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw e;
+        }
+
+        String groupName = groupKeyFor(suiteDir.getParent());
+        indexService.indexCase(tc, groupName, suite.getName(), stub);
+        return tc;
+    }
+
+    private void syncSuiteIndex(Path suiteDir, TestSuite suite) {
+        if (suite == null || suiteDir == null) return;
+        String groupName = groupKeyFor(suiteDir.getParent());
+        indexService.indexSuite(suite, suiteDir, groupName);
+    }
+
+    /** Persist suite-level metadata fields (not cases). */
+    public void updateSuiteMeta(Path suiteDir, String description, String status,
+                                String browser, Boolean headless) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        suite.setDescription(description != null ? description : "");
+        if (status != null && !status.isBlank()) {
+            suite.setStatus(status);
+        }
+        suite.setBrowser(browser != null ? browser : "");
+        suite.setHeadless(headless);
+        suite.setUpdatedAt(EntityTime.nowIso());
+        backfillSuiteTimestamps(suite);
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    /** Persist case-level metadata fields. */
+    public void updateCaseMeta(Path suiteDir, String caseId, String description, String status,
+                               String startUrl, String browser, Boolean headless) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+        tc.setDescription(description != null ? description : "");
+        if (status != null && !status.isBlank()) {
+            tc.setStatus(status);
+        }
+        tc.setStartUrl(startUrl != null ? startUrl : "");
+        tc.setBrowser(browser != null ? browser : "");
+        tc.setHeadless(headless);
+        String now = EntityTime.nowIso();
+        tc.setUpdatedAt(now);
+        suite.setUpdatedAt(now);
+        backfillSuiteTimestamps(suite);
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateGroupMeta(Path groupDir, String description) throws IOException {
+        Path groupJson = groupDir.resolve(GROUP_JSON);
+        TestGroup group = mapper.readValue(groupJson.toFile(), TestGroup.class);
+        group.setDescription(description != null ? description : "");
+        writeJsonAtomic(groupJson, group);
+        indexService.indexGroup(group, groupDir);
+    }
+
+    // ---- delete ----
+
+    /** Deletes group directory and all nested groups / suites / cases on disk. */
+    public void deleteGroup(Path groupDir) throws IOException {
+        requireDeletable(groupDir);
+        if (Files.exists(groupDir)) {
+            try (var walk = Files.walk(groupDir)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try { Files.delete(p); } catch (IOException ignored) {}
+                        });
+            }
+        }
+        indexService.deleteGroup(groupKeyFor(groupDir));
+    }
+
+    public void deleteSuite(Path suiteDir) throws IOException {
+        requireDeletable(suiteDir);
+        if (Files.exists(suiteDir)) {
+            try (var walk = Files.walk(suiteDir)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(p -> {
+                            try { Files.delete(p); } catch (IOException ignored) {}
+                        });
+            }
+        }
+        String groupName = groupKeyFor(suiteDir.getParent());
+        indexService.deleteSuite(groupName, suiteDir.getFileName().toString());
+    }
+
+    public void deleteCase(Path suiteDir, String caseId) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        // Before filtering the list, capture the case to delete:
+        TestCase target = suite.getCases().stream()
+            .filter(c -> c.getId().equals(caseId))
+            .findFirst().orElse(null);
+
+        // Stage the script first: if the suite write below fails, the script is moved back, so the
+        // JSON and the file on disk never disagree (an orphan .java would be re-added as a Draft).
+        Path scriptFile = null;
+        Path stagedFile = null;
+        if (target != null && target.getScriptFile() != null && !target.getScriptFile().isBlank()) {
+            scriptFile = suiteDir.resolve(target.getScriptFile());
+            if (Files.exists(scriptFile)) {
+                stagedFile = scriptFile.resolveSibling(scriptFile.getFileName() + DELETING_SUFFIX);
+                Files.move(scriptFile, stagedFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        try {
+            suite.setCases(suite.getCases().stream()
+                    .filter(c -> !c.getId().equals(caseId))
+                    .collect(Collectors.toList()));
+            writeJsonAtomic(suiteJson, suite);
+        } catch (IOException e) {
+            if (stagedFile != null) {
+                try {
+                    Files.move(stagedFile, scriptFile, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException restoreFailure) {
+                    e.addSuppressed(restoreFailure);
+                }
+            }
+            throw e;
+        }
+
+        if (stagedFile != null) {
+            Files.deleteIfExists(stagedFile);
+        }
+        indexService.deleteCase(caseId);
+    }
+
+    // ---- rename ----
+
+    public void renameGroup(Path groupDir, String newName) throws IOException {
+        String safeName = requireChildDirectoryName(groupDir.getParent(), newName);
+        // Capture the old identity before the folder moves: the leaf name alone no longer matches
+        // the path-keyed index rows for a nested group.
+        String oldGroupKey = groupKeyFor(groupDir);
+        Path newDir = groupDir.resolveSibling(safeName);
+        Files.move(groupDir, newDir, StandardCopyOption.REPLACE_EXISTING);
+        TestGroup group = mapper.readValue(newDir.resolve(GROUP_JSON).toFile(), TestGroup.class);
+        group.setName(safeName);
+        writeJsonAtomic(newDir.resolve(GROUP_JSON), group);
+        indexService.deleteGroup(oldGroupKey);
+        indexService.syncGroupDirectory(newDir, groupKeyFor(newDir));
+    }
+
+    public void renameSuite(Path suiteDir, String newName) throws IOException {
+        String safeName = requireChildDirectoryName(suiteDir.getParent(), newName);
+        String oldSuiteName = suiteDir.getFileName().toString();
+        String groupName = groupKeyFor(suiteDir.getParent());
+        Path newDir = suiteDir.resolveSibling(safeName);
+        Files.move(suiteDir, newDir, StandardCopyOption.REPLACE_EXISTING);
+        TestSuite suite = mapper.readValue(newDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
+        suite.setName(safeName);
+        writeJsonAtomic(newDir.resolve(SUITE_JSON), suite);
+        indexService.deleteSuite(groupName, oldSuiteName);
+        indexService.indexSuite(suite, newDir, groupName);
+    }
+
+    public void renameCase(Path suiteDir, String caseId, String newName) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        for (TestCase tc : suite.getCases()) {
+            if (tc.getId().equals(caseId)) {
+                String oldName = tc.getName();
+                String oldScript = (tc.getScriptFile() != null && !tc.getScriptFile().isBlank())
+                        ? tc.getScriptFile()
+                        : com.studio.util.StringEscapeUtil.safeFileName(oldName, "case") + ".java";
+                // Derived against the OTHER cases: a name another case already owns would otherwise be moved
+                // over (REPLACE_EXISTING) and that case's code would be lost.
+                String newScript = derivedScriptFileName(suite, caseId, newName);
+                tc.setName(newName);
+                tc.setUpdatedAt(EntityTime.nowIso());
+
+                Path oldFile = suiteDir.resolve(oldScript);
+                if (!Files.exists(oldFile) && oldName != null) {
+                    Path legacyOldFile = suiteDir.resolve(oldName + ".java");
+                    if (Files.exists(legacyOldFile)) {
+                        oldFile = legacyOldFile;
+                    }
+                }
+                Path newFile = suiteDir.resolve(newScript);
+                if (Files.exists(oldFile) && !oldFile.equals(newFile)) {
+                    Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+                tc.setScriptFile(newScript);
+                break;
+            }
+        }
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    // ---- move / copy ----
+
+    public void moveSuite(Path fromDir, Path toGroupDir) throws IOException {
+        String suiteName = fromDir.getFileName().toString();
+        String oldGroup = groupKeyFor(fromDir.getParent());
+        Path dest = toGroupDir.resolve(fromDir.getFileName());
+        if (Files.exists(dest)) {
+            throw new IOException("Suite '" + fromDir.getFileName() + "' đã tồn tại trong nhóm đích");
+        }
+        Files.move(fromDir, dest);
+        indexService.deleteSuite(oldGroup, suiteName);
+        if (Files.exists(dest.resolve(SUITE_JSON))) {
+            TestSuite suite = mapper.readValue(dest.resolve(SUITE_JSON).toFile(), TestSuite.class);
+            syncSuiteIndex(dest, suite);
+        }
+    }
+
+    public void copySuite(Path fromDir, Path toGroupDir, String newName) throws IOException {
+        Path toDir = toGroupDir.resolve(newName);
+        if (Files.exists(toDir)) {
+            throw new IOException("Suite '" + newName + "' đã tồn tại");
+        }
+        copyDirectory(fromDir, toDir);
+        TestSuite suite = mapper.readValue(toDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
+        suite.setName(newName);
+        writeJsonAtomic(toDir.resolve(SUITE_JSON), suite);
+        syncSuiteIndex(toDir, suite);
+    }
+
+    private void copyDirectory(Path from, Path to) throws IOException {
+        try {
+            try (var walk = Files.walk(from)) {
+                walk.forEach(source -> {
+                    try {
+                        Path dest = to.resolve(from.relativize(source));
+                        if (!Files.exists(dest)) {
+                            Files.copy(source, dest);
+                        }
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
+                });
+            }
+        } catch (java.io.UncheckedIOException e) {
+            throw e.getCause();
+        }
+    }
+
+    public TestCase copyCase(Path suiteDir, String caseId, String newName) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        TestCase original = suite.getCases().stream()
+                .filter(c -> c.getId().equals(caseId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
+
+        String newId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
+        // Derived, not copied from newName: a duplicate that keeps the original name would take over (or
+        // share) the original's script file, and the first edit of the copy would rewrite the original.
+        String newScriptFile = derivedScriptFileName(suite, newId, newName);
+        TestCase copy = new TestCase(newId, newName, original.getDescription(), newScriptFile, original.getStatus());
+        copy.setPriority(original.getPriority());
+        copy.setStartUrl(original.getStartUrl());
+        copy.setBrowser(original.getBrowser());
+        copy.setHeadless(original.getHeadless());
+        String now = EntityTime.nowIso();
+        copy.setCreatedAt(now);
+        copy.setUpdatedAt(now);
+
+        List<Assertion> copiedAsserts = new ArrayList<>();
+        if (original.getAssertions() != null) {
+            for (Assertion a : original.getAssertions()) {
+                Assertion clone = new Assertion();
+                clone.setType(a.getType());
+                clone.setValue(a.getValue());
+                clone.setLocator(a.getLocator());
+                clone.setAttribute(a.getAttribute());
+                clone.setExpectedValue(a.getExpectedValue());
+                clone.setStatus(a.getStatus());
+                clone.setExact(a.isExact());
+                clone.setTimeoutMs(a.getTimeoutMs());
+                copiedAsserts.add(clone);
+            }
+        }
+        copy.setAssertions(copiedAsserts);
+        if (original.getTestSteps() != null) {
+            copy.setTestSteps(new ArrayList<>(original.getTestSteps()));
+        }
+        if (original.getTestDataSets() != null) {
+            copy.setTestDataSets(new ArrayList<>(original.getTestDataSets()));
+        }
+        suite.getCases().add(copy);
+        writeJsonAtomic(suiteJson, suite);
+
+        // Copy .java file
+        String origScript = (original.getScriptFile() != null && !original.getScriptFile().isBlank())
+                ? original.getScriptFile()
+                : com.studio.util.StringEscapeUtil.safeFileName(original.getName(), "case") + ".java";
+        Path srcFile = suiteDir.resolve(origScript);
+        Path dstFile = suiteDir.resolve(newScriptFile);
+        if (Files.exists(srcFile) && !srcFile.equals(dstFile)) {
+            Files.copy(srcFile, dstFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        syncSuiteIndex(suiteDir, suite);
+
+        return copy;
+    }
+
+    // ---- reorder ----
+
+    public void reorderCases(Path suiteDir, List<String> caseIds) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        List<TestCase> ordered = new ArrayList<>();
+        for (String id : caseIds) {
+            Optional<TestCase> found = suite.getCases().stream()
+                    .filter(c -> c.getId().equals(id))
+                    .findFirst();
+            found.ifPresent(ordered::add);
+        }
+        suite.setCases(ordered);
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void reorderAssertions(Path suiteDir, String caseId, List<Integer> indices) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+
+        List<Assertion> ordered = new ArrayList<>();
+        for (int i : indices) {
+            if (i >= 0 && i < tc.getAssertions().size()) {
+                ordered.add(tc.getAssertions().get(i));
+            }
+        }
+        tc.setAssertions(ordered);
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    // ---- status updates ----
+
+    public void updateSuiteStatus(Path suiteDir, String status) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        suite.setStatus(status);
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateCaseStatus(Path suiteDir, String caseId, String status) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        for (TestCase tc : suite.getCases()) {
+            if (tc.getId().equals(caseId)) {
+                tc.setStatus(status);
+                break;
+            }
+        }
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateCaseStartUrl(Path suiteDir, String caseId, String startUrl) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        for (TestCase tc : suite.getCases()) {
+            if (tc.getId().equals(caseId)) {
+                tc.setStartUrl(startUrl != null ? startUrl.trim() : "");
+                break;
+            }
+        }
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    // ---- assertions CRUD (per TestCase) ----
+
+    public void addAssertion(Path suiteDir, String caseId, Assertion a) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        requireCase(suite, caseId).getAssertions().add(a);
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateAssertion(Path suiteDir, String caseId, int index, Assertion a) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        requireCase(suite, caseId).getAssertions().set(index, a);
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    /**
+     * Removes the assertion that matches {@code expected} by value from the freshly loaded suite.
+     * Position-based deletion removed whatever happened to sit at that index once the file had
+     * been changed by another window, so the wrong assertion disappeared.
+     */
+    public void deleteAssertion(Path suiteDir, String caseId, Assertion expected) throws IOException {
+        if (expected == null) {
+            throw new IOException("Thiếu assertion cần xoá");
+        }
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        List<Assertion> assertions = requireCase(suite, caseId).getAssertions();
+        int index = indexOfMatchingAssertion(assertions, expected);
+        if (index < 0) {
+            throw new IOException("Không tìm thấy assertion cần xoá trong suite.json");
+        }
+        assertions.remove(index);
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    private static int indexOfMatchingAssertion(List<Assertion> assertions, Assertion expected) {
+        for (int i = 0; i < assertions.size(); i++) {
+            Assertion candidate = assertions.get(i);
+            if (Objects.equals(candidate.getType(), expected.getType())
+                    && Objects.equals(candidate.getValue(), expected.getValue())
+                    && Objects.equals(candidate.getLocator(), expected.getLocator())
+                    && Objects.equals(candidate.getAttribute(), expected.getAttribute())
+                    && Objects.equals(candidate.getExpectedValue(), expected.getExpectedValue())
+                    && Objects.equals(candidate.getStatus(), expected.getStatus())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void replaceAssertions(Path suiteDir, String caseId, List<Assertion> assertions) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        requireCase(suite, caseId).setAssertions(new ArrayList<>(assertions));
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateCaseStepsAndData(Path suiteDir, String caseId, List<com.studio.model.TestStep> steps, List<com.studio.model.TestDataItem> dataSets) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+        if (steps != null) {
+            tc.setTestSteps(new ArrayList<>(steps));
+        }
+        if (dataSets != null) {
+            tc.setTestDataSets(new ArrayList<>(dataSets));
+        }
+        suite.clearLegacyAssertions();
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    public void updateCasePriority(Path suiteDir, String caseId, String priority) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+        TestCase tc = requireCase(suite, caseId);
+        tc.setPriority(priority);
+        writeJsonAtomic(suiteJson, suite);
+        syncSuiteIndex(suiteDir, suite);
+    }
+
+    private TestCase requireCase(TestSuite suite, String caseId) {
+        return suite.getCases().stream()
+                .filter(c -> c.getId().equals(caseId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
+    }
+
+    /**
+     * The script skeleton for a case that has no code yet: the same envelope the AI generator writes
+     * and the runner compiles.
+     *
+     * <p>The {@code page} declaration is part of the contract — the Studio owns the browser, so steps
+     * are emitted against {@code StudioRuntime.page()}, and a script without this line dies at compile
+     * time on an undefined variable. The body starts empty: a marker comment would be parsed into an
+     * authored NOTE step.</p>
+     */
+    public static String scriptSkeleton(String caseName) {
+        return String.format("""
+                package com.test;
+
+                import com.microsoft.playwright.*;
+
+                public class %s {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                    }
+                }
+                """, ScriptHarnessTransformer.sanitizeClassName(caseName));
+    }
+
+    // ---- script CRUD ----
+
+    public void saveCaseScript(Path suiteDir, String caseId, String javaCode) throws IOException {
+        Path suiteJson = suiteDir.resolve(SUITE_JSON);
+        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+
+        TestCase matched = findCase(suite, caseId);
+        if (matched == null) {
+            throw new IOException("Case not found: " + caseId);
+        }
+        String fileName = scriptFileName(suite, matched);
+        matched.setScriptFile(fileName);
+        writeTextAtomic(suiteDir.resolve(fileName), javaCode);
+        if ("Draft".equals(matched.getStatus()) && javaCode != null && !javaCode.isBlank()) {
+            matched.setStatus("Ready");
+        }
+        writeJsonAtomic(suiteJson, suite);
+        String groupName = groupKeyFor(suiteDir.getParent());
+        indexService.indexCase(matched, groupName, suite.getName(), javaCode);
+    }
+
+    /**
+     * Reads the script of a case, or {@link Optional#empty()} when the case has none — the file is
+     * absent or blank. Callers get one invariant: a present script is never blank.
+     *
+     * <p>A case can exist before its code does: the AI writes scenario cases from a specification and
+     * generates their scripts later, so a missing file is a state of the data, not an I/O failure.
+     * Callers that cannot run without the code should use {@link #readCaseScript} instead.</p>
+     */
+    public Optional<String> findCaseScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = readSuiteForScript(suiteDir, caseId);
+        Path scriptPath = suiteDir.resolve(scriptFileName(suite, findCase(suite, caseId)));
+        if (!Files.isRegularFile(scriptPath)) {
+            return Optional.empty();
+        }
+        String code = Files.readString(scriptPath);
+        return code.isBlank() ? Optional.empty() : Optional.of(code);
+    }
+
+    /** Reads a script that must exist: a case that runs without its code is a hard error. */
+    public String readCaseScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = readSuiteForScript(suiteDir, caseId);
+        Path scriptPath = suiteDir.resolve(scriptFileName(suite, findCase(suite, caseId)));
+        if (!Files.isRegularFile(scriptPath)) {
+            throw new IOException("Script file not found: " + scriptPath);
+        }
+        return Files.readString(scriptPath);
+    }
+
+    private TestSuite readSuiteForScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = mapper.readValue(suiteDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
+        if (findCase(suite, caseId) == null) {
+            throw new IOException("Case not found: " + caseId);
+        }
+        return suite;
+    }
+
+    private static TestCase findCase(TestSuite suite, String caseId) {
+        if (suite.getCases() == null || caseId == null) {
+            return null;
+        }
+        return suite.getCases().stream()
+                .filter(tc -> caseId.equals(tc.getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * The file a case's script lives in: the recorded name, or the derived one. Every read and write goes
+     * through this single answer — they used to disagree whenever the name held path characters.
+     */
+    public static String scriptFileName(TestSuite suite, TestCase tc) {
+        String recorded = tc.getScriptFile();
+        return recorded != null && !recorded.isBlank()
+                ? recorded
+                : derivedScriptFileName(suite, tc.getId(), tc.getName());
+    }
+
+    /**
+     * The name a case that has no file yet would take.
+     *
+     * <p>Derivation alone is not injective: {@code "A/B"} and {@code "A_B"} sanitise to one name, and the
+     * AI does generate a case twice under the same name. Handing both cases one file means the second
+     * save silently overwrites the first case's code — while each case keeps showing its own name — so a
+     * name another case already claims gets the case id appended. Callers pass the name the case is
+     * about to have (rename, copy, create), not the one it still carries.</p>
+     */
+    private static String derivedScriptFileName(TestSuite suite, String caseId, String caseName) {
+        String base = com.studio.util.StringEscapeUtil.safeFileName(caseName, "case");
+        String candidate = base + ".java";
+        if (!claimedByAnotherCase(suite, caseId, candidate)) {
+            return candidate;
+        }
+        String suffix = caseId != null && !caseId.isBlank() ? caseId : "case";
+        return com.studio.util.StringEscapeUtil.safeFileName(base + "_" + suffix, "case") + ".java";
+    }
+
+    private static boolean claimedByAnotherCase(TestSuite suite, String caseId, String fileName) {
+        if (suite == null || suite.getCases() == null) {
+            return false;
+        }
+        // Case-insensitive: macOS and Windows would hand both cases the same file.
+        return suite.getCases().stream()
+                .filter(other -> !Objects.equals(other.getId(), caseId))
+                .map(ProjectStore::claimedScriptFileName)
+                .anyMatch(fileName::equalsIgnoreCase);
+    }
+
+    /** The name a case occupies, without recursing into collision handling. */
+    private static String claimedScriptFileName(TestCase tc) {
+        String recorded = tc.getScriptFile();
+        return recorded != null && !recorded.isBlank()
+                ? recorded
+                : com.studio.util.StringEscapeUtil.safeFileName(tc.getName(), "case") + ".java";
+    }
+
+    // ---- collect cases for run scope ----
+
+    public List<CaseResult> collectCasesForScope(String scope, Path scopePath) throws IOException {
+        List<CaseResult> results = new ArrayList<>();
+
+        switch (scope) {
+            case "ALL":
+                results = collectAllCases(StudioPaths.getProjectDir(), "");
+                break;
+            case "GROUP":
+                // parentPath must be relative from project root so resolveSuiteDir
+                // rebuilds project/<group>/…/<suite> (not project/<suite>).
+                results = collectAllCases(scopePath, relativeFromProject(scopePath));
+                break;
+            case "SUITE":
+                results = collectSuiteCases(scopePath);
+                break;
+            case "CASE":
+                results = collectSingleCase(scopePath);
+                break;
+        }
+        return results;
+    }
+
+    /** Walk group subtree collecting cases with skip logic. */
+    private List<CaseResult> collectAllCases(Path groupDir, String parentPath) throws IOException {
+        List<CaseResult> results = new ArrayList<>();
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupDir)) {
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                String childPath = parentPath.isEmpty() ? entry.getFileName().toString() : parentPath + "/" + entry.getFileName().toString();
+
+                if (Files.exists(entry.resolve(SUITE_JSON))) {
+                    results.addAll(enumerateSuiteCases(entry, parentPath, entry.getFileName().toString()));
+                } else if (Files.exists(entry.resolve(GROUP_JSON))) {
+                    results.addAll(collectAllCases(entry, childPath));
+                }
+            }
+        }
+        return results;
+    }
+
+    private static void applySkipEvaluation(TestSuite suite, TestCase tc, CaseResult cr) {
+        boolean suiteActive = "ACTIVE".equalsIgnoreCase(suite.getStatus());
+        boolean suiteHasAnyActiveAssert = suite.hasAnyActiveAssertions();
+
+        if (!suiteActive) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Suite status is " + suite.getStatus());
+        } else if (!suiteHasAnyActiveAssert) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Suite has no active asserts");
+        } else if ("INACTIVE".equalsIgnoreCase(tc.getStatus()) || "Inactive".equalsIgnoreCase(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Case is inactive");
+        } else if ("Draft".equalsIgnoreCase(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("No script (case Draft)");
+        } else if (!StatusDisplay.isRunnable(tc.getStatus())) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("Case is not ready (" + tc.getStatus() + ")");
+        } else if (!tc.hasActiveAssertions()) {
+            cr.setStatus("SKIPPED");
+            cr.setSkipReason("No active asserts on this case");
+        } else {
+            cr.setStatus("PENDING");
+        }
+    }
+
+    private List<CaseResult> enumerateSuiteCases(Path suiteDir, String groupPath, String suiteName) throws IOException {
+        List<CaseResult> results = new ArrayList<>();
+        TestSuite suite = loadAndMigrateSuite(suiteDir);
+
+        for (int i = 0; i < suite.getCases().size(); i++) {
+            TestCase tc = suite.getCases().get(i);
+            CaseResult cr = new CaseResult();
+            cr.setIndex(i);
+            cr.setGroupPath(groupPath);
+            cr.setSuiteName(suiteName);
+            cr.setSuiteDir(suiteDir.toAbsolutePath().normalize().toString());
+            cr.setTestCaseId(tc.getId());
+            cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
+            cr.setScriptFile(tc.getScriptFile());
+
+            applySkipEvaluation(suite, tc, cr);
+            results.add(cr);
+        }
+        return results;
+    }
+
+    private List<CaseResult> collectSuiteCases(Path suiteDir) throws IOException {
+        List<CaseResult> results = new ArrayList<>();
+        TestSuite suite = loadAndMigrateSuite(suiteDir);
+        String suiteName = suiteDir.getFileName().toString();
+        String groupPath = relativeGroupPath(suiteDir);
+        String suiteDirAbs = suiteDir.toAbsolutePath().normalize().toString();
+
+        for (int i = 0; i < suite.getCases().size(); i++) {
+            TestCase tc = suite.getCases().get(i);
+            CaseResult cr = new CaseResult();
+            cr.setIndex(i);
+            cr.setGroupPath(groupPath);
+            cr.setSuiteName(suiteName);
+            cr.setSuiteDir(suiteDirAbs);
+            cr.setTestCaseId(tc.getId());
+            cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
+            cr.setScriptFile(tc.getScriptFile());
+
+            applySkipEvaluation(suite, tc, cr);
+            results.add(cr);
+        }
+        return results;
+    }
+
+    private List<CaseResult> collectSingleCase(Path scopePath) throws IOException {
+        // scopePath = <suiteDir>/<CaseName>.java (or script file name)
+        List<CaseResult> results = new ArrayList<>();
+        if (scopePath == null || scopePath.getParent() == null) {
+            return results;
+        }
+        Path suiteDir = scopePath.getParent();
+        String fileName = scopePath.getFileName().toString();
+        String caseName = fileName.replace(".java", "");
+
+        TestSuite suite = loadAndMigrateSuite(suiteDir);
+
+        Optional<TestCase> tcOpt = suite.getCases().stream()
+                .filter(c -> fileName.equalsIgnoreCase(scriptFileName(suite, c))
+                        || caseName.equalsIgnoreCase(c.getName())
+                        || caseName.equalsIgnoreCase(com.studio.util.StringEscapeUtil.safeFileName(c.getName(), "case")))
+                .findFirst();
+
+        if (tcOpt.isPresent()) {
+            TestCase tc = tcOpt.get();
+            CaseResult cr = new CaseResult();
+            cr.setIndex(0);
+            cr.setGroupPath(relativeGroupPath(suiteDir));
+            cr.setSuiteName(suiteDir.getFileName().toString());
+            cr.setSuiteDir(suiteDir.toAbsolutePath().normalize().toString());
+            cr.setTestCaseId(tc.getId());
+            cr.setTestCaseName(tc.getName());
+            cr.setPriority(tc.getPriority());
+            cr.setScriptFile(tc.getScriptFile());
+
+            applySkipEvaluation(suite, tc, cr);
+            results.add(cr);
+        }
+        return results;
+    }
+
+    /**
+     * Relative path from project root to the suite's parent group.
+     * Empty when the suite sits directly under the project root.
+     */
+    private static String relativeGroupPath(Path suiteDir) {
+        if (suiteDir == null) return "";
+        Path parent = suiteDir.toAbsolutePath().normalize().getParent();
+        return relativeFromProject(parent);
+    }
+
+    /** Relative path from project root to {@code dir}; empty if dir is the project root. */
+    private static String relativeFromProject(Path dir) {
+        if (dir == null) return "";
+        Path projectDir = StudioPaths.getProjectDir().toAbsolutePath().normalize();
+        Path abs = dir.toAbsolutePath().normalize();
+        if (abs.equals(projectDir)) {
+            return "";
+        }
+        if (!abs.startsWith(projectDir)) {
+            return abs.getFileName() != null ? abs.getFileName().toString() : "";
+        }
+        return projectDir.relativize(abs).toString().replace('\\', '/');
+    }
+}
