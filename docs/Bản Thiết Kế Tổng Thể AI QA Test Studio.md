@@ -1,4 +1,6 @@
-# Bản Thiết Kế Tổng Thể: AI QA Test Studio Đa Nền Tảng (Master Blueprint v4.0)
+# Bản Thiết Kế Tổng Thể: AI QA Test Studio Đa Nền Tảng (Master Blueprint v4.0 → v4.1)
+
+> **Runtime hiện tại:** Python package `ai_qa_test_studio` **v4.1** (Airy UI). Binding requirements: root [`SPEC.md`](../SPEC.md). UI chi tiết: [`Thiết Kế Chi Tiết Giao Diện…`](Thiết%20Kế%20Chi%20Tiết%20Giao%20Diện%20AI%20QA%20Test%20Studio.md) + ADR `0003`. Blueprint này vẫn là tầm nhìn kiến trúc tổng thể; chỗ “Fluent 3-cột” trong các mục UI cũ được **thay bởi Airy 2-pane + drawer** khi implement.
 
 Tài liệu này là bản thiết kế kiến trúc kỹ thuật và trải nghiệm sản phẩm toàn diện để xây dựng **AI QA Test Studio** trên nền tảng **Python đa hệ điều hành (Windows, macOS, Linux)**. Hệ thống kế thừa cấu trúc quản lý phân cấp của dự án gốc, giải quyết triệt để bài toán tràn output token của LLM, tích hợp hệ sinh thái **MCP (Model Context Protocol)** và **Modular Testing Skills**, hỗ trợ kiểm thử từ lúc **chưa có URL (Shift-Left)** đến khi **vận hành tự chủ (Autonomous Dual-Loop Agent & Self-Healing)**, đồng thời cung cấp giao diện trực quan cho cả người không biết lập trình.
 

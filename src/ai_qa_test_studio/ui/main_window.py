@@ -7,8 +7,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QInputDialog,
     QMainWindow,
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qasync import asyncSlot
-from qfluentwidgets import CaptionLabel, InfoBadge, InfoBar, InfoBarPosition
+from qfluentwidgets import CaptionLabel, IndeterminateProgressBar, InfoBadge, InfoBar, InfoBarPosition
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
@@ -47,9 +47,19 @@ from ai_qa_test_studio.constants import (
     SCREENCAST_STATUS_NAV_FAILED,
     SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
+    UI_BREAKPOINT_MEDIUM,
+    UI_BREAKPOINT_WIDE,
+    UI_DRAWER_WIDTH,
+    UI_DRAWER_WIDTH_COMPACT,
+    UI_DRAWER_WIDTH_NARROW,
     UI_INFOBAR_DURATION_MS,
-    UI_SPLIT_SIZES_H,
+    UI_SIDEBAR_WIDTH,
+    UI_SIDEBAR_WIDTH_COMPACT,
     UI_SPLIT_SIZES_V,
+    UI_WINDOW_DEFAULT_HEIGHT,
+    UI_WINDOW_DEFAULT_WIDTH,
+    UI_WINDOW_MIN_HEIGHT,
+    UI_WINDOW_MIN_WIDTH,
 )
 from ai_qa_test_studio.core.chat_history import ChatHistoryStore
 from ai_qa_test_studio.core.env_manager import EnvManager
@@ -63,12 +73,12 @@ from ai_qa_test_studio.reporting.html_reporter import HtmlReporter
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
-from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
 from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
 from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
+from ai_qa_test_studio.ui.widgets.right_drawer import TAB_COPILOT, RightDrawer
 from ai_qa_test_studio.ui.widgets.system_settings_dialog import SystemSettingsDialog
 from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 
@@ -76,9 +86,10 @@ from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 class MainWindow(QMainWindow):
     def __init__(self, data_root: Path | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("AI QA Test Studio v4.0")
+        self.setWindowTitle("AI QA Test Studio v4.1")
         self.setAccessibleName("AI QA Test Studio")
-        self.resize(1440, 900)
+        self.setMinimumSize(UI_WINDOW_MIN_WIDTH, UI_WINDOW_MIN_HEIGHT)
+        self.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
         self.data_root = data_root or Path("data")
         self.storage = ProjectStorage(self.data_root / "v4")
         self.env = EnvManager(self.data_root / "config")
@@ -95,6 +106,10 @@ class MainWindow(QMainWindow):
         self._dom_distiller = DomDistiller(self._token_budget)
         self._bundled_mcp = BundledMcpRegistry()
         self._bundled_mcp.start()
+        self._sidebar_collapsed = False
+        self._overlay_mode = False
+        self._drawer_width = UI_DRAWER_WIDTH
+        self._narrow_auto_collapsed = False
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
@@ -102,6 +117,7 @@ class MainWindow(QMainWindow):
         self._reload_ui()
         self._refresh_model_catalog()
         self._refresh_status_pills()
+        self.apply_layout_breakpoint(self.width())
 
     def _build_chrome(self) -> None:
         central = QWidget(self)
@@ -116,50 +132,64 @@ class MainWindow(QMainWindow):
             "shift-left-figma-sync",
         ]
         self.top_bar.set_skills(skills)
+        self.top_bar.sidebar_toggled.connect(self._toggle_sidebar)
         self.top_bar.wizard_clicked.connect(self._open_copilot)
         self.top_bar.new_case_clicked.connect(self._new_case)
         self.top_bar.sync_url_clicked.connect(lambda _url: self._sync_url())
         self.top_bar.run_clicked.connect(self._run_current)
         self.top_bar.stop_clicked.connect(self._stop_browser)
+        self.top_bar.copilot_toggled.connect(self._on_copilot_toggle)
         self.top_bar.export_requested.connect(self._export)
+        self.top_bar.settings_requested.connect(self._open_system_settings)
         root_layout.addWidget(self.top_bar)
 
-        # Compatibility aliases used by tests / handlers
+        self.busy_bar = IndeterminateProgressBar(central)
+        self.busy_bar.setFixedHeight(2)
+        self.busy_bar.hide()
+        root_layout.addWidget(self.busy_bar)
+
         self.url_edit = self.top_bar.url_input
         self.skill_combo = self.top_bar.skill_combo
         self.unbound_badge = self.top_bar.unbound_badge
 
         v_splitter = QSplitter(Qt.Orientation.Vertical, central)
-        h_splitter = QSplitter(Qt.Orientation.Horizontal, v_splitter)
 
-        self.explorer = ExplorerPane(h_splitter)
+        self.workspace = QWidget(v_splitter)
+        self.workspace.setAccessibleName("Workspace 2-pane")
+        self.workspace.installEventFilter(self)
+        self.h_splitter = QSplitter(Qt.Orientation.Horizontal, self.workspace)
+
+        self.explorer = ExplorerPane(self.h_splitter)
         self.explorer.case_selected.connect(self._on_case_selected)
-        self.builder = EditorPane(h_splitter)
+        self.builder = EditorPane(self.h_splitter)
         self.builder.case_changed.connect(self._on_case_fields_changed)
         self.builder.sync_requested.connect(self._sync_url)
+        self.h_splitter.addWidget(self.explorer)
+        self.h_splitter.addWidget(self.builder)
+        self.h_splitter.setStretchFactor(0, 0)
+        self.h_splitter.setStretchFactor(1, 1)
+        self.h_splitter.setSizes([UI_SIDEBAR_WIDTH, UI_WINDOW_DEFAULT_WIDTH - UI_SIDEBAR_WIDTH])
 
-        self.browser_agent = BrowserAgentPane(h_splitter)
+        self.right_drawer = RightDrawer(self.workspace)
+        self.right_drawer.hide()
+        self.browser_agent = self.right_drawer.browser
         self.viewport = self.browser_agent
         self._run_logs = self.browser_agent.agent_feed
-        self.copilot = self.browser_agent.copilot
+        self.copilot = self.right_drawer.copilot
         self.browser_agent.launch_browser_clicked.connect(self._launch_browser)
         self.browser_agent.clicked_css.connect(self._on_viewport_click)
         self.copilot.prompt_submitted.connect(self._on_copilot_prompt)
         self.copilot.stop_requested.connect(self._stop_copilot)
         self.copilot.apply_requested.connect(self._apply_copilot_payload)
-        self.copilot.info_message.connect(
-            lambda title, body: self._toast_info(title, body)
-        )
+        self.copilot.info_message.connect(lambda title, body: self._toast_info(title, body))
         self.copilot.session_changed.connect(self._persist_copilot_session)
-
-        h_splitter.addWidget(self.explorer)
-        h_splitter.addWidget(self.builder)
-        h_splitter.addWidget(self.browser_agent)
-        h_splitter.setSizes(list(UI_SPLIT_SIZES_H))
+        self.copilot.settings_requested.connect(self._open_system_settings)
+        self.right_drawer.drawer_opened.connect(lambda: self.top_bar.set_copilot_checked(True))
+        self.right_drawer.drawer_closed.connect(lambda: self.top_bar.set_copilot_checked(False))
 
         self.data_drawer = TestDataDrawer(v_splitter)
         self.data_grid = self.data_drawer.table
-        v_splitter.addWidget(h_splitter)
+        v_splitter.addWidget(self.workspace)
         v_splitter.addWidget(self.data_drawer)
         v_splitter.setSizes(list(UI_SPLIT_SIZES_V))
 
@@ -175,6 +205,26 @@ class MainWindow(QMainWindow):
         palette.setShortcut(QKeySequence("Ctrl+K"))
         palette.triggered.connect(self._command_palette)
         self.addAction(palette)
+
+        act_sidebar = QAction("Toggle Sidebar", self)
+        act_sidebar.setShortcut(QKeySequence("Ctrl+\\"))
+        act_sidebar.triggered.connect(self._toggle_sidebar)
+        self.addAction(act_sidebar)
+
+        act_copilot = QAction("Toggle Copilot", self)
+        act_copilot.setShortcut(QKeySequence("Ctrl+I"))
+        act_copilot.triggered.connect(self._toggle_copilot_drawer)
+        self.addAction(act_copilot)
+
+        act_esc = QAction("Close drawer / Stop", self)
+        act_esc.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        act_esc.triggered.connect(self._on_escape)
+        self.addAction(act_esc)
+
+        act_run = QAction("Run", self)
+        act_run.setShortcut(QKeySequence("Ctrl+Return"))
+        act_run.triggered.connect(self._run_current)
+        self.addAction(act_run)
 
         status = self.statusBar()
         status.setAccessibleName("Thanh trạng thái")
@@ -193,6 +243,99 @@ class MainWindow(QMainWindow):
     @property
     def _drawer_collapsed(self) -> bool:
         return self.data_drawer.collapsed
+
+    def apply_layout_breakpoint(self, width: int) -> None:
+        if width >= UI_BREAKPOINT_WIDE:
+            self._narrow_auto_collapsed = False
+            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH
+            self._drawer_width = UI_DRAWER_WIDTH
+            self._overlay_mode = False
+        elif width >= UI_BREAKPOINT_MEDIUM:
+            self._narrow_auto_collapsed = False
+            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
+            self._drawer_width = UI_DRAWER_WIDTH_COMPACT
+            self._overlay_mode = False
+        else:
+            if not self._narrow_auto_collapsed:
+                self._sidebar_collapsed = True
+                self._narrow_auto_collapsed = True
+            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
+            self._drawer_width = UI_DRAWER_WIDTH_NARROW
+            self._overlay_mode = True
+        if sidebar <= 0:
+            self.explorer.hide()
+        else:
+            self.explorer.show()
+            self.explorer.setMinimumWidth(max(160, sidebar - 20))
+            self.explorer.setMaximumWidth(sidebar + 40)
+            sizes = self.h_splitter.sizes()
+            editor = max(400, sum(sizes) - sidebar) if sizes else 800
+            self.h_splitter.setSizes([sidebar, editor])
+        self._sync_drawer_geometry()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:  # type: ignore[override]
+        if watched is self.workspace and event.type() == QEvent.Type.Resize:
+            self._sync_drawer_geometry()
+        return super().eventFilter(watched, event)  # type: ignore[arg-type]
+
+    def _sync_drawer_geometry(self) -> None:
+        ww = self.workspace.width()
+        wh = self.workspace.height()
+        if ww <= 0 or wh <= 0:
+            return
+        if self.right_drawer.is_open:
+            dw = self._drawer_width
+            self.right_drawer.setFixedWidth(dw)
+            self.right_drawer.show()
+            self.right_drawer.raise_()
+            if self._overlay_mode:
+                self.h_splitter.setGeometry(0, 0, ww, wh)
+                self.right_drawer.setGeometry(ww - dw, 0, dw, wh)
+            else:
+                self.h_splitter.setGeometry(0, 0, max(1, ww - dw), wh)
+                self.right_drawer.setGeometry(ww - dw, 0, dw, wh)
+        else:
+            self.right_drawer.hide()
+            self.h_splitter.setGeometry(0, 0, ww, wh)
+
+    def _toggle_sidebar(self) -> None:
+        self._sidebar_collapsed = not self._sidebar_collapsed
+        self.apply_layout_breakpoint(self.width())
+
+    def _toggle_copilot_drawer(self) -> None:
+        if self.right_drawer.is_open and self.right_drawer.stack.currentIndex() == 0:
+            self.right_drawer.close_drawer()
+        else:
+            self.right_drawer.open_drawer(TAB_COPILOT)
+        self._sync_drawer_geometry()
+
+    def _on_copilot_toggle(self, checked: bool) -> None:
+        if checked:
+            self.right_drawer.open_drawer(TAB_COPILOT)
+        else:
+            self.right_drawer.close_drawer()
+        self._sync_drawer_geometry()
+
+    def _on_escape(self) -> None:
+        if self._busy:
+            self._stop_browser()
+            return
+        if self.right_drawer.is_open:
+            self.right_drawer.close_drawer()
+            self._sync_drawer_geometry()
+
+    def _set_busy_chrome(self, busy: bool) -> None:
+        self.top_bar.set_running(busy)
+        if busy:
+            self.busy_bar.show()
+            self.busy_bar.start()
+        else:
+            self.busy_bar.stop()
+            self.busy_bar.hide()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.apply_layout_breakpoint(self.width())
 
     def _import_or_empty(self) -> Project:
         legacy = Path("data/project")
@@ -248,7 +391,9 @@ class MainWindow(QMainWindow):
         self._update_unbound_badge(self.builder.peek_case())
 
     def _open_copilot(self) -> None:
-        self.browser_agent.show_copilot(compose=True)
+        self.right_drawer.show_copilot(compose=True)
+        self.top_bar.set_copilot_checked(True)
+        self._sync_drawer_geometry()
         self._toast_info(
             "QA Copilot",
             "Tab AI Wizard (3 bước) nằm trong Copilot. Chat dùng Planner→Composer→Critic.",
@@ -592,6 +737,7 @@ class MainWindow(QMainWindow):
             url = url.strip()
             self.url_edit.setText(url)
         self._busy = True
+        self._set_busy_chrome(True)
         self._status_caption.setText("Đang đồng bộ…")
         try:
             case.start_url = url
@@ -611,6 +757,7 @@ class MainWindow(QMainWindow):
             self._toast_error("Sync URL", str(exc))
         finally:
             self._busy = False
+            self._set_busy_chrome(False)
             self._status_caption.setText("Sẵn sàng")
 
     @asyncSlot()
@@ -620,7 +767,11 @@ class MainWindow(QMainWindow):
         case = self._require_case()
         if case is None:
             return
+        self.right_drawer.show_browser()
+        self.top_bar.set_copilot_checked(True)
+        self._sync_drawer_geometry()
         self._busy = True
+        self._set_busy_chrome(True)
         self._status_caption.setText("Đang chạy…")
         self._run_logs.clear()
         try:
@@ -653,6 +804,7 @@ class MainWindow(QMainWindow):
             self._toast_error("Run", str(exc))
         finally:
             self._busy = False
+            self._set_busy_chrome(False)
             self._status_caption.setText("Sẵn sàng")
 
     @asyncSlot()
@@ -827,11 +979,12 @@ class MainWindow(QMainWindow):
         ext = "on" if self.env.settings.mcp.external.playwright else "off"
         self._set_pill(self._pill_mcp, f"MCP: bundled {bundled} · PW {ext}")
 
-    def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+    def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         bind_accessible_root(self)
+        self._sync_drawer_geometry()
 
-    def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+    def closeEvent(self, event: QCloseEvent) -> None:
         self._bundled_mcp.stop()
         if self.session.started:
             self._append_log("Đang đóng — trình duyệt sẽ dừng ở phiên tiếp theo")

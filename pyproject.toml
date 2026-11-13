@@ -1,6 +1,6 @@
 [project]
 name = "ai-qa-test-studio"
-version = "4.0.0"
+version = "4.1.0"
 description = "Autonomous Shift-Left & MCP-Powered AI QA Test Studio"
 readme = "README.md"
 authors = [

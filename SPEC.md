@@ -1,35 +1,51 @@
-# Spec: QA Copilot Crew — Hybrid Debate + Clarify + Settings (Phase 5.1)
+# Spec: AI QA Test Studio v4.1 — Copilot Crew + Airy UI
 
 **Status**: ACTIVE  
-**Supersedes**: Phase 5 Copilot 3-role (handoff/debate clauses)  
-**Parent product**: AI QA Test Studio v4.0  
-**ADR**: `docs/adr/0001-qa-copilot-three-role-orchestrator.md`, `docs/adr/0002-agent-crew-hybrid-debate-clarify.md`
+**Product**: AI QA Test Studio v4.1 (Python / PySide6)  
+**ADRs**: `docs/adr/0001-…`, `0002-…`, `0003-airy-ui-shell.md`  
+**UI design SoT**: `docs/Thiết Kế Chi Tiết Giao Diện AI QA Test Studio.md` (Airy v4.1)
 
 ## Objective
 
-Nâng Copilot thành **crew** Planner→Composer→Critic với:
+Ship an MCP-powered Shift-Left QA desktop studio with:
 
-- Tóm tắt ngắn trên UI (≤160 ký tự); artifact dài nội bộ / Apply  
-- Hội thoại agent↔agent có giới hạn + anti-loop  
-- Popup clarify (gợi ý + tự nhập) mọi role; skip/timeout → mặc định  
-- MCP nhúng zero-install; Settings hub đa API/đa model; router theo task×complexity  
+1. **Crew Copilot** (Phase 5.1): Planner→Composer→Critic, hybrid summaries, clarify popup, bundled MCP, Settings hub, task×complexity ModelRouter.  
+2. **Airy shell** (Phase 5.2): 2-pane default + right drawer (Copilot | Browser), responsive width breakpoints, redesigned chat chrome.
 
-**Success**: Mọi cognitive step qua `UnifiedLLMGateway`; bundled MCP sẵn khi app start; Settings CRUD connections/models; gates xanh.
+**Success**: All cognitive steps via `UnifiedLLMGateway`; drawer closed on startup; gates green (`ruff` / `mypy` / `pytest`).
 
 ## Decisions locked
 
-| # | Decision |
+| Area | Decision |
 |---|---|
-| UI | Hybrid summaries; không dump full plan/critique vào thread |
-| Debate | Max 3 rounds; loop fingerprint limit 2 → halt |
-| Clarify | Any role; Future+dialog; default on skip/timeout |
-| LLM | All cognitive via `stream_chat`; offline = gateway mock |
+| Window | `QMainWindow` + qasync — **not** FluentWindow |
+| Layout | Default Sidebar + Editor; RightDrawer on demand |
+| Drawer | Closed at startup; Copilot \| Browser pivot |
+| Size | Min `800×600`; default `1200×720` |
+| Breakpoints | Width `≥1280` / `960–1279` / `800–959` (overlay) |
+| Chat UI | Context row + Chat\|Wizard; starters 2×2; Copy/Undo per bubble |
+| Feed | Compact agent feed under Browser tab (≤5 lines) |
+| Crew | Summaries ≤160 chars; debate ≤3; clarify any role |
 | MCP | In-process `qa-compress` / `qa-crew-memory` / `qa-project-context` |
-| Settings | System Settings hub — full system + multi AI API + multi models |
+| Settings | System Settings hub — multi AI API + multi models + routing |
 | Router | Auto `(task, complexity)→tier→model`; manual pin overrides |
-| Critic | Still one Critic pass; one Composer revise max (ADR 0001) |
 
-## Pipeline
+## Architecture (UI)
+
+```text
+MainWindow
+  UnifiedTopBar (hamburger · Tạo bằng AI · URL · Sync(N) · Chạy · Copilot · ⋯)
+  IndeterminateProgressBar (Sync/Run busy)
+  workspace
+    h_splitter: ExplorerPane | EditorPane
+    RightDrawer (geometry overlay / push): CopilotChatPane | BrowserAgentPane
+  TestDataDrawer (bottom)
+  StatusBar (MCP / Skills / Tokens)
+```
+
+Shortcuts: `Ctrl+K` palette · `Ctrl+\` sidebar · `Ctrl+I` Copilot drawer · `Ctrl+Enter` Run · `Esc` close drawer / Stop.
+
+## Pipeline (Copilot)
 
 ```text
 User → classify complexity → Planner (LLM)
@@ -39,23 +55,26 @@ User → classify complexity → Planner (LLM)
 
 Events: `status_summary`, `agent_message`, `clarify_request`, `clarify_resolved`, `loop_halted`, `apply_ready`, `stopped`, `pipeline_complete`.
 
-## Architecture
+## Key modules
 
 ```text
-agent/
-  orchestrator.py, model_router.py, complexity_classifier.py
-  mcp_servers/ (bundled), bundled_mcp.py
-  llm_gateway.py
-core/models.py (AiConnection, AiModelEntry, AiRoutingSettings, …)
-ui/widgets/
-  system_settings_dialog.py, clarify_dialog.py, chat_pane.py
+agent/     orchestrator, model_router, complexity_classifier, bundled_mcp, llm_gateway
+core/      models, storage, env_manager, chat_models/history
+ui/        main_window, theme, widgets/{right_drawer,chat_pane,top_toolbar,…}
+reporting/ html / excel / pytest exporters (no PySide6 import)
 ```
 
 ## Testing / Gates
 
-`uv run ruff check src tests` · `uv run mypy src` · `uv run pytest`
+```bash
+uv run ruff check src tests
+uv run mypy src
+uv run pytest
+```
+
+UI smoke: `tests/ui/test_main_window_smoke.py`, `tests/ui/test_airy_shell.py`.
 
 ## Boundaries
 
-**In**: Crew UX, clarify, bundled MCP, Settings, router.  
-**Out**: Unlimited swarm; replace Dual-Loop; require npx for crew MCP; auto-apply.
+**In**: Crew UX, clarify, bundled MCP, Settings, router, Airy shell/chat.  
+**Out**: Unlimited swarm; Dual-Loop rewrite; FluentWindow; light-theme polish; web/mobile UI.

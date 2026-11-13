@@ -1,5 +1,7 @@
 # Tài Liệu Đặc Tả Thiết Kế UI/UX: AI QA Test Studio (Airy Edition v4.1)
 
+> **Trạng thái triển khai (2026-11-14):** Đã ship trên runtime Python — xem ADR [`docs/adr/0003-airy-ui-shell.md`](adr/0003-airy-ui-shell.md), `SPEC.md`, `ui/main_window.py`, `ui/widgets/right_drawer.py`, `ui/widgets/chat_pane.py`. Tài liệu này vẫn là **source of truth thiết kế**; mọi lệch so với code cần ADR/SPEC cập nhật.
+
 Tài liệu này quy định chuẩn mực thiết kế giao diện người dùng (UI) và trải nghiệm tương tác (UX) cho **AI QA Test Studio**, sử dụng thư viện **`PySide6-Fluent-Widgets`** trên kiến trúc bất đồng bộ **`qasync`**. Bản thiết kế khắc phục triệt để tình trạng mật độ thông tin quá dày đặc, lặp nút điều khiển và chồng chéo khung viền của các phiên bản thử nghiệm trước.
 
 ---

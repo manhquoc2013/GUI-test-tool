@@ -49,17 +49,20 @@ class ExplorerPane(QWidget):
         layout.addWidget(self.search_input)
 
         self.pivot = SegmentedWidget(self)
-        self.pivot.setAccessibleName("Chuyển Suites hoặc Elements")
-        self.pivot.addItem(routeKey="suites", text="Suites", icon=FIF.FOLDER)
+        self.pivot.setAccessibleName("Chuyển Kịch bản, Elements hoặc Báo cáo")
+        self.pivot.addItem(routeKey="suites", text="Kịch bản", icon=FIF.FOLDER)
         self.pivot.addItem(routeKey="elements", text="Elements (0)", icon=FIF.TAG)
+        self.pivot.addItem(routeKey="reports", text="Báo cáo", icon=FIF.DOCUMENT)
         self.pivot.setCurrentItem("suites")
         layout.addWidget(self.pivot)
 
         self.stack = QStackedWidget(self)
         self.suite_tree = self._make_tree("Cây Test Suites và Cases")
         self.element_tree = self._make_tree("Kho Shared Elements")
+        self.reports_tree = self._make_tree("Danh sách báo cáo")
         self.stack.addWidget(self.suite_tree)
         self.stack.addWidget(self.element_tree)
+        self.stack.addWidget(self.reports_tree)
         layout.addWidget(self.stack, stretch=1)
 
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
@@ -75,13 +78,18 @@ class ExplorerPane(QWidget):
         return tree
 
     def _on_pivot_changed(self, key: str) -> None:
-        self.stack.setCurrentIndex(0 if key == "suites" else 1)
+        index = {"suites": 0, "elements": 1, "reports": 2}.get(key, 0)
+        self.stack.setCurrentIndex(index)
 
     def load_project(self, project: Project) -> None:
         self._project = project
         count = len(project.shared_elements)
         self.pivot.setItemText("elements", f"Elements ({count})")
         self._rebuild()
+        self.reports_tree.clear()
+        tip = QTreeWidgetItem(["Chưa có báo cáo — chạy test rồi Export HTML"])
+        tip.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.reports_tree.addTopLevelItem(tip)
 
     def _on_filter(self, text: str) -> None:
         self._filter = text.strip().lower()

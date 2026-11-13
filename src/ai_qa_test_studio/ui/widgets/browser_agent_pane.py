@@ -1,23 +1,15 @@
-"""Right column: Inspect + CDP screencast + Segmented Copilot | Agent Feed."""
+"""Browser tab content: Inspect + Launch + screencast + compact agent feed."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import (
-    CaptionLabel,
-    CardWidget,
-    PrimaryPushButton,
-    SegmentedWidget,
-    TogglePushButton,
-)
-from qfluentwidgets import (
-    FluentIcon as FIF,
-)
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from qfluentwidgets import CaptionLabel, CardWidget, PrimaryPushButton, TogglePushButton
+from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
-    THEME_BG_PANEL,
-    UI_BROWSER_PANE_MIN_WIDTH,
+    AGENT_FEED_MAX_LINES,
+    THEME_BG_SURFACE,
     UI_BTN_INSPECT_MIN_WIDTH,
     UI_BTN_LAUNCH_MIN_WIDTH,
     UI_LABEL_BROWSER,
@@ -28,7 +20,6 @@ from ai_qa_test_studio.constants import (
     UI_VIEWPORT_WIDTH,
 )
 from ai_qa_test_studio.ui.widgets.agent_feed import AgentFeed
-from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
 from ai_qa_test_studio.ui.widgets.embedded_browser import ScreencastViewport
 
 
@@ -39,13 +30,12 @@ class BrowserAgentPane(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setAccessibleName("Cột Browser và Agent")
-        self.setMinimumWidth(UI_BROWSER_PANE_MIN_WIDTH)
-        self.setStyleSheet(f"background-color: {THEME_BG_PANEL};")
+        self.setAccessibleName("Tab Trình duyệt")
+        self.setStyleSheet(f"background-color: {THEME_BG_SURFACE};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         bar = QHBoxLayout()
         bar.setSpacing(8)
@@ -81,45 +71,12 @@ class BrowserAgentPane(QWidget):
         self.viewport.clicked_css.connect(self.clicked_css.emit)
         self.viewport.launch_requested.connect(self.launch_browser_clicked.emit)
         vp_layout.addWidget(self.viewport, stretch=1)
-        layout.addWidget(self.viewport_card, stretch=3)
+        layout.addWidget(self.viewport_card, stretch=1)
 
-        lower = CardWidget(self)
-        lower_layout = QVBoxLayout(lower)
-        lower_layout.setContentsMargins(12, 10, 12, 10)
-        lower_layout.setSpacing(6)
-
-        self.pivot = SegmentedWidget(lower)
-        self.pivot.setAccessibleName("Chuyển Copilot hoặc Agent Feed")
-        self.pivot.addItem(routeKey="copilot", text="AI Copilot", icon=FIF.ROBOT)
-        self.pivot.addItem(routeKey="feed", text="Agent Feed", icon=FIF.CHAT)
-        self.pivot.setCurrentItem("copilot")
-        lower_layout.addWidget(self.pivot)
-
-        self.stack = QStackedWidget(lower)
-        self.copilot = CopilotChatPane(self.stack)
-        feed_wrap = QWidget(self.stack)
-        feed_layout = QVBoxLayout(feed_wrap)
-        feed_layout.setContentsMargins(0, 0, 0, 0)
-        self.agent_feed = AgentFeed(feed_wrap)
-        self.agent_feed.set_title_visible(False)
-        feed_layout.addWidget(self.agent_feed)
-        self.stack.addWidget(self.copilot)
-        self.stack.addWidget(feed_wrap)
-        lower_layout.addWidget(self.stack, stretch=1)
-        layout.addWidget(lower, stretch=2)
-
-        self.pivot.currentItemChanged.connect(self._on_pivot_changed)
-
-    def _on_pivot_changed(self, key: str) -> None:
-        self.stack.setCurrentIndex(0 if key == "copilot" else 1)
-
-    def show_copilot(self, *, compose: bool = False) -> None:
-        self.pivot.setCurrentItem("copilot")
-        self.stack.setCurrentIndex(0)
-        if compose:
-            self.copilot.focus_compose()
-        else:
-            self.copilot.focus_case_chat()
+        self.agent_feed = AgentFeed(self, max_lines=AGENT_FEED_MAX_LINES)
+        self.agent_feed.set_title_visible(True)
+        self.agent_feed.setMaximumHeight(140)
+        layout.addWidget(self.agent_feed)
 
     @property
     def inspect_mode(self) -> bool:

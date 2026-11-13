@@ -10,10 +10,11 @@ from ai_qa_test_studio.constants import ICON_COLOR_DANGER, ICON_COLOR_SUCCESS, I
 
 
 class AgentFeed(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, max_lines: int | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName("Agent Execution Feed")
         self._lines: list[str] = []
+        self._max_lines = max_lines
         self._title = QLabel("Luồng thực thi Agent")
         self._title.setObjectName("muted")
         self.list = QListWidget()
@@ -55,6 +56,11 @@ class AgentFeed(QWidget):
             color = ICON_COLOR_DANGER
         item.setForeground(QBrush(QColor(color)))
         self.list.addItem(item)
+        if self._max_lines is not None:
+            while self.list.count() > self._max_lines:
+                self.list.takeItem(0)
+                if self._lines:
+                    self._lines.pop(0)
         self.list.scrollToBottom()
 
     def to_plain_text(self) -> str:

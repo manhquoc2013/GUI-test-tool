@@ -24,14 +24,21 @@ from qfluentwidgets import (
     SegmentedWidget,
     SmoothScrollArea,
     StrongBodyLabel,
+    SubtitleLabel,
     TableWidget,
     TextEdit,
+    TransparentToolButton,
 )
 from qfluentwidgets import (
     FluentIcon as FIF,
 )
 
-from ai_qa_test_studio.constants import BINDING_UNBOUND, THEME_BG_MAIN
+from ai_qa_test_studio.constants import (
+    BINDING_UNBOUND,
+    THEME_BG_CANVAS,
+    UI_CANVAS_MARGIN_H,
+    UI_CANVAS_MARGIN_V,
+)
 from ai_qa_test_studio.core.models import TestCase, TestStep
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 
@@ -48,21 +55,26 @@ class EditorPane(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName("Workspace Editor")
-        self.setStyleSheet(f"background-color: {THEME_BG_MAIN};")
+        self.setStyleSheet(f"background-color: {THEME_BG_CANVAS};")
         self._case: TestCase | None = None
         self._loading = False
+        self._details_expanded = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setContentsMargins(UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V, UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V)
         layout.setSpacing(10)
+
+        self.title_label = SubtitleLabel("Chọn một test case", self)
+        self.title_label.setAccessibleName("Tiêu đề kịch bản")
+        layout.addWidget(self.title_label)
 
         header_row = QHBoxLayout()
         self.mode_switch = SegmentedWidget(self)
-        self.mode_switch.addItem(routeKey="spec", text="Spec (ISO 29119)", icon=FIF.DOCUMENT)
-        self.mode_switch.addItem(routeKey="nocode", text="No-Code Steps", icon=FIF.CHECKBOX)
+        self.mode_switch.addItem(routeKey="spec", text="Spec", icon=FIF.DOCUMENT)
+        self.mode_switch.addItem(routeKey="nocode", text="Steps", icon=FIF.CHECKBOX)
         self.mode_switch.addItem(routeKey="yaml", text="YAML", icon=FIF.ALIGNMENT)
-        self.mode_switch.addItem(routeKey="code", text="Pytest Code", icon=FIF.CODE)
-        self.mode_switch.setCurrentItem("spec")
+        self.mode_switch.addItem(routeKey="code", text="Pytest", icon=FIF.CODE)
+        self.mode_switch.setCurrentItem("nocode")
         header_row.addWidget(self.mode_switch)
         header_row.addStretch(1)
         layout.addLayout(header_row)
@@ -94,6 +106,7 @@ class EditorPane(QWidget):
         self.code_edit.setStyleSheet("font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 13px;")
         self.stack.addWidget(self.code_edit)
         layout.addWidget(self.stack, stretch=1)
+        self.stack.setCurrentIndex(1)
 
         self.mode_switch.currentItemChanged.connect(self._on_mode_changed)
         self.table.itemSelectionChanged.connect(self._emit_step_selection)
@@ -159,19 +172,33 @@ class EditorPane(QWidget):
         oracle_layout.setContentsMargins(16, 14, 16, 14)
         oracle_layout.setSpacing(10)
 
-        oracle_layout.addWidget(StrongBodyLabel("Điều kiện tiên quyết (Preconditions)", oracle_card))
-        self.precond_edit = TextEdit(oracle_card)
+        details_header = QHBoxLayout()
+        details_header.addWidget(StrongBodyLabel("Preconditions / Expected", oracle_card))
+        details_header.addStretch(1)
+        self.btn_toggle_details = TransparentToolButton(FIF.CARE_DOWN_SOLID, oracle_card)
+        self.btn_toggle_details.setToolTip("Mở / thu gọn chi tiết")
+        self.btn_toggle_details.clicked.connect(self._toggle_details)
+        details_header.addWidget(self.btn_toggle_details)
+        oracle_layout.addLayout(details_header)
+
+        self.details_body = QWidget(oracle_card)
+        details_layout = QVBoxLayout(self.details_body)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.setSpacing(10)
+        details_layout.addWidget(CaptionLabel("Điều kiện tiên quyết (Preconditions)", self.details_body))
+        self.precond_edit = TextEdit(self.details_body)
         self.precond_edit.setPlaceholderText("Mỗi điều kiện một dòng...")
         self.precond_edit.setFixedHeight(72)
-        oracle_layout.addWidget(self.precond_edit)
-
-        oracle_layout.addWidget(
-            StrongBodyLabel("Kết quả mong đợi cuối cùng (Expected Final Result)", oracle_card)
+        details_layout.addWidget(self.precond_edit)
+        details_layout.addWidget(
+            CaptionLabel("Kết quả mong đợi cuối cùng (Expected Final Result)", self.details_body)
         )
-        self.expected_edit = TextEdit(oracle_card)
+        self.expected_edit = TextEdit(self.details_body)
         self.expected_edit.setPlaceholderText("Kết quả cuối mong đợi (Outer Loop đối chiếu)")
         self.expected_edit.setFixedHeight(88)
-        oracle_layout.addWidget(self.expected_edit)
+        details_layout.addWidget(self.expected_edit)
+        self.details_body.setVisible(False)
+        oracle_layout.addWidget(self.details_body)
 
         vbox.addWidget(oracle_card)
         vbox.addStretch(1)
@@ -185,10 +212,17 @@ class EditorPane(QWidget):
         table.setAccessibleName("Bảng bước No-Code")
         return table
 
+    def _toggle_details(self) -> None:
+        self._details_expanded = not self._details_expanded
+        self.details_body.setVisible(self._details_expanded)
+        icon = FIF.CARE_UP_SOLID if self._details_expanded else FIF.CARE_DOWN_SOLID
+        self.btn_toggle_details.setIcon(icon.icon())
+
     def load_case(self, case: TestCase) -> None:
         self._loading = True
         try:
             self._case = case
+            self.title_label.setText(f"{case.code} — {case.title}")
             self._render_all()
         finally:
             self._loading = False

@@ -1,8 +1,8 @@
 # ADR 0001 — QA Copilot with default Planner / Composer / Critic
 
-**Status**: Accepted  
+**Status**: Accepted (crew UI presentation refined by ADR 0002; shell by ADR 0003)  
 **Date**: 2026-11-13  
-**Spec**: `SPEC.md` (Phase 5)
+**Spec**: `SPEC.md` (Phases 5 / 5.1; shell Phase 5.2)
 
 ## Context
 

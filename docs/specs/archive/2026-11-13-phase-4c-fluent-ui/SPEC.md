@@ -1,8 +1,8 @@
 # Spec: Zero-Friction UI Polish (Phase 4C)
 
-**Status**: ACTIVE  
+**Status**: SUPERSEDED by Airy v4.1 (`SPEC.md` Phase 5.2 + ADR `0003`) — 3-column Browser+Copilot layout replaced by 2-pane + RightDrawer.  
 **Parent product**: AI QA Test Studio v4.0 (scaffold archived at `docs/specs/archive/2026-11-13-v4-scaffold/`)  
-**Blueprint**: `docs/Bản Thiết Kế Tổng Thể AI QA Test Studio.md` §6  
+**Blueprint**: `docs/Bản Thiết Kế Tổng Thể AI QA Test Studio.md` §6 (UI sections overridden by Airy design doc)  
 **Capability index**: `CAPABILITY_MAP.md`
 
 ## Objective

@@ -1,8 +1,47 @@
 # Changelog
 
-All notable changes to Test Studio are documented in this file.
+All notable changes to AI QA Test Studio are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+JavaFX releases (≤3.x) remain below for history. **Active product line is Python v4.x.**
+
+---
+
+## [4.1.0] — 2026-11-14
+
+### Added
+
+- **Airy UI shell (ADR 0003)**: default 2-pane (Sidebar + Editor); `RightDrawer` Pivot AI Copilot | Trình duyệt; drawer closed on startup.
+- **Responsive desktop breakpoints**: width `≥1280` / `960–1279` / `<960` overlay; min window `800×600`; default `1200×720`.
+- **Airy Top Bar**: hamburger, Tạo bằng AI, centered URL, Sync(N), single Primary Chạy/Dừng, Copilot toggle, `⋯` (Export + System Settings).
+- **Copilot chat redesign**: one context row, Chat|Wizard pivot, empty **2×2** starters, compact composer; **Copy/Undo per message**.
+- **Browser tab**: Inspect + Launch + screencast + compact agent feed (≤5 lines).
+- **Shortcuts**: `Ctrl+\` sidebar, `Ctrl+I` Copilot drawer, `Ctrl+Enter` Run, `Esc` close/Stop.
+- UI smoke: `tests/ui/test_airy_shell.py`.
+
+### Changed
+
+- Design tokens / QSS → Airy surfaces (`bg.canvas/surface/elevated`, subtle borders).
+- Explorer Pivot labels: Kịch bản | Elements | Báo cáo; Editor progressive disclosure for Preconditions/Expected.
+- `BrowserAgentPane` no longer hosts Copilot Segmented (moved to drawer).
+
+---
+
+## [4.0.0] — 2026-11-13
+
+### Added
+
+- **Python rewrite** of the studio (`ai_qa_test_studio`): PySide6 + Fluent Widgets + qasync + Playwright CDP.
+- Core Pydantic models, project storage, Java legacy importer.
+- Dual-Loop agent runtime, DOM distiller, screencast viewport.
+- **QA Copilot Phase 5 / 5.1**: Planner→Composer→Critic, hybrid summaries, clarify popup, bundled in-process MCP, System Settings multi-API/models, ModelRouter task×complexity.
+- Reporting: HTML Visual Replay, Excel IEEE 829, Pytest export (no PySide6).
+
+### Changed
+
+- Product line moves from JavaFX Test Studio 3.x → Python AI QA Test Studio 4.x.
+- JavaFX tree archived under `docs/legacy/javafx/`.
 
 ---
 

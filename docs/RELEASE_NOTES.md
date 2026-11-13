@@ -1,10 +1,35 @@
-# Release Notes — Test Studio
+# Release Notes — AI QA Test Studio
 
-## Test Studio v3.0.0
+## AI QA Test Studio v4.1.0 (Airy UI)
+
+**Release date:** 2026-11-14
+
+Phiên bản **v4.1** hoàn thiện lớp giao diện **Airy** trên nền Python/PySide6 đã có ở v4.0: shell **2 cột mặc định**, Copilot/Browser trong **drawer phải**, chat Copilot gọn (starters 2×2, Copy/Undo theo tin), và **responsive theo chiều rộng cửa sổ** (min 800×600, mặc định 1200×720).
+
+### Điểm nổi bật
+
+1. **2-pane + RightDrawer** — Editor tập trung; mở Copilot / Trình duyệt khi cần (`Ctrl+I`, toggle Top Bar, Run mở tab Browser).
+2. **Top Bar Airy** — Một Primary Chạy/Dừng; Sync(N); menu `⋯` Export + System Settings.
+3. **Chat chrome** — Một hàng ngữ cảnh + Pivot Chat|Wizard; bỏ hàng Segmented Copilot|Feed khỏi chat; Feed ≤5 dòng dưới screencast.
+4. **Breakpoints** — `≥1280` / `960–1279` / `<960` overlay; ADR `0003`.
+
+Tài liệu cập nhật: `SPEC.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/BUILD.md`, `docs/guide/USER_GUIDE.md`, `CAPABILITY_MAP.md`.
+
+---
+
+## AI QA Test Studio v4.0.0
+
+**Release date:** 2026-11-13
+
+Chuyển sản phẩm sang **Python / PySide6 / Playwright / MCP**: workspace ISO 29119, CDP screencast, Dual-Loop, QA Copilot crew (Planner→Composer→Critic), Settings đa API/model, MCP nhúng zero-install. JavaFX 3.x được lưu trữ tham chiếu, không còn là runtime chính.
+
+---
+
+## Test Studio v3.0.0 (JavaFX — legacy)
 
 **Release date:** 2026-11-11
 
-Phiên bản **Test Studio v3.0.0** là bước chuyển lớn về kiến trúc AI: từ một pipeline sinh kiểm thử tuần tự sang **hệ điều phối đa tác nhân ràng buộc bởi rule (Rule-Bound Multi-Agent Orchestration)**, **streaming trực tiếp kèm khả năng dừng lượt chạy**, **ngân sách token thích ứng theo từng model**, cùng đại tu trải nghiệm chat và giao diện thích ứng cho toàn bộ workspace.
+Phiên bản **Test Studio v3.0.0** (JavaFX) là bước chuyển lớn về kiến trúc AI trên stack cũ: từ một pipeline sinh kiểm thử tuần tự sang **hệ điều phối đa tác nhân ràng buộc bởi rule (Rule-Bound Multi-Agent Orchestration)**, **streaming trực tiếp kèm khả năng dừng lượt chạy**, **ngân sách token thích ứng theo từng model**, cùng đại tu trải nghiệm chat và giao diện thích ứng cho toàn bộ workspace.
 
 ---
 

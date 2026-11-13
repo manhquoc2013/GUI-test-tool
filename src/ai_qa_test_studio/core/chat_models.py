@@ -49,10 +49,24 @@ class CopilotSession(BaseModel):
                 break
         if last_user_idx is None:
             return None
-        text = self.messages[last_user_idx].content
-        self.messages = self.messages[:last_user_idx]
+        return self.undo_from_index(last_user_idx)
+
+    def undo_from_index(self, index: int) -> str | None:
+        """Remove user message at index and everything after; return that user text."""
+        if index < 0 or index >= len(self.messages):
+            return None
+        if self.messages[index].role != "user":
+            return None
+        text = self.messages[index].content
+        self.messages = self.messages[:index]
         self.touch()
         return text
+
+    def undo_from_message_id(self, message_id: str) -> str | None:
+        for idx, msg in enumerate(self.messages):
+            if msg.id == message_id and msg.role == "user":
+                return self.undo_from_index(idx)
+        return None
 
     def llm_window(self, max_turns: int = COPILOT_SLIDING_TURNS) -> list[CopilotMessage]:
         """Return up to max_turns recent user/assistant-role pairs (message count capped)."""

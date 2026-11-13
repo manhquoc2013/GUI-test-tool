@@ -1,4 +1,4 @@
-"""Fluent Dark theme + minimal QSS for QMainWindow shell (no FramelessWindow)."""
+"""Fluent Dark theme — Airy v4.1 surface elevation over heavy borders."""
 
 from __future__ import annotations
 
@@ -10,26 +10,27 @@ from qfluentwidgets import Theme, setTheme, setThemeColor
 
 from ai_qa_test_studio.constants import (
     THEME_ACCENT,
-    THEME_BG_CARD,
-    THEME_BG_MAIN,
-    THEME_BG_STATUS,
-    THEME_BORDER,
-    THEME_BORDER_CARD,
+    THEME_BG_CANVAS,
+    THEME_BG_ELEVATED,
+    THEME_BG_SURFACE,
+    THEME_BORDER_SUBTLE,
     THEME_CARD_RADIUS,
-    THEME_MUTED,
+    THEME_TEXT_MUTED,
+    THEME_TEXT_PRIMARY,
 )
 
 FLUENT_DARK_QSS = f"""
 QMainWindow {{
-    background-color: {THEME_BG_MAIN};
+    background-color: {THEME_BG_CANVAS};
+    color: {THEME_TEXT_PRIMARY};
 }}
 CardWidget {{
-    background-color: {THEME_BG_CARD};
-    border: 1px solid {THEME_BORDER_CARD};
+    background-color: {THEME_BG_SURFACE};
+    border: none;
     border-radius: {THEME_CARD_RADIUS}px;
 }}
 QSplitter::handle {{
-    background-color: {THEME_BORDER};
+    background-color: {THEME_BORDER_SUBTLE};
 }}
 QSplitter::handle:horizontal {{
     width: 1px;
@@ -41,12 +42,36 @@ QSplitter::handle:hover {{
     background-color: {THEME_ACCENT};
 }}
 QStatusBar {{
-    background-color: {THEME_BG_STATUS};
-    border-top: 1px solid {THEME_BORDER};
-    color: {THEME_MUTED};
+    background-color: {THEME_BG_CANVAS};
+    border-top: 1px solid {THEME_BORDER_SUBTLE};
+    color: {THEME_TEXT_MUTED};
     padding: 2px 8px;
+    min-height: 28px;
+    max-height: 28px;
 }}
 QStatusBar::item {{
+    border: none;
+}}
+QTreeWidget {{
+    background-color: {THEME_BG_SURFACE};
+    border: none;
+    outline: none;
+}}
+QTreeWidget::item {{
+    min-height: 34px;
+    padding: 4px 8px;
+    border-radius: 6px;
+}}
+QTreeWidget::item:hover {{
+    background-color: {THEME_BG_ELEVATED};
+}}
+QListWidget {{
+    background-color: {THEME_BG_SURFACE};
+    border: none;
+    outline: none;
+}}
+QScrollArea {{
+    background-color: transparent;
     border: none;
 }}
 """

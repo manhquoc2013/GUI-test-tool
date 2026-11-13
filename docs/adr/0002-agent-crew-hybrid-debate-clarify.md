@@ -2,7 +2,7 @@
 
 **Status**: Accepted  
 **Date**: 2026-11-14  
-**Spec**: `SPEC.md` (Phase 5.1)  
+**Spec**: `SPEC.md` (Phase 5.1; product shell Phase 5.2 / ADR 0003)  
 **Supersedes (partial)**: ADR 0001 §Decision “Handoff = structured only / no free-form agent chat on UI”
 
 ## Context
