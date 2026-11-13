@@ -10,6 +10,7 @@ from typing import Any
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QInputDialog,
     QMainWindow,
     QMessageBox,
@@ -54,6 +55,7 @@ from ai_qa_test_studio.constants import (
     UI_DRAWER_WIDTH_NARROW,
     UI_EXPLORER_MIN_WIDTH,
     UI_INFOBAR_DURATION_MS,
+    UI_SIDEBAR_MAX_RATIO,
     UI_SIDEBAR_WIDTH,
     UI_SIDEBAR_WIDTH_COMPACT,
     UI_SIDEBAR_WIDTH_MAX,
@@ -160,9 +162,14 @@ class MainWindow(QMainWindow):
         self.workspace = QWidget(v_splitter)
         self.workspace.setAccessibleName("Workspace 2-pane")
         self.workspace.installEventFilter(self)
+        # Layout owns the H-splitter so setGeometry sync never resets drag sizes.
+        workspace_layout = QHBoxLayout(self.workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
         self.h_splitter = QSplitter(Qt.Orientation.Horizontal, self.workspace)
 
         self.explorer = ExplorerPane(self.h_splitter)
+        self.explorer.installEventFilter(self)
         self.explorer.case_selected.connect(self._on_case_selected)
         self.builder = EditorPane(self.h_splitter)
         self.builder.case_changed.connect(self._on_case_fields_changed)
@@ -170,10 +177,13 @@ class MainWindow(QMainWindow):
         self.h_splitter.addWidget(self.explorer)
         self.h_splitter.addWidget(self.builder)
         self.h_splitter.setChildrenCollapsible(False)
+        self.h_splitter.setOpaqueResize(True)
         self.h_splitter.setStretchFactor(0, 0)
         self.h_splitter.setStretchFactor(1, 1)
         self.h_splitter.setSizes([UI_SIDEBAR_WIDTH, UI_WINDOW_DEFAULT_WIDTH - UI_SIDEBAR_WIDTH])
+        workspace_layout.addWidget(self.h_splitter, stretch=1)
 
+        # Overlay sibling — positioned manually; not in the HBox layout.
         self.right_drawer = RightDrawer(self.workspace)
         self.right_drawer.hide()
         self.browser_agent = self.right_drawer.browser
@@ -267,27 +277,35 @@ class MainWindow(QMainWindow):
                 self._narrow_auto_collapsed = True
             sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
             self._drawer_width = UI_DRAWER_WIDTH_NARROW
+        sidebar_cap = min(
+            UI_SIDEBAR_WIDTH_MAX,
+            max(UI_EXPLORER_MIN_WIDTH, int(width * UI_SIDEBAR_MAX_RATIO)),
+        )
         if sidebar <= 0:
             self.explorer.hide()
         else:
             was_hidden = self.explorer.isHidden()
             self.explorer.show()
-            # Floor stays at EXPLORER_MIN so drag-resize cannot squash tabs/tree.
             self.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
-            self.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
+            self.explorer.setMaximumWidth(sidebar_cap)
+            self.explorer.apply_density(self.explorer.width() or sidebar)
             sizes = self.h_splitter.sizes()
             current = sizes[0] if len(sizes) >= 2 else 0
-            if was_hidden or current < UI_EXPLORER_MIN_WIDTH:
+            if was_hidden or current < UI_EXPLORER_MIN_WIDTH or current > sidebar_cap:
                 total = max(self.h_splitter.width(), sum(sizes), 1)
-                editor = max(320, total - sidebar)
-                self.h_splitter.setSizes([sidebar, editor])
+                target = min(sidebar, sidebar_cap)
+                editor = max(320, total - target)
+                self.h_splitter.setSizes([target, editor])
         self.top_bar.apply_density(width)
         self.builder.apply_density(width)
         self._sync_drawer_geometry()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # type: ignore[override]
-        if watched is self.workspace and event.type() == QEvent.Type.Resize:
-            self._sync_drawer_geometry()
+        if event.type() == QEvent.Type.Resize:
+            if watched is getattr(self, "workspace", None):
+                self._sync_drawer_geometry()
+            elif watched is getattr(self, "explorer", None):
+                self.explorer.apply_density(self.explorer.width())
         return super().eventFilter(watched, event)  # type: ignore[arg-type]
 
     def _sync_drawer_geometry(self) -> None:
@@ -295,8 +313,7 @@ class MainWindow(QMainWindow):
         wh = self.workspace.height()
         if ww <= 0 or wh <= 0:
             return
-        # Canvas always fills workspace; drawer overlays from the right edge.
-        self.h_splitter.setGeometry(0, 0, ww, wh)
+        # H-splitter is layout-managed; only overlay the right drawer.
         if self.right_drawer.is_open:
             dw = min(self._drawer_width, max(1, ww))
             x = max(0, ww - dw)

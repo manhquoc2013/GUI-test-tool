@@ -22,6 +22,7 @@ from ai_qa_test_studio.constants import (
     THEME_BG_PANEL,
     UI_DATA_COL_EXPECTED_WIDTH,
     UI_DATA_COL_SCENARIO_WIDTH,
+    UI_DATA_HEADER_MIN_SECTION,
     UI_DRAWER_COLLAPSED_HEIGHT,
     UI_DRAWER_EXPANDED_HEIGHT,
     UI_TABLE_ROW_HEIGHT,
@@ -86,11 +87,14 @@ class TestDataDrawer(QWidget):
         self.table.verticalHeader().setMinimumSectionSize(UI_TABLE_ROW_HEIGHT)
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setEditTriggers(
             TableWidget.EditTrigger.DoubleClicked | TableWidget.EditTrigger.EditKeyPressed
         )
 
         hdr = self.table.horizontalHeader()
+        hdr.setMinimumSectionSize(UI_DATA_HEADER_MIN_SECTION)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)

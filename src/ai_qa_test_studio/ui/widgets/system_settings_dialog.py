@@ -5,9 +5,20 @@ from __future__ import annotations
 import copy
 import uuid
 
-from PySide6.QtWidgets import QFormLayout, QHBoxLayout, QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QListWidgetItem,
+    QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
+    CardWidget,
     CheckBox,
     ComboBox,
     LineEdit,
@@ -17,7 +28,9 @@ from qfluentwidgets import (
     Pivot,
     PrimaryPushButton,
     PushButton,
+    SmoothScrollArea,
     SpinBox,
+    StrongBodyLabel,
     SubtitleLabel,
     SwitchButton,
 )
@@ -31,8 +44,15 @@ from ai_qa_test_studio.constants import (
     LLM_TIER_STRONG,
     ROUTING_MODE_AUTO,
     ROUTING_MODE_MANUAL,
+    THEME_TEXT_SECONDARY,
+    UI_SETTINGS_BTN_MAX_WIDTH,
+    UI_SETTINGS_BTN_MIN_WIDTH,
+    UI_SETTINGS_CONTENT_HEIGHT,
+    UI_SETTINGS_FIELD_SPACING,
+    UI_SETTINGS_LIST_HEIGHT,
     UI_SETTINGS_MIN_HEIGHT,
     UI_SETTINGS_MIN_WIDTH,
+    UI_SETTINGS_SECTION_GAP,
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
 from ai_qa_test_studio.core.models import (
@@ -46,12 +66,74 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 
+_TAB_DEFS: tuple[tuple[str, str], ...] = (
+    ("general", "Chung"),
+    ("browser", "Browser"),
+    ("apis", "AI APIs"),
+    ("models", "Models"),
+    ("routing", "Routing"),
+    ("copilot", "Copilot"),
+    ("mcp", "MCP"),
+)
+
 
 class SystemSettingsDialog(MessageBoxBase):
     def __init__(self, settings: AppSettings, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Cấu hình hệ thống")
         self._draft = settings.model_copy(deep=True)
+        self._ensure_ai_defaults()
+        self._accepted = False
+
+        self.widget.setMinimumWidth(UI_SETTINGS_MIN_WIDTH)
+        self.widget.setMinimumHeight(UI_SETTINGS_MIN_HEIGHT)
+        self.viewLayout.setContentsMargins(28, 20, 28, 12)
+        self.viewLayout.setSpacing(10)
+
+        title = SubtitleLabel("Cấu hình hệ thống", self.widget)
+        title.setAccessibleName("Tiêu đề cấu hình hệ thống")
+        self.viewLayout.addWidget(title)
+        hint = CaptionLabel(
+            "API, model, routing, Copilot và MCP — lưu vào settings.json",
+            self.widget,
+        )
+        hint.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        self.viewLayout.addWidget(hint)
+
+        self.pivot = Pivot(self.widget)
+        self.pivot.setAccessibleName("Tab cấu hình")
+        self.stack = QStackedWidget(self.widget)
+        self.stack.setMinimumHeight(UI_SETTINGS_CONTENT_HEIGHT)
+        self.stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.pages: dict[str, QWidget] = {}
+        builders = {
+            "general": self._build_general,
+            "browser": self._build_browser,
+            "apis": self._build_apis,
+            "models": self._build_models,
+            "routing": self._build_routing,
+            "copilot": self._build_copilot,
+            "mcp": self._build_mcp,
+        }
+        for index, (key, title_text) in enumerate(_TAB_DEFS):
+            page = self._wrap_scroll(builders[key]())
+            self.pages[key] = page
+            self.stack.addWidget(page)
+            self.pivot.addItem(
+                routeKey=key,
+                text=title_text,
+                onClick=lambda _checked=False, k=key, i=index: self._show(k, i),
+            )
+        self.viewLayout.addWidget(self.pivot)
+        self.viewLayout.addWidget(self.stack, stretch=1)
+        self.pivot.setCurrentItem("general")
+        self.stack.setCurrentIndex(0)
+
+        self.yesButton.setText("Lưu")
+        self.cancelButton.setText("Hủy")
+        self._layout_footer_buttons()
+
+    def _ensure_ai_defaults(self) -> None:
         if not self._draft.ai.connections:
             self._draft.ai = AiSettings(
                 connections=[
@@ -73,181 +155,307 @@ class SystemSettingsDialog(MessageBoxBase):
         if not self._draft.ai.routing.task_complexity_models:
             self._draft.ai.routing.task_complexity_models = default_task_complexity_matrix()
 
-        self.widget.setMinimumWidth(UI_SETTINGS_MIN_WIDTH)
-        self.widget.setMinimumHeight(UI_SETTINGS_MIN_HEIGHT)
-        self.viewLayout.addWidget(SubtitleLabel("Cấu hình hệ thống", self.widget))
+    def _layout_footer_buttons(self) -> None:
+        while self.buttonLayout.count():
+            item = self.buttonLayout.takeAt(0)
+            if item is None:
+                break
+        self.buttonLayout.setContentsMargins(28, 16, 28, 20)
+        self.buttonLayout.setSpacing(10)
+        self.buttonLayout.addStretch(1)
+        for btn in (self.yesButton, self.cancelButton):
+            btn.setMinimumWidth(UI_SETTINGS_BTN_MIN_WIDTH)
+            btn.setMaximumWidth(UI_SETTINGS_BTN_MAX_WIDTH)
+            self.buttonLayout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self.pivot = Pivot(self.widget)
-        self.pages: dict[str, QWidget] = {}
-        for key, title, builder in (
-            ("general", "Chung", self._build_general),
-            ("browser", "Browser", self._build_browser),
-            ("apis", "AI APIs", self._build_apis),
-            ("models", "Models", self._build_models),
-            ("routing", "Routing", self._build_routing),
-            ("copilot", "Copilot", self._build_copilot),
-            ("mcp", "MCP", self._build_mcp),
-        ):
-            page = QWidget(self.widget)
-            builder(page)
-            self.pages[key] = page
-            self.viewLayout.addWidget(page)
-            page.setVisible(key == "general")
-            self.pivot.addItem(routeKey=key, text=title, onClick=lambda checked, k=key: self._show(k))
-        self.viewLayout.insertWidget(1, self.pivot)
-        self.pivot.setCurrentItem("general")
+    def _wrap_scroll(self, inner: QWidget) -> SmoothScrollArea:
+        scroll = SmoothScrollArea(self.widget)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll.setWidget(inner)
+        return scroll
 
-        self.yesButton.setText("Lưu")
-        self.cancelButton.setText("Hủy")
-        self.yesButton.clicked.connect(self._on_save)
-        self.cancelButton.clicked.connect(self.reject)
-        self._accepted = False
-
-    def _show(self, key: str) -> None:
-        for k, page in self.pages.items():
-            page.setVisible(k == key)
+    def _show(self, key: str, index: int) -> None:
+        self.stack.setCurrentIndex(index)
         if key == "models":
             self._reload_model_list()
-        if key == "apis":
+        elif key == "apis":
             self._reload_api_list()
 
-    def _build_general(self, page: QWidget) -> None:
-        form = QFormLayout(page)
-        self.theme_combo = ComboBox(page)
+    def _card(self, parent: QWidget, title: str) -> tuple[CardWidget, QVBoxLayout]:
+        card = CardWidget(parent)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(UI_SETTINGS_FIELD_SPACING)
+        layout.addWidget(StrongBodyLabel(title, card))
+        return card, layout
+
+    def _add_field(self, layout: QVBoxLayout, parent: QWidget, label: str, widget: QWidget) -> None:
+        block = QVBoxLayout()
+        block.setSpacing(4)
+        block.setContentsMargins(0, 0, 0, 0)
+        block.addWidget(CaptionLabel(label, parent))
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        block.addWidget(widget)
+        layout.addLayout(block)
+
+    def _page_root(self) -> tuple[QWidget, QVBoxLayout]:
+        root = QWidget()
+        root.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(0, 4, 4, 8)
+        layout.setSpacing(UI_SETTINGS_SECTION_GAP)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        return root, layout
+
+    def _build_general(self) -> QWidget:
+        root, layout = self._page_root()
+        card, body = self._card(root, "Giao diện & môi trường")
+        self.theme_combo = ComboBox(card)
         self.theme_combo.addItems(["dark", "light"])
         self.theme_combo.setCurrentText(self._draft.theme)
-        self.env_edit = LineEdit(page)
+        self.env_edit = LineEdit(card)
         self.env_edit.setText(self._draft.active_environment)
-        self.headless_switch = SwitchButton(page)
+        self.env_edit.setPlaceholderText("DEV / STAGING / PROD")
+        self.headless_switch = SwitchButton(card)
         self.headless_switch.setChecked(self._draft.headless_default)
-        form.addRow("Theme", self.theme_combo)
-        form.addRow("Environment", self.env_edit)
-        form.addRow("Headless mặc định", self.headless_switch)
+        self._add_field(body, card, "Theme", self.theme_combo)
+        self._add_field(body, card, "Environment", self.env_edit)
+        switch_row = QHBoxLayout()
+        switch_row.addWidget(CaptionLabel("Headless mặc định", card))
+        switch_row.addStretch(1)
+        switch_row.addWidget(self.headless_switch)
+        body.addLayout(switch_row)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return root
 
-    def _build_browser(self, page: QWidget) -> None:
-        form = QFormLayout(page)
-        self.browser_combo = ComboBox(page)
+    def _build_browser(self) -> QWidget:
+        root, layout = self._page_root()
+        card, body = self._card(root, "Trình duyệt tự động")
+        self.browser_combo = ComboBox(card)
         self.browser_combo.addItems(["CHROMIUM", "CHROME", "EDGE"])
         self.browser_combo.setCurrentText(self._draft.browser)
-        form.addRow("Browser engine", self.browser_combo)
-        form.addRow(BodyLabel("Viewport lấy từ constants runtime (1280×720).", page))
+        self._add_field(body, card, "Browser engine", self.browser_combo)
+        note = BodyLabel("Viewport runtime cố định 1280×720 (constants).", card)
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        body.addWidget(note)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return root
 
-    def _build_apis(self, page: QWidget) -> None:
-        layout = QVBoxLayout(page)
-        self.api_list = ListWidget(page)
-        layout.addWidget(self.api_list)
-        row = QHBoxLayout()
-        self.btn_add_api = PushButton("Thêm API", page)
-        self.btn_del_api = PushButton("Xóa", page)
-        row.addWidget(self.btn_add_api)
-        row.addWidget(self.btn_del_api)
-        layout.addLayout(row)
-        form = QFormLayout()
-        self.api_label = LineEdit(page)
-        self.api_provider = ComboBox(page)
+    def _build_apis(self) -> QWidget:
+        root, layout = self._page_root()
+        split = QHBoxLayout()
+        split.setSpacing(UI_SETTINGS_SECTION_GAP)
+
+        list_card, list_body = self._card(root, "Danh sách API")
+        self.api_list = ListWidget(list_card)
+        self.api_list.setMinimumHeight(UI_SETTINGS_LIST_HEIGHT)
+        self.api_list.setMaximumHeight(UI_SETTINGS_LIST_HEIGHT + 40)
+        list_body.addWidget(self.api_list)
+        list_actions = QHBoxLayout()
+        list_actions.setSpacing(8)
+        self.btn_add_api = PushButton("Thêm", list_card)
+        self.btn_del_api = PushButton("Xóa", list_card)
+        list_actions.addWidget(self.btn_add_api)
+        list_actions.addWidget(self.btn_del_api)
+        list_actions.addStretch(1)
+        list_body.addLayout(list_actions)
+        split.addWidget(list_card, stretch=2)
+
+        form_card, form_body = self._card(root, "Chi tiết API")
+        self.api_label = LineEdit(form_card)
+        self.api_provider = ComboBox(form_card)
         self.api_provider.addItems(
             [LLM_PROVIDER_OFFLINE, LLM_PROVIDER_OPENAI_COMPAT, LLM_PROVIDER_GEMINI]
         )
-        self.api_base = LineEdit(page)
-        self.api_key = PasswordLineEdit(page)
-        self.api_enabled = CheckBox("Enabled", page)
-        form.addRow("Label", self.api_label)
-        form.addRow("Provider", self.api_provider)
-        form.addRow("Base URL", self.api_base)
-        form.addRow("API Key", self.api_key)
-        form.addRow("", self.api_enabled)
-        layout.addLayout(form)
-        self.btn_apply_api = PrimaryPushButton("Cập nhật API đang chọn", page)
-        layout.addWidget(self.btn_apply_api)
+        self.api_base = LineEdit(form_card)
+        self.api_base.setPlaceholderText("https://api.example.com/v1")
+        self.api_key = PasswordLineEdit(form_card)
+        self.api_enabled = CheckBox("Enabled", form_card)
+        self._add_field(form_body, form_card, "Label", self.api_label)
+        self._add_field(form_body, form_card, "Provider", self.api_provider)
+        self._add_field(form_body, form_card, "Base URL", self.api_base)
+        self._add_field(form_body, form_card, "API Key", self.api_key)
+        form_body.addWidget(self.api_enabled)
+        self.btn_apply_api = PrimaryPushButton("Cập nhật API đang chọn", form_card)
+        form_body.addWidget(self.btn_apply_api)
+        split.addWidget(form_card, stretch=3)
+
+        layout.addLayout(split)
         self.btn_add_api.clicked.connect(self._add_api)
         self.btn_del_api.clicked.connect(self._del_api)
         self.btn_apply_api.clicked.connect(self._apply_api)
         self.api_list.currentRowChanged.connect(self._load_api_row)
         self._reload_api_list()
+        return root
 
-    def _build_models(self, page: QWidget) -> None:
-        layout = QVBoxLayout(page)
-        self.model_api_combo = ComboBox(page)
-        layout.addWidget(BodyLabel("API", page))
-        layout.addWidget(self.model_api_combo)
-        self.model_list = ListWidget(page)
-        layout.addWidget(self.model_list)
-        row = QHBoxLayout()
-        self.btn_add_model = PushButton("Thêm model", page)
-        self.btn_del_model = PushButton("Xóa model", page)
-        row.addWidget(self.btn_add_model)
-        row.addWidget(self.btn_del_model)
-        layout.addLayout(row)
-        form = QFormLayout()
-        self.model_id = LineEdit(page)
-        self.model_label = LineEdit(page)
-        self.model_tier = ComboBox(page)
+    def _build_models(self) -> QWidget:
+        root, layout = self._page_root()
+        api_card, api_body = self._card(root, "Chọn API")
+        self.model_api_combo = ComboBox(api_card)
+        self._add_field(api_body, api_card, "API", self.model_api_combo)
+        layout.addWidget(api_card)
+
+        split = QHBoxLayout()
+        split.setSpacing(UI_SETTINGS_SECTION_GAP)
+
+        list_card, list_body = self._card(root, "Models")
+        self.model_list = ListWidget(list_card)
+        self.model_list.setMinimumHeight(UI_SETTINGS_LIST_HEIGHT)
+        self.model_list.setMaximumHeight(UI_SETTINGS_LIST_HEIGHT + 40)
+        list_body.addWidget(self.model_list)
+        list_actions = QHBoxLayout()
+        self.btn_add_model = PushButton("Thêm", list_card)
+        self.btn_del_model = PushButton("Xóa", list_card)
+        list_actions.addWidget(self.btn_add_model)
+        list_actions.addWidget(self.btn_del_model)
+        list_actions.addStretch(1)
+        list_body.addLayout(list_actions)
+        split.addWidget(list_card, stretch=2)
+
+        form_card, form_body = self._card(root, "Chi tiết model")
+        self.model_id = LineEdit(form_card)
+        self.model_label = LineEdit(form_card)
+        self.model_tier = ComboBox(form_card)
         self.model_tier.addItems([LLM_TIER_FAST, LLM_TIER_MID, LLM_TIER_STRONG])
-        self.model_default = CheckBox("Default của API", page)
-        form.addRow("Model id", self.model_id)
-        form.addRow("Label", self.model_label)
-        form.addRow("Tier", self.model_tier)
-        form.addRow("", self.model_default)
-        layout.addLayout(form)
-        self.btn_apply_model = PrimaryPushButton("Cập nhật model", page)
-        layout.addWidget(self.btn_apply_model)
+        self.model_default = CheckBox("Default của API", form_card)
+        self._add_field(form_body, form_card, "Model id", self.model_id)
+        self._add_field(form_body, form_card, "Label", self.model_label)
+        self._add_field(form_body, form_card, "Tier", self.model_tier)
+        form_body.addWidget(self.model_default)
+        self.btn_apply_model = PrimaryPushButton("Cập nhật model", form_card)
+        form_body.addWidget(self.btn_apply_model)
+        split.addWidget(form_card, stretch=3)
+
+        layout.addLayout(split)
         self.model_api_combo.currentIndexChanged.connect(self._reload_model_list)
         self.model_list.currentRowChanged.connect(self._load_model_row)
         self.btn_add_model.clicked.connect(self._add_model)
         self.btn_del_model.clicked.connect(self._del_model)
         self.btn_apply_model.clicked.connect(self._apply_model)
         self._reload_model_api_combo()
+        return root
 
-    def _build_routing(self, page: QWidget) -> None:
-        form = QFormLayout(page)
-        self.route_mode = ComboBox(page)
+    def _build_routing(self) -> QWidget:
+        root, layout = self._page_root()
+        card, body = self._card(root, "Định tuyến model")
+        self.route_mode = ComboBox(card)
         self.route_mode.addItems([ROUTING_MODE_AUTO, ROUTING_MODE_MANUAL])
         self.route_mode.setCurrentText(self._draft.ai.routing.mode or ROUTING_MODE_AUTO)
-        self.complexity_enabled = CheckBox("Bật chọn model theo độ phức tạp", page)
+        self.complexity_enabled = CheckBox("Bật chọn model theo độ phức tạp", card)
         self.complexity_enabled.setChecked(self._draft.ai.routing.complexity_enabled)
-        self.default_conn = ComboBox(page)
+        self.default_conn = ComboBox(card)
         self._reload_default_conn()
-        form.addRow("Mode", self.route_mode)
-        form.addRow("", self.complexity_enabled)
-        form.addRow("Default API", self.default_conn)
-        form.addRow(
-            BodyLabel("Ma trận task×complexity dùng tier fast/mid/strong (mặc định trong code).", page)
+        self._add_field(body, card, "Mode", self.route_mode)
+        body.addWidget(self.complexity_enabled)
+        self._add_field(body, card, "Default API", self.default_conn)
+        note = BodyLabel(
+            "Ma trận task × complexity dùng tier fast / mid / strong (mặc định trong code).",
+            card,
         )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        body.addWidget(note)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return root
 
-    def _build_copilot(self, page: QWidget) -> None:
-        form = QFormLayout(page)
+    def _build_copilot(self) -> QWidget:
+        root, layout = self._page_root()
+        card, body = self._card(root, "Giới hạn runtime Copilot")
         c = self._draft.copilot
-        self.spin_summary = SpinBox(page)
+        self.spin_summary = SpinBox(card)
         self.spin_summary.setRange(40, 400)
         self.spin_summary.setValue(c.summary_max_chars)
-        self.spin_debate = SpinBox(page)
+        self.spin_debate = SpinBox(card)
         self.spin_debate.setRange(0, 8)
         self.spin_debate.setValue(c.debate_max_rounds)
-        self.spin_loop = SpinBox(page)
+        self.spin_loop = SpinBox(card)
         self.spin_loop.setRange(1, 5)
         self.spin_loop.setValue(c.loop_repeat_limit)
-        self.spin_clarify = SpinBox(page)
+        self.spin_clarify = SpinBox(card)
         self.spin_clarify.setRange(5_000, 300_000)
         self.spin_clarify.setSingleStep(1000)
         self.spin_clarify.setValue(c.clarify_timeout_ms)
-        self.spin_lean = SpinBox(page)
+        self.spin_lean = SpinBox(card)
         self.spin_lean.setRange(500, 16_000)
         self.spin_lean.setValue(c.lean_tail_max_tokens)
-        form.addRow("Summary max chars", self.spin_summary)
-        form.addRow("Debate max rounds", self.spin_debate)
-        form.addRow("Loop repeat limit", self.spin_loop)
-        form.addRow("Clarify timeout ms", self.spin_clarify)
-        form.addRow("Lean tail tokens", self.spin_lean)
+        self._add_field(body, card, "Summary max chars", self.spin_summary)
+        self._add_field(body, card, "Debate max rounds", self.spin_debate)
+        self._add_field(body, card, "Loop repeat limit", self.spin_loop)
+        self._add_field(body, card, "Clarify timeout (ms)", self.spin_clarify)
+        self._add_field(body, card, "Lean tail tokens", self.spin_lean)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return root
 
-    def _build_mcp(self, page: QWidget) -> None:
-        form = QFormLayout(page)
-        form.addRow(BodyLabel("Bundled MCP (qa-compress / crew-memory / project-context): luôn bật.", page))
-        self.mcp_pw = CheckBox("External Playwright MCP", page)
+    def _build_mcp(self) -> QWidget:
+        root, layout = self._page_root()
+        card, body = self._card(root, "MCP servers")
+        note = BodyLabel(
+            "Bundled MCP (qa-compress / crew-memory / project-context): luôn bật.",
+            card,
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        body.addWidget(note)
+        self.mcp_pw = CheckBox("External Playwright MCP", card)
         self.mcp_pw.setChecked(self._draft.mcp.external.playwright)
-        self.mcp_mid = CheckBox("External Midscene MCP", page)
+        self.mcp_mid = CheckBox("External Midscene MCP", card)
         self.mcp_mid.setChecked(self._draft.mcp.external.midscene)
-        form.addRow("", self.mcp_pw)
-        form.addRow("", self.mcp_mid)
+        body.addWidget(self.mcp_pw)
+        body.addWidget(self.mcp_mid)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return root
+
+    def validate(self) -> bool:
+        self._persist_draft()
+        self._accepted = True
+        return True
+
+    def _persist_draft(self) -> None:
+        self._draft.theme = self.theme_combo.currentText()
+        self._draft.active_environment = self.env_edit.text().strip() or "DEV"
+        self._draft.headless_default = self.headless_switch.isChecked()
+        self._draft.browser = self.browser_combo.currentText()
+        self._draft.ai.routing.mode = self.route_mode.currentText()
+        self._draft.ai.routing.complexity_enabled = self.complexity_enabled.isChecked()
+        conn_id = self.default_conn.currentData()
+        if conn_id:
+            self._draft.ai.default_connection_id = str(conn_id)
+        primary = next(
+            (c for c in self._draft.ai.connections if c.id == self._draft.ai.default_connection_id),
+            self._draft.ai.connections[0] if self._draft.ai.connections else None,
+        )
+        if primary is not None:
+            self._draft.ai.provider = primary.provider
+            self._draft.ai.base_url = primary.base_url
+            self._draft.ai.api_key_ref = primary.api_key_ref
+            default_model = next((m for m in primary.models if m.is_default), None)
+            if default_model is None and primary.models:
+                default_model = primary.models[0]
+            self._draft.ai.model = default_model.id if default_model else ""
+        if not self._draft.ai.routing.task_complexity_models:
+            self._draft.ai.routing.task_complexity_models = default_task_complexity_matrix()
+        self._draft.copilot = CopilotRuntimeSettings(
+            summary_max_chars=self.spin_summary.value(),
+            debate_max_rounds=self.spin_debate.value(),
+            loop_repeat_limit=self.spin_loop.value(),
+            clarify_timeout_ms=self.spin_clarify.value(),
+            lean_tail_max_tokens=self.spin_lean.value(),
+        )
+        self._draft.mcp = McpSettings(
+            external=McpExternalSettings(
+                playwright=self.mcp_pw.isChecked(),
+                midscene=self.mcp_mid.isChecked(),
+            )
+        )
 
     def _reload_api_list(self) -> None:
         self.api_list.clear()
@@ -395,46 +603,6 @@ class SystemSettingsDialog(MessageBoxBase):
                 if other is not model:
                     other.is_default = False
         self._reload_model_list()
-
-    def _on_save(self) -> None:
-        self._draft.theme = self.theme_combo.currentText()
-        self._draft.active_environment = self.env_edit.text().strip() or "DEV"
-        self._draft.headless_default = self.headless_switch.isChecked()
-        self._draft.browser = self.browser_combo.currentText()
-        self._draft.ai.routing.mode = self.route_mode.currentText()
-        self._draft.ai.routing.complexity_enabled = self.complexity_enabled.isChecked()
-        conn_id = self.default_conn.currentData()
-        if conn_id:
-            self._draft.ai.default_connection_id = str(conn_id)
-        primary = next(
-            (c for c in self._draft.ai.connections if c.id == self._draft.ai.default_connection_id),
-            self._draft.ai.connections[0] if self._draft.ai.connections else None,
-        )
-        if primary is not None:
-            self._draft.ai.provider = primary.provider
-            self._draft.ai.base_url = primary.base_url
-            self._draft.ai.api_key_ref = primary.api_key_ref
-            default_model = next((m for m in primary.models if m.is_default), None)
-            if default_model is None and primary.models:
-                default_model = primary.models[0]
-            self._draft.ai.model = default_model.id if default_model else ""
-        if not self._draft.ai.routing.task_complexity_models:
-            self._draft.ai.routing.task_complexity_models = default_task_complexity_matrix()
-        self._draft.copilot = CopilotRuntimeSettings(
-            summary_max_chars=self.spin_summary.value(),
-            debate_max_rounds=self.spin_debate.value(),
-            loop_repeat_limit=self.spin_loop.value(),
-            clarify_timeout_ms=self.spin_clarify.value(),
-            lean_tail_max_tokens=self.spin_lean.value(),
-        )
-        self._draft.mcp = McpSettings(
-            external=McpExternalSettings(
-                playwright=self.mcp_pw.isChecked(),
-                midscene=self.mcp_mid.isChecked(),
-            )
-        )
-        self._accepted = True
-        self.accept()
 
     def result_settings(self) -> AppSettings | None:
         return copy.deepcopy(self._draft) if self._accepted else None

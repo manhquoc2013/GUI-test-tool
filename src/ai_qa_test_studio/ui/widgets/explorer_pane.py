@@ -17,6 +17,7 @@ from ai_qa_test_studio.constants import (
     ICON_COLOR_WARN,
     STATUS_DOT,
     THEME_BG_PANEL,
+    UI_EXPLORER_DENSITY_WIDE,
     UI_EXPLORER_MIN_WIDTH,
     UI_TREE_INDENT,
     UI_TREE_ROW_HEIGHT,
@@ -24,6 +25,8 @@ from ai_qa_test_studio.constants import (
 from ai_qa_test_studio.core.models import Project, SharedElement, TestCase
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
 
+_SEARCH_PLACEHOLDER_WIDE = "Tìm test case, element…"
+_SEARCH_PLACEHOLDER_NARROW = "Tìm…"
 # Search blob for filter-without-rebuild (avoids TreeWidget.clear AX churn on macOS)
 _SEARCH_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
@@ -39,13 +42,15 @@ class ExplorerPane(QWidget):
         self.setStyleSheet(f"background-color: {THEME_BG_PANEL};")
         self._project: Project | None = None
         self._filter = ""
+        self._element_count = 0
+        self._density = "wide"
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         self.search_input = SearchLineEdit(self)
-        self.search_input.setPlaceholderText("Tìm test case, element (Ctrl+P)...")
+        self.search_input.setPlaceholderText(_SEARCH_PLACEHOLDER_WIDE)
         self.search_input.setAccessibleName("Ô tìm kiếm Explorer")
         self.search_input.textChanged.connect(self._on_filter)
         layout.addWidget(self.search_input)
@@ -74,9 +79,11 @@ class ExplorerPane(QWidget):
     def _make_tree(self, accessible_name: str) -> TreeWidget:
         tree = TreeWidget(self)
         tree.setHeaderHidden(True)
+        tree.header().setStretchLastSection(True)
         tree.setIndentation(UI_TREE_INDENT)
         tree.setUniformRowHeights(True)
         tree.setTextElideMode(Qt.TextElideMode.ElideRight)
+        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         tree.setAccessibleName(accessible_name)
         tree.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
         tree.setStyleSheet(f"TreeWidget::item {{ height: {UI_TREE_ROW_HEIGHT}px; }}")
@@ -86,10 +93,38 @@ class ExplorerPane(QWidget):
         index = {"suites": 0, "elements": 1, "reports": 2}.get(key, 0)
         self.stack.setCurrentIndex(index)
 
+    def apply_density(self, width: int) -> None:
+        if width >= UI_EXPLORER_DENSITY_WIDE:
+            suites = "Kịch bản"
+            elements = f"Elements ({self._element_count})"
+            reports = "Báo cáo"
+            density = "wide"
+            search_ph = _SEARCH_PLACEHOLDER_WIDE
+        elif width >= UI_EXPLORER_MIN_WIDTH:
+            suites = "Kịch bản"
+            elements = f"EL ({self._element_count})"
+            reports = "BC"
+            density = "medium"
+            search_ph = _SEARCH_PLACEHOLDER_NARROW
+        else:
+            suites = ""
+            elements = str(self._element_count)
+            reports = ""
+            density = "narrow"
+            search_ph = _SEARCH_PLACEHOLDER_NARROW
+        self._density = density
+        self.search_input.setPlaceholderText(search_ph)
+        self.pivot.setItemText("suites", suites)
+        self.pivot.setItemText("elements", elements)
+        self.pivot.setItemText("reports", reports)
+
+    def set_element_count(self, count: int) -> None:
+        self._element_count = max(0, count)
+        self.apply_density(self.width() or UI_EXPLORER_MIN_WIDTH)
+
     def load_project(self, project: Project) -> None:
         self._project = project
-        count = len(project.shared_elements)
-        self.pivot.setItemText("elements", f"Elements ({count})")
+        self.set_element_count(len(project.shared_elements))
         self._rebuild()
         self.reports_tree.clear()
         tip = QTreeWidgetItem(["Chưa có báo cáo — chạy test rồi Export HTML"])

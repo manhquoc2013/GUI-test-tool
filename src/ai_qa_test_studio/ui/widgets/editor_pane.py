@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import yaml
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QFontMetrics, QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -43,8 +44,13 @@ from ai_qa_test_studio.constants import (
     UI_CANVAS_MARGIN_H_COMPACT,
     UI_CANVAS_MARGIN_V,
     UI_CANVAS_MARGIN_V_COMPACT,
+    UI_EDITOR_MIN_WIDTH,
+    UI_STEPS_COL_ACTION_WIDTH,
     UI_STEPS_COL_BINDING_WIDTH,
     UI_STEPS_COL_INDEX_WIDTH,
+    UI_STEPS_HEADER_MIN_SECTION,
+    UI_UNBOUND_BANNER_BODY,
+    UI_UNBOUND_BANNER_TITLE,
 )
 from ai_qa_test_studio.core.models import TestCase, TestStep
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
@@ -52,6 +58,7 @@ from ai_qa_test_studio.ui.formatting import count_unbound_steps
 _PRIORITIES = ["P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low"]
 _TYPES = ["Functional", "E2E Regression", "Boundary (BVA)", "API + UI Hybrid", "Negative", "UI/UX", "Security"]
 _MODE_KEYS = ("spec", "nocode", "yaml", "code")
+_EMPTY_TITLE = "Chọn một test case"
 
 
 class EditorPane(QWidget):
@@ -63,17 +70,23 @@ class EditorPane(QWidget):
         super().__init__(parent)
         self.setAccessibleName("Workspace Editor")
         self.setStyleSheet(f"background-color: {THEME_BG_CANVAS};")
+        self.setMinimumWidth(UI_EDITOR_MIN_WIDTH)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._case: TestCase | None = None
         self._loading = False
         self._details_expanded = False
+        self._title_full = _EMPTY_TITLE
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V, UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V)
         layout.setSpacing(10)
 
-        self.title_label = SubtitleLabel("Chọn một test case", self)
+        self.title_label = SubtitleLabel(_EMPTY_TITLE, self)
         self.title_label.setAccessibleName("Tiêu đề kịch bản")
-        self.title_label.setWordWrap(True)
+        self.title_label.setWordWrap(False)
+        self.title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # Ignored H-policy so long titles never inflate splitter minimumSizeHint.
+        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.title_label)
 
         header_row = QHBoxLayout()
@@ -88,8 +101,8 @@ class EditorPane(QWidget):
         layout.addLayout(header_row)
 
         self.unbound_banner = InfoBar.warning(
-            title="Có bước chưa gắn selector thật (UNBOUND)",
-            content="Nhập Target URL trên thanh công cụ và nhấn Sync URL để Agent tự động ánh xạ.",
+            title=UI_UNBOUND_BANNER_TITLE,
+            content=UI_UNBOUND_BANNER_BODY,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.NONE,
@@ -97,6 +110,9 @@ class EditorPane(QWidget):
             parent=self,
         )
         self.unbound_banner.setAccessibleName("Cảnh báo bước UNBOUND")
+        self.unbound_banner.setMinimumWidth(0)
+        self.unbound_banner.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.unbound_banner.contentLabel.setWordWrap(True)
         btn_quick_sync = PrimaryPushButton("Sync ngay", self.unbound_banner)
         btn_quick_sync.clicked.connect(lambda: self.sync_requested.emit())
         self.unbound_banner.addWidget(btn_quick_sync)
@@ -229,15 +245,15 @@ class EditorPane(QWidget):
 
     def _apply_steps_header(self, table: TableWidget) -> None:
         hdr = table.horizontalHeader()
-        hdr.setMinimumSectionSize(64)
+        hdr.setMinimumSectionSize(UI_STEPS_HEADER_MIN_SECTION)
         hdr.setStretchLastSection(False)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         table.setColumnWidth(0, UI_STEPS_COL_INDEX_WIDTH)
-        table.setColumnWidth(1, 100)
+        table.setColumnWidth(1, UI_STEPS_COL_ACTION_WIDTH)
         table.setColumnWidth(4, UI_STEPS_COL_BINDING_WIDTH)
 
     def apply_density(self, width: int) -> None:
@@ -251,6 +267,32 @@ class EditorPane(QWidget):
         if layout is not None:
             layout.setContentsMargins(h, v, h, v)
         self._apply_steps_header(self.table)
+        self._elide_title()
+
+    def minimumSizeHint(self) -> QSize:
+        # Cap floor so QSplitter can grow the sidebar (childrenCollapsible=False
+        # otherwise clamps against SubtitleLabel/InfoBar content hints ~1300px).
+        base = super().minimumSizeHint()
+        return QSize(UI_EDITOR_MIN_WIDTH, max(base.height(), 200))
+
+    def sizeHint(self) -> QSize:
+        return QSize(max(UI_EDITOR_MIN_WIDTH, self.width() or UI_EDITOR_MIN_WIDTH), super().sizeHint().height())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._elide_title()
+
+    def _set_title(self, title: str) -> None:
+        self._title_full = title
+        self.title_label.setToolTip(title)
+        self._elide_title()
+
+    def _elide_title(self) -> None:
+        metrics = QFontMetrics(self.title_label.font())
+        avail = max(48, self.title_label.width() - 8)
+        self.title_label.setText(
+            metrics.elidedText(self._title_full, Qt.TextElideMode.ElideRight, avail)
+        )
 
     def _toggle_details(self) -> None:
         self._details_expanded = not self._details_expanded
@@ -262,7 +304,7 @@ class EditorPane(QWidget):
         self._loading = True
         try:
             self._case = case
-            self.title_label.setText(f"{case.code} — {case.title}")
+            self._set_title(f"{case.code} — {case.title}")
             self._render_all()
         finally:
             self._loading = False
@@ -310,9 +352,8 @@ class EditorPane(QWidget):
             return
         unbound = count_unbound_steps(self._case)
         if unbound > 0:
-            self.unbound_banner.titleLabel.setText(
-                f"{unbound} bước chưa gắn selector thật (UNBOUND)"
-            )
+            self.unbound_banner.titleLabel.setText(f"{unbound} bước chưa gắn selector (UNBOUND)")
+            self.unbound_banner.contentLabel.setText(UI_UNBOUND_BANNER_BODY)
             self.unbound_banner.show()
         else:
             self.unbound_banner.hide()

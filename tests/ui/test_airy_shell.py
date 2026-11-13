@@ -13,6 +13,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_STARTER_PROMPTS,
     UI_BREAKPOINT_MEDIUM,
     UI_BREAKPOINT_WIDE,
+    UI_EDITOR_MIN_WIDTH,
     UI_EXPLORER_MIN_WIDTH,
     UI_SIDEBAR_WIDTH_COMPACT,
     UI_WINDOW_DEFAULT_HEIGHT,
@@ -133,15 +134,13 @@ def test_settings_signal_emits_without_arity_error(qapp: QApplication) -> None:
     assert hits == ["bar", "pane"]
 
 
-def test_run_button_icon_stays_left_of_text(qapp: QApplication, tmp_path: Path) -> None:
-    """Run button uses left-pinned icon painter; labels toggle Chạy/Dừng."""
-    from ai_qa_test_studio.ui.widgets.top_toolbar import _IconLeftPrimaryButton
-
+def test_run_button_is_text_only_primary(qapp: QApplication, tmp_path: Path) -> None:
+    """Run CTA has no Fluent icon — avoids icon/label paint overlap."""
     _seed(tmp_path)
     window = MainWindow(data_root=tmp_path)
     window.show()
     btn = window.top_bar.btn_run
-    assert isinstance(btn, _IconLeftPrimaryButton)
+    assert btn.icon().isNull()
     window.top_bar.set_running(True)
     assert btn.text() == "Dừng"
     window.top_bar.set_running(False)
@@ -206,6 +205,46 @@ def test_sidebar_splitter_rejects_collapse(qapp: QApplication, tmp_path: Path) -
     assert window.explorer.isVisible()
     assert window.explorer.width() >= UI_EXPLORER_MIN_WIDTH
     assert window.h_splitter.sizes()[0] >= UI_EXPLORER_MIN_WIDTH
+    window.close()
+
+
+def test_sidebar_drag_can_grow_and_layout_preserves_size(qapp: QApplication, tmp_path: Path) -> None:
+    """Editor minSizeHint is capped so setSizes can widen the sidebar."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+
+    assert window.builder.minimumSizeHint().width() == UI_EDITOR_MIN_WIDTH
+    total = sum(window.h_splitter.sizes()) or window.workspace.width()
+    target = min(360, window.explorer.maximumWidth())
+    window.h_splitter.setSizes([target, max(UI_EDITOR_MIN_WIDTH, total - target)])
+    qapp.processEvents()
+    assert window.h_splitter.sizes()[0] >= target - 5
+    window._sync_drawer_geometry()
+    qapp.processEvents()
+    assert window.h_splitter.sizes()[0] >= target - 5
+    window.close()
+
+
+def test_editor_title_elides_long_names(qapp: QApplication, tmp_path: Path) -> None:
+    """Long case titles stay on one line with tooltip holding the full string."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    long_title = "TC99_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath_Extra"
+    window.builder._set_title(long_title)
+    window.builder.resize(420, 400)
+    qapp.processEvents()
+    window.builder._elide_title()
+    assert window.builder.title_label.toolTip() == long_title
+    assert len(window.builder.title_label.text()) <= len(long_title)
+    assert "…" in window.builder.title_label.text() or window.builder.title_label.text() == long_title
     window.close()
 
 

@@ -1,10 +1,9 @@
-"""Airy Top Bar — hamburger, Tạo bằng AI, URL, Sync(N), Run, Copilot toggle, ⋯."""
+"""Airy Top Bar — left actions | expanding URL | right actions."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Signal
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 from qfluentwidgets import (
     Action,
     ComboBox,
@@ -27,46 +26,19 @@ from ai_qa_test_studio.constants import (
     UI_BTN_COPILOT_MIN_WIDTH,
     UI_BTN_RUN_MIN_WIDTH,
     UI_BTN_SYNC_MIN_WIDTH,
-    UI_FLUENT_ICON_LEFT_PAD,
     UI_LABEL_COPILOT,
     UI_LABEL_RUN,
     UI_LABEL_STOP,
     UI_LABEL_WIZARD,
     UI_LABEL_WIZARD_SHORT,
     UI_TOP_BAR_HEIGHT,
-    UI_URL_INPUT_MAX_WIDTH,
-    UI_URL_INPUT_MAX_WIDTH_COMPACT,
-    UI_URL_INPUT_MAX_WIDTH_NARROW,
     UI_URL_INPUT_MIN_WIDTH,
     UI_URL_INPUT_MIN_WIDTH_COMPACT,
     UI_URL_INPUT_MIN_WIDTH_NARROW,
+    UI_WIDGET_SIZE_MAX,
 )
 
 _URL_PLACEHOLDER = "Target URL…"
-
-
-class _IconLeftPrimaryButton(PrimaryPushButton):
-    """Fluent centers icon when minWidth > content — pin icon to the left padding."""
-
-    def paintEvent(self, e) -> None:  # type: ignore[no-untyped-def]
-        QPushButton.paintEvent(self, e)
-        if self.icon().isNull():
-            return
-        painter = QPainter(self)
-        painter.setRenderHints(
-            QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
-        )
-        if not self.isEnabled():
-            painter.setOpacity(0.3628)
-        elif self.isPressed:
-            painter.setOpacity(0.786)
-        w = self.iconSize().width()
-        h = self.iconSize().height()
-        y = (self.height() - h) / 2
-        x = float(UI_FLUENT_ICON_LEFT_PAD)
-        if self.isRightToLeft():
-            x = float(self.width() - w - UI_FLUENT_ICON_LEFT_PAD)
-        self._drawIcon(self._icon, painter, QRectF(x, y, w, h))
 
 
 class UnifiedTopBar(QWidget):
@@ -93,9 +65,10 @@ class UnifiedTopBar(QWidget):
         self._density = "wide"
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(6)
 
+        # Left cluster
         self.btn_hamburger = TransparentToolButton(FIF.MENU, self)
         self.btn_hamburger.setToolTip("Thu gọn / mở Sidebar (Ctrl+\\)")
         self.btn_hamburger.setAccessibleName("Toggle Sidebar")
@@ -109,14 +82,14 @@ class UnifiedTopBar(QWidget):
         self.btn_wizard.clicked.connect(lambda: self.wizard_clicked.emit())
         layout.addWidget(self.btn_wizard)
 
-        layout.addStretch(1)
-
+        # Center: URL expands to fill leftover space (no dual stretch gap)
         self.url_input = LineEdit(self)
         self.url_input.setPlaceholderText(_URL_PLACEHOLDER)
         self.url_input.setText(DEFAULT_TARGET_URL)
         self.url_input.setClearButtonEnabled(True)
         self.url_input.setMinimumWidth(UI_URL_INPUT_MIN_WIDTH)
-        self.url_input.setMaximumWidth(UI_URL_INPUT_MAX_WIDTH)
+        # No max width — Expanding fill prevents empty gap when window is wide.
+        self.url_input.setMaximumWidth(UI_WIDGET_SIZE_MAX)
         self.url_input.setAccessibleName("Ô nhập Target URL")
         self.url_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.url_input, stretch=1)
@@ -135,9 +108,8 @@ class UnifiedTopBar(QWidget):
         self.unbound_badge.setVisible(False)
         layout.addWidget(self.unbound_badge)
 
-        layout.addStretch(1)
-
-        self.btn_run = _IconLeftPrimaryButton(FIF.PLAY, UI_LABEL_RUN, self)
+        # Right cluster — text-only Run avoids Fluent icon/label paint bug
+        self.btn_run = PrimaryPushButton(UI_LABEL_RUN, self)
         self.btn_run.setMinimumWidth(UI_BTN_RUN_MIN_WIDTH)
         self.btn_run.setObjectName("airyRunButton")
         self.btn_run.setAccessibleName("Chạy hoặc Dừng")
@@ -202,23 +174,23 @@ class UnifiedTopBar(QWidget):
     def apply_density(self, width: int) -> None:
         if width >= UI_BREAKPOINT_WIDE:
             density = "wide"
-            url_min, url_max = UI_URL_INPUT_MIN_WIDTH, UI_URL_INPUT_MAX_WIDTH
+            url_min = UI_URL_INPUT_MIN_WIDTH
             wizard, copilot = UI_LABEL_WIZARD, UI_LABEL_COPILOT
             sync_min = UI_BTN_SYNC_MIN_WIDTH
         elif width >= UI_BREAKPOINT_MEDIUM:
             density = "medium"
-            url_min, url_max = UI_URL_INPUT_MIN_WIDTH_COMPACT, UI_URL_INPUT_MAX_WIDTH_COMPACT
+            url_min = UI_URL_INPUT_MIN_WIDTH_COMPACT
             wizard, copilot = UI_LABEL_WIZARD_SHORT, UI_LABEL_COPILOT
-            sync_min = 88
+            sync_min = 80
         else:
             density = "narrow"
-            url_min, url_max = UI_URL_INPUT_MIN_WIDTH_NARROW, UI_URL_INPUT_MAX_WIDTH_NARROW
+            url_min = UI_URL_INPUT_MIN_WIDTH_NARROW
             wizard, copilot = "", ""
-            sync_min = 72
+            sync_min = 64
 
         self._density = density
         self.url_input.setMinimumWidth(url_min)
-        self.url_input.setMaximumWidth(url_max)
+        self.url_input.setMaximumWidth(UI_WIDGET_SIZE_MAX)
         self.btn_wizard.setText(wizard)
         self.btn_wizard.setMinimumWidth(36 if not wizard else UI_BTN_COPILOT_MIN_WIDTH)
         self.btn_copilot.setText(copilot)
@@ -239,12 +211,7 @@ class UnifiedTopBar(QWidget):
 
     def set_running(self, running: bool) -> None:
         self._running = running
-        if running:
-            self.btn_run.setText(UI_LABEL_STOP)
-            self.btn_run.setIcon(FIF.CLOSE)
-        else:
-            self.btn_run.setText(UI_LABEL_RUN)
-            self.btn_run.setIcon(FIF.PLAY)
+        self.btn_run.setText(UI_LABEL_STOP if running else UI_LABEL_RUN)
 
     def set_copilot_checked(self, checked: bool) -> None:
         self.btn_copilot.blockSignals(True)
