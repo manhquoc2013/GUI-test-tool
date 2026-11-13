@@ -6,9 +6,9 @@
 
 ## Implementation
 - [x] T1 Theme + `qtawesome` + UI constants
-- [ ] T2 Unified Top Action Bar (URL, Sync badge, Skill, Run/Stop, Export, New Case)
-- [ ] T3 Test Explorer split + search + status dots
-- [ ] T4 Spec form + UNBOUND banner + field persist
-- [ ] T5 Browser Launch / Inspect pin+bind + Agent Execution Feed
-- [ ] T6 Collapsible drawer + DataGrid format + Status pills
-- [ ] T7 Tests + ruff/mypy/pytest + `.ai-context.md`
+- [x] T2 Unified Top Action Bar (URL, Sync badge, Skill, Run/Stop, Export, New Case)
+- [x] T3 Test Explorer split + search + status dots
+- [x] T4 Spec form + UNBOUND banner + field persist
+- [x] T5 Browser Launch / Inspect pin+bind + Agent Execution Feed
+- [x] T6 Collapsible drawer + DataGrid format + Status pills
+- [x] T7 Tests + ruff/mypy/pytest + `.ai-context.md`

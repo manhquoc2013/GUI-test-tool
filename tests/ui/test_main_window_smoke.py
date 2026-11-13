@@ -26,7 +26,16 @@ def test_open_project_select_case(qapp: QApplication, tmp_path: Path) -> None:
         id="c1",
         code="TC1",
         title="Sample",
-        steps=[TestStep(step_no=1, action="goto", intent_hint="open", input_data="/")],
+        steps=[
+            TestStep(
+                step_no=1,
+                action="goto",
+                intent_hint="open",
+                input_data="/",
+                binding_status="UNBOUND",
+            )
+        ],
+        test_data_rows=[{"parameters": {"loaiHoSo": "Cấp mới"}, "ExpectedOutcome": "OK"}],
     )
     project = Project(
         id="p1",
@@ -43,6 +52,21 @@ def test_open_project_select_case(qapp: QApplication, tmp_path: Path) -> None:
     loaded = window.builder.current_case()
     assert loaded is not None
     assert loaded.code == "TC1"
+    assert window.url_edit.text()
+    assert window.unbound_badge.isVisible()
+    assert "UNBOUND" in window.unbound_badge.text()
+    assert window.builder.unbound_banner.isVisible()
     window._append_log("smoke-ok")
-    assert "smoke-ok" in window._run_logs.toPlainText()
+    assert "smoke-ok" in window._run_logs.to_plain_text()
+    headers = [
+        window.data_grid.horizontalHeaderItem(i).text()
+        for i in range(window.data_grid.columnCount())
+    ]
+    assert "Expected Outcome" in headers
+    assert "Parameters" in headers
+    param_item = window.data_grid.item(0, headers.index("Parameters"))
+    assert param_item is not None
+    assert "loaiHoSo: Cấp mới" in param_item.text()
+    window._toggle_drawer()
+    assert window._drawer_collapsed is True
     window.close()
