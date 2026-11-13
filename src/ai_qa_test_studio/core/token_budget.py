@@ -10,6 +10,7 @@ import tiktoken
 
 from ai_qa_test_studio.constants import (
     SLIDING_HISTORY_SUMMARY_CHARS,
+    TOKEN_CONTEXT_BUDGET,
     TOKEN_DOM_SOFT_CAP,
     TOKEN_MAX_ATOMIC_OUTPUT,
 )
@@ -77,7 +78,7 @@ class ContextCompressor:
         md = MarkItDown()
         result = md.convert(str(path))
         text = getattr(result, "text_content", None) or str(result)
-        return self.budget.truncate_to_cap(text, cap=8000)
+        return self.budget.truncate_to_cap(text, cap=TOKEN_CONTEXT_BUDGET)
 
     def sliding_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not messages:
