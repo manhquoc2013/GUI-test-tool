@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
 from ai_qa_test_studio.agent.auto_binder import ShiftLeftAutoBinder, repo_from_project
 from ai_qa_test_studio.agent.dual_loop_agent import DualLoopAgent
+from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.engine import BrowserEngine
-from ai_qa_test_studio.core.models import Project, RunReport, TestCase
+from ai_qa_test_studio.constants import DEFAULT_TARGET_URL, UI_VIEWPORT_HEIGHT, UI_VIEWPORT_WIDTH
+from ai_qa_test_studio.core.models import Project, RunReport, SharedElement, TestCase
 
 logger = logging.getLogger(__name__)
 
 LogFn = Callable[[str], None]
+StepFn = Callable[[int, str, str, float, str], None]
 
 
 class SessionController:
@@ -29,10 +33,19 @@ class SessionController:
         emit = log or (lambda _m: None)
         if self._started:
             return
-        emit("Starting Chromium (single context + CDP)…")
+        emit("Đang khởi động Chromium (một context + CDP)…")
         cdp = await self.engine.start(headless=headless)
+        page = self.engine.page
+        await page.set_viewport_size({"width": UI_VIEWPORT_WIDTH, "height": UI_VIEWPORT_HEIGHT})
         self._started = True
-        emit(f"Browser ready — CDP {cdp.http_endpoint}")
+        emit(f"Trình duyệt sẵn sàng — CDP {cdp.http_endpoint}")
+
+    async def launch_url(self, url: str, log: LogFn | None = None) -> None:
+        emit = log or (lambda _m: None)
+        target = (url or "").strip() or DEFAULT_TARGET_URL
+        await self.ensure_started(headless=False, log=emit)
+        await self.engine.goto(target)
+        emit(f"Đã mở {target}")
 
     async def stop(self, log: LogFn | None = None) -> None:
         emit = log or (lambda _m: None)
@@ -40,13 +53,13 @@ class SessionController:
         if self._started:
             await self.engine.stop()
             self._started = False
-            emit("Browser stopped")
+            emit("Đã dừng trình duyệt")
         self.cancel_requested = False
 
     async def capture_png(self) -> tuple[bytes, int, int]:
         page = self.engine.page
         png = await page.screenshot(type="png", full_page=False)
-        viewport = page.viewport_size or {"width": 1280, "height": 720}
+        viewport = page.viewport_size or {"width": UI_VIEWPORT_WIDTH, "height": UI_VIEWPORT_HEIGHT}
         return png, int(viewport["width"]), int(viewport["height"])
 
     async def sync_bind(
@@ -65,16 +78,13 @@ class SessionController:
             emit(msg)
 
         updated = await binder.sync_test_case(case, base_url=base_url, on_progress=progress)
-        # Persist healed/bound locators back into project shared elements
         by_id = {el.element_id: el for el in project.shared_elements}
         for eid, el in repo.items():
             by_id[eid] = el
         project.shared_elements = list(by_id.values())
-        emit(
-            "Sync done — "
-            f"BOUND={sum(1 for s in updated.steps if s.binding_status == 'BOUND')} "
-            f"UNBOUND={sum(1 for s in updated.steps if s.binding_status == 'UNBOUND')}"
-        )
+        bound = sum(1 for s in updated.steps if s.binding_status == "BOUND")
+        unbound = sum(1 for s in updated.steps if s.binding_status == "UNBOUND")
+        emit(f"Đồng bộ xong — BOUND={bound} UNBOUND={unbound}")
         return updated
 
     async def run_case(
@@ -82,20 +92,63 @@ class SessionController:
         project: Project,
         case: TestCase,
         log: LogFn | None = None,
+        on_step: StepFn | None = None,
+        skill_name: str = "",
+        skills_dir: Path | None = None,
     ) -> RunReport:
         emit = log or (lambda _m: None)
         self.cancel_requested = False
         await self.ensure_started(headless=False, log=emit)
+        if skill_name and skills_dir is not None:
+            loader = ProgressiveSkillLoader(skills_dir)
+            if skill_name in loader.registry:
+                emit(f"[✓] Nạp skill: {skill_name}")
+                _ = loader.load_skill_context(skill_name)
         if case.start_url:
             await self.engine.goto(case.start_url)
-            emit(f"Opened start_url={case.start_url}")
+            emit(f"Mở start_url={case.start_url}")
         repo = repo_from_project(project)
         agent = DualLoopAgent(self.engine.page, repo)
-        emit(f"Dual-loop running {case.code} ({len(case.steps)} steps)…")
+        emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
         report = await agent.run_case(case, project_name=project.name)
         result = report.cases[0]
         case.last_status = result.status
-        emit(f"Finished {case.code}: {result.status}")
+        emit(f"Hoàn tất {case.code}: {result.status}")
         for step in result.steps:
-            emit(f"  #{step.step_no} {step.action} → {step.status} ({step.duration_ms} ms) {step.message}")
+            if on_step is not None:
+                on_step(step.step_no, step.action, step.status, float(step.duration_ms), step.message)
+            else:
+                emit(
+                    f"  #{step.step_no} {step.action} → {step.status} "
+                    f"({step.duration_ms} ms) {step.message}"
+                )
         return report
+
+    def pin_shared_element(
+        self,
+        project: Project,
+        meta: dict[str, object],
+        case_code: str = "CASE",
+    ) -> SharedElement:
+        tag = str(meta.get("tag") or "element")
+        name = str(meta.get("name") or meta.get("id") or tag)
+        css = str(meta.get("css") or "")
+        safe = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name.upper())[:40]
+        element_id = f"EL_{case_code}_{tag.upper()}_{safe}".replace("__", "_")
+        existing = {el.element_id for el in project.shared_elements}
+        suffix = 1
+        base_id = element_id
+        while element_id in existing:
+            suffix += 1
+            element_id = f"{base_id}_{suffix}"
+        el = SharedElement(
+            element_id=element_id,
+            page_name="Inspected",
+            friendly_name=name[:80] or tag,
+            role=tag,
+            name=name[:80] or None,
+            css=css or None,
+            primary_playwright=f"page.locator({css!r})" if css else None,
+        )
+        project.shared_elements.append(el)
+        return el
