@@ -51,6 +51,12 @@ public class TestRunnerService {
      */
     private static final String STEP_TRACE_COMPLETE_CALL = "com.studio.runtime.StudioRuntime.stepTraceComplete();";
 
+    /** A case whose script file does not exist yet — content that is not written, not a failure. */
+    static final String SKIP_NO_SCRIPT = "Chưa có script để chạy";
+
+    /** A case whose script file holds only notes: nothing in it can be compiled or executed. */
+    static final String SKIP_NOT_A_SCRIPT = "Script chưa có mã thực thi";
+
     public TestRunnerService(ProjectStore projectStore, ReportStore reportStore) {
         this(projectStore, reportStore, new SettingsStore(), new OpenAiClient());
     }
@@ -270,20 +276,26 @@ public class TestRunnerService {
                 // Read the script file
                 String scriptCode;
                 try {
-                    scriptCode = projectStore.readCaseScript(suiteDir, cr.getTestCaseId());
+                    // The store reports "no script" for an absent or blank file, so a case whose code
+                    // was never generated (a scenario written from a specification) is skipped rather
+                    // than failed: nothing to execute is not a defect to investigate.
+                    Optional<String> script = projectStore.findCaseScript(suiteDir, cr.getTestCaseId());
+                    if (script.isEmpty() || !ScriptHarnessTransformer.declaresClass(script.get())) {
+                        // A note-only file is the same state seen from different data: the AI writes
+                        // notes when it has no URL, and notes cannot be compiled into a harness.
+                        cr.setStatus("SKIPPED");
+                        cr.setSkipReason(script.isEmpty() ? SKIP_NO_SCRIPT : SKIP_NOT_A_SCRIPT);
+                        terminal("SKIP: " + cr.getTestCaseName() + " — " + cr.getSkipReason(), terminalOutput);
+                        RunProgressService.caseFinished(cr);
+                        continue;
+                    }
+                    scriptCode = script.get();
                 } catch (Exception e) {
                     cr.setStatus("ERROR");
-                    cr.setFailureReason("Script file not found or unreadable: " + e.getMessage());
+                    cr.setFailureReason("Không đọc được script: " + e.getMessage());
                     report.setFailed(report.getFailed() + 1);
-                    terminal("ERROR: Script not found for " + cr.getTestCaseName(), terminalOutput);
-                    RunProgressService.caseFinished(cr);
-                    continue;
-                }
-
-                if (scriptCode == null || scriptCode.isEmpty()) {
-                    cr.setStatus("ERROR");
-                    cr.setFailureReason("Script file empty or not found");
-                    report.setFailed(report.getFailed() + 1);
+                    terminal("ERROR: Không đọc được script của " + cr.getTestCaseName()
+                            + " — " + e.getMessage(), terminalOutput);
                     RunProgressService.caseFinished(cr);
                     continue;
                 }

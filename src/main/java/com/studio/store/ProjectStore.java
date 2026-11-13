@@ -350,12 +350,14 @@ public class ProjectStore {
         TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
 
         String caseId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
-        String safeFileBase = com.studio.util.StringEscapeUtil.safeFileName(name, "case");
-        String scriptFileName = safeFileBase + ".java";
         TestCase tc = new TestCase(caseId, name,
                 description != null ? description : "",
-                scriptFileName,
+                "",
                 status != null && !status.isBlank() ? status : "Draft");
+        // Named through the collision-aware derivation: two case names that sanitise to one file must
+        // not share it, or the second save would overwrite the first case's code.
+        String scriptFileName = scriptFileName(suite, tc);
+        tc.setScriptFile(scriptFileName);
         tc.setStartUrl(startUrl != null ? startUrl : "");
         tc.setBrowser(browser != null ? browser : "");
         tc.setHeadless(headless);
@@ -365,10 +367,7 @@ public class ProjectStore {
 
         // The script is written before the suite records the case: a failed write must not leave a
         // case whose script does not exist (readCaseScript would then fail on every later run).
-        String safeClass = ScriptHarnessTransformer.sanitizeClassName(name);
-        String stub = String.format(
-                "package com.test;\n\nimport com.microsoft.playwright.*;\n\npublic class %s {\n    public static void main(String[] args) {\n        // Test case: %s\n    }\n}\n",
-                safeClass, name);
+        String stub = scriptSkeleton(name);
         Path scriptPath = suiteDir.resolve(scriptFileName);
         writeTextAtomic(scriptPath, stub);
         try {
@@ -554,7 +553,9 @@ public class ProjectStore {
                 String oldScript = (tc.getScriptFile() != null && !tc.getScriptFile().isBlank())
                         ? tc.getScriptFile()
                         : com.studio.util.StringEscapeUtil.safeFileName(oldName, "case") + ".java";
-                String newScript = com.studio.util.StringEscapeUtil.safeFileName(newName, "case") + ".java";
+                // Derived against the OTHER cases: a name another case already owns would otherwise be moved
+                // over (REPLACE_EXISTING) and that case's code would be lost.
+                String newScript = derivedScriptFileName(suite, caseId, newName);
                 tc.setName(newName);
                 tc.setUpdatedAt(EntityTime.nowIso());
 
@@ -635,7 +636,9 @@ public class ProjectStore {
                 .orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
 
         String newId = "tc-" + UUID.randomUUID().toString().substring(0, 8);
-        String newScriptFile = com.studio.util.StringEscapeUtil.safeFileName(newName, "case") + ".java";
+        // Derived, not copied from newName: a duplicate that keeps the original name would take over (or
+        // share) the original's script file, and the first edit of the copy would rewrite the original.
+        String newScriptFile = derivedScriptFileName(suite, newId, newName);
         TestCase copy = new TestCase(newId, newName, original.getDescription(), newScriptFile, original.getStatus());
         copy.setPriority(original.getPriority());
         copy.setStartUrl(original.getStartUrl());
@@ -854,25 +857,40 @@ public class ProjectStore {
                 .orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
     }
 
+    /**
+     * The script skeleton for a case that has no code yet: the same envelope the AI generator writes
+     * and the runner compiles.
+     *
+     * <p>The {@code page} declaration is part of the contract — the Studio owns the browser, so steps
+     * are emitted against {@code StudioRuntime.page()}, and a script without this line dies at compile
+     * time on an undefined variable. The body starts empty: a marker comment would be parsed into an
+     * authored NOTE step.</p>
+     */
+    public static String scriptSkeleton(String caseName) {
+        return String.format("""
+                package com.test;
+
+                import com.microsoft.playwright.*;
+
+                public class %s {
+                    public static void main(String[] args) {
+                        Page page = com.studio.runtime.StudioRuntime.page();
+                    }
+                }
+                """, ScriptHarnessTransformer.sanitizeClassName(caseName));
+    }
+
     // ---- script CRUD ----
 
     public void saveCaseScript(Path suiteDir, String caseId, String javaCode) throws IOException {
         Path suiteJson = suiteDir.resolve(SUITE_JSON);
         TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
 
-        TestCase matched = null;
-        for (TestCase tc : suite.getCases()) {
-            if (tc.getId().equals(caseId)) {
-                matched = tc;
-                break;
-            }
-        }
+        TestCase matched = findCase(suite, caseId);
         if (matched == null) {
             throw new IOException("Case not found: " + caseId);
         }
-        String fileName = matched.getScriptFile() != null && !matched.getScriptFile().isBlank()
-                ? matched.getScriptFile()
-                : com.studio.util.StringEscapeUtil.safeFileName(matched.getName(), "case") + ".java";
+        String fileName = scriptFileName(suite, matched);
         matched.setScriptFile(fileName);
         writeTextAtomic(suiteDir.resolve(fileName), javaCode);
         if ("Draft".equals(matched.getStatus()) && javaCode != null && !javaCode.isBlank()) {
@@ -883,28 +901,99 @@ public class ProjectStore {
         indexService.indexCase(matched, groupName, suite.getName(), javaCode);
     }
 
-    public String readCaseScript(Path suiteDir, String caseId) throws IOException {
-        Path suiteJson = suiteDir.resolve(SUITE_JSON);
-        TestSuite suite = mapper.readValue(suiteJson.toFile(), TestSuite.class);
+    /**
+     * Reads the script of a case, or {@link Optional#empty()} when the case has none — the file is
+     * absent or blank. Callers get one invariant: a present script is never blank.
+     *
+     * <p>A case can exist before its code does: the AI writes scenario cases from a specification and
+     * generates their scripts later, so a missing file is a state of the data, not an I/O failure.
+     * Callers that cannot run without the code should use {@link #readCaseScript} instead.</p>
+     */
+    public Optional<String> findCaseScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = readSuiteForScript(suiteDir, caseId);
+        Path scriptPath = suiteDir.resolve(scriptFileName(suite, findCase(suite, caseId)));
+        if (!Files.isRegularFile(scriptPath)) {
+            return Optional.empty();
+        }
+        String code = Files.readString(scriptPath);
+        return code.isBlank() ? Optional.empty() : Optional.of(code);
+    }
 
-        TestCase matched = null;
-        for (TestCase tc : suite.getCases()) {
-            if (tc.getId().equals(caseId)) {
-                matched = tc;
-                break;
-            }
-        }
-        if (matched == null) {
-            throw new IOException("Case not found: " + caseId);
-        }
-        String fileName = matched.getScriptFile() != null && !matched.getScriptFile().isBlank()
-                ? matched.getScriptFile()
-                : matched.getName() + ".java";
-        Path scriptPath = suiteDir.resolve(fileName);
-        if (!Files.exists(scriptPath)) {
+    /** Reads a script that must exist: a case that runs without its code is a hard error. */
+    public String readCaseScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = readSuiteForScript(suiteDir, caseId);
+        Path scriptPath = suiteDir.resolve(scriptFileName(suite, findCase(suite, caseId)));
+        if (!Files.isRegularFile(scriptPath)) {
             throw new IOException("Script file not found: " + scriptPath);
         }
         return Files.readString(scriptPath);
+    }
+
+    private TestSuite readSuiteForScript(Path suiteDir, String caseId) throws IOException {
+        TestSuite suite = mapper.readValue(suiteDir.resolve(SUITE_JSON).toFile(), TestSuite.class);
+        if (findCase(suite, caseId) == null) {
+            throw new IOException("Case not found: " + caseId);
+        }
+        return suite;
+    }
+
+    private static TestCase findCase(TestSuite suite, String caseId) {
+        if (suite.getCases() == null || caseId == null) {
+            return null;
+        }
+        return suite.getCases().stream()
+                .filter(tc -> caseId.equals(tc.getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * The file a case's script lives in: the recorded name, or the derived one. Every read and write goes
+     * through this single answer — they used to disagree whenever the name held path characters.
+     */
+    public static String scriptFileName(TestSuite suite, TestCase tc) {
+        String recorded = tc.getScriptFile();
+        return recorded != null && !recorded.isBlank()
+                ? recorded
+                : derivedScriptFileName(suite, tc.getId(), tc.getName());
+    }
+
+    /**
+     * The name a case that has no file yet would take.
+     *
+     * <p>Derivation alone is not injective: {@code "A/B"} and {@code "A_B"} sanitise to one name, and the
+     * AI does generate a case twice under the same name. Handing both cases one file means the second
+     * save silently overwrites the first case's code — while each case keeps showing its own name — so a
+     * name another case already claims gets the case id appended. Callers pass the name the case is
+     * about to have (rename, copy, create), not the one it still carries.</p>
+     */
+    private static String derivedScriptFileName(TestSuite suite, String caseId, String caseName) {
+        String base = com.studio.util.StringEscapeUtil.safeFileName(caseName, "case");
+        String candidate = base + ".java";
+        if (!claimedByAnotherCase(suite, caseId, candidate)) {
+            return candidate;
+        }
+        String suffix = caseId != null && !caseId.isBlank() ? caseId : "case";
+        return com.studio.util.StringEscapeUtil.safeFileName(base + "_" + suffix, "case") + ".java";
+    }
+
+    private static boolean claimedByAnotherCase(TestSuite suite, String caseId, String fileName) {
+        if (suite == null || suite.getCases() == null) {
+            return false;
+        }
+        // Case-insensitive: macOS and Windows would hand both cases the same file.
+        return suite.getCases().stream()
+                .filter(other -> !Objects.equals(other.getId(), caseId))
+                .map(ProjectStore::claimedScriptFileName)
+                .anyMatch(fileName::equalsIgnoreCase);
+    }
+
+    /** The name a case occupies, without recursing into collision handling. */
+    private static String claimedScriptFileName(TestCase tc) {
+        String recorded = tc.getScriptFile();
+        return recorded != null && !recorded.isBlank()
+                ? recorded
+                : com.studio.util.StringEscapeUtil.safeFileName(tc.getName(), "case") + ".java";
     }
 
     // ---- collect cases for run scope ----
@@ -1037,7 +1126,7 @@ public class ProjectStore {
         TestSuite suite = loadAndMigrateSuite(suiteDir);
 
         Optional<TestCase> tcOpt = suite.getCases().stream()
-                .filter(c -> fileName.equalsIgnoreCase(c.getScriptFile())
+                .filter(c -> fileName.equalsIgnoreCase(scriptFileName(suite, c))
                         || caseName.equalsIgnoreCase(c.getName())
                         || caseName.equalsIgnoreCase(com.studio.util.StringEscapeUtil.safeFileName(c.getName(), "case")))
                 .findFirst();

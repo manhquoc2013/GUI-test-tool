@@ -890,3 +890,46 @@
   stale release a no-op.
 - An export that supports two languages must not borrow the app's Vietnamese label constants: localise through
   i18n keys (`export.status.*`) and keep the raw code where a spreadsheet needs to filter on it.
+## Case without a script is a state, not an error (bug: "Script file not found" toasts)
+- A case can be created before its code: the AI writes scenario cases from a spec and only generates the Java
+  later. Recording `scriptFile` for a file nobody wrote makes every later read look like a disk failure. Write
+  the name when you write the file; leave it blank otherwise.
+- One exception type for two situations forces the UI to guess. `readCaseScript` (must exist) now sits on top of
+  `findCaseScript` (Optional): the workspace opens the empty-state hint, the runner skips, and only a genuine
+  I/O failure still reaches the error toast.
+- Never put an error message into an editable buffer: the workspace editor is saveable, so "// Lỗi đọc script: …"
+  could be persisted as the case's script and then run.
+- Reading and writing must derive file names the same way (`safeFileName`). A raw `name + ".java"` fallback looked
+  for a different file than `saveCaseScript` wrote whenever the case name held `/` or `:`.
+- `Path.resolve("")` is the directory itself: a blank `scriptFile` in the indexer resolved the suite folder and
+  `Files.exists` said true. Use `isRegularFile` and reject blanks before resolving.
+- An empty-state hint belongs in the prompt slot, never in the buffer: `parseDocument` turns a `//` line into an
+  authored NOTE card, so placeholder text both invented a step and was savable as the case's script.
+- A builder-authored script needs `Page page = StudioRuntime.page();`. The runner renames the class but never
+  synthesises the prologue, so a step list rendered without it dies at compile time (`cannot find symbol page`).
+## Round 3: "no code" and "code that cannot run" are different data, not different bugs
+- A notes-only script (the AI writes Vietnamese comments when it has no URL) reaches the runner as a *file*, so
+  it used to be compiled: the user got a red "Lỗi biên dịch" over a case that simply had nothing to run. Ask the
+  question the harness asks — does this unit declare a class? `ScriptHarnessTransformer.declaresClass` answers
+  after comments are stripped (a note mentioning "class" must not read as runnable), and the run reports
+  SKIPPED with its own reason. Two reasons, two strings: "chưa có script" (no file) vs "chưa có mã thực thi".
+- File-name derivation must be injective over the *set* of cases, not per case. `safeFileName("A/B")` and
+  `"A_B"` are one name; the AI also reuses a case name. The second save then overwrote the first case's code
+  while both cases kept their own titles — silent data loss. The name is now derived once
+  (`ProjectStore.scriptFileName`) with the case id appended when another case claims the base, and *every* path —
+  create, save, read, collect, AI apply, run targeting — goes through it. Reads matter as much as writes: a case
+  with a blank `scriptFile` opened its neighbour's code because both derived the same file.
+- Comparing names case-insensitively is part of correctness on macOS/Windows: `A.java` and `a.java` are one file.
+- A run where every case is skipped is a legitimate outcome and must export as evidence (one row per case plus
+  its reason). The export code was already right; the missing piece was a test, and the first version of that
+  test read sheet 0 (the summary block) and "proved" the cases were missing.
+- UI rules that cost data belong next to a test, not inside a 2.6k-line controller: "what does the editor open
+  with" has exactly three answers (recorded script / skeleton + steps / empty) and is now
+  `CaseScriptEditing.openText`.
+- A prompt is painted by the control against the *editor's* background, so it needs its own themed colour.
+  Measured rather than assumed: `-color-fg-muted` gives 7.0:1 (dark) and 4.8:1 (light) on the editor background;
+  a CSS contract test parses the rule and computes WCAG contrast so the token cannot be swapped for a literal.
+- The prompt fill was a pinned literal in eleven rules (7 dark `#565f89`, 4 light `#94a3b8`) and measured 2.35:1 and
+  2.56:1 against the fields' own backgrounds — visible in a screenshot, unreadable for low-vision users. One token
+  (`-color-fg-muted`) fixes both themes (6.0:1 / 4.76:1), and a CSS guard forbids a literal from coming back: a
+  colour pinned in CSS cannot answer to the theme, which is why the same hex read 6:1 on one background and 2:1 on another.

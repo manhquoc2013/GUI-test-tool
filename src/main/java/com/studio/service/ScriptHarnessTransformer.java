@@ -1,11 +1,18 @@
 package com.studio.service;
 
+import java.util.regex.Pattern;
+
 /**
  * Transforms recorded Playwright codegen scripts for in-process execution with StudioRuntime.
  * Strips browser launch/close, rewrites Page to StudioRuntime.page(), renames class,
  * and wraps the main body in try/finally for screenshots.
  */
 public class ScriptHarnessTransformer {
+
+    /** {@code class Name} or {@code public class Name} — enough to prove a file is a unit. */
+    private static final Pattern CLASS_DECLARATION = Pattern.compile("\\bclass\\s+\\p{javaJavaIdentifierStart}\\w*");
+    private static final Pattern BLOCK_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/");
+    private static final Pattern LINE_COMMENT = Pattern.compile("//[^\\n]*");
 
     /**
      * @param originalCode     recorded codegen Java
@@ -96,6 +103,24 @@ public class ScriptHarnessTransformer {
 
     public static String sanitizeClassName(String name) {
         return com.studio.util.StringEscapeUtil.sanitizeJavaIdentifier(name, "HarnessRun");
+    }
+
+    /**
+     * Whether {@code code} is a Java compilation unit — i.e. declares a class the harness can rename.
+     *
+     * <p>A file of notes is not a script: the AI writes one when it has no URL to record, and the
+     * workspace shows it (it is what exists on disk), but nothing can be compiled from it. Callers use
+     * this to report "no runnable code" instead of a compile failure.</p>
+     */
+    public static boolean declaresClass(String code) {
+        if (code == null || code.isBlank()) {
+            return false;
+        }
+        // A comment cannot declare anything, and a note-only file must not look runnable because it
+        // happens to mention the word "class".
+        String withoutComments = LINE_COMMENT.matcher(BLOCK_COMMENT.matcher(code).replaceAll(" "))
+                .replaceAll(" ");
+        return CLASS_DECLARATION.matcher(withoutComments).find();
     }
 
     private static String wrapMainBodyWithScreenshot(String code, String screenshotPath) {

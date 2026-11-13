@@ -116,6 +116,13 @@ public class SuiteWorkspacePageController {
     private PauseTransition codeSyncDebounce;
     private boolean saveIconReady;
     private static final int CODE_REPARSE_DELAY_MS = 250;
+    /**
+     * Guidance for a case whose script does not exist yet. A case can be created from a specification
+     * before any code exists; the hint is a prompt on the empty buffer, never content — a placeholder
+     * written into the buffer would be saved as the script and parsed into a phantom step card.
+     */
+    private static final String NO_SCRIPT_PROMPT =
+            "Chưa có script — bấm \"Ghi hình\" hoặc viết tay rồi bấm Lưu.";
 
     @FXML private VBox suiteInfoPanel;
     @FXML private Label suiteInfoTitle;
@@ -1418,20 +1425,43 @@ public class SuiteWorkspacePageController {
         updateSelectedCaseHint();
         showCaseWorkspaceMode();
         String code = null;
+        boolean readFailed = false;
         try {
-            code = projectStore.readCaseScript(suitePath, tc.getId());
+            // Absent script is a normal state (a scenario case written before its code): the hint goes
+            // to the prompt slot, not the buffer, so nothing error-shaped or placeholder-shaped can be
+            // saved as the script, and the builder shows its empty state for a case with no steps.
+            Optional<String> script = projectStore.findCaseScript(suitePath, tc.getId());
+            code = script.orElse(null);
             codeEditor.setEditable(true);
-            setEditorText(code != null ? code
-                    : "// Chưa có script — bấm \"Ghi hình\" hoặc viết tay rồi bấm Lưu.\n", true);
+            showNoScriptPrompt(script.isEmpty());
         } catch (IOException e) {
+            readFailed = true;
             codeEditor.setEditable(true);
             setEditorText("// Lỗi đọc script: " + e.getMessage() + "\n", true);
             ToastService.error("Không đọc được script: " + e.getMessage());
         }
         applyCaseUrlToField(tc, code);
+        if (!readFailed) {
+            String startUrl = startUrlField != null ? startUrlField.getText() : "";
+            setEditorText(CaseScriptEditing.openText(code, tc.getTestSteps(), startUrl, tc.getName()), true);
+        }
         refreshAssertsList();
         if (aiCopilotDrawer != null && aiCopilotDrawer.isVisible()) {
             aiCopilotDrawer.refreshContext();
+        }
+    }
+
+    /**
+     * Shows or clears the "no script yet" guidance on both editors. It lives in the prompt slot, so it
+     * is visible only while the buffer is empty and can never be persisted or parsed into a step.
+     */
+    private void showNoScriptPrompt(boolean show) {
+        String prompt = show ? NO_SCRIPT_PROMPT : null;
+        if (codeEditor != null) {
+            codeEditor.setPromptText(prompt);
+        }
+        if (playwrightCodeArea != null) {
+            playwrightCodeArea.setPromptText(prompt);
         }
     }
 
@@ -1613,15 +1643,16 @@ public class SuiteWorkspacePageController {
 
     private boolean caseHasRecordedScript(TestCase tc) {
         if (tc == null || suitePath == null) return false;
+        Optional<String> code;
         try {
-            String code = projectStore.readCaseScript(suitePath, tc.getId());
-            if (code == null || code.isBlank()) return false;
-            // Stub from createCase is short; treat Ready or non-stub body as existing recording
-            if ("Ready".equals(tc.getStatus())) return true;
-            return code.lines().filter(l -> !l.isBlank() && !l.trim().startsWith("//")).count() > 8;
+            code = projectStore.findCaseScript(suitePath, tc.getId());
         } catch (IOException e) {
             return false;
         }
+        if (code.isEmpty() || code.get().isBlank()) return false;
+        // Stub from createCase is short; treat Ready or non-stub body as existing recording
+        if ("Ready".equals(tc.getStatus())) return true;
+        return code.get().lines().filter(l -> !l.isBlank() && !l.trim().startsWith("//")).count() > 8;
     }
 
     private boolean confirmRerecord(TestCase tc) {
@@ -1684,10 +1715,9 @@ public class SuiteWorkspacePageController {
         }
 
         cmd.add("--target=java");
-        String scriptFile = (targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank())
-                ? targetCase.getScriptFile()
-                : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
-        Path outFile = suitePath.resolve(scriptFile);
+        // The recorder writes the file the store will later read: the shared derivation keeps a name that
+        // another case already claims from being overwritten (and from being read back under a different name).
+        Path outFile = suitePath.resolve(ProjectStore.scriptFileName(suite, targetCase));
         cmd.add("--output=" + outFile.toAbsolutePath());
 
         String browser = resolvedBrowserId();
@@ -1816,10 +1846,9 @@ public class SuiteWorkspacePageController {
         boolean shareCtx = shareContextCheck.isSelected();
         final Path targetSuitePath = suitePath;
         String caseName = targetCase.getName();
-        String scriptFile = (targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank())
-                ? targetCase.getScriptFile()
-                : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
-        final Path casePath = targetSuitePath.resolve(scriptFile);
+        // The exact name the store reads and writes: a case with no file yet may need the collision
+        // suffix, and targeting its neighbour's file would run the wrong case.
+        final Path casePath = targetSuitePath.resolve(ProjectStore.scriptFileName(suite, targetCase));
 
         terminalAppend("Đang chạy case: " + caseName + " (" + browserId + ")");
         StatusBarService.set("Đang chạy case: " + caseName);
@@ -1839,11 +1868,10 @@ public class SuiteWorkspacePageController {
                         ToastService.warn("Không có test case nào để chạy");
                         return;
                     }
-                    terminalAppend("Kết quả: " + report.getPassed() + " đạt, "
-                            + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
+                    String summary = runSummary("Kết quả:", report);
+                    terminalAppend(summary);
                     applyRunTrace(report, targetCase);
-                    ToastService.success("Case hoàn tất: " + report.getPassed() + " đạt, "
-                            + report.getFailed() + " thất bại");
+                    reportRunOutcome(report, summary);
                     ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
@@ -1989,10 +2017,9 @@ public class SuiteWorkspacePageController {
                         ToastService.warn("Không có test case nào để chạy");
                         return;
                     }
-                    terminalAppend("Suite hoàn tất: " + report.getPassed() + " đạt, "
-                            + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
-                    ToastService.success("Suite hoàn tất: " + report.getPassed() + " đạt, "
-                            + report.getFailed() + " thất bại");
+                    String summary = runSummary("Suite hoàn tất:", report);
+                    terminalAppend(summary);
+                    reportRunOutcome(report, summary);
                     ViewNavigator.navigateToReportDetail(report.getRunId());
                 },
                 ex -> {
@@ -2002,6 +2029,28 @@ public class SuiteWorkspacePageController {
                 this::updateCaseActionButtons,
                 addCaseBtn
         );
+    }
+
+    /**
+     * One sentence for a finished run. The skipped count is part of it on purpose: a case whose script
+     * does not exist yet is skipped, and "0 đạt, 0 thất bại" alone reads as a run that silently checked
+     * nothing.
+     */
+    static String runSummary(String prefix, RunReport report) {
+        return prefix + " " + report.getPassed() + " đạt, " + report.getFailed() + " thất bại, "
+                + report.getSkipped() + " bỏ qua";
+    }
+
+    /**
+     * Reports a finished run to the user. A run where nothing executed is a warning, not a success:
+     * every case was skipped, so no verdict was proven.
+     */
+    private static void reportRunOutcome(RunReport report, String summary) {
+        if (report.getPassed() == 0 && report.getFailed() == 0) {
+            ToastService.warn(summary);
+            return;
+        }
+        ToastService.success(summary);
     }
 
     @FXML
@@ -2105,6 +2154,13 @@ public class SuiteWorkspacePageController {
             ToastService.warn("Chưa chọn case để lưu");
             return false;
         }
+        // An empty script is not a script: writing one would leave a case that looks authored but
+        // runs nothing, and would record a file nobody wrote content into.
+        String code = codeEditor.getText() != null ? codeEditor.getText() : "";
+        if (code.isBlank()) {
+            ToastService.warn("Case chưa có script — nhập code trước khi lưu");
+            return false;
+        }
         // Flush a pending code->steps re-parse so the persisted step model matches the saved script.
         if (codeSyncDebounce != null) {
             codeSyncDebounce.stop();
@@ -2112,7 +2168,6 @@ public class SuiteWorkspacePageController {
         if (playwrightCodeArea != null) {
             syncStepsFromCode(true);
         }
-        String code = codeEditor.getText() != null ? codeEditor.getText() : "";
         try {
             projectStore.saveCaseScript(suitePath, selectedCase.getId(), code);
             if (visualStepFlowPane != null) {
@@ -2182,6 +2237,10 @@ public class SuiteWorkspacePageController {
     private void setEditorText(String text, boolean markClean) {
         if (codeEditor == null) return;
         String script = text != null ? text : "";
+        // The "no script yet" hint only belongs on a buffer that has nothing to save.
+        if (!script.isBlank()) {
+            showNoScriptPrompt(false);
+        }
         suppressDirtyTracking = true;
         suppressDualSync = true;
         try {

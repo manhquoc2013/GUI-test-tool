@@ -55,3 +55,15 @@
 - [x] T7.8. CSS cả 2 theme cho card mới, chip hành động, body field, empty state
 - [x] T7.9. Test: `StepActionTest`, `StepCardViewUxTest`, `WorkspaceResponsiveLayoutTest`, cập nhật `StepBuilderLayoutTest`
 - [x] T7.10. Cổng chất lượng: `mvn -o test` xanh (**619 tests**), `javac -Xlint:all` 0 warning
+
+## Nhóm 8: Vòng review 3 — script & báo cáo (Review follow-ups)
+- [x] T8.1. Runner: file chỉ có ghi chú (không có `class`) → `SKIPPED` "Script chưa có mã thực thi", không còn là lỗi biên dịch (`ScriptHarnessTransformer.declaresClass`)
+- [x] T8.2. Runner: hằng số lý do skip tập trung (`SKIP_NO_SCRIPT`, `SKIP_NOT_A_SCRIPT`) thay vì chuỗi rải rác
+- [x] T8.3. Store: `ProjectStore.scriptFileName` — hai case có tên sanitize trùng nhau không còn chung một file (hậu tố `_<caseId>`), dùng thống nhất ở create/save/read/collect/rename/copy/AI-apply/codegen/heal/Explorer/Advisor
+- [x] T8.4. Store: case có `scriptFile` rỗng không còn đọc nhầm script của case bên cạnh (đọc đi qua cùng một phép suy tên)
+- [x] T8.5. Test end-to-end không cần trình duyệt: suite chỉ có case chưa có script/ghi chú → 0 đạt, 0 thất bại, 2 bỏ qua (`TestRunnerSkipsScriptlessCaseTest`)
+- [x] T8.6. Export: run toàn bỏ qua vẫn ra đủ dòng + lý do ở Excel (sheet Cases) và HTML (`SkippedOnlyRunExportTest`)
+- [x] T8.7. Controller: tách luật "editor mở bằng gì" ra `CaseScriptEditing.openText` (có test cho 3 trạng thái + startUrl + step bị tắt)
+- [x] T8.8. CSS: `-fx-prompt-text-fill: -color-fg-muted` cho TOÀN BỘ prompt (7 literal ở dark, 4 ở light); test chặn literal + đo tương phản WCAG ở cả 2 theme (`CodeEditorPromptStyleTest`)
+- [x] T8.9. Cổng chất lượng: `mvn -o clean test` xanh (**729 tests**), `-Xlint:all` 0 warning, tự review lại diff
+- [x] T8.10. Rename/copy case: không còn `move`/`copy` đè lên file của case khác (`CaseScriptNamingTest`, đã kiểm chứng ngược bằng mutation)

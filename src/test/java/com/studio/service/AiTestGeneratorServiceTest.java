@@ -112,6 +112,31 @@ class AiTestGeneratorServiceTest {
     }
 
     @Test
+    void aScenarioCaseGeneratedWithoutCodeClaimsNoScriptFile() throws IOException {
+        Path suiteDir = tempDir.resolve("ScenarioSuite");
+        Files.createDirectories(suiteDir);
+        new ObjectMapper().writeValue(suiteDir.resolve("suite.json").toFile(),
+                new TestSuite("ScenarioSuite", "Scenarios only"));
+
+        AiGeneratedCase scenario = new AiGeneratedCase("TC01_Chi_Co_Kich_Ban", "Kịch bản chưa sinh code", "https://example.com");
+
+        TestCase saved = service.applyCasesToSuite(suiteDir, List.of(scenario), projectStore).get(0);
+
+        assertTrue(saved.getScriptFile() == null || saved.getScriptFile().isBlank(),
+                "A case whose code was never generated must not name a script file: " + saved.getScriptFile());
+        assertTrue(projectStore.findCaseScript(suiteDir, saved.getId()).isEmpty());
+        try (var files = Files.list(suiteDir)) {
+            assertFalse(files.anyMatch(p -> p.toString().endsWith(".java")),
+                    "A scenario-only case gets no stub script");
+        }
+
+        // The code arrives later: saving writes and records the file the case then reads.
+        String code = "package com.test;\npublic class TC01_Chi_Co_Kich_Ban {}\n";
+        projectStore.saveCaseScript(suiteDir, saved.getId(), code);
+        assertEquals(code, projectStore.readCaseScript(suiteDir, saved.getId()));
+    }
+
+    @Test
     void testMissingApiKeyValidation() {
         AiConfig config = new AiConfig();
         config.setApiKey("");

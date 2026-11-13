@@ -142,4 +142,35 @@ class ScriptHarnessTransformerTest {
         assertTrue(out.contains("Pattern.compile"), out);
         assertTrue(out.contains("/dashboard"), out);
     }
+
+    /**
+     * The AI sometimes writes a file of Vietnamese notes instead of code when it has no URL to test.
+     * Such a file is not a script: there is nothing to rename, so nothing can be compiled. The runner
+     * has to recognise it before pretending the case is runnable.
+     */
+    @Test
+    void aNotesOnlyFileDeclaresNoClass() {
+        String notes = """
+                // [THÔNG BÁO] Không tạo test script tự động vì yêu cầu không có URL/link trang web cần test.
+                // Bộ test case đã được thiết kế đầy đủ tại các tab bên cạnh:
+                // - Tab 'Các bước': Danh sách bước thao tác
+                // - Tab 'Assertions': Tiêu chí xác thực kết quả
+                """;
+
+        assertFalse(ScriptHarnessTransformer.declaresClass(notes), notes);
+        assertFalse(ScriptHarnessTransformer.declaresClass("/* class Example is only mentioned here */"),
+                "A block comment cannot declare a class");
+        assertFalse(ScriptHarnessTransformer.declaresClass(""), "An empty file declares nothing");
+        assertFalse(ScriptHarnessTransformer.declaresClass(null), "A missing file declares nothing");
+    }
+
+    @Test
+    void anyClassDeclarationIsAScript() {
+        assertTrue(ScriptHarnessTransformer.declaresClass(CODEGEN));
+        assertTrue(ScriptHarnessTransformer.declaresClass("class PackagePrivate { }"),
+                "A package-private unit still compiles and gets renamed by the harness");
+        // A URL in a string literal contains "//": stripping it must not eat a class on that line.
+        assertTrue(ScriptHarnessTransformer.declaresClass(
+                "public class A { void m() { String u = \"https://x.test\"; } }"));
+    }
 }

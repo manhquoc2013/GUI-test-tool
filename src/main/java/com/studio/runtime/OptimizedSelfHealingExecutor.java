@@ -464,9 +464,9 @@ public class OptimizedSelfHealingExecutor {
         boolean persisted = false;
         try {
             // 1. Persist mutation into script file (strictly targeting quoted string literals to protect Java code)
-            String scriptFileName = currentCase.getScriptFile() != null && !currentCase.getScriptFile().isBlank()
-                    ? currentCase.getScriptFile()
-                    : currentCase.getName() + ".java";
+            // The store's derivation: a heal must patch the file this case actually runs, never a
+            // neighbour's script that happens to own the sanitised name.
+            String scriptFileName = ProjectStore.scriptFileName(currentSuite, currentCase);
             Path scriptPath = suiteDir.resolve(scriptFileName);
             if (Files.exists(scriptPath)) {
                 String content = Files.readString(scriptPath);

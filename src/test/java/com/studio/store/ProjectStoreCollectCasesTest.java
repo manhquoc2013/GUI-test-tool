@@ -263,6 +263,30 @@ class ProjectStoreCollectCasesTest {
         assertFalse(content2.contains("public class case {"), content2);
     }
 
+    @Test
+    void aCaseWithoutAScriptFileIsStillCollectedAndTargetedByName() throws Exception {
+        TestSuite suite = store.loadAndMigrateSuite(suiteDir);
+        // Scenario case from the AI: ready to run, but its Java was never generated (no scriptFile).
+        TestCase scenario = new TestCase("tc-noscript", "ScenarioOnly", "", "", "Ready");
+        Assertion active = new Assertion();
+        active.setType("TITLE_CONTAINS");
+        active.setValue("x");
+        active.setStatus("ACTIVE");
+        scenario.getAssertions().add(active);
+        suite.getCases().add(scenario);
+        store.saveSuite(suite, suiteDir);
+
+        List<CaseResult> suiteResults = store.collectCasesForScope("SUITE", suiteDir);
+        CaseResult collected = suiteResults.stream()
+                .filter(r -> "tc-noscript".equals(r.getTestCaseId())).findFirst().orElseThrow();
+        assertNull(collected.getSkipReason(), "A ready case is queued; its missing script is decided at run time");
+
+        // A single-case run targets <suiteDir>/<derived>.java even when that file does not exist yet.
+        List<CaseResult> single = store.collectCasesForScope("CASE", suiteDir.resolve("ScenarioOnly.java"));
+        assertEquals(1, single.size(), "A case whose script is not written yet must still be targeted");
+        assertEquals("tc-noscript", single.get(0).getTestCaseId());
+    }
+
     private static void deleteRecursive(Path dir) throws Exception {
         if (dir == null || !Files.exists(dir)) return;
         try (var walk = Files.walk(dir)) {

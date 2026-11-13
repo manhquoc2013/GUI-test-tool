@@ -89,4 +89,9 @@ public final class PlaywrightCodeArea extends HBox {
     public StringProperty textProperty() {
         return codeEditor.textProperty();
     }
+
+    /** Guidance shown while the buffer is empty — it is a hint, never content that can be saved. */
+    public void setPromptText(String prompt) {
+        codeEditor.setPromptText(prompt);
+    }
 }

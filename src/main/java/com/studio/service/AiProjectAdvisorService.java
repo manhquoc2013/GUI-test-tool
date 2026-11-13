@@ -129,7 +129,7 @@ public class AiProjectAdvisorService {
                 Path suiteDir = groupDir.resolve(suite.getName());
                 if (suite.getCases() != null) {
                     for (TestCase tc : suite.getCases()) {
-                        String reason = matchCase(tc, suite.getName(), gName, query, suiteDir);
+                        String reason = matchCase(tc, suite, gName, query, suiteDir);
                         if (reason != null) {
                             matches.add(new CaseMatch(
                                     tc.getName(),
@@ -153,7 +153,7 @@ public class AiProjectAdvisorService {
         }
     }
 
-    private String matchCase(TestCase tc, String suiteName, String groupName, String query, Path suiteDir) {
+    private String matchCase(TestCase tc, TestSuite suite, String groupName, String query, Path suiteDir) {
         if (query.isEmpty())
             return "Tất cả";
         String name = tc.getName() != null ? tc.getName().toLowerCase(Locale.ROOT) : "";
@@ -164,7 +164,7 @@ public class AiProjectAdvisorService {
         if (desc.contains(query))
             return "Mô tả khớp";
 
-        String sName = suiteName.toLowerCase(Locale.ROOT);
+        String sName = suite.getName() != null ? suite.getName().toLowerCase(Locale.ROOT) : "";
         if (sName.contains(query))
             return "Tên Suite khớp";
 
@@ -174,7 +174,7 @@ public class AiProjectAdvisorService {
 
         // Check inside script code if exists
         try {
-            Path scriptFile = resolveScriptPath(suiteDir, tc);
+            Path scriptFile = resolveScriptPath(suiteDir, suite, tc);
             if (scriptFile != null && Files.exists(scriptFile)) {
                 String code = Files.readString(scriptFile).toLowerCase(Locale.ROOT);
                 if (code.contains(query)) {
@@ -192,16 +192,13 @@ public class AiProjectAdvisorService {
      * {@code tc.getName()} missed every case whose name contains characters that were sanitised for
      * the file name, so the auditor scored an empty script.
      */
-    private static Path resolveScriptPath(Path suiteDir, TestCase tc) {
+    private static Path resolveScriptPath(Path suiteDir, TestSuite suite, TestCase tc) {
         if (suiteDir == null || tc == null) {
             return null;
         }
-        String scriptFile = tc.getScriptFile();
-        if (scriptFile != null && !scriptFile.isBlank()) {
-            return suiteDir.resolve(scriptFile);
-        }
-        return suiteDir.resolve(
-                com.studio.util.StringEscapeUtil.safeFileName(tc.getName(), "case") + ".java");
+        // The store's derivation, not a local one: a case with no recorded file may need the collision
+        // suffix, and reading the neighbour's script would audit code this case does not own.
+        return suiteDir.resolve(ProjectStore.scriptFileName(suite, tc));
     }
 
     // ── 2. Evaluate & Audit Test Case ──
@@ -212,6 +209,7 @@ public class AiProjectAdvisorService {
 
     public EvaluationResult evaluateCase(String targetCaseName, Path suiteDir, Path projectDir) {
         TestCase foundCase = null;
+        TestSuite foundSuite = null;
         String foundSuiteName = suiteDir != null ? suiteDir.getFileName().toString() : "Suite";
         Path targetSuiteDir = suiteDir;
         String scriptCode = "";
@@ -220,6 +218,7 @@ public class AiProjectAdvisorService {
         if (targetSuiteDir != null && Files.exists(targetSuiteDir)) {
             try {
                 TestSuite suite = projectStore.loadAndMigrateSuite(targetSuiteDir);
+                foundSuite = suite;
                 foundSuiteName = suite.getName();
                 if (suite.getCases() != null) {
                     for (TestCase tc : suite.getCases()) {
@@ -259,7 +258,10 @@ public class AiProjectAdvisorService {
         // Read script code
         if (targetSuiteDir != null) {
             try {
-                Path javaFile = resolveScriptPath(targetSuiteDir, foundCase);
+                // The project-wide search returns a case without its suite; one load is enough to name
+                // the file the same way the store would.
+                TestSuite suite = foundSuite != null ? foundSuite : projectStore.loadAndMigrateSuite(targetSuiteDir);
+                Path javaFile = resolveScriptPath(targetSuiteDir, suite, foundCase);
                 if (javaFile != null && Files.exists(javaFile)) {
                     scriptCode = Files.readString(javaFile);
                 }

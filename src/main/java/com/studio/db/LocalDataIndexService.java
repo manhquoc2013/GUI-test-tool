@@ -334,9 +334,11 @@ public class LocalDataIndexService {
                     }
                     activeCaseIds.add(tc.getId());
                     String scriptContent = "";
-                    if (suitePath != null && tc.getScriptFile() != null) {
+                    // A case may have no script yet (scenario written before its code) — a blank name
+                    // must not resolve to the suite directory itself.
+                    if (suitePath != null && tc.getScriptFile() != null && !tc.getScriptFile().isBlank()) {
                         Path scriptPath = suitePath.resolve(tc.getScriptFile());
-                        if (Files.exists(scriptPath)) {
+                        if (Files.isRegularFile(scriptPath)) {
                             scriptContent = Files.readString(scriptPath, StandardCharsets.UTF_8);
                         }
                     }

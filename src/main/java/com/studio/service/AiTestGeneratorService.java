@@ -2121,9 +2121,9 @@ public class AiTestGeneratorService {
             if (targetCase == null) {
                 String caseId = "tc-" + java.util.UUID.randomUUID().toString().substring(0, 8);
                 String caseName = genCase.getName();
-                String safeFileBase = com.studio.util.StringEscapeUtil.safeFileName(caseName, "case");
-                String scriptFileName = safeFileBase + ".java";
-                targetCase = new TestCase(caseId, caseName, desc, scriptFileName, "Ready");
+                // The script file is named when it is written (below): a case generated without code
+                // must not claim a path that no file backs.
+                targetCase = new TestCase(caseId, caseName, desc, "", "Ready");
                 targetCase.setStartUrl(genCase.getStartUrl() != null ? genCase.getStartUrl() : "");
                 targetCase.setBrowser(suite.getBrowser() != null ? suite.getBrowser() : "");
                 targetCase.setHeadless(suite.getHeadless());
@@ -2137,12 +2137,11 @@ public class AiTestGeneratorService {
                 targetCase.setUpdatedAt(now);
             }
 
-            String scriptFileName = targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank()
-                    ? targetCase.getScriptFile()
-                    : com.studio.util.StringEscapeUtil.safeFileName(targetCase.getName(), "case") + ".java";
-            targetCase.setScriptFile(scriptFileName);
-
             if (genCase.getScriptCode() != null && !genCase.getScriptCode().isBlank()) {
+                String scriptFileName = targetCase.getScriptFile() != null && !targetCase.getScriptFile().isBlank()
+                        ? targetCase.getScriptFile()
+                        : ProjectStore.scriptFileName(suite, targetCase);
+                targetCase.setScriptFile(scriptFileName);
                 ProjectStore.writeTextAtomic(suiteDir.resolve(scriptFileName), genCase.getScriptCode());
             }
             // No stub file when the model produced no script: a scenario-only case is honest, while a

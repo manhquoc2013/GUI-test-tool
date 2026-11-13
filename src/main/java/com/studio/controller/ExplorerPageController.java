@@ -2345,9 +2345,7 @@ public class ExplorerPageController {
             return suite.getCases().stream()
                     .filter(c -> Objects.equals(c.getId(), ref.caseId)
                             || Objects.equals(c.getName(), ref.name))
-                    .map(c -> c.getScriptFile() != null && !c.getScriptFile().isBlank()
-                            ? c.getScriptFile()
-                            : com.studio.util.StringEscapeUtil.safeFileName(c.getName(), "case") + ".java")
+                    .map(c -> ProjectStore.scriptFileName(suite, c))
                     .findFirst()
                     .orElse(fallback);
         } catch (IOException e) {

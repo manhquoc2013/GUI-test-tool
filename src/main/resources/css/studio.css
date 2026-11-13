@@ -388,7 +388,7 @@
     -fx-border-color: #2a2b3d;
     -fx-border-width: 1;
     -fx-text-fill: #cdd6f4;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-padding: 4 10;
 }
 .toolbar-search:focused {
@@ -1307,7 +1307,7 @@
 .text-field, .text-input {
     -fx-background-color: #24283b;
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-border-color: #3b3d57;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
@@ -1319,7 +1319,7 @@
 /* TextArea: single clean frame (avoid Modena double focus + scroll-pane borders) */
 .text-area {
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-control-inner-background: #24283b;
     -fx-highlight-fill: #3d59a1;
     -fx-highlight-text-fill: #c0caf5;
@@ -1398,7 +1398,7 @@
 .number-spinner .text-field {
     -fx-background-color: #24283b;
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-background-radius: 6;
     -fx-border-width: 0;
     -fx-padding: 7 10;
@@ -1481,7 +1481,7 @@
 .url-field {
     -fx-background-color: #24283b;
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-border-color: #3b3d57;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
@@ -1885,7 +1885,7 @@
 .ai-session-search {
     -fx-background-color: #1a1b26;
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-background-radius: 6;
     -fx-border-color: #2f354f;
     -fx-border-radius: 6;
@@ -2115,7 +2115,7 @@
 .clarification-custom-input {
     -fx-background-color: #16161e;
     -fx-text-fill: #c0caf5;
-    -fx-prompt-text-fill: #565f89;
+    -fx-prompt-text-fill: -color-fg-muted;
     -fx-font-size: 11px;
     -fx-border-color: #414868;
     -fx-border-radius: 4px;
@@ -3178,6 +3178,9 @@
     -fx-font-size: 13px;
     -fx-text-fill: -color-fg-default;
     -fx-background-color: -color-bg-default;
+    /* The empty-buffer hint ("Chưa có script…") is a prompt: it needs its own themed colour, because a
+       stock control draws it against this editor's background, not the theme's control background. */
+    -fx-prompt-text-fill: -color-fg-muted;
 }
 .workspace-editor-container {
     -fx-background-color: -color-bg-default;

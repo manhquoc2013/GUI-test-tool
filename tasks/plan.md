@@ -63,3 +63,16 @@
 - **Details**:
   - Ensure all 411+ unit and controller tests pass with zero failures.
   - Check dark and light theme consistency.
+
+## Slice 7: Review round 3 — script lifecycle & report evidence
+- **Files**:
+  - `src/main/java/com/studio/service/ScriptHarnessTransformer.java` (`declaresClass`)
+  - `src/main/java/com/studio/service/TestRunnerService.java` (skip reasons)
+  - `src/main/java/com/studio/store/ProjectStore.java` (`scriptFileName` — một phép suy tên duy nhất, reads dùng suite, `collectSingleCase`)
+  - `src/main/java/com/studio/controller/CaseScriptEditing.java` (new), `SuiteWorkspacePageController`
+  - `src/main/resources/css/studio.css` (prompt fill)
+- **Details**:
+  - Distinguish "no script" from "uncompilable script": a notes-only file is data the AI writes when it has no URL, and must not turn a suite red.
+  - One derivation for script file names, collision-safe, used by both reading and writing: two case names that sanitise to one file previously shared (and overwrote) it.
+  - Pin the editor's open rule in a tested helper instead of three branches inside a 2.6k-line controller.
+  - Verify the all-skipped run's export path, which had no test.
