@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "cdpEndpointArg": "--cdp-endpoint",
+      "notes": "CDP URL injected in-memory at runtime; never write ephemeral ports here."
+    },
+    "midscene": {
+      "command": "npx",
+      "args": ["-y", "@midscene/mcp"],
+      "notes": "Must consume screenshots/CDP from browser.engine — no second Chromium."
+    },
+    "figma": {
+      "command": "npx",
+      "args": ["-y", "figma-developer-mcp"],
+      "disabled": true
+    },
+    "db": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite"],
+      "disabled": true
+    }
+  }
+}

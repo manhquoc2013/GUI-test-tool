@@ -1,0 +1,89 @@
+[project]
+name = "ai-qa-test-studio"
+version = "4.0.0"
+description = "Autonomous Shift-Left & MCP-Powered AI QA Test Studio"
+readme = "README.md"
+authors = [
+    { name = "Mạnh Quốc", email = "manhquoc11@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6-Essentials>=6.7.0",
+    "qasync>=0.27.1",
+    "playwright>=1.48.0",
+    "mcp>=1.2.0",
+    "headroom-ai>=0.1.0",
+    "markitdown[docx,pdf,xlsx]>=0.1.0",
+    "pydantic>=2.9.0",
+    "tiktoken>=0.8.0",
+    "pyyaml>=6.0.2",
+    "openpyxl>=3.1.5",
+    "jinja2>=3.1.4",
+    "openai>=1.50.0",
+    "google-genai>=0.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-qt>=4.4.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "types-PyYAML>=6.0.0",
+]
+build = ["pyinstaller>=6.10.0"]
+
+[project.scripts]
+ai-qa-test-studio = "ai_qa_test_studio.__main__:main"
+ai-qa-report = "ai_qa_test_studio.reporting.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = [
+    "ignore:cannot collect test class:pytest.PytestCollectionWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["ai_qa_test_studio"]
+mypy_path = "src"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "PySide6.*",
+    "qasync",
+    "openpyxl",
+    "openpyxl.*",
+    "headroom",
+    "headroom_ai",
+    "markitdown",
+    "markitdown.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ai_qa_test_studio.ui.*"
+disallow_subclassing_any = false
+warn_unused_ignores = false
+disable_error_code = ["untyped-decorator"]

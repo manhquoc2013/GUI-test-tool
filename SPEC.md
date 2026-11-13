@@ -1,65 +1,176 @@
-# Specification: Comprehensive UI/UX Redesign with AtlantaFX, Low-Code/No-Code Step Builder & Dual-View Code Editor
-**Status**: COMPLETED
+# Spec: AI QA Test Studio v4.0
 
-## 1. Objective & Problem Statement
-The current UI of Test Studio relies on stock JavaFX controls styled with custom CSS (`studio.css`), unicode/emoji icons, and a text-based code area. This creates several UX bottlenecks:
-1. **Lack of Visual/No-Code Authoring**: Test cases must be created either through raw Playwright Java scripts or basic text forms. Non-technical QA and manual testers cannot easily compose, inspect, or drag-and-drop test steps.
-2. **Basic Code Editor**: The current editor uses standard JavaFX `TextArea`, lacking line numbers and a synchronized view with the visual step builder.
-3. **Inconsistent Iconography & Visual Hierarchy**: Emoji characters (`▶️`, `🔴`, `✨`, `📸`) render inconsistently across operating systems and lack pro-grade IDE visual polish.
-4. **Theme Fragmentation**: Custom CSS themes require tedious manual upkeep and lack modern component primitives (segmented buttons, pill badges, toggle switches, elevated cards).
+**Status**: ACTIVE  
+**Prior initiative**: archived at `docs/specs/archive/2026-11-13-javafx-ui-redesign/`  
+**Blueprint**: `docs/Bản Thiết Kế Tổng Thể AI QA Test Studio.md`  
+**Capability index**: `CAPABILITY_MAP.md`
 
-## 2. Target Architecture & Requirements
-1. **AtlantaFX Theme Framework Integration**:
-   - Integrate `io.github.mkpaz:atlantafx-base:2.0.1`.
-   - Support seamless switching between **Primer Dark** (default) and **Primer Light**.
-   - Standardize all UI controls using AtlantaFX classes (`.accent`, `.success`, `.danger`, `.flat`, `.small`, `Styles.TOGGLE_BUTTON`, `Breadcrumbs`, `Card`, `Badge`).
-2. **Vector Icon System**:
-   - Extend the native `com.studio.util.UiIcons` SVGPath registry (24×24 paths, CSS `-fx-fill` from AtlantaFX tokens).
-   - Replace unicode/emoji icons with sharp, theme-aware vector icons across Shell, Explorer, Workspace, AI Copilot, and Reports.
-3. **Low-Code / No-Code Visual Step Builder**:
-   - Implement `VisualStepFlowPane` and `StepCardView` to render `TestStep` objects as draggable, interactive action cards (`NAVIGATE`, `CLICK`, `FILL`, `SELECT`, `HOVER`, `WAIT_FOR_ELEMENT`, `ASSERT_VISIBLE`, `ASSERT_TEXT`, `DELAY`, `CUSTOM_JS`, plus `RAW` for unmodelled Java).
-   - Support drag-and-drop step reordering, enable/disable toggling (`[👁️]`), parameter insertion (`{{env.VAR}}`), and per-step Playwright command copy.
-   - Disabled steps remain persisted in the model (`TestStep.enabled = false`) but are excluded from the generated script.
-4. **Dual-View Code Editor**:
-   - Implement `PlaywrightCodeArea` as a native JavaFX editor with a synchronized line-number gutter and O(n) line counting.
-   - RichTextFX was evaluated and dropped: its bytecode is not compatible with JavaFX 26 / JDK 26, so syntax highlighting is deferred. The 3-way view toggle (`No-Code | Code | Split`) and bidirectional synchronization between `List<TestStep>` and the Java script are implemented.
-   - Synchronization is lossless: the recorded Java envelope (`package`/`import`/`class`/`main`) is preserved on every regeneration, and body lines the builder does not model (comments, hand-written Playwright calls) survive as `RAW` steps instead of being deleted.
-5. **Full System Shell & Navigation Redesign**:
-   - **Single collapsible sidebar** (220px, shrinks to a 56px icon rail): one nav entry per page — Explorer, Reports, AI Assistant — plus the "Suite đang mở" context block and the primary "Chạy tất cả" action. Navigation lives in exactly one place; global actions (theme, cleanup, settings, help) live in the header only.
-   - **Document Tab Bar** with file-type badges, dirty state tracking (`●`), and close handling. Reserved for open documents (suites, report details) only — fixed pages never become tabs, and the strip hides itself when no document is open.
-   - **Status Bar** footer displaying runner state, active Playwright engine, browser mode, and healed locators count.
-   - **Contextual AI Copilot Drawer** dockable inside the workspace for instant selector fixes and assertion generation (docked right drawer, background LLM call, DOM context capped at 6,000 chars).
-   - **Reports Dashboard**: 4 KPI Summary Cards, interactive step execution timeline, and screenshot evidence viewer.
+## Objective
 
-## 3. Commands & Verification Strategy
-- Build & Verification: `mvn clean test` (all 411+ existing tests + new UI tests must pass).
-- Compile check: `mvn clean compile -DskipTests` (0 errors, 0 warnings).
-- Layout & FXML integrity tests: Ensure all FXMLs load cleanly with no runtime reflection or controller linkage errors.
+Rebuild Test Studio as a cross-platform **Autonomous MCP-Powered AI QA Studio** (Python ≥3.11, PySide6 + qasync) that:
 
-## 4. Iteration 2 — No-Code Builder Usability
-**Status**: COMPLETED
+1. Eliminates LLM one-shot / max_tokens breakage via Dual-Loop (ReAct + verification) and 5-layer token governance.
+2. Supports **Shift-Left**: semantic `UNBOUND` scripts from SRS/Figma → `BOUND`/`HEALED` on real URL via Auto-Binder.
+3. Uses plug-and-play MCP + modular `skills/*/SKILL.md` (Progressive Disclosure).
+4. Keeps Shared Element Repository + hybrid DOM/vision fallback.
+5. Ships ISO/IEC/IEEE 29119 hierarchy and enterprise HTML/Excel/pytest export.
 
-### Objective
-The No-Code step builder was technically correct but hostile to use: every card rendered two permanent rows (including a value field that is disabled and unusable for RAW steps), the action picker showed raw action codes (`RAW`, `NAVIGATE`) instead of what the step does, the step number collapsed to "…", and copy/toggle/delete competed with each other as three equal icons. Two personas drive the redesign: a manual tester who has never written a selector, and a QA engineer reading a recorded script.
+**Users**: manual QA (no-code), automation engineers (YAML/Python), CI (headless reporting).
 
-### Requirements
-1. **Collapsed summary, expandable editor (accordion)**
-   - A card always shows one line: drag handle, step number, action chip, human-readable summary, enable toggle, overflow menu, expand chevron.
-   - Selecting the row (or the chevron, or Enter/Space while focused) expands the editor; only the fields the action actually consumes are rendered.
-2. **Human labels, preserved model values**
-   - Every persisted action code maps to a Vietnamese label plus a vector icon (`StepAction`); the model still stores `NAVIGATE`/`CLICK`/…/`RAW` so generated scripts and existing suites are unaffected.
-   - Summaries read like instructions ("nhập «admin» vào input#email"), and RAW steps show their statement in a monospace line.
-3. **Fewer, better-placed controls**
-   - Copy / delete move into a `⋯` overflow menu that appears when the card is hovered or selected; the enable toggle stays visible (it is a state, not a destructive action).
-   - Deleting a step that already carries a selector or value asks for confirmation; deleting an empty step is immediate.
-4. **Responsive workspace**
-   - The editor header degrades gracefully: view-mode buttons become icon-only (tooltips preserved) before any label is ellipsized, and the line-count caption only shows when it fits whole.
-   - The Asserts panel is removed from the split when the workspace is too narrow for both, and a header toggle restores it; both panels keep a usable minimum width.
-5. **Empty state and entry points**
-   - An empty case shows a real empty state (icon, title, explanation, primary CTA) rather than a single muted sentence.
-   - Adding a step expands it and puts the caret in its primary field.
+**Success**: end-to-end path Wizard → Scenario/Case → UNBOUND→BOUND→HEALED → Dual-Loop run → HTML/Excel/CLI report; gates in `tasks/todo.md` all green; zero PySide6 import in reporting CLI.
 
-### Acceptance / Verification
-- `mvn -o test` green; new guards: `StepActionTest`, `StepCardViewUxTest`, `WorkspaceResponsiveLayoutTest`, extended `StepBuilderLayoutTest`.
-- `javac -Xlint:all` clean on `src/main` and `src/test`.
-- Both themes verified by rendering the step builder and the editor header to PNG.
+## Tech Stack
+
+| Area | Choice |
+|---|---|
+| Language / packaging | Python ≥3.11, `uv`, package `ai_qa_test_studio` |
+| UI | PySide6 + qasync (no QtWebEngine) |
+| Browser | Playwright Python — **single** BrowserContext + ephemeral CDP |
+| MCP | `mcp` SDK; stdio for playwright / midscene / figma / db (+ user); **not** headroom/markitdown |
+| Token / docs | in-process `headroom-ai`, `markitdown[docx,pdf,xlsx]`, `tiktoken` |
+| Models | Pydantic v2 |
+| LLM | `openai`, `google-genai` |
+| Reports | Jinja2 HTML, openpyxl Excel |
+| Tests | pytest, pytest-qt, ruff, mypy |
+| Ship | PyInstaller (optional extra) |
+
+## Architectural invariants (non-negotiable)
+
+1. **`reporting-packaging` ↛ `ui-workspace`** — only `core-models-storage` + `agent-runtime`. Phase 5 subprocess test: run `python -m ai_qa_test_studio.reporting.cli` and assert `"PySide6" not in sys.modules`.
+2. **Single Browser Context** — `browser/engine.py` owns one Playwright context; CDP on ephemeral free port bound to `127.0.0.1`. `@playwright/mcp` and `midscene` attach only via that CDP/screenshots — never `--isolated` / second Chromium in production.
+3. **CDP config in-memory** — launch with `--remote-debugging-port=0`; parse real port from `ws://127.0.0.1:<port>/...`; inject into `StdioServerParameters` in RAM. **Never** write ephemeral port back to `mcp_servers.json`. At scaffold time, verify CLI flag via `npx @playwright/mcp@latest --help` (`--cdp-endpoint` vs `--browser-url`).
+4. **In-process headroom + markitdown** — declared as `markitdown[docx,pdf,xlsx]` (**not** `[all]`). MCP stdio only for playwright, midscene, figma, db (+ user). `BinaryResolver` finds absolute `node`/`npx` (Homebrew, nvm, fnm, `npx.cmd`).
+5. **No QtWebEngine** — viewport = CDP `Page.startScreencast` + canvas widget. HiDPI hit-test:  
+   `css_x = (widget_x - offset_x) * (viewport_width / rendered_width)` (same for y).
+6. **Phase 2 MCP smoke uses stub only** — Windows: `asyncio.WindowsProactorEventLoopPolicy` at entry. Real `@playwright/mcp` only after Phase 3 CDP exists.
+7. **Legacy locator normalizer** — `id=`/`css=`/`xpath=`/`By.*` → Playwright; `${var}` → `{{var}}` on import.
+
+## Commands
+
+```bash
+uv sync
+uv run ruff check .
+uv run mypy src
+uv run pytest
+uv run python -m ai_qa_test_studio
+uv run python -m ai_qa_test_studio.reporting.cli --help
+# Legacy reference only (not primary gate):
+cd legacy/javafx && mvn -o test
+```
+
+## Project Structure
+
+```text
+legacy/javafx/                 # archived JavaFX app (Phase 1 move)
+pyproject.toml
+mcp_servers.json               # static templates; no runtime port writes
+skills/                        # modular testing skills
+src/ai_qa_test_studio/
+  __main__.py
+  core/                        # models, storage, env, normalizer, token_budget
+  browser/                     # engine, dom_distiller, locator_resolver, visual_inspector
+  agent/                       # mcp_manager, skill_loader, generators, binder, dual_loop, healer
+  reporting/                   # zero PySide6 imports
+  ui/                          # PySide6 workspace
+tests/
+  fixtures/mcp_stub/
+docs/                          # blueprint + knowledge (not runtime)
+data/
+SPEC.md
+CAPABILITY_MAP.md
+tasks/plan.md
+tasks/todo.md
+```
+
+Keep: `docs/`, `docs/knowledge/`, `LICENSE`, `.git`. Do not ship `docs/knowledge/*` as runtime deps.
+
+## Code Style
+
+- Package imports: `from ai_qa_test_studio.core.models import TestCase`.
+- Pydantic v2 models; no bare `Any` in public APIs; structured logging with context.
+- Async I/O for browser/MCP; never block Qt main thread with DOM crush / LLM.
+- Constants / config for ports, timeouts, token caps — no magic numbers.
+- Example binding status enum usage:
+
+```python
+from typing import Literal
+from pydantic import BaseModel, Field
+
+class TestStep(BaseModel):
+    step_no: int
+    action: Literal["goto", "click", "fill", "select", "press_enter", "hover",
+                    "assert_visible", "assert_text", "assert_url", "verify_db"]
+    element_ref: str | None = None
+    intent_hint: str
+    input_data: str | None = None
+    expected_result: str = ""
+    binding_status: Literal["UNBOUND", "BOUND", "HEALED"] = "UNBOUND"
+```
+
+**UI (Phase 4):** Progressive disclosure, QSS design tokens (dark/light), empty/skeleton/error states, contrast ≥ 4.5:1, targets ≥ 44×44. Design tokens authored in Phase 4B (no `scripts/ui-search.sh` in repo).
+
+## Testing Strategy
+
+| Level | Where | Focus |
+|---|---|---|
+| Unit | `tests/unit/` | models, normalizer, token budget, skill loader, BinaryResolver |
+| Integration | `tests/integration/` | storage/import; qasync+stub MCP (Phase 2); UNBOUND→BOUND→HEALED on local HTML (Phase 3); single browser process assert |
+| UI smoke | `tests/ui/` | pytest-qt open/edit/run (4A); a11y contrast (4B) |
+| Reporting guard | `tests/reporting/` | CLI subprocess; `"PySide6" not in sys.modules` |
+
+Offline-first: HTML fixtures local; LLM mocked where possible. No dependency on external staging sites in CI.
+
+## Migration (Java → v4)
+
+- Hierarchy expands to Project → SharedElementRepo → Group → Scenario → Suite → Case → Steps.
+- Steps map via normalizer; `enabled=false` preserved as skip slot.
+- Assertions + TestDataProfile → `test_data_rows` / profile store.
+- Settings/AI keys → env/secrets (best-effort; never plaintext in logs).
+- `.java` scripts kept as reference artifacts; runtime = YAML / No-Code / pytest-playwright.
+- Importer idempotent over all legacy `suite.json`.
+
+## Boundaries
+
+**Always**
+- Honor the seven architectural invariants above.
+- Run `ruff` / `mypy` / `pytest` before claiming a phase done.
+- Keep reporting free of PySide6 imports.
+- Inject CDP endpoint in memory only.
+
+**Ask first**
+- Adding MCP servers beyond the declared set.
+- Changing ISO model fields that affect importer compatibility.
+- Enabling live Figma/DB MCP (needs credentials).
+- Parallel Swarm (`ruflo`) beyond single-worker stub.
+
+**Never**
+- Commit secrets / API keys.
+- Spawn a second Chromium for agent/inspector/MCP in production paths.
+- Use `markitdown[all]` or QtWebEngine.
+- Port 729 JavaFX UI tests as the v4 gate.
+- Auto-commit / auto-branch (user owns git).
+
+## Phased delivery (~16 days)
+
+| Phase | Focus | Exit gate |
+|---|---|---|
+| 0 | Archive + SPEC/CAPABILITY_MAP/tasks/.ai-context | Docs consistent with invariants |
+| 1 | legacy move, models, storage, importer+normalizer | Idempotent import; root free of Java build files |
+| 2 | token in-process, MCP host+BinaryResolver, skills, stub | qasync + stub MCP stdio smoke |
+| 3 | browser CDP, DOMDistiller, binder, dual-loop, healer | UNBOUND→BOUND→HEALED; one browser process |
+| 4A | Shell + editor sync + Run/Stop + first-run Chromium | pytest-qt open/edit/run |
+| 4B | Wizard, CDP Inspector (HiDPI math), palette, QSS a11y | contrast + 44px; empty/skeleton/error |
+| 5 | HTML/Excel/code export, PyInstaller, reporting CLI guard | CLI headless; no PySide6 in reporting process |
+
+## Success Criteria
+
+- [ ] Capability map modules implemented in dependency order with phase gates green.
+- [ ] Legacy suites import with normalized locators/vars; Tier-1 bind can succeed without AI when locators match.
+- [ ] Agent + Auto-Binder + Inspector share one BrowserContext via ephemeral CDP injected in RAM.
+- [ ] Reporting CLI runs headless without importing PySide6 (automated assertion).
+- [ ] Dual-Loop respects atomic tool calls and token caps on fixture workloads.
+- [ ] Packaged app first-run installs Chromium when missing; markitdown extras stay slim.
+
+## Open Questions
+
+None blocking execution — residual CDP CLI flag name confirmed at Phase 3 scaffold via `--help`.

@@ -29,3 +29,15 @@ docs/intel/_intake/
 
 # Gradle build state captured inside vendored reference projects
 **/.gradle/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+uv.lock
+data/v4/
