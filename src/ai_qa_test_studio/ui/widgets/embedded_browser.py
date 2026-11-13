@@ -16,7 +16,20 @@ from qfluentwidgets import CaptionLabel, PrimaryPushButton, TogglePushButton
 from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.browser.visual_inspector import ViewportMapping, widget_to_css_point
-from ai_qa_test_studio.constants import UI_VIEWPORT_HEIGHT, UI_VIEWPORT_MIN_HEIGHT, UI_VIEWPORT_WIDTH
+from ai_qa_test_studio.constants import (
+    THEME_BG_SCREENCAST,
+    THEME_MUTED,
+    UI_LABEL_BROWSER,
+    UI_LABEL_INSPECT,
+    UI_LABEL_INSPECT_ON,
+    UI_VIEWPORT_HEIGHT,
+    UI_VIEWPORT_MIN_HEIGHT,
+    UI_VIEWPORT_WIDTH,
+)
+
+_STATUS_LABEL_STYLE = (
+    f"color: {THEME_MUTED}; background-color: {THEME_BG_SCREENCAST}; padding: 16px;"
+)
 
 
 class ScreencastViewport(QWidget):
@@ -32,11 +45,11 @@ class ScreencastViewport(QWidget):
         self._inspecting = False
         self._has_frame = False
 
-        self.btn_inspect = TogglePushButton(FIF.SEARCH, "Inspect Element", self)
+        self.btn_inspect = TogglePushButton(FIF.SEARCH, UI_LABEL_INSPECT, self)
         self.btn_inspect.setAccessibleName("Bật chế độ Inspect Element")
         self.btn_inspect.toggled.connect(self._on_inspect_toggled)
 
-        self.btn_launch = PrimaryPushButton(FIF.GLOBE, "Launch Browser", self)
+        self.btn_launch = PrimaryPushButton(FIF.GLOBE, UI_LABEL_BROWSER, self)
         self.btn_launch.setAccessibleName("Mở trình duyệt")
         self.btn_launch.clicked.connect(self.launch_requested.emit)
 
@@ -56,7 +69,9 @@ class ScreencastViewport(QWidget):
         self.label.setMinimumHeight(UI_VIEWPORT_MIN_HEIGHT)
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.label.setScaledContents(False)
+        self.label.setWordWrap(True)
         self.label.setAccessibleName("Screencast")
+        self.label.setStyleSheet(_STATUS_LABEL_STYLE)
         self.label.mousePressEvent = self._on_click  # type: ignore[method-assign]
 
         self.empty = QWidget()
@@ -97,14 +112,19 @@ class ScreencastViewport(QWidget):
     def _on_inspect_toggled(self, checked: bool) -> None:
         self._inspecting = checked
         self.inspect_toggled.emit(checked)
-        self.btn_inspect.setText("Inspect ON" if checked else "Inspect Element")
+        self.btn_inspect.setText(UI_LABEL_INSPECT_ON if checked else UI_LABEL_INSPECT)
 
     def set_placeholder(self, text: str) -> None:
         self._pixmap = QPixmap()
         self._has_frame = False
         self.label.setPixmap(QPixmap())
-        self.label.setText(text)
-        self.stack.setCurrentWidget(self.empty)
+        message = text.strip()
+        if message:
+            self.label.setText(message)
+            self.stack.setCurrentWidget(self.label)
+        else:
+            self.label.setText("")
+            self.stack.setCurrentWidget(self.empty)
 
     def set_frame_png(self, png_bytes: bytes, viewport_w: int, viewport_h: int) -> None:
         image = QImage.fromData(png_bytes)

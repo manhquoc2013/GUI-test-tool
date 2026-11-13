@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
@@ -18,17 +20,27 @@ from PySide6.QtWidgets import (
 from qasync import asyncSlot
 from qfluentwidgets import CaptionLabel, InfoBadge, InfoBar, InfoBarPosition
 
+from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
+from ai_qa_test_studio.agent.orchestrator import CopilotOrchestrator
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
+from ai_qa_test_studio.browser.dom_distiller import DomDistiller
 from ai_qa_test_studio.browser.visual_inspector import element_from_point
 from ai_qa_test_studio.constants import (
+    APPLY_KIND_COMPOSE,
+    APPLY_KIND_TEST_DATA,
+    COPILOT_MODE_COMPOSE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
     FALLBACK_BLANK_URL,
+    ROLE_COMPOSER,
+    SCREENCAST_STATUS_NAV_FAILED,
+    SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
     UI_INFOBAR_DURATION_MS,
     UI_SPLIT_SIZES_H,
     UI_SPLIT_SIZES_V,
 )
+from ai_qa_test_studio.core.chat_history import ChatHistoryStore
 from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario, TestStep
@@ -46,7 +58,6 @@ from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
 from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
 from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
-from ai_qa_test_studio.ui.wizards.ai_test_wizard import AiTestWizard
 
 
 class MainWindow(QMainWindow):
@@ -63,8 +74,12 @@ class MainWindow(QMainWindow):
         self.session = SessionController()
         self._busy = False
         self._last_report: RunReport | None = None
+        self._last_error: str = ""
         self._token_budget = TokenBudget()
         self._skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
+        self._chat_store = ChatHistoryStore(self.data_root)
+        self._copilot_cancel: asyncio.Event | None = None
+        self._dom_distiller = DomDistiller(self._token_budget)
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
@@ -85,7 +100,7 @@ class MainWindow(QMainWindow):
             "shift-left-figma-sync",
         ]
         self.top_bar.set_skills(skills)
-        self.top_bar.wizard_clicked.connect(self._open_wizard)
+        self.top_bar.wizard_clicked.connect(self._open_copilot)
         self.top_bar.new_case_clicked.connect(self._new_case)
         self.top_bar.sync_url_clicked.connect(lambda _url: self._sync_url())
         self.top_bar.run_clicked.connect(self._run_current)
@@ -110,8 +125,16 @@ class MainWindow(QMainWindow):
         self.browser_agent = BrowserAgentPane(h_splitter)
         self.viewport = self.browser_agent
         self._run_logs = self.browser_agent.agent_feed
+        self.copilot = self.browser_agent.copilot
         self.browser_agent.launch_browser_clicked.connect(self._launch_browser)
         self.browser_agent.clicked_css.connect(self._on_viewport_click)
+        self.copilot.prompt_submitted.connect(self._on_copilot_prompt)
+        self.copilot.stop_requested.connect(self._stop_copilot)
+        self.copilot.apply_requested.connect(self._apply_copilot_payload)
+        self.copilot.info_message.connect(
+            lambda title, body: self._toast_info(title, body)
+        )
+        self.copilot.session_changed.connect(self._persist_copilot_session)
 
         h_splitter.addWidget(self.explorer)
         h_splitter.addWidget(self.builder)
@@ -208,21 +231,140 @@ class MainWindow(QMainWindow):
     def _on_case_fields_changed(self) -> None:
         self._update_unbound_badge(self.builder.peek_case())
 
-    def _open_wizard(self) -> None:
+    def _open_copilot(self) -> None:
+        self.browser_agent.show_copilot(compose=True)
+        self._toast_info(
+            "QA Copilot",
+            "Compose mode — mô tả SRS/URL rồi gửi. Pipeline mặc định: Planner→Composer→Critic.",
+        )
+
+    def _toast_info(self, title: str, content: str) -> None:
+        InfoBar.success(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=UI_INFOBAR_DURATION_MS,
+            parent=self,
+        )
+
+    def _persist_copilot_session(self) -> None:
+        self._chat_store.upsert(self.copilot.session)
+        self._chat_store.save()
+
+    def _stop_copilot(self) -> None:
+        if self._copilot_cancel is not None:
+            self._copilot_cancel.set()
+        self.copilot.mark_stopped()
+
+    @asyncSlot(str, dict)
+    async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:
+        self.copilot.set_busy(True)
+        self._copilot_cancel = asyncio.Event()
+        self.copilot.set_apply_payload(None)
+        try:
+            context = await self._build_copilot_context(flags)
+            mode = str(flags.get("mode") or self.copilot.session.mode)
+            if "srs" in text.lower() or "kịch bản" in text.lower():
+                mode = COPILOT_MODE_COMPOSE
+                self.copilot.session.mode = mode
+            gateway = UnifiedLLMGateway.from_settings(self.env.settings.ai)
+            orch = CopilotOrchestrator(gateway)
+            history = [
+                ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
+                for m in self.copilot.session.llm_window()
+                if m.role in {"user", ROLE_COMPOSER, "assistant"}
+            ]
+            current_role: str | None = None
+            async for event in orch.run(
+                user_text=text,
+                mode=mode,
+                context=context,
+                history=history[:-1] if history else [],
+                cancel=self._copilot_cancel,
+            ):
+                if event.kind == "role_start" and event.role:
+                    current_role = event.role
+                    self.copilot.begin_role(event.role)
+                elif event.kind == "chunk":
+                    self.copilot.append_stream_chunk(event.text)
+                elif event.kind == "role_end" and event.role:
+                    self.copilot.end_role(event.role, event.text)
+                    current_role = None
+                elif event.kind == "apply_ready" and event.apply_payload:
+                    self.copilot.set_apply_payload(event.apply_payload)
+                elif event.kind == "stopped":
+                    self.copilot.mark_stopped(event.role or current_role)
+                    return
+            self._persist_copilot_session()
+            used = self._token_budget.count(
+                "\n".join(m.content for m in self.copilot.session.messages)
+            )
+            self._set_pill(
+                self._pill_tokens,
+                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._last_error = str(exc)
+            self._toast_error("Copilot", str(exc))
+            self.copilot.mark_stopped()
+        finally:
+            self.copilot.set_busy(False)
+            self._copilot_cancel = None
+
+    async def _build_copilot_context(self, flags: dict[str, Any]) -> dict[str, Any]:
+        ctx: dict[str, Any] = {
+            "include_case": bool(flags.get("include_case")),
+            "include_dom": bool(flags.get("include_dom")),
+            "include_last_error": bool(flags.get("include_last_error")),
+        }
+        case = self.builder.peek_case() if hasattr(self.builder, "peek_case") else self.builder.current_case()
+        if ctx["include_case"] and case is not None:
+            ctx["case"] = case.model_dump_json()
+            ctx["srs"] = f"{case.title}\n{case.expected_final_result or ''}"
+        if ctx["include_last_error"] and self._last_error:
+            ctx["last_error"] = self._last_error
+        if ctx["include_dom"] and self.session.started:
+            try:
+                compact, _ = await self._dom_distiller.extract(self.session.engine.page)
+                ctx["dom"] = compact
+            except Exception as exc:  # noqa: BLE001
+                ctx["dom"] = f"(DOM unavailable: {exc})"
+        return ctx
+
+    def _apply_copilot_payload(self, payload: dict[str, Any]) -> None:
         if self.project is None:
             return
-        wizard = AiTestWizard(self)
-        if wizard.exec():
-            scenarios = wizard.result_scenarios()
+        kind = payload.get("kind")
+        if kind == APPLY_KIND_COMPOSE:
+            scenarios_raw = payload.get("scenarios") or []
+            scenarios = [TestScenario.model_validate(item) for item in scenarios_raw]
             if not scenarios:
                 return
             self.project.root_group.scenarios.extend(scenarios)
             self.storage.save(self.project)
             self._reload_ui()
             self._append_log(
-                f"Wizard đã thêm {len(scenarios)} scenario, "
-                f"{sum(len(s.cases) for s in scenarios)} case"
+                f"Copilot Apply: {len(scenarios)} scenario, "
+                f"{sum(len(s.cases) for s in scenarios)} case UNBOUND"
             )
+            self._toast_info("Apply", f"Đã thêm {len(scenarios)} scenario draft.")
+            return
+        if kind == APPLY_KIND_TEST_DATA:
+            rows = list(payload.get("rows") or [])
+            case = self.builder.current_case()
+            if case is None:
+                self._toast_warn("Apply", "Chọn một test case trước khi thêm Test Data.")
+                return
+            case.test_data_rows = list(case.test_data_rows) + rows
+            self._merge_case(case)
+            self.storage.save(self.project)
+            self.data_drawer.load_rows(case.test_data_rows)
+            self._append_log(f"Copilot Apply: +{len(rows)} Test Data rows")
+            self._toast_info("Apply", f"Đã thêm {len(rows)} bộ Test Data.")
+            return
+        self._toast_warn("Apply", f"Loại artifact chưa hỗ trợ: {kind}")
 
     def _new_case(self) -> None:
         if self.project is None:
@@ -300,6 +442,7 @@ class MainWindow(QMainWindow):
 
     def _toast_error(self, title: str, content: str) -> None:
         """Non-modal error — avoid QMessageBox inside asyncSlot (qasync/Playwright clash)."""
+        self._last_error = content
         InfoBar.error(
             title=title,
             content=content,
@@ -328,14 +471,17 @@ class MainWindow(QMainWindow):
         self._busy = True
         try:
             url = self.url_edit.text().strip() or DEFAULT_TARGET_URL
+            self.viewport.set_placeholder(SCREENCAST_STATUS_WAITING)
             opened = await self.session.launch_url(url, log=self._append_log)
-            await self._refresh_viewport()
             self._set_pill(self._pill_mcp, "MCP: Playwright Ready")
             if opened == FALLBACK_BLANK_URL and url not in {"", FALLBACK_BLANK_URL}:
+                self.viewport.set_placeholder(f"{SCREENCAST_STATUS_NAV_FAILED}\n«{url}»")
                 self._toast_warn(
                     "URL không mở được",
                     f"Không resolve được «{url}». Đã mở trang trống — nhập URL thật rồi Launch lại.",
                 )
+            else:
+                await self._refresh_viewport()
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Không mở được trình duyệt: {exc}")
             self._toast_error("Launch Browser", str(exc))
@@ -491,11 +637,11 @@ class MainWindow(QMainWindow):
     def _palette_commands(self) -> list[PaletteCommand]:
         return [
             PaletteCommand(
-                "wizard",
-                "AI Wizard",
-                "Tạo kịch bản draft từ SRS / mô tả",
-                ("ai", "wizard", "srs", "figma"),
-                self._open_wizard,
+                "copilot",
+                "AI Copilot",
+                "Mở Copilot Compose (Planner→Composer→Critic)",
+                ("ai", "copilot", "wizard", "srs", "figma"),
+                self._open_copilot,
             ),
             PaletteCommand(
                 "new_case",

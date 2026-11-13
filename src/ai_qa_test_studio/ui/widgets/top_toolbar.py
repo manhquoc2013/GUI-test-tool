@@ -24,6 +24,11 @@ from ai_qa_test_studio.constants import (
     THEME_BG_TOPBAR,
     THEME_BORDER,
     THEME_RUN,
+    UI_BTN_COPILOT_MIN_WIDTH,
+    UI_BTN_EXPORT_MIN_WIDTH,
+    UI_BTN_RUN_MIN_WIDTH,
+    UI_BTN_STOP_SIZE,
+    UI_BTN_SYNC_MIN_WIDTH,
     UI_TOP_BAR_HEIGHT,
 )
 
@@ -50,9 +55,12 @@ class UnifiedTopBar(QWidget):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
-        self.btn_wizard = PrimaryPushButton(FIF.ROBOT, "AI Wizard", self)
-        self.btn_wizard.setToolTip("Tạo kịch bản tự động từ SRS, Figma hoặc URL (Ctrl+Shift+W)")
-        self.btn_wizard.setAccessibleName("AI Wizard")
+        self.btn_wizard = PrimaryPushButton(FIF.ROBOT, "Copilot", self)
+        self.btn_wizard.setMinimumWidth(UI_BTN_COPILOT_MIN_WIDTH)
+        self.btn_wizard.setToolTip(
+            "Mở QA Copilot (Compose / Case chat) — Planner→Composer→Critic"
+        )
+        self.btn_wizard.setAccessibleName("AI Copilot")
         self.btn_wizard.clicked.connect(self.wizard_clicked.emit)
 
         self.btn_new_case = ToolButton(FIF.ADD, self)
@@ -78,6 +86,7 @@ class UnifiedTopBar(QWidget):
         sync_layout.setSpacing(6)
 
         self.btn_sync = PushButton(FIF.SYNC, "Sync URL", sync_container)
+        self.btn_sync.setMinimumWidth(UI_BTN_SYNC_MIN_WIDTH)
         self.btn_sync.setToolTip("Tự động ánh xạ các bước UNBOUND sang selector thật")
         self.btn_sync.setAccessibleName("Đồng bộ URL và bind selector")
         self.btn_sync.clicked.connect(
@@ -97,6 +106,8 @@ class UnifiedTopBar(QWidget):
         layout.addWidget(self.skill_combo)
 
         self.btn_run = PrimaryPushButton(FIF.PLAY, "Run", self)
+        self.btn_run.setMinimumWidth(UI_BTN_RUN_MIN_WIDTH)
+        self.btn_run.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_run.setStyleSheet(
             f"PrimaryPushButton {{ background-color: {THEME_RUN}; border: none; }}"
         )
@@ -104,11 +115,13 @@ class UnifiedTopBar(QWidget):
         self.btn_run.clicked.connect(self.run_clicked.emit)
 
         self.btn_stop = ToolButton(FIF.CLOSE, self)
+        self.btn_stop.setFixedSize(UI_BTN_STOP_SIZE, UI_BTN_STOP_SIZE)
         self.btn_stop.setToolTip("Dừng thực thi (Esc)")
         self.btn_stop.setAccessibleName("Stop")
         self.btn_stop.clicked.connect(self.stop_clicked.emit)
 
         self.btn_export = DropDownPushButton(FIF.SHARE, "Export", self)
+        self.btn_export.setMinimumWidth(UI_BTN_EXPORT_MIN_WIDTH)
         self.btn_export.setAccessibleName("Export")
         export_menu = RoundMenu(parent=self.btn_export)
         export_menu.addAction(

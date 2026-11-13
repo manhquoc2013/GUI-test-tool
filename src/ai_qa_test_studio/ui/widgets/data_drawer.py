@@ -17,6 +17,7 @@ from qfluentwidgets import (
 )
 
 from ai_qa_test_studio.constants import (
+    DEFAULT_EXPECTED_OUTCOME,
     THEME_BG_PANEL,
     UI_DRAWER_COLLAPSED_HEIGHT,
     UI_DRAWER_EXPANDED_HEIGHT,
@@ -105,8 +106,9 @@ class TestDataDrawer(QWidget):
     def _split_row(self, row: dict[str, Any], index: int) -> tuple[str, str, str]:
         scenario_keys = ("scenario", "Scenario", "case", "Case", "name", "Name", "title")
         expected_keys = (
-            "ExpectedOutcome",
             "expected_outcome",
+            "expectedOutcome",
+            "ExpectedOutcome",
             "Expected Outcome",
             "expected",
             "ExpectedResult",
@@ -115,10 +117,11 @@ class TestDataDrawer(QWidget):
         if not scenario:
             scenario = f"Bộ dữ liệu {index + 1}"
 
-        expected = ""
+        expected = DEFAULT_EXPECTED_OUTCOME
         for key in expected_keys:
-            if key in row:
-                expected = str(row[key])
+            value = row.get(key)
+            if value is not None and str(value).strip():
+                expected = str(value)
                 break
 
         if "parameters" in row:

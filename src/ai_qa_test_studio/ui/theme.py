@@ -10,15 +10,23 @@ from qfluentwidgets import Theme, setTheme, setThemeColor
 
 from ai_qa_test_studio.constants import (
     THEME_ACCENT,
+    THEME_BG_CARD,
     THEME_BG_MAIN,
     THEME_BG_STATUS,
     THEME_BORDER,
+    THEME_BORDER_CARD,
+    THEME_CARD_RADIUS,
     THEME_MUTED,
 )
 
 FLUENT_DARK_QSS = f"""
 QMainWindow {{
     background-color: {THEME_BG_MAIN};
+}}
+CardWidget {{
+    background-color: {THEME_BG_CARD};
+    border: 1px solid {THEME_BORDER_CARD};
+    border-radius: {THEME_CARD_RADIUS}px;
 }}
 QSplitter::handle {{
     background-color: {THEME_BORDER};

@@ -50,7 +50,7 @@ class ExplorerPane(QWidget):
 
         self.pivot = SegmentedWidget(self)
         self.pivot.setAccessibleName("Chuyển Suites hoặc Elements")
-        self.pivot.addItem(routeKey="suites", text="Test Suites", icon=FIF.FOLDER)
+        self.pivot.addItem(routeKey="suites", text="Suites", icon=FIF.FOLDER)
         self.pivot.addItem(routeKey="elements", text="Elements (0)", icon=FIF.TAG)
         self.pivot.setCurrentItem("suites")
         layout.addWidget(self.pivot)

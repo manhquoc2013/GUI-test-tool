@@ -1,14 +1,14 @@
-"""Right column: Toggle Inspect + CDP Screencast card + Agent timeline."""
+"""Right column: Inspect + CDP screencast + Segmented Copilot | Agent Feed."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     PrimaryPushButton,
-    StrongBodyLabel,
+    SegmentedWidget,
     TogglePushButton,
 )
 from qfluentwidgets import (
@@ -17,12 +17,18 @@ from qfluentwidgets import (
 
 from ai_qa_test_studio.constants import (
     THEME_BG_PANEL,
-    UI_EXPLORER_MIN_WIDTH,
+    UI_BROWSER_PANE_MIN_WIDTH,
+    UI_BTN_INSPECT_MIN_WIDTH,
+    UI_BTN_LAUNCH_MIN_WIDTH,
+    UI_LABEL_BROWSER,
+    UI_LABEL_INSPECT,
+    UI_LABEL_INSPECT_ON,
     UI_VIEWPORT_HEIGHT,
     UI_VIEWPORT_MIN_HEIGHT,
     UI_VIEWPORT_WIDTH,
 )
 from ai_qa_test_studio.ui.widgets.agent_feed import AgentFeed
+from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
 from ai_qa_test_studio.ui.widgets.embedded_browser import ScreencastViewport
 
 
@@ -34,7 +40,7 @@ class BrowserAgentPane(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName("Cột Browser và Agent")
-        self.setMinimumWidth(UI_EXPLORER_MIN_WIDTH + 80)
+        self.setMinimumWidth(UI_BROWSER_PANE_MIN_WIDTH)
         self.setStyleSheet(f"background-color: {THEME_BG_PANEL};")
 
         layout = QVBoxLayout(self)
@@ -44,16 +50,19 @@ class BrowserAgentPane(QWidget):
         bar = QHBoxLayout()
         bar.setSpacing(8)
 
-        self.btn_inspect = TogglePushButton(FIF.SEARCH, "Inspect Element", self)
-        self.btn_inspect.setToolTip("Rê chuột lên trình duyệt để bắt locator phần tử")
+        self.btn_inspect = TogglePushButton(FIF.SEARCH, UI_LABEL_INSPECT, self)
+        self.btn_inspect.setMinimumWidth(UI_BTN_INSPECT_MIN_WIDTH)
+        self.btn_inspect.setToolTip("Inspect Element — Rê chuột lên trình duyệt để bắt locator")
         self.btn_inspect.setAccessibleName("Bật chế độ Inspect Element")
         self.btn_inspect.toggled.connect(self._on_inspect_toggled)
 
-        self.btn_launch = PrimaryPushButton(FIF.GLOBE, "Launch Browser", self)
+        self.btn_launch = PrimaryPushButton(FIF.GLOBE, UI_LABEL_BROWSER, self)
+        self.btn_launch.setMinimumWidth(UI_BTN_LAUNCH_MIN_WIDTH)
+        self.btn_launch.setToolTip("Launch Browser — Khởi chạy Chromium CDP")
         self.btn_launch.setAccessibleName("Mở trình duyệt")
         self.btn_launch.clicked.connect(self.launch_browser_clicked.emit)
 
-        self.res_label = CaptionLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT} · CDP", self)
+        self.res_label = CaptionLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT}", self)
 
         bar.addWidget(self.btn_inspect)
         bar.addWidget(self.btn_launch)
@@ -74,15 +83,43 @@ class BrowserAgentPane(QWidget):
         vp_layout.addWidget(self.viewport, stretch=1)
         layout.addWidget(self.viewport_card, stretch=3)
 
-        agent_card = CardWidget(self)
-        agent_layout = QVBoxLayout(agent_card)
-        agent_layout.setContentsMargins(12, 10, 12, 10)
-        agent_layout.setSpacing(6)
-        agent_layout.addWidget(StrongBodyLabel("Luồng thực thi Agent (ReAct Live Feed)", agent_card))
-        self.agent_feed = AgentFeed(agent_card)
+        lower = CardWidget(self)
+        lower_layout = QVBoxLayout(lower)
+        lower_layout.setContentsMargins(12, 10, 12, 10)
+        lower_layout.setSpacing(6)
+
+        self.pivot = SegmentedWidget(lower)
+        self.pivot.setAccessibleName("Chuyển Copilot hoặc Agent Feed")
+        self.pivot.addItem(routeKey="copilot", text="AI Copilot", icon=FIF.ROBOT)
+        self.pivot.addItem(routeKey="feed", text="Agent Feed", icon=FIF.CHAT)
+        self.pivot.setCurrentItem("copilot")
+        lower_layout.addWidget(self.pivot)
+
+        self.stack = QStackedWidget(lower)
+        self.copilot = CopilotChatPane(self.stack)
+        feed_wrap = QWidget(self.stack)
+        feed_layout = QVBoxLayout(feed_wrap)
+        feed_layout.setContentsMargins(0, 0, 0, 0)
+        self.agent_feed = AgentFeed(feed_wrap)
         self.agent_feed.set_title_visible(False)
-        agent_layout.addWidget(self.agent_feed)
-        layout.addWidget(agent_card, stretch=2)
+        feed_layout.addWidget(self.agent_feed)
+        self.stack.addWidget(self.copilot)
+        self.stack.addWidget(feed_wrap)
+        lower_layout.addWidget(self.stack, stretch=1)
+        layout.addWidget(lower, stretch=2)
+
+        self.pivot.currentItemChanged.connect(self._on_pivot_changed)
+
+    def _on_pivot_changed(self, key: str) -> None:
+        self.stack.setCurrentIndex(0 if key == "copilot" else 1)
+
+    def show_copilot(self, *, compose: bool = False) -> None:
+        self.pivot.setCurrentItem("copilot")
+        self.stack.setCurrentIndex(0)
+        if compose:
+            self.copilot.focus_compose()
+        else:
+            self.copilot.focus_case_chat()
 
     @property
     def inspect_mode(self) -> bool:
@@ -90,7 +127,7 @@ class BrowserAgentPane(QWidget):
 
     def _on_inspect_toggled(self, checked: bool) -> None:
         self.viewport.set_inspect_mode(checked)
-        self.btn_inspect.setText("Inspect ON" if checked else "Inspect Element")
+        self.btn_inspect.setText(UI_LABEL_INSPECT_ON if checked else UI_LABEL_INSPECT)
         self.inspect_toggled.emit(checked)
 
     def set_placeholder(self, text: str) -> None:
@@ -98,4 +135,4 @@ class BrowserAgentPane(QWidget):
 
     def set_frame_png(self, png_bytes: bytes, viewport_w: int, viewport_h: int) -> None:
         self.viewport.set_frame_png(png_bytes, viewport_w, viewport_h)
-        self.res_label.setText(f"{viewport_w}×{viewport_h} · CDP")
+        self.res_label.setText(f"{viewport_w}×{viewport_h}")
