@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.*;
 import com.studio.runtime.OptimizedSelfHealingExecutor;
+import com.studio.runtime.StepTracer;
 import com.studio.runtime.StudioRuntime;
 import com.studio.store.ProjectStore;
 import com.studio.store.ReportStore;
@@ -197,6 +198,10 @@ public class TestRunnerService {
                 if ("SKIPPED".equals(cr.getStatus())) {
                     continue;
                 }
+                // Declared before the script is even read: every early exit below still has to be
+                // able to close the trace, and a case that aborts before instrumentation simply
+                // leaves it null.
+                StepTracer stepTracer = null;
 
                 if (RunCancelService.isCancelRequested()) {
                     applyCancelToPending(allCases, terminalOutput);
@@ -278,6 +283,7 @@ public class TestRunnerService {
                 }
 
                 if (RunCancelService.isCancelRequested()) {
+                    attachStepResults(cr, stepTracer, true, RunCancelService.CANCEL_REASON);
                     markCaseCancelled(cr, report, start, null, terminalOutput);
                     applyCancelToPending(allCases, terminalOutput);
                     break;
@@ -297,7 +303,27 @@ public class TestRunnerService {
                         activeVariables.putAll(firstItem.getParameters());
                     }
                 }
-                String expandedScript = expandStepGroups(scriptCode, stepGroupStore);
+                // Stamp a tracer call before each step BEFORE expansion so a step-group card keeps
+                // its own number even when it expands into many statements.
+                StepTraceInstrumenter.Instrumented traced = StepTraceInstrumenter.instrument(scriptCode);
+                String traceKey = RunProgressService.caseKey(cr);
+                stepTracer = new StepTracer(traced.statements(), new StepTracer.Listener() {
+                    @Override
+                    public void onStepStarted(StepResult running) {
+                        RunProgressService.stepUpdated(traceKey, running);
+                    }
+
+                    @Override
+                    public void onStepFinished(StepResult finished) {
+                        RunProgressService.stepUpdated(traceKey, finished);
+                        // Only executed steps reach the log: a failure would otherwise print one
+                        // "did not run" line per remaining step and bury the error.
+                        if (finished.isExecuted()) {
+                            terminal(StepTracer.terminalLine(finished), terminalOutput);
+                        }
+                    }
+                });
+                String expandedScript = expandStepGroups(traced.script(), stepGroupStore);
                 String resolvedScript = VariableResolver.resolve(expandedScript, activeVariables);
                 List<Assertion> resolvedAsserts = VariableResolver.resolveAssertions(activeAsserts, activeVariables);
 
@@ -369,6 +395,7 @@ public class TestRunnerService {
                 }
 
                 if (RunCancelService.isCancelRequested()) {
+                    attachStepResults(cr, stepTracer, true, RunCancelService.CANCEL_REASON);
                     markCaseCancelled(cr, report, start, ssFailed.toString(), terminalOutput);
                     applyCancelToPending(allCases, terminalOutput);
                     break;
@@ -391,6 +418,7 @@ public class TestRunnerService {
                                 perCaseSession.page(), openAiClient, aiConfig, projectStore,
                                 suiteDir, suite, runningCase);
                         StudioRuntime.setExecutor(executor);
+                        StudioRuntime.setStepTracer(stepTracer);
                         try {
                             runHarnessClass(harnessDir, harnessClass);
                         } finally {
@@ -413,6 +441,7 @@ public class TestRunnerService {
                                 session.page(), openAiClient, aiConfig, projectStore,
                                 suiteDir, suite, runningCase);
                         StudioRuntime.setExecutor(executor);
+                        StudioRuntime.setStepTracer(stepTracer);
                         try {
                             runHarnessClass(harnessDir, harnessClass);
                         } finally {
@@ -429,6 +458,7 @@ public class TestRunnerService {
                     }
 
                     if (RunCancelService.isCancelRequested()) {
+                        attachStepResults(cr, stepTracer, true, RunCancelService.CANCEL_REASON);
                         markCaseCancelled(cr, report, start, ssFailed.toString(), terminalOutput);
                         applyCancelToPending(allCases, terminalOutput);
                         break;
@@ -472,6 +502,8 @@ public class TestRunnerService {
                         cr.setScreenshotPath(finalizeScreenshot(rawScreenshot, ssPassed));
                         report.setPassed(report.getPassed() + 1);
                     }
+                    attachStepResults(cr, stepTracer, failures > 0,
+                            failures > 0 ? failures + " assertion(s) failed" : null);
                     cr.setDurationMs(duration);
                     cr.setExitCode(0);
 
@@ -480,6 +512,7 @@ public class TestRunnerService {
 
                 } catch (Throwable e) {
                     if (RunCancelService.isCancelRequested()) {
+                        attachStepResults(cr, stepTracer, true, RunCancelService.CANCEL_REASON);
                         markCaseCancelled(cr, report, start, ssFailed.toString(), terminalOutput);
                         applyCancelToPending(allCases, terminalOutput);
                         break;
@@ -500,6 +533,7 @@ public class TestRunnerService {
                     cr.setStatus("FAILED");
                     cr.setFailureReason(reason);
                     cr.setLogExcerpt(reproLog);
+                    attachStepResults(cr, stepTracer, true, reason);
                     cr.setDurationMs(System.currentTimeMillis() - start);
                     cr.setScreenshotPath(finalizeScreenshot(
                             Path.of(harnessScreenshotBase + ".png"), ssFailed));
@@ -515,6 +549,7 @@ public class TestRunnerService {
                 } finally {
                     System.clearProperty("studio.assertResults");
                     StudioRuntime.clearRecordedAsserts();
+                    StudioRuntime.setStepTracer(null);
                     if (!useShared) {
                         StudioRuntime.clear();
                     }
@@ -586,6 +621,20 @@ public class TestRunnerService {
         empty.setSkipped(0);
         empty.setCases(new ArrayList<>());
         return empty;
+    }
+
+    /**
+     * Ends the step trace and stores it on the case result. Idempotent, because a case can leave
+     * through success, an exception, or a cancel, and the first exit is the truthful one.
+     */
+    private static void attachStepResults(CaseResult cr, StepTracer tracer, boolean failed, String message) {
+        if (cr == null || tracer == null) {
+            return;
+        }
+        tracer.close(failed, message);
+        if (tracer.hasAnyResult()) {
+            cr.setStepResults(tracer.snapshot());
+        }
     }
 
     private static void deleteQuietly(Path dir) {

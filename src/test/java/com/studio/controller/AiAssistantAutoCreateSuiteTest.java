@@ -2,7 +2,6 @@ package com.studio.controller;
 
 import com.studio.model.AiGeneratedCase;
 import com.studio.model.Assertion;
-import com.studio.store.ProjectStore;
 import com.studio.util.StudioPaths;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;

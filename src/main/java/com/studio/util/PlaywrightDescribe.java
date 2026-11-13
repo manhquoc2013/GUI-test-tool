@@ -1,4 +1,4 @@
-package com.studio.ui;
+package com.studio.util;
 
 import java.util.Locale;
 import java.util.Set;
@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  * class derives and keeps the statement itself as the payload.</p>
  *
  * <p>Nothing here rewrites code: it only classifies. Parsing that does re-model a statement lives in
- * {@link StepScriptBidirectionalSync} and stays limited to calls it can regenerate byte for byte.</p>
+ * {@link com.studio.ui.StepScriptBidirectionalSync} and stays limited to calls it can regenerate byte for byte.</p>
  */
 public final class PlaywrightDescribe {
 

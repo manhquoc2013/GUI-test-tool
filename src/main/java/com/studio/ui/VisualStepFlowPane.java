@@ -1,5 +1,6 @@
 package com.studio.ui;
 
+import com.studio.model.StepResult;
 import com.studio.model.TestStep;
 import com.studio.service.ToastService;
 import com.studio.util.UiIcons;
@@ -11,6 +12,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.control.Tooltip;
@@ -31,7 +33,9 @@ import javafx.scene.layout.VBox;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -85,6 +89,7 @@ public final class VisualStepFlowPane extends VBox {
     private Runnable onStepsChanged;
     private Consumer<TestStep> onStepSelected;
     private StepCardView selectedCard;
+    private Label runSummary;
 
     private StepCardView draggingCard;
     private int pendingDropIndex = NO_DROP;
@@ -158,7 +163,26 @@ public final class VisualStepFlowPane extends VBox {
         UiIcons.setGraphic(addStepBtn, UiIcons.PLUS, QUICK_ADD_ICON_SIZE);
         addStepBtn.setOnAction(e -> addNewStep("CLICK", "", ""));
 
-        footer.getChildren().addAll(undoBtn, redoBtn, addStepBtn);
+        runSummary = new Label();
+        runSummary.getStyleClass().add("step-run-summary");
+        runSummary.setMinWidth(0);
+        runSummary.setMaxWidth(Double.MAX_VALUE);
+        runSummary.setTextOverrun(OverrunStyle.ELLIPSIS);
+        runSummary.setVisible(false);
+        runSummary.setManaged(false);
+        HBox.setHgrow(runSummary, Priority.ALWAYS);
+        runSummary.setAlignment(Pos.CENTER_RIGHT);
+
+        Button clearRunBtn = new Button();
+        clearRunBtn.getStyleClass().addAll("flat", "step-tool-btn", "step-history-btn");
+        clearRunBtn.setTooltip(new Tooltip("Xoá kết quả lần chạy gần nhất"));
+        clearRunBtn.setAccessibleText("Xoá kết quả lần chạy gần nhất");
+        UiIcons.setGraphic(clearRunBtn, UiIcons.CLOSE, FOOTER_ICON_SIZE);
+        clearRunBtn.setOnAction(e -> clearStepResults());
+        clearRunBtn.visibleProperty().bind(runSummary.visibleProperty());
+        clearRunBtn.managedProperty().bind(runSummary.visibleProperty());
+
+        footer.getChildren().addAll(undoBtn, redoBtn, addStepBtn, runSummary, clearRunBtn);
 
         getChildren().addAll(addBar, scrollPane, footer);
 
@@ -247,6 +271,9 @@ public final class VisualStepFlowPane extends VBox {
         cardsBox.getChildren().clear();
         cardViews.clear();
         selectedCard = null;
+        // A different case is a different run: keeping the previous verdicts would paint results
+        // onto steps that were never executed.
+        clearStepResults();
         // A loaded case is a new editing session: undoing across documents would restore a step
         // into the case the user just closed.
         clearHistory();
@@ -891,6 +918,101 @@ public final class VisualStepFlowPane extends VBox {
             }
         }
         return steps;
+    }
+
+    /**
+     * Paints a finished run onto the cards: each step gets the verdict recorded for its number, and
+     * the footer states the tally in one line.
+     *
+     * <p>Steps with no recorded result are cleared rather than left with an older verdict, because a
+     * run that stopped early must not keep showing check marks from a previous one.</p>
+     */
+    public void applyStepResults(List<StepResult> results) {
+        Map<Integer, StepResult> byStep = new HashMap<>();
+        if (results != null) {
+            for (StepResult result : results) {
+                if (result != null) {
+                    byStep.put(result.getStepNumber(), result);
+                }
+            }
+        }
+        int passed = 0;
+        int failed = 0;
+        int skipped = 0;
+        int runningStep = 0;
+        for (StepCardView card : cardViews) {
+            StepResult result = byStep.get(card.getStep().getStepNumber());
+            card.applyExecution(result);
+            if (result == null) {
+                continue;
+            }
+            switch (result.getStatus()) {
+                case StepResult.PASSED -> passed++;
+                case StepResult.FAILED -> failed++;
+                case StepResult.RUNNING -> runningStep = result.getStepNumber();
+                default -> skipped++;
+            }
+        }
+        if (byStep.isEmpty()) {
+            clearStepResults();
+            return;
+        }
+        // A live run is still going: the tally is a progress line, not a verdict, and saying
+        // "lần chạy gần nhất" mid-run would claim a result that does not exist yet.
+        StringBuilder summary = new StringBuilder(runningStep > 0
+                ? "Đang chạy bước " + runningStep + "… · " + passed + " đạt"
+                : "Lần chạy gần nhất: " + passed + " đạt");
+        if (failed > 0) {
+            summary.append(" · ").append(failed).append(" lỗi");
+        }
+        if (skipped > 0 && runningStep == 0) {
+            summary.append(" · ").append(skipped).append(" chưa chạy");
+        }
+        StepResult firstFailure = byStep.values().stream()
+                .filter(StepResult::isFailed)
+                .min(java.util.Comparator.comparingInt(StepResult::getStepNumber))
+                .orElse(null);
+        if (firstFailure != null) {
+            summary.append(" · dừng ở bước ").append(firstFailure.getStepNumber());
+        }
+        runSummary.setText(summary.toString());
+        runSummary.setVisible(true);
+        runSummary.setManaged(true);
+        runSummary.setTooltip(new Tooltip(summary.toString()));
+        setStyleOf(runSummary, StepCardView.CSS_STATUS_FAILED, failed > 0);
+        setStyleOf(runSummary, StepCardView.CSS_STATUS_PASSED,
+                failed == 0 && passed > 0 && runningStep == 0);
+        setStyleOf(runSummary, StepCardView.CSS_STATUS_RUNNING, runningStep > 0);
+    }
+
+    /** Removes every run badge, e.g. before a reload or when the user dismisses the last result. */
+    public void clearStepResults() {
+        for (StepCardView card : cardViews) {
+            card.clearExecution();
+        }
+        if (runSummary != null) {
+            runSummary.setText("");
+            runSummary.setTooltip(null);
+            runSummary.setVisible(false);
+            runSummary.setManaged(false);
+            setStyleOf(runSummary, StepCardView.CSS_STATUS_FAILED, false);
+            setStyleOf(runSummary, StepCardView.CSS_STATUS_PASSED, false);
+            setStyleOf(runSummary, StepCardView.CSS_STATUS_RUNNING, false);
+        }
+    }
+
+    public boolean hasStepResults() {
+        return runSummary != null && runSummary.isVisible();
+    }
+
+    private static void setStyleOf(Node node, String styleClass, boolean present) {
+        if (present) {
+            if (!node.getStyleClass().contains(styleClass)) {
+                node.getStyleClass().add(styleClass);
+            }
+        } else {
+            node.getStyleClass().remove(styleClass);
+        }
     }
 
     /** Exposed for layout tests: number of step cards currently rendered. */

@@ -16,10 +16,39 @@ public class StudioRuntime {
     private static final ThreadLocal<BrowserContext> currentContext = new ThreadLocal<>();
     private static final ThreadLocal<OptimizedSelfHealingExecutor> currentExecutor = new ThreadLocal<>();
     private static final ThreadLocal<List<AssertResult>> recordedAsserts = ThreadLocal.withInitial(ArrayList::new);
+    private static final ThreadLocal<StepTracer> stepTracer = new ThreadLocal<>();
 
     public static void set(Page page, BrowserContext context) {
         currentPage.set(page);
         currentContext.set(context);
+    }
+
+    /**
+     * Installs the tracer that instrumented harness statements report into. Set per case, on the
+     * thread that runs it, so a shared browser session can never mix two cases' steps.
+     */
+    public static void setStepTracer(StepTracer tracer) {
+        if (tracer == null) {
+            stepTracer.remove();
+        } else {
+            stepTracer.set(tracer);
+        }
+    }
+
+    /** @return the tracer for this run, or {@code null} when the script is not instrumented. */
+    public static StepTracer stepTracer() {
+        return stepTracer.get();
+    }
+
+    /**
+     * Called by generated harness code before each step's statement. A no-op when no tracer is
+     * installed, so an uninstrumented script keeps running unchanged.
+     */
+    public static void stepEnter(int stepNumber) {
+        StepTracer tracer = stepTracer.get();
+        if (tracer != null) {
+            tracer.enter(stepNumber);
+        }
     }
 
     public static void setExecutor(OptimizedSelfHealingExecutor executor) {
@@ -173,5 +202,6 @@ public class StudioRuntime {
         currentContext.remove();
         currentExecutor.remove();
         recordedAsserts.remove();
+        stepTracer.remove();
     }
 }

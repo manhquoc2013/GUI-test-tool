@@ -4,6 +4,8 @@ import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
 import com.studio.model.ExportLanguage;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
+import com.studio.util.PlaywrightDescribe;
 import org.apache.poi.common.usermodel.HyperlinkType;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -68,6 +70,9 @@ public class ExcelReportService {
     private static final int[] ASSERTS_WIDTHS = {
             18, 12, 16, 24, 16, 16, 36
     };
+    private static final int[] STEPS_WIDTHS = {
+            18, 8, 52, 12, 12, 36
+    };
 
     private ExcelReportService() {}
 
@@ -91,6 +96,10 @@ public class ExcelReportService {
             Sheet cases = wb.createSheet(I18nService.get(effectiveLang, "export.report.sheet.cases"));
             createCasesSheet(cases, report, styles, helper, effectiveLang);
             tintSheet(cases, IndexedColors.DARK_TEAL);
+
+            Sheet steps = wb.createSheet(I18nService.get(effectiveLang, "export.report.sheet.steps"));
+            createStepsSheet(steps, report, styles, effectiveLang);
+            tintSheet(steps, IndexedColors.DARK_GREEN);
 
             Sheet asserts = wb.createSheet(I18nService.get(effectiveLang, "export.report.sheet.asserts"));
             createAssertsSheet(asserts, report, styles, effectiveLang);
@@ -246,6 +255,69 @@ public class ExcelReportService {
         sheet.createFreezePane(0, 1);
         applyWidths(sheet, CASES_WIDTHS);
         applyTableBorder(sheet, 0, Math.max(1, lastRow), 0, lastCol);
+    }
+
+    /**
+     * One row per executed step, across every case. The action column carries the sentence
+     * {@link PlaywrightDescribe} derives, because a spreadsheet reviewed by a tester is not the place
+     * to hand them {@code page.locator("#x").click()}.
+     */
+    private static void createStepsSheet(Sheet sheet, RunReport report, Styles styles, ExportLanguage lang) {
+        sheet.setDisplayGridlines(false);
+        String[] cols = new String[]{
+                I18nService.get(lang, "export.report.steps.case"),
+                I18nService.get(lang, "export.report.steps.num"),
+                I18nService.get(lang, "export.report.steps.action"),
+                I18nService.get(lang, "export.report.steps.result"),
+                I18nService.get(lang, "export.report.steps.duration"),
+                I18nService.get(lang, "export.report.steps.message")
+        };
+        Row header = sheet.createRow(0);
+        header.setHeightInPoints(22);
+        for (int i = 0; i < cols.length; i++) {
+            Cell cell = header.createCell(i);
+            cell.setCellValue(cols[i]);
+            cell.setCellStyle(styles.tableHeader);
+        }
+
+        int r = 1;
+        for (CaseResult cr : report.getCases()) {
+            for (StepResult sr : cr.getStepResults()) {
+                boolean zebra = r % 2 == 0;
+                Row row = sheet.createRow(r++);
+                row.setHeightInPoints(18);
+                writeText(row, 0, nullToEmpty(cr.getTestCaseName()), styles, zebra, false);
+                writeNumber(row, 1, sr.getStepNumber(), styles, zebra, true);
+                writeText(row, 2, describeStatement(sr.getStatement()), styles, zebra, false);
+                writeStatus(row, 3, sr.getStatus(), styles);
+                // A step that never ran has no duration: an empty cell reads as "no time spent",
+                // where 0 would read as "ran instantly".
+                if (sr.getDurationMs() > 0) {
+                    writeDuration(row, 4, sr.getDurationMs(), styles, zebra);
+                } else {
+                    writeText(row, 4, "", styles, zebra, true);
+                }
+                writeText(row, 5, nullToEmpty(sr.getMessage()), styles, zebra, false);
+            }
+        }
+
+        int lastCol = cols.length - 1;
+        int lastRow = Math.max(0, r - 1);
+        if (lastRow >= 0) {
+            sheet.setAutoFilter(new CellRangeAddress(0, Math.max(1, lastRow), 0, lastCol));
+        }
+        sheet.createFreezePane(0, 1);
+        applyWidths(sheet, STEPS_WIDTHS);
+        applyTableBorder(sheet, 0, Math.max(1, lastRow), 0, lastCol);
+    }
+
+    /** @return the step as a sentence, falling back to the statement when it cannot be phrased. */
+    private static String describeStatement(String statement) {
+        if (statement == null || statement.isBlank()) {
+            return "";
+        }
+        String described = PlaywrightDescribe.describe(statement);
+        return described != null ? described : statement.trim();
     }
 
     private static void createAssertsSheet(Sheet sheet, RunReport report, Styles styles, ExportLanguage lang) {
@@ -589,6 +661,7 @@ public class ExcelReportService {
                 case "PASSED", "PASS", "OK" -> statusPass;
                 case "FAILED", "FAIL", "ERROR" -> statusFail;
                 case "SKIPPED", "SKIP" -> statusSkip;
+                case "NOT_RUN" -> statusSkip;
                 case "RUNNING", "RUN" -> statusRun;
                 case "ACTIVE", "ENABLED" -> statusActive;
                 default -> statusDefault;

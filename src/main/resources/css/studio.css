@@ -3046,6 +3046,65 @@
     -fx-text-fill: -color-fg-muted;
     -fx-padding: 2 6;
 }
+/* ── Run result on a step ────────────────────────────────────────────────────────────────
+   A finished run paints a verdict on each card. Colour alone is not enough (several themes are
+   low-contrast, and colour is invisible to some testers), so the badge also carries a glyph:
+   ✓ pass, ✗ fail, – not executed. */
+.step-status-badge {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 5;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+}
+.step-status-badge.step-status-passed {
+    -fx-text-fill: -color-success-fg;
+    -fx-border-color: -color-success-fg;
+    -fx-background-color: -color-success-subtle;
+}
+.step-status-badge.step-status-failed {
+    -fx-text-fill: -color-danger-fg;
+    -fx-border-color: -color-danger-fg;
+    -fx-background-color: -color-danger-subtle;
+}
+/* Mid-run: the step is executing now, so it gets the accent colour — a badge that looked like the
+   finished ones would be indistinguishable from a result. */
+.step-status-badge.step-status-running {
+    -fx-text-fill: -color-accent-fg;
+    -fx-border-color: -color-accent-fg;
+    -fx-background-color: -color-accent-muted;
+}
+.step-status-badge.step-status-idle {
+    -fx-text-fill: -color-fg-muted;
+    -fx-border-color: -color-border-muted;
+    -fx-background-color: transparent;
+}
+/* The failure reason gets its own row so a long Playwright message wraps instead of pushing the
+   summary out of the card. */
+.step-result-row {
+    -fx-padding: 0 0 0 30;
+}
+.step-result-line {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-danger-fg;
+}
+/* Footer tally of the last run, next to the history buttons. */
+.step-run-summary {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-fg-muted;
+    -fx-padding: 0 6 0 0;
+}
+.step-run-summary.step-status-passed {
+    -fx-text-fill: -color-success-fg;
+}
+.step-run-summary.step-status-failed {
+    -fx-text-fill: -color-danger-fg;
+}
+.step-run-summary.step-status-running {
+    -fx-text-fill: -color-accent-fg;
+}
+
 .step-note-field:focused {
     -fx-background-color: -color-bg-inset;
     -fx-border-color: -color-border-default;

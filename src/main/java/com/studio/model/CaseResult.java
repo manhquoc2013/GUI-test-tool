@@ -28,6 +28,8 @@ public class CaseResult {
     private String screenshotPath;
     private List<AssertResult> assertResults = new ArrayList<>();
     private List<HealedStepMeta> healedSteps = new ArrayList<>();
+    /** Per-step outcome of the last execution; empty when the run never reached a step. */
+    private List<StepResult> stepResults = new ArrayList<>();
 
     public CaseResult() {
     }
@@ -177,6 +179,14 @@ public class CaseResult {
 
     public void setAssertResults(List<AssertResult> assertResults) {
         this.assertResults = assertResults;
+    }
+
+    public List<StepResult> getStepResults() {
+        return stepResults != null ? stepResults : new ArrayList<>();
+    }
+
+    public void setStepResults(List<StepResult> stepResults) {
+        this.stepResults = stepResults != null ? stepResults : new ArrayList<>();
     }
 
     public List<HealedStepMeta> getHealedSteps() {

@@ -1,7 +1,9 @@
 package com.studio.ui;
 
+import com.studio.model.StepResult;
 import com.studio.model.TestStep;
 import com.studio.util.DialogTheme;
+import com.studio.util.PlaywrightDescribe;
 import com.studio.util.UiIcons;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanProperty;
@@ -52,6 +54,8 @@ public final class StepCardView extends VBox {
     private static final int TOOL_ICON_SIZE = 12;
     private static final int DRAG_ICON_SIZE = 14;
     private static final double CHEVRON_EXPANDED_ROTATION = 180;
+    /** A failure reason wraps in a tooltip instead of becoming one unreadable line. */
+    private static final double RESULT_TOOLTIP_WIDTH = 420;
 
     private static final String CSS_DISABLED = "step-card-disabled";
     private static final String CSS_RAW = "step-card-raw";
@@ -61,6 +65,12 @@ public final class StepCardView extends VBox {
     private static final String CSS_CODE_FIELD = "step-code-field";
     private static final String CSS_SUMMARY_CODE = "step-summary-code";
     private static final String CSS_SUMMARY_INCOMPLETE = "step-summary-incomplete";
+    private static final String CSS_STATUS = "step-status-badge";
+    /** Status families the stylesheet colours; a run result maps onto exactly one of them. */
+    public static final String CSS_STATUS_PASSED = "step-status-passed";
+    public static final String CSS_STATUS_FAILED = "step-status-failed";
+    public static final String CSS_STATUS_IDLE = "step-status-idle";
+    public static final String CSS_STATUS_RUNNING = "step-status-running";
 
     private final TestStep step;
     private final Consumer<StepCardView> onDelete;
@@ -85,6 +95,10 @@ public final class StepCardView extends VBox {
     private Button eyeBtn;
     private MenuButton overflowBtn;
     private Button expandBtn;
+
+    private Label statusBadge;
+    private Label resultLine;
+    private VBox resultRow;
 
     private VBox body;
     private Label targetCaption;
@@ -141,7 +155,8 @@ public final class StepCardView extends VBox {
 
         expanded.addListener((obs, was, is) -> applyExpandedState());
 
-        getChildren().addAll(noteRow, metaRow, summaryRow, body);
+        resultRow = buildResultRow();
+        getChildren().addAll(noteRow, metaRow, summaryRow, resultRow, body);
         applyExpandedState();
     }
 
@@ -217,6 +232,14 @@ public final class StepCardView extends VBox {
         actionChip.setAccessibleText("Loại hành động của bước");
         buildActionMenu(actionChip);
 
+        // Result badge sits with the identity, so a run's outcome is readable without expanding the
+        // card and without hunting for it under the summary.
+        statusBadge = new Label();
+        statusBadge.getStyleClass().add(CSS_STATUS);
+        statusBadge.setVisible(false);
+        statusBadge.setManaged(false);
+        statusBadge.setMinWidth(Region.USE_PREF_SIZE);
+
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
@@ -224,7 +247,7 @@ public final class StepCardView extends VBox {
         expandBtn.getStyleClass().add("step-expand-btn");
         expandBtn.setOnAction(e -> toggleExpanded());
 
-        header.getChildren().addAll(dragHandle(), stepNumLabel, actionChip, spacer, expandBtn);
+        header.getChildren().addAll(dragHandle(), stepNumLabel, actionChip, statusBadge, spacer, expandBtn);
         return header;
     }
 
@@ -305,6 +328,25 @@ public final class StepCardView extends VBox {
         handle.setTooltip(new Tooltip("Kéo để đổi thứ tự bước"));
         UiIcons.setGraphic(handle, UiIcons.DRAG, DRAG_ICON_SIZE);
         return handle;
+    }
+
+    /**
+     * The failure reason, on its own line under the summary. It is only present for a failed step, so
+     * a healthy case adds no height, while a broken one says why without requiring a click.
+     */
+    private VBox buildResultRow() {
+        resultLine = new Label();
+        resultLine.getStyleClass().add("step-result-line");
+        resultLine.setWrapText(true);
+        resultLine.setMinWidth(0);
+        resultLine.setMaxWidth(Double.MAX_VALUE);
+        resultLine.setMinHeight(Region.USE_PREF_SIZE);
+
+        VBox row = new VBox(resultLine);
+        row.getStyleClass().add("step-result-row");
+        row.setVisible(false);
+        row.setManaged(false);
+        return row;
     }
 
     private VBox buildBody() {
@@ -497,6 +539,94 @@ public final class StepCardView extends VBox {
         expanded.set(!expanded.get());
     }
 
+    /**
+     * Paints the outcome of the last run on this card.
+     *
+     * <p>Called with the trace entry whose {@code stepNumber} matches this card, so the badge always
+     * describes the code that was actually executed — including when a step was skipped because an
+     * earlier one failed.</p>
+     */
+    public void applyExecution(StepResult result) {
+        // A note is not an action: painting "not run" on a comment would be noise dressed as a
+        // result, so notes stay out of the run feedback entirely.
+        if (result == null || isNote()) {
+            clearExecution();
+            return;
+        }
+        String status = result.getStatus();
+        String mark;
+        String family;
+        if (StepResult.RUNNING.equals(status)) {
+            mark = "…";
+            family = CSS_STATUS_RUNNING;
+        } else if (StepResult.PASSED.equals(status)) {
+            mark = "✓";
+            family = CSS_STATUS_PASSED;
+        } else if (StepResult.FAILED.equals(status)) {
+            mark = "✗";
+            family = CSS_STATUS_FAILED;
+        } else {
+            // Skipped / not run: present, but muted. A blank would read as "passed" by omission.
+            mark = "–";
+            family = CSS_STATUS_IDLE;
+        }
+        statusBadge.setText(mark);
+        replaceFamily(statusBadge, family);
+        statusBadge.setVisible(true);
+        statusBadge.setManaged(true);
+
+        String detail = statusLabel(status);
+        if (result.isExecuted()) {
+            detail += " · " + result.getDurationMs() + "ms";
+        }
+        boolean hasMessage = result.getMessage() != null && !result.getMessage().isBlank();
+        if (hasMessage) {
+            detail += " — " + result.getMessage();
+        }
+        Tooltip tooltip = new Tooltip(detail);
+        tooltip.setWrapText(true);
+        tooltip.setMaxWidth(RESULT_TOOLTIP_WIDTH);
+        statusBadge.setTooltip(tooltip);
+        statusBadge.setAccessibleText("Kết quả bước " + stepNumLabel.getText() + ": " + detail);
+
+        boolean failed = StepResult.FAILED.equals(status);
+        resultRow.setVisible(failed && hasMessage);
+        resultRow.setManaged(failed && hasMessage);
+        if (failed && hasMessage) {
+            resultLine.setText(result.getMessage());
+            replaceFamily(resultLine, CSS_STATUS_FAILED);
+        }
+    }
+
+    /** Removes any previous run's badge, e.g. after the case was edited or reloaded. */
+    public void clearExecution() {
+        statusBadge.setVisible(false);
+        statusBadge.setManaged(false);
+        statusBadge.setText("");
+        statusBadge.setTooltip(null);
+        statusBadge.setAccessibleText(null);
+        replaceFamily(statusBadge, CSS_STATUS_IDLE);
+        resultRow.setVisible(false);
+        resultRow.setManaged(false);
+        resultLine.setText("");
+    }
+
+    private static void replaceFamily(Node node, String family) {
+        node.getStyleClass().removeAll(CSS_STATUS_PASSED, CSS_STATUS_FAILED, CSS_STATUS_IDLE,
+                CSS_STATUS_RUNNING);
+        node.getStyleClass().add(family);
+    }
+
+    private static String statusLabel(String status) {
+        return switch (status) {
+            case StepResult.RUNNING -> "Đang chạy";
+            case StepResult.PASSED -> "Đạt";
+            case StepResult.FAILED -> "Lỗi";
+            case StepResult.SKIPPED -> "Bỏ qua";
+            default -> "Không chạy";
+        };
+    }
+
     /** @return true when this card renders as a one-line comment instead of a step. */
     public boolean isNote() {
         return currentAction() == StepAction.NOTE;
@@ -648,6 +778,11 @@ public final class StepCardView extends VBox {
     }
 
     private void notifyChange() {
+        // An edit invalidates the previous run's verdict: a badge must not outlive the code it
+        // described, or the card would claim a result for a step nobody ran.
+        if (statusBadge != null) {
+            clearExecution();
+        }
         if (onChange != null) {
             onChange.run();
         }

@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.CaseResult;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
 import com.studio.util.StudioPaths;
 import javafx.application.Platform;
 
@@ -23,6 +24,13 @@ public final class RunProgressService {
 
     public static final long CLEAR_DELAY_MS = 4000L;
 
+    /**
+     * Minimum gap between two step-driven refreshes. A fast case finishes dozens of steps per second
+     * and each refresh repaints every card, so steps coalesce instead of queueing one repaint each.
+     * A case/run boundary always notifies, so the final state is never the one that got skipped.
+     */
+    private static final long STEP_NOTIFY_INTERVAL_NS = 100_000_000L;
+
     public record ProgressEntry(
             String caseKey,
             String caseName,
@@ -37,6 +45,10 @@ public final class RunProgressService {
     private static final AtomicReference<String> ACTIVE_CASE_KEY = new AtomicReference<>();
     private static final List<Runnable> LISTENERS = new CopyOnWriteArrayList<>();
     private static final AtomicReference<Thread> CLEAR_THREAD = new AtomicReference<>();
+    /** Live step results per case key; the runner writes, the workspace paints. */
+    private static final Map<String, Map<Integer, StepResult>> STEP_TRACE = new ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicLong LAST_STEP_NOTIFY_NS =
+            new java.util.concurrent.atomic.AtomicLong(0L);
 
     private RunProgressService() {}
 
@@ -51,6 +63,8 @@ public final class RunProgressService {
     public static void beginRun(String scope, Path scopePath) {
         cancelClearTimer();
         BY_CASE.clear();
+        STEP_TRACE.clear();
+        LAST_STEP_NOTIFY_NS.set(0L);
         ACTIVE_CASE_KEY.set(null);
         RUN_ACTIVE.set(true);
         notifyListeners();
@@ -77,6 +91,72 @@ public final class RunProgressService {
         notifyListeners();
     }
 
+    /**
+     * Records a live step result for {@code caseKey}: a step that just started, or one that just
+     * ended. The entry for a step number is replaced, so the same slot goes RUNNING → PASSED.
+     */
+    public static void stepUpdated(String caseKey, StepResult result) {
+        if (caseKey == null || caseKey.isBlank() || result == null) {
+            return;
+        }
+        STEP_TRACE.computeIfAbsent(caseKey, key -> new ConcurrentHashMap<>())
+                .put(result.getStepNumber(), result);
+        notifyStepListenersThrottled();
+    }
+
+    /** @return the steps recorded so far for {@code caseKey}, in step order. */
+    public static List<StepResult> stepTraceFor(String caseKey) {
+        if (caseKey == null || caseKey.isBlank()) {
+            return List.of();
+        }
+        Map<Integer, StepResult> trace = STEP_TRACE.get(caseKey);
+        if (trace == null || trace.isEmpty()) {
+            return List.of();
+        }
+        return trace.values().stream()
+                .sorted(java.util.Comparator.comparingInt(StepResult::getStepNumber))
+                .toList();
+    }
+
+    /** @return the case currently executing, or {@code null} between cases. */
+    public static String activeCaseKey() {
+        return ACTIVE_CASE_KEY.get();
+    }
+
+    /**
+     * @return true when the case currently executing is the one identified by {@code caseId}
+     *         (falling back to its name when the id is missing), so a caller that only has an
+     *         authored {@code TestCase} can still tell whether a live trace belongs to it
+     */
+    public static boolean isActiveCase(String caseId, String caseName) {
+        String active = ACTIVE_CASE_KEY.get();
+        if (active == null || active.isBlank()) {
+            return false;
+        }
+        if (caseId != null && !caseId.isBlank() && active.equals(caseId.trim())) {
+            return true;
+        }
+        ProgressEntry entry = BY_CASE.get(active);
+        return entry != null && caseName != null && !caseName.isBlank()
+                && entry.caseName().equals(caseName.trim());
+    }
+
+    /**
+     * Step refreshes are throttled; a step that arrives inside the window is already stored, so the
+     * next refresh (or the case boundary) paints it. Never notifies more than once per interval.
+     */
+    private static void notifyStepListenersThrottled() {
+        long now = System.nanoTime();
+        long last = LAST_STEP_NOTIFY_NS.get();
+        if (now - last < STEP_NOTIFY_INTERVAL_NS) {
+            return;
+        }
+        if (!LAST_STEP_NOTIFY_NS.compareAndSet(last, now)) {
+            return;
+        }
+        notifyListeners();
+    }
+
     public static void endRun(RunReport report) {
         RUN_ACTIVE.set(false);
         ACTIVE_CASE_KEY.set(null);
@@ -87,6 +167,7 @@ public final class RunProgressService {
     public static void clearNow() {
         cancelClearTimer();
         BY_CASE.clear();
+        STEP_TRACE.clear();
         ACTIVE_CASE_KEY.set(null);
         RUN_ACTIVE.set(false);
         notifyListeners();

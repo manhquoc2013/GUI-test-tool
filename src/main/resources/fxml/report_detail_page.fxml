@@ -75,6 +75,17 @@
                 <VBox fx:id="detailBody" spacing="12" styleClass="case-detail-sidebar-body"
                       maxWidth="Infinity">
                     <padding><Insets top="16" right="16" bottom="20" left="16"/></padding>
+                    <Label text="Các bước thực thi" styleClass="section-header"/>
+                    <TableView fx:id="stepsTable" prefHeight="180" maxWidth="Infinity"
+                               styleClass="asserts-detail-table">
+                        <columns>
+                            <TableColumn text="#" fx:id="stepIndexCol" prefWidth="36"/>
+                            <TableColumn text="Bước" fx:id="stepActionCol" prefWidth="300"/>
+                            <TableColumn text="Kết quả" fx:id="stepStatusCol" prefWidth="96"/>
+                            <TableColumn text="Thời gian" fx:id="stepDurationCol" prefWidth="86"/>
+                            <TableColumn text="Ghi chú" fx:id="stepMessageCol" prefWidth="180"/>
+                        </columns>
+                    </TableView>
                     <Label text="Kết quả Assert" styleClass="section-header"/>
                     <TableView fx:id="assertsTable" prefHeight="200" maxWidth="Infinity"
                                styleClass="asserts-detail-table">

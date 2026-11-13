@@ -1,6 +1,7 @@
 package com.studio.controller;
 
 import com.studio.model.AssertResult;
+import com.studio.model.StepResult;
 import com.studio.model.CaseResult;
 import com.studio.model.ExportLanguage;
 import com.studio.model.HealedStepMeta;
@@ -93,6 +94,18 @@ public class ReportDetailPageController {
 
     // --- Asserts detail table ---
     @FXML
+    private TableView<StepResult> stepsTable;
+    @FXML
+    private TableColumn<StepResult, Integer> stepIndexCol;
+    @FXML
+    private TableColumn<StepResult, String> stepActionCol;
+    @FXML
+    private TableColumn<StepResult, String> stepStatusCol;
+    @FXML
+    private TableColumn<StepResult, Long> stepDurationCol;
+    @FXML
+    private TableColumn<StepResult, String> stepMessageCol;
+    @FXML
     private TableView<AssertResult> assertsTable;
     @FXML
     private TableColumn<AssertResult, Integer> assertIndexCol;
@@ -155,6 +168,7 @@ public class ReportDetailPageController {
     @FXML
     public void initialize() {
         setupCaseColumns();
+        setupStepColumns();
         setupAssertColumns();
         setupFilters();
         setupButtons();
@@ -339,6 +353,79 @@ public class ReportDetailPageController {
                 }
             }
         });
+    }
+
+    /**
+     * Steps column: the statement is re-phrased into a sentence, because the whole point of the
+     * detail drawer is to be readable by someone who does not read Playwright. A statement that
+     * cannot be phrased keeps its code rather than being hidden.
+     */
+    private void setupStepColumns() {
+        if (stepsTable == null) {
+            return;
+        }
+        Label emptyStepsPlaceholder = new Label(
+                "Báo cáo này không có kết quả theo bước (được tạo trước khi chạy có ghi nhận bước).");
+        emptyStepsPlaceholder.getStyleClass().add("assert-empty-placeholder");
+        emptyStepsPlaceholder.setWrapText(true);
+        stepsTable.setPlaceholder(emptyStepsPlaceholder);
+
+        ResponsiveTableColumns.install(stepsTable,
+                ResponsiveTableColumns.Spec.fixed(stepIndexCol, 44),
+                ResponsiveTableColumns.Spec.flex(stepActionCol, 3.0, 160),
+                ResponsiveTableColumns.Spec.fixed(stepStatusCol, 96),
+                ResponsiveTableColumns.Spec.fixed(stepDurationCol, 86),
+                ResponsiveTableColumns.Spec.flex(stepMessageCol, 1.6, 120));
+
+        stepIndexCol.setCellValueFactory(
+                cell -> new javafx.beans.property.SimpleIntegerProperty(cell.getValue().getStepNumber())
+                        .asObject());
+        stepActionCol.setCellValueFactory(cell -> new javafx.beans.property.SimpleStringProperty(
+                describeStep(cell.getValue().getStatement())));
+        stepStatusCol.setCellValueFactory(cell -> new javafx.beans.property.SimpleStringProperty(
+                StatusDisplay.normalize(cell.getValue().getStatus())));
+        stepStatusCol.setCellFactory(col -> new TableCell<StepResult, String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                StatusDisplay.apply(this, empty || item == null ? null : item);
+            }
+        });
+        stepDurationCol.setCellValueFactory(cell -> new javafx.beans.property.SimpleLongProperty(
+                cell.getValue().getDurationMs()).asObject());
+        stepDurationCol.setCellFactory(col -> new TableCell<StepResult, Long>() {
+            @Override
+            protected void updateItem(Long item, boolean empty) {
+                super.updateItem(item, empty);
+                // A step that never ran has no duration: printing "0 ms" would imply it executed.
+                setText(empty || item == null || item <= 0 ? null : item + " ms");
+            }
+        });
+        stepMessageCol.setCellValueFactory(cell -> {
+            String message = cell.getValue().getMessage();
+            return new javafx.beans.property.SimpleStringProperty(message != null ? message : "");
+        });
+        stepMessageCol.setCellFactory(col -> new TableCell<StepResult, String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null || item.isBlank() ? null : item);
+                if (!empty && item != null && !item.isBlank()) {
+                    com.studio.util.UiTooltips.install(this, item);
+                } else {
+                    setTooltip(null);
+                }
+            }
+        });
+    }
+
+    /** @return the step as a sentence when it can be read, otherwise its statement. */
+    private static String describeStep(String statement) {
+        if (statement == null || statement.isBlank()) {
+            return "(không có câu lệnh)";
+        }
+        String described = com.studio.util.PlaywrightDescribe.describe(statement);
+        return described != null ? described : statement;
     }
 
     private void setupAssertColumns() {
@@ -558,6 +645,7 @@ public class ReportDetailPageController {
 
             // Clear detail panes — do not auto-select a case (drawer stays closed)
             if (stepTimelineBox != null) stepTimelineBox.getChildren().clear();
+            if (stepsTable != null) stepsTable.setItems(FXCollections.emptyObservableList());
             assertsTable.setItems(FXCollections.emptyObservableList());
             logExcerpt.clear();
             screenshotLabel.setVisible(false);
@@ -614,6 +702,14 @@ public class ReportDetailPageController {
             } else {
                 detailCaseTitle.setText(name);
             }
+        }
+
+        // Step results: what ran, in order, with the first failure marked.
+        if (stepsTable != null) {
+            List<StepResult> stepResults = cr.getStepResults();
+            stepsTable.setItems(stepResults.isEmpty()
+                    ? FXCollections.observableArrayList()
+                    : FXCollections.observableArrayList(stepResults));
         }
 
         // Assert results table

@@ -2,6 +2,7 @@ package com.studio.service;
 
 import com.studio.model.CaseResult;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,6 +81,72 @@ class RunProgressServiceTest {
         } finally {
             RunProgressService.removeListener(listener);
         }
+    }
+
+    /**
+     * The workspace paints cards from this trace, so a step must be able to go RUNNING → PASSED in
+     * place, stay in step order, and be cleaned up with the run.
+     */
+    @Test
+    void aRunningStepIsReplacedInPlaceByItsVerdict() {
+        RunProgressService.beginRun("CASE", null);
+        RunProgressService.caseStarted(sampleCase("tc-9", "case 9", "g", "s"));
+
+        RunProgressService.stepUpdated("tc-9", new StepResult(2, "b();", StepResult.RUNNING, 0, null));
+        RunProgressService.stepUpdated("tc-9", new StepResult(1, "a();", StepResult.PASSED, 12, null));
+        RunProgressService.stepUpdated("tc-9", new StepResult(2, "b();", StepResult.FAILED, 30000, "timeout"));
+
+        java.util.List<StepResult> trace = RunProgressService.stepTraceFor("tc-9");
+        assertEquals(2, trace.size(), "A step must not be duplicated when it finishes");
+        assertEquals(1, trace.get(0).getStepNumber(), "The trace is in step order");
+        assertEquals(StepResult.PASSED, trace.get(0).getStatus());
+        assertEquals(StepResult.FAILED, trace.get(1).getStatus());
+        assertEquals("timeout", trace.get(1).getMessage());
+        assertEquals("tc-9", RunProgressService.activeCaseKey());
+    }
+
+    @Test
+    void anUnknownCaseOrBlankKeyHasNoTrace() {
+        assertTrue(RunProgressService.stepTraceFor("nothing").isEmpty());
+        assertTrue(RunProgressService.stepTraceFor(null).isEmpty());
+        assertTrue(RunProgressService.stepTraceFor("").isEmpty());
+
+        RunProgressService.stepUpdated(null, new StepResult(1, "x();", StepResult.PASSED, 1, null));
+        RunProgressService.stepUpdated("tc-1", null);
+        assertTrue(RunProgressService.stepTraceFor("tc-1").isEmpty());
+    }
+
+    @Test
+    void aNewRunOrAClearDropsThePreviousTrace() {
+        RunProgressService.beginRun("CASE", null);
+        RunProgressService.stepUpdated("tc-1", new StepResult(1, "x();", StepResult.PASSED, 1, null));
+        assertFalse(RunProgressService.stepTraceFor("tc-1").isEmpty());
+
+        RunProgressService.beginRun("CASE", null);
+        assertTrue(RunProgressService.stepTraceFor("tc-1").isEmpty(),
+                "Steps from the previous run must not leak into the next one");
+
+        RunProgressService.stepUpdated("tc-1", new StepResult(1, "x();", StepResult.PASSED, 1, null));
+        RunProgressService.clearNow();
+        assertTrue(RunProgressService.stepTraceFor("tc-1").isEmpty());
+    }
+
+    /** The workspace only has the authored case, whose id may be missing; the name still has to match. */
+    @Test
+    void theActiveCaseIsRecognisedByIdAndFallsBackToItsName() {
+        RunProgressService.beginRun("CASE", null);
+        assertFalse(RunProgressService.isActiveCase("tc-1", "case 1"), "No case has started yet");
+
+        RunProgressService.caseStarted(sampleCase("tc-1", "case 1", "g", "s"));
+        assertTrue(RunProgressService.isActiveCase("tc-1", "case 1"));
+        assertTrue(RunProgressService.isActiveCase(null, "case 1"), "Id-less authored case still matches");
+        assertTrue(RunProgressService.isActiveCase("  tc-1  ", null));
+        assertFalse(RunProgressService.isActiveCase("tc-2", "case 2"),
+                "A trace of another case must never be painted over the open one");
+
+        RunProgressService.stepUpdated("tc-1", new StepResult(1, "x();", StepResult.PASSED, 1, null));
+        assertFalse(RunProgressService.stepTraceFor("tc-2").iterator().hasNext());
+        assertEquals(1, RunProgressService.stepTraceFor("tc-1").size());
     }
 
     private static CaseResult sampleCase(String id, String name, String group, String suite) {

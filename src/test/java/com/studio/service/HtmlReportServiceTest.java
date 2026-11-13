@@ -5,6 +5,7 @@ import com.studio.model.CaseResult;
 import com.studio.model.ExportLanguage;
 import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -99,6 +100,46 @@ class HtmlReportServiceTest {
         assertTrue(html.contains("button:has-text"), "New selector rendered");
         assertTrue(html.contains("HEURISTIC"), "Healing method rendered");
         assertTrue(html.contains("95%"), "Confidence rendered");
+    }
+
+    /**
+     * The exported page is what gets shared with people who will never open the Playwright script,
+     * so the steps have to be on it — in words, with the failure marked.
+     */
+    @Test
+    void testGenerateHtmlRendersTheExecutedSteps() {
+        report.getCases().get(0).setStepResults(List.of(
+                new StepResult(1, "page.navigate(\"https://example.com\");", StepResult.PASSED, 320, null),
+                new StepResult(2, "page.locator(\"#submit\").click();", StepResult.FAILED, 30000,
+                        "TimeoutError: waiting for locator(\"#submit\")")));
+
+        String html = HtmlReportService.generateHtml(report);
+
+        assertTrue(html.contains("Các bước thực thi (2)"), "Steps section title");
+        assertTrue(html.contains("mở https://example.com"),
+                "The step is phrased, not dumped as Playwright code");
+        assertTrue(html.contains("nhấp vào phần tử «#submit»"));
+        assertTrue(html.contains("320 ms"));
+        assertTrue(html.contains("TimeoutError: waiting for locator"));
+        assertTrue(html.contains("<table class=\"steps-table\">"), "Steps table needs its own hook");
+    }
+
+    @Test
+    void aStepWithoutResultsAddsNoEmptyStepsSection() {
+        String html = HtmlReportService.generateHtml(report);
+        assertFalse(html.contains("<table class=\"steps-table\">"),
+                "A report without step results must not show the section");
+    }
+
+    @Test
+    void stepStatementsAreEscapedSoARecordedSelectorCannotInjectHtml() {
+        report.getCases().get(0).setStepResults(List.of(
+                new StepResult(1, "helper.call(\"<script>alert(1)</script>\");", StepResult.PASSED, 5, null)));
+
+        String html = HtmlReportService.generateHtml(report);
+
+        assertTrue(html.contains("&lt;script&gt;"), "The statement must be escaped");
+        assertFalse(html.contains("<script>alert(1)</script>"), "Raw script tag leaked into the report");
     }
 
     @Test

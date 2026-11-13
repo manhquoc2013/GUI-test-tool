@@ -1,4 +1,4 @@
-package com.studio.ui;
+package com.studio.util;
 
 import org.junit.jupiter.api.Test;
 

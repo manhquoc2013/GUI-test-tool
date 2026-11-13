@@ -1,6 +1,8 @@
 package com.studio.ui;
 
 import com.studio.model.TestStep;
+import com.studio.util.JavaBodyScanner;
+import com.studio.util.PlaywrightDescribe;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,10 +42,6 @@ public final class StepScriptBidirectionalSync {
     /** An argument list that is exactly one string literal — the only shape re-modelled losslessly. */
     private static final Pattern ONLY_STRING =
             Pattern.compile("\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*");
-    private static final Pattern MAIN_METHOD_PATTERN =
-            Pattern.compile(".*\\bstatic\\s+void\\s+main\\s*\\(.*");
-    private static final Pattern PAGE_DECLARATION_PATTERN =
-            Pattern.compile(".*\\bPage\\s+\\w+\\s*=.*;.*");
 
     // ── Generation ──────────────────────────────────────────────────────────
 
@@ -181,8 +179,9 @@ public final class StepScriptBidirectionalSync {
      */
     public static Document parseDocument(String script) {
         List<String> lines = splitLines(script);
-        int headerEnd = findHeaderEnd(lines);
-        int footerStart = findFooterStart(lines, headerEnd);
+        JavaBodyScanner.Body body = JavaBodyScanner.scan(lines);
+        int headerEnd = body.headerEnd();
+        int footerStart = body.footerStart();
 
         List<String> header = new ArrayList<>(lines.subList(0, headerEnd));
         List<String> footer = new ArrayList<>(lines.subList(footerStart, lines.size()));
@@ -365,52 +364,6 @@ public final class StepScriptBidirectionalSync {
     private static String onlyString(String args) {
         Matcher matcher = ONLY_STRING.matcher(args);
         return matcher.matches() ? unescape(matcher.group(1)) : null;
-    }
-
-    /** @return index of the first body line (after the {@code main} signature and Page declaration). */
-    private static int findHeaderEnd(List<String> lines) {
-        for (int i = 0; i < lines.size(); i++) {
-            String trimmed = lines.get(i).strip();
-            if (!MAIN_METHOD_PATTERN.matcher(trimmed).matches()) {
-                continue;
-            }
-            int afterSignature = i + 1;
-            if (!trimmed.endsWith("{")) {
-                // Signature and opening brace may sit on separate lines.
-                int probe = afterSignature;
-                while (probe < lines.size() && lines.get(probe).isBlank()) {
-                    probe++;
-                }
-                if (probe < lines.size() && "{".equals(lines.get(probe).strip())) {
-                    afterSignature = probe + 1;
-                }
-            }
-            // Keep the StudioRuntime page binding with the envelope: it is runtime plumbing,
-            // not an authored step, and must survive every regeneration.
-            int bodyStart = afterSignature;
-            while (bodyStart < lines.size() && lines.get(bodyStart).isBlank()) {
-                bodyStart++;
-            }
-            if (bodyStart < lines.size() && PAGE_DECLARATION_PATTERN.matcher(lines.get(bodyStart)).matches()) {
-                return bodyStart + 1;
-            }
-            return afterSignature;
-        }
-        return 0;
-    }
-
-    /** @return index of the first closing-brace/blank line that belongs to the class envelope. */
-    private static int findFooterStart(List<String> lines, int headerEnd) {
-        int start = lines.size();
-        while (start > headerEnd) {
-            String trimmed = lines.get(start - 1).strip();
-            if (trimmed.isEmpty() || "}".equals(trimmed)) {
-                start--;
-            } else {
-                break;
-            }
-        }
-        return start;
     }
 
     private static List<String> splitLines(String script) {

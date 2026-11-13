@@ -264,6 +264,7 @@ public class SuiteWorkspacePageController {
                 if (caseListView != null) {
                     caseListView.refresh();
                 }
+                refreshLiveStepTrace();
             };
             RunProgressService.addListener(runProgressListener);
             caseListView.getSelectionModel().selectedItemProperty().addListener(
@@ -1833,6 +1834,7 @@ public class SuiteWorkspacePageController {
                     }
                     terminalAppend("Kết quả: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại, " + report.getSkipped() + " bỏ qua");
+                    applyRunTrace(report, targetCase);
                     ToastService.success("Case hoàn tất: " + report.getPassed() + " đạt, "
                             + report.getFailed() + " thất bại");
                     ViewNavigator.navigateToReportDetail(report.getRunId());
@@ -1844,6 +1846,58 @@ public class SuiteWorkspacePageController {
                 this::updateCaseActionButtons,
                 runSuiteBtn, addCaseBtn
         );
+    }
+
+    /**
+     * Streams the steps of the case that is executing right now onto its cards.
+     *
+     * <p>Bound to the case identity, not the selection alone: a suite run moves from case to case
+     * while the editor still shows one of them, and the trace of a case the user is not looking at
+     * must not be painted over the one they are.</p>
+     */
+    private void refreshLiveStepTrace() {
+        if (visualStepFlowPane == null || selectedCase == null || suitePath == null) {
+            return;
+        }
+        if (!RunProgressService.isActiveCase(selectedCase.getId(), selectedCase.getName())) {
+            return;
+        }
+        List<StepResult> trace = RunProgressService.stepTraceFor(RunProgressService.activeCaseKey());
+        if (trace.isEmpty()) {
+            return;
+        }
+        visualStepFlowPane.applyStepResults(trace);
+    }
+
+    /**
+     * Paints a finished case run onto the No-Code cards, so "what did the test actually do" is
+     * answerable without opening the report or the generated Java.
+     *
+     * <p>Guarded by case identity: a case can be run straight from its row while the editor still
+     * shows a different one, and those verdicts must never land on another case's steps.</p>
+     */
+    private void applyRunTrace(RunReport report, TestCase ranCase) {
+        if (visualStepFlowPane == null || report == null || ranCase == null) {
+            return;
+        }
+        if (selectedCase == null || !Objects.equals(selectedCase.getId(), ranCase.getId())) {
+            return;
+        }
+        List<StepResult> results = null;
+        for (CaseResult cr : report.getCases()) {
+            if (cr.getStepResults() != null && !cr.getStepResults().isEmpty()) {
+                results = cr.getStepResults();
+                break;
+            }
+        }
+        if (results == null) {
+            return;
+        }
+        visualStepFlowPane.applyStepResults(results);
+        long failed = results.stream().filter(StepResult::isFailed).count();
+        terminalAppend(failed > 0
+                ? "Bước lỗi đầu tiên đã được đánh dấu trên kịch bản No-Code."
+                : "Tất cả " + results.size() + " bước đã chạy — kết quả hiện trên từng thẻ bước.");
     }
 
     @FXML

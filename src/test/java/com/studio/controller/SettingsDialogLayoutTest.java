@@ -42,7 +42,11 @@ class SettingsDialogLayoutTest {
     private static final double STUB_LABEL_WIDTH = 40;
     /** Wrapped text occupies at least this many line boxes when the hint is long. */
     private static final double MULTI_LINE_HEIGHT_RATIO = 1.6;
-    private static final long DIALOG_SETTLE_MS = 700;
+    /** How long the dialog may take to appear; a busy CI machine is slower than a developer's. */
+    private static final long DIALOG_APPEAR_TIMEOUT_MS = 10_000;
+    private static final long DIALOG_POLL_MS = 50;
+    /** Extra pulses after the dialog appears, so the first layout pass is complete before measuring. */
+    private static final int LAYOUT_PULSES = 3;
 
     @BeforeAll
     static void initFx() {
@@ -114,8 +118,10 @@ class SettingsDialogLayoutTest {
         CountDownLatch done = new CountDownLatch(1);
 
         Platform.runLater(() -> {
-            PauseTransition settle = new PauseTransition(Duration.millis(DIALOG_SETTLE_MS));
-            settle.setOnFinished(e -> {
+            // A fixed settle delay measured an empty desktop on a slow machine. Wait for the dialog
+            // window itself, then let a couple of pulses finish layout, so the measurement is taken
+            // from a real, laid-out form instead of from whatever happened to exist at t+700ms.
+            whenFormIsReady(0L, LAYOUT_PULSES, () -> {
                 try {
                     result.set(readForm());
                 } catch (Throwable t) {
@@ -127,7 +133,6 @@ class SettingsDialogLayoutTest {
                     done.countDown();
                 }
             });
-            settle.play();
             try {
                 AiSettingsDialog.show(new SettingsStore(), tab);
             } catch (Throwable t) {
@@ -141,6 +146,44 @@ class SettingsDialogLayoutTest {
             fail("Measuring the settings dialog threw", error.get());
         }
         return result.get();
+    }
+
+    /**
+     * Runs {@code action} once the dialog is showing and has been through {@code layoutPulsesLeft}
+     * more pulses. Polling from inside the dialog's nested event loop is the only way to observe it:
+     * the calling thread is blocked in {@code show()}.
+     */
+    private static void whenFormIsReady(long elapsedMs, int layoutPulsesLeft, Runnable action) {
+        if (formWindow() != null) {
+            if (layoutPulsesLeft <= 0) {
+                action.run();
+                return;
+            }
+            afterOnePulse(elapsedMs, layoutPulsesLeft - 1, action);
+            return;
+        }
+        if (elapsedMs >= DIALOG_APPEAR_TIMEOUT_MS) {
+            action.run(); // Let readForm report why the dialog never appeared.
+            return;
+        }
+        afterOnePulse(elapsedMs, LAYOUT_PULSES, action);
+    }
+
+    private static void afterOnePulse(long elapsedMs, int layoutPulsesLeft, Runnable action) {
+        PauseTransition next = new PauseTransition(Duration.millis(DIALOG_POLL_MS));
+        next.setOnFinished(e -> whenFormIsReady(elapsedMs + DIALOG_POLL_MS, layoutPulsesLeft, action));
+        next.play();
+    }
+
+    /** @return the showing dialog window, or {@code null} while it is still coming up */
+    private static Window formWindow() {
+        for (Window window : Window.getWindows()) {
+            if (window.isShowing() && window.getScene() != null
+                    && !window.getScene().getRoot().lookupAll(".field-label").isEmpty()) {
+                return window;
+            }
+        }
+        return null;
     }
 
     private static FormSnapshot readForm() {

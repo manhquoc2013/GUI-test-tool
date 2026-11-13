@@ -46,6 +46,9 @@ public final class StatusDisplay {
             case "ERROR" -> StudioIcons.STATUS_ERROR;
             case "PENDING" -> StudioIcons.STATUS_PENDING;
             case "RUNNING" -> StudioIcons.STATUS_RUNNING;
+            // A step that emitted no statement never ran: it is not a failure, so it must not
+            // borrow the failed icon either.
+            case "NOT_RUN" -> StudioIcons.STATUS_SKIPPED;
             default -> "•";
         };
     }
@@ -62,6 +65,7 @@ public final class StatusDisplay {
             case "ERROR" -> "Lỗi";
             case "PENDING" -> "Chờ chạy";
             case "RUNNING" -> "Đang chạy";
+            case "NOT_RUN" -> "Không chạy";
             case "" -> "—";
             default -> status.trim();
         };
@@ -85,6 +89,7 @@ public final class StatusDisplay {
             case "ERROR" -> "status-error";
             case "PENDING" -> "status-pending";
             case "RUNNING" -> "status-running";
+            case "NOT_RUN" -> "status-skipped";
             default -> "status-unknown";
         };
     }

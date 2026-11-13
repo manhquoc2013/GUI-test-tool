@@ -4,6 +4,7 @@ import com.studio.model.AssertResult;
 import com.studio.model.CaseResult;
 import com.studio.model.ExportLanguage;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -57,13 +58,15 @@ class ExcelReportServiceTest {
 
         assertTrue(Files.exists(out));
         try (Workbook wb = new XSSFWorkbook(new FileInputStream(out.toFile()))) {
-            assertEquals(3, wb.getNumberOfSheets());
+            assertEquals(4, wb.getNumberOfSheets(), "Summary + Cases + Steps + Asserts");
             Sheet sOverview = wb.getSheet("Tổng quan");
             Sheet sCases = wb.getSheet("Danh sách Cases");
+            Sheet sSteps = wb.getSheet("Danh sách Bước");
             Sheet sAsserts = wb.getSheet("Danh sách Asserts");
 
             assertNotNull(sOverview, "Sheet Tổng quan must exist");
             assertNotNull(sCases, "Sheet Danh sách Cases must exist");
+            assertNotNull(sSteps, "Sheet Danh sách Bước must exist");
             assertNotNull(sAsserts, "Sheet Danh sách Asserts must exist");
 
             // Overview title
@@ -86,13 +89,15 @@ class ExcelReportServiceTest {
 
         assertTrue(Files.exists(out));
         try (Workbook wb = new XSSFWorkbook(new FileInputStream(out.toFile()))) {
-            assertEquals(3, wb.getNumberOfSheets());
+            assertEquals(4, wb.getNumberOfSheets(), "Summary + Cases + Steps + Asserts");
             Sheet sOverview = wb.getSheet("Summary");
             Sheet sCases = wb.getSheet("Cases");
+            Sheet sSteps = wb.getSheet("Steps");
             Sheet sAsserts = wb.getSheet("Asserts");
 
             assertNotNull(sOverview, "Sheet Summary must exist in English");
             assertNotNull(sCases, "Sheet Cases must exist in English");
+            assertNotNull(sSteps, "Sheet Steps must exist in English");
             assertNotNull(sAsserts, "Sheet Asserts must exist in English");
 
             // Overview title
@@ -105,6 +110,55 @@ class ExcelReportServiceTest {
             assertEquals("Case Name", hCases.getCell(1).getStringCellValue());
             assertEquals("Priority", hCases.getCell(4).getStringCellValue());
             assertEquals("Status", hCases.getCell(5).getStringCellValue());
+        }
+    }
+
+    /**
+     * A spreadsheet a tester opens must say what each step did, and must not imply that a step which
+     * never ran took zero milliseconds.
+     */
+    @Test
+    void testStepsSheetListsEveryExecutedStepInReadableWords() throws Exception {
+        CaseResult case0 = report.getCases().get(0);
+        case0.setStepResults(List.of(
+                new StepResult(1, "page.navigate(\"https://example.com\");", StepResult.PASSED, 320, null),
+                new StepResult(2, "page.locator(\"input#email\").fill(\"admin\");", StepResult.PASSED, 45, null),
+                new StepResult(3, "page.locator(\"#submit\").click();", StepResult.FAILED, 30000,
+                        "TimeoutError: waiting for locator(\"#submit\")"),
+                new StepResult(4, "helper.setup(page);", StepResult.NOT_RUN, 0,
+                        "Bước không sinh câu lệnh để thực thi")));
+
+        Path out = tempDir.resolve("report_steps.xlsx");
+        ExcelReportService.export(report, out, ExportLanguage.ENGLISH);
+
+        try (Workbook wb = new XSSFWorkbook(new FileInputStream(out.toFile()))) {
+            Sheet sSteps = wb.getSheet("Steps");
+            assertNotNull(sSteps);
+            Row header = sSteps.getRow(0);
+            assertEquals("Case", header.getCell(0).getStringCellValue());
+            assertEquals("Step #", header.getCell(1).getStringCellValue());
+            assertEquals("Action", header.getCell(2).getStringCellValue());
+            assertEquals("Result", header.getCell(3).getStringCellValue());
+
+            Row first = sSteps.getRow(1);
+            assertEquals("TC01_Valid_Auth", first.getCell(0).getStringCellValue());
+            assertEquals(1, (int) first.getCell(1).getNumericCellValue());
+            assertEquals("mở https://example.com", first.getCell(2).getStringCellValue(),
+                    "The action column must be the sentence, not the Playwright call");
+            assertEquals("PASSED", first.getCell(3).getStringCellValue());
+
+            Row failure = sSteps.getRow(3);
+            assertEquals("FAILED", failure.getCell(3).getStringCellValue());
+            assertEquals(30000, (int) failure.getCell(4).getNumericCellValue());
+            assertTrue(failure.getCell(5).getStringCellValue().contains("TimeoutError"));
+
+            Row notRun = sSteps.getRow(4);
+            assertEquals("NOT_RUN", notRun.getCell(3).getStringCellValue());
+            assertEquals("", notRun.getCell(4).getStringCellValue(),
+                    "A step that never ran must not report a 0 ms duration");
+
+            // A statement the formatter does not understand keeps its code: a report must not hide it.
+            assertEquals("helper.setup(page);", notRun.getCell(2).getStringCellValue());
         }
     }
 

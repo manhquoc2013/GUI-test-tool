@@ -5,6 +5,8 @@ import com.studio.model.CaseResult;
 import com.studio.model.ExportLanguage;
 import com.studio.model.HealedStepMeta;
 import com.studio.model.RunReport;
+import com.studio.model.StepResult;
+import com.studio.util.PlaywrightDescribe;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -205,6 +207,7 @@ public class HtmlReportService {
                 max-height: 240px;
                 overflow-y: auto;
             }
+            .steps-table td:nth-child(2) { min-width: 220px; }
             table {
                 width: 100%;
                 border-collapse: collapse;
@@ -428,6 +431,40 @@ public class HtmlReportService {
                 sb.append("<div class=\"log-box\">").append(escapeHtml(cr.getLogExcerpt())).append("</div>\n");
             }
 
+            // Executed steps: the order the run walked through, with the first failure marked. The
+            // statement is re-phrased into a sentence here because an exported report is read by
+            // testers, not only by whoever wrote the Playwright code.
+            List<StepResult> steps = cr.getStepResults();
+            if (steps != null && !steps.isEmpty()) {
+                sb.append("<h4 style=\"margin-top:14px; font-size:13px; color:var(--text-main);\">")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_title", steps.size())).append("</h4>\n");
+                sb.append("<table class=\"steps-table\"><thead><tr><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_col_num")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_col_action")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_col_result")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_col_duration")).append("</th><th>")
+                  .append(I18nService.get(effectiveLang, "export.html.steps_col_msg")).append("</th></tr></thead><tbody>\n");
+                for (StepResult sr : steps) {
+                    String sStatus = sr.getStatus() != null ? sr.getStatus().toUpperCase(java.util.Locale.ROOT) : "";
+                    String sBadge = switch (sStatus) {
+                        case "PASSED" -> "passed";
+                        case "FAILED" -> "failed";
+                        default -> "skipped";
+                    };
+                    sb.append("<tr>");
+                    sb.append("<td>").append(sr.getStepNumber()).append("</td>");
+                    sb.append("<td>").append(escapeHtml(describeStatement(sr.getStatement()))).append("</td>");
+                    sb.append("<td><span class=\"badge ").append(sBadge).append("\">")
+                      .append(escapeHtml(sStatus)).append("</span></td>");
+                    // A step that never ran has no duration; "-" keeps "0" from implying it executed.
+                    sb.append("<td>").append(sr.getDurationMs() > 0 ? sr.getDurationMs() + " ms" : "-").append("</td>");
+                    String sMsg = (sr.getMessage() != null && !sr.getMessage().isBlank()) ? sr.getMessage() : "";
+                    sb.append("<td>").append(escapeHtml(sMsg)).append("</td>");
+                    sb.append("</tr>\n");
+                }
+                sb.append("</tbody></table>\n");
+            }
+
             // Assertions table
             List<AssertResult> asserts = cr.getAssertResults();
             if (asserts != null && !asserts.isEmpty()) {
@@ -584,6 +621,18 @@ public class HtmlReportService {
 
         sb.append("</div>\n</body>\n</html>\n");
         return sb.toString();
+    }
+
+    /**
+     * @return the step as a sentence when {@link PlaywrightDescribe} understands it, otherwise the
+     *         statement itself — a report must never hide the code it could not explain
+     */
+    private static String describeStatement(String statement) {
+        if (statement == null || statement.isBlank()) {
+            return "";
+        }
+        String described = PlaywrightDescribe.describe(statement);
+        return described != null ? described : statement.trim();
     }
 
     private static String escapeHtml(String input) {
