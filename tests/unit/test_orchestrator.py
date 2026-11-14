@@ -290,6 +290,7 @@ async def test_run_clears_crew_memory_each_turn() -> None:
         "qa-crew-memory",
         "put_artifact",
         {"role": "composer", "kind": "stale", "text": "leftover"},
+        role="composer",
     )
     ref = first["ref"]
     orch = CopilotOrchestrator(

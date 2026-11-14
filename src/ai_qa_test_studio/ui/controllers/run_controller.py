@@ -107,6 +107,8 @@ class RunController:
                 on_step=w._run_logs.append_step,
                 skill_name=skill,
                 skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
+                midscene_enabled=w.env.settings.mcp.external.midscene,
+                bundled_mcp=w._bundled_mcp,
             )
             w._last_report = report
             w.builder.load_case(case)
@@ -139,6 +141,10 @@ class RunController:
             w._set_pill(w._pill_mcp, "MCP: Playwright (Stopped)")
         except Exception as exc:  # noqa: BLE001
             w._append_log(f"Stop thất bại: {exc}")
+        finally:
+            w._busy = False
+            w._set_busy_chrome(False)
+            w._status_caption.setText("Sẵn sàng")
 
     async def on_viewport_click(self, css_x: float, css_y: float) -> None:
         w = self._w

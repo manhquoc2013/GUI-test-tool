@@ -8,8 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ai_qa_test_studio.agent.auto_binder import ShiftLeftAutoBinder, repo_from_project
+from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.dual_loop_agent import DualLoopAgent
+from ai_qa_test_studio.agent.external_mcp_bridge import ExternalMcpBridge
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
+from ai_qa_test_studio.agent.vision_bridge import make_vision_locate
 from ai_qa_test_studio.browser.engine import BrowserEngine
 from ai_qa_test_studio.constants import (
     DEFAULT_TARGET_URL,
@@ -32,6 +35,7 @@ class SessionController:
         self._started = False
         self.cancel_requested = False
         self._active_run: asyncio.Future[None] | None = None
+        self._external_mcp = ExternalMcpBridge()
 
     @property
     def started(self) -> bool:
@@ -88,6 +92,7 @@ class SessionController:
                 emit("Hết thời gian chờ dual-loop — tiếp tục đóng trình duyệt")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("wait_active_run_failed err=%s", exc)
+        await self._external_mcp.stop_all()
         if self._started:
             await self.engine.stop()
             self._started = False
@@ -133,6 +138,8 @@ class SessionController:
         on_step: StepFn | None = None,
         skill_name: str = "",
         skills_dir: Path | None = None,
+        midscene_enabled: bool = False,
+        bundled_mcp: BundledMcpRegistry | None = None,
     ) -> RunReport:
         emit = log or (lambda _m: None)
         self.cancel_requested = False
@@ -150,7 +157,21 @@ class SessionController:
                 await self.engine.goto(case.start_url)
                 emit(f"Mở start_url={case.start_url}")
             repo = repo_from_project(project)
-            agent = DualLoopAgent(self.engine.page, repo)
+            vision_locate = None
+            if bundled_mcp is not None:
+                bundled_mcp.playwright.bind_page(lambda: self.engine.page)
+                cdp = self.engine.cdp_http_for_mcp() if self._started else ""
+                if cdp:
+                    bundled_mcp.playwright.bind_cdp(cdp)
+            if midscene_enabled and bundled_mcp is not None:
+                cdp = self.engine.cdp_http_for_mcp() if self._started else ""
+                if cdp:
+                    await self._external_mcp.ensure_midscene(cdp, log=emit)
+                vision_locate = await make_vision_locate(
+                    self.engine.page, bundled_mcp, enabled=True
+                )
+                emit("Midscene vision locate: on (bundled qa-midscene)")
+            agent = DualLoopAgent(self.engine.page, repo, vision_locate=vision_locate)
             emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
             report = await agent.run_case(
                 case,

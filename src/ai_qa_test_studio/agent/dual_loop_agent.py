@@ -6,7 +6,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,6 +29,7 @@ from ai_qa_test_studio.core.models import (
 logger = logging.getLogger(__name__)
 
 CancelFn = Callable[[], bool]
+VisionLocateFn = Callable[[str], Awaitable[dict[str, Any] | None]]
 
 
 def _normalize_text(value: str) -> str:
@@ -43,19 +44,23 @@ class DualLoopAgent:
         resolver: LocatorResolver | None = None,
         healer: Healer | None = None,
         max_tokens: int = TOKEN_MAX_ATOMIC_OUTPUT,
+        vision_locate: VisionLocateFn | None = None,
     ) -> None:
         self.page = page
         self.element_repo = element_repo
         self.resolver = resolver or LocatorResolver()
         self.healer = healer or Healer(resolver=self.resolver)
         self.max_tokens = max_tokens
+        self.vision_locate = vision_locate
 
     async def run_case(
         self,
         test_case: TestCase,
         project_name: str = "",
         should_cancel: CancelFn | None = None,
+        vision_locate: VisionLocateFn | None = None,
     ) -> RunReport:
+        locate = vision_locate if vision_locate is not None else self.vision_locate
         started = datetime.now(UTC).isoformat()
         step_results: list[RunStepResult] = []
         audits = []
@@ -92,9 +97,19 @@ class DualLoopAgent:
             except Exception as exc:  # noqa: BLE001
                 message = str(exc)
                 status = CASE_STATUS_FAIL
-                if element is not None:
-                    audit = await self.healer.heal_step(self.page, step, element)
-                    if audit is not None:
+                if should_cancel is not None and should_cancel():
+                    case_status = CASE_STATUS_CANCELLED
+                    status = CASE_STATUS_CANCELLED
+                    message = "cancelled"
+                elif element is not None:
+                    audit = await self.healer.heal_step(
+                        self.page, step, element, vision_locate=locate
+                    )
+                    if should_cancel is not None and should_cancel():
+                        case_status = CASE_STATUS_CANCELLED
+                        status = CASE_STATUS_CANCELLED
+                        message = "cancelled"
+                    elif audit is not None:
                         audits.append(audit)
                         try:
                             await self.resolver.execute_step(self.page, step, element)
@@ -118,6 +133,8 @@ class DualLoopAgent:
                 )
             )
             if case_status == CASE_STATUS_FAIL and status == CASE_STATUS_FAIL:
+                break
+            if case_status == CASE_STATUS_CANCELLED:
                 break
 
         if case_status == CASE_STATUS_PASS and test_case.expected_final_result:
