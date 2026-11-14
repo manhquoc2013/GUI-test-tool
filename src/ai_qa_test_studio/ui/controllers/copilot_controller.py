@@ -138,15 +138,17 @@ class CopilotController:
             ]
             if attach_paths and hasattr(w.copilot, "await_attachment_ingests"):
                 w.copilot.set_status("Đang index tài liệu đính kèm…")
-                doc_ids = await w.copilot.await_attachment_ingests(attach_paths)
-                if doc_ids:
-                    flags[CONTEXT_KEY_DOC_IDS] = doc_ids
+                doc_by_path = await w.copilot.await_attachment_ingests(attach_paths)
+                if doc_by_path:
+                    flags[CONTEXT_KEY_DOC_IDS] = list(doc_by_path.values())
                     attachments = flags.get("attachments")
                     if isinstance(attachments, list):
-                        for item, doc_id in zip(attachments, doc_ids, strict=False):
-                            if isinstance(item, dict) and not str(
-                                item.get("doc_id") or ""
-                            ).strip():
+                        for item in attachments:
+                            if not isinstance(item, dict):
+                                continue
+                            path = str(item.get("path") or "")
+                            doc_id = doc_by_path.get(path)
+                            if doc_id and not str(item.get("doc_id") or "").strip():
                                 item["doc_id"] = doc_id
             context = await self.build_context(flags)
             # Mode is a UI hint only — orchestrator LLM classifies compose/test_data/explain.

@@ -460,6 +460,7 @@ class CopilotChatPane(QWidget):
         self._session = CopilotSession(mode=mode)
         self._clear_transcript()
         self._clear_attachments()
+        self._reset_ingest_state()
         self.set_apply_payload(None)
         self.starters.setVisible(True)
         self.session_changed.emit()
@@ -468,6 +469,7 @@ class CopilotChatPane(QWidget):
         self._session.messages.clear()
         self._clear_transcript()
         self._clear_attachments()
+        self._reset_ingest_state()
         self.set_apply_payload(None)
         self.starters.setVisible(True)
         self.session_changed.emit()
@@ -814,13 +816,14 @@ class CopilotChatPane(QWidget):
             break
         self._rebuild_attach_chips()
 
-    async def await_attachment_ingests(self, paths: list[str]) -> list[str]:
-        """Wait for pending corpus ingest; return doc_ids in path order.
+    async def await_attachment_ingests(self, paths: list[str]) -> dict[str, str]:
+        """Wait for pending corpus ingest; return ``{path: doc_id}`` for successes.
 
-        Completed ingests stay in ``_ingest_results`` so a send after chips clear
-        still resolves doc_ids for Coverage Pass.
+        Failed or empty-id paths are omitted (never shift peers). Completed ingests
+        stay in ``_ingest_results`` so a send after chips clear still resolves ids
+        for Coverage Pass.
         """
-        doc_ids: list[str] = []
+        by_path: dict[str, str] = {}
         for raw in paths:
             task = self._ingest_tasks.get(raw)
             if task is not None:
@@ -832,12 +835,12 @@ class CopilotChatPane(QWidget):
                 self._ingest_tasks.pop(raw, None)
                 self._ingest_results[raw] = result
                 if result.doc_id:
-                    doc_ids.append(result.doc_id)
+                    by_path[raw] = result.doc_id
                 continue
             cached = self._ingest_results.get(raw)
             if cached is not None and cached.doc_id:
-                doc_ids.append(cached.doc_id)
-        return doc_ids
+                by_path[raw] = cached.doc_id
+        return by_path
 
     def _rebuild_attach_chips(self) -> None:
         while self._attach_list.count():
@@ -912,8 +915,17 @@ class CopilotChatPane(QWidget):
         self._rebuild_attach_chips()
 
     def _clear_attachments(self) -> None:
+        """Clear chip UI only — keep ingest cache for the in-flight send."""
         self._attachments.clear()
         self._rebuild_attach_chips()
+
+    def _reset_ingest_state(self) -> None:
+        """Cancel pending ingest tasks and drop cache (new/clear session)."""
+        for task in self._ingest_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._ingest_tasks.clear()
+        self._ingest_results.clear()
 
     def _clear_transcript(self) -> None:
         self._streaming_row = None
