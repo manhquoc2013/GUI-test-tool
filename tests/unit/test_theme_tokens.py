@@ -52,3 +52,24 @@ def test_get_theme_tokens_matches_is_dark_flag(monkeypatch: object) -> None:
     assert get_theme_tokens() is DARK_TOKENS
     monkeypatch.setattr(theme_mod, "isDarkTheme", lambda: False)
     assert get_theme_tokens() is LIGHT_TOKENS
+
+
+def test_explorer_tree_uses_light_dock_background() -> None:
+    """Fluent TreeWidget defaults to Base=#171717; Explorer must override in light theme."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication
+
+    from ai_qa_test_studio.ui.theme import apply_studio_theme
+    from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
+
+    app = QApplication.instance() or QApplication([])
+    apply_studio_theme(app, preference="light")
+    pane = ExplorerPane()
+    pane.resize(280, 400)
+    pane.show()
+    app.processEvents()
+    base = pane.suite_tree.palette().color(pane.suite_tree.palette().ColorRole.Base)
+    assert base.name().lower() == "#f8fafc"
+    sample = QColor(pane.grab().toImage().pixel(140, 220))
+    assert sample.lightness() > 200
+    pane.close()

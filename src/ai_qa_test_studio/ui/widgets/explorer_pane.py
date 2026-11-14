@@ -132,6 +132,28 @@ class ExplorerPane(QWidget):
             f"border-right: 1px solid {t.border_hairline};"
             f"}}"
         )
+        # Fluent TreeWidget keeps Base=#171717 even in light theme — override to dock surface.
+        tree_bg = t.bg_dock if t.bg_dock.startswith("#") else t.bg_canvas
+        tree_qss = (
+            f"TreeWidget {{ background-color: {tree_bg}; border: none;"
+            f" color: {t.text_primary}; outline: none; }}"
+            f"TreeWidget::item {{ height: {UI_TREE_ROW_HEIGHT}px;"
+            f" color: {t.text_primary}; }}"
+            f"TreeWidget::item:hover {{ background-color: {t.bg_card_subtle}; }}"
+            f"TreeWidget::item:selected {{ background-color: {t.bg_card_subtle};"
+            f" color: {t.text_primary}; }}"
+        )
+        fill = QColor(tree_bg)
+        text = QColor(t.text_primary)
+        for tree in (self.suite_tree, self.element_tree, self.reports_tree):
+            tree.setStyleSheet(tree_qss)
+            palette = tree.palette()
+            palette.setColor(palette.ColorRole.Base, fill)
+            palette.setColor(palette.ColorRole.Window, fill)
+            palette.setColor(palette.ColorRole.Text, text)
+            tree.setPalette(palette)
+            tree.viewport().setAutoFillBackground(True)
+            tree.viewport().setPalette(palette)
 
     def _make_tree(self, accessible_name: str) -> TreeWidget:
         tree = TreeWidget(self)
@@ -143,7 +165,7 @@ class ExplorerPane(QWidget):
         tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         tree.setAccessibleName(accessible_name)
         tree.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
-        tree.setStyleSheet(f"TreeWidget::item {{ height: {UI_TREE_ROW_HEIGHT}px; }}")
+        tree.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         return tree
 
     def _on_pivot_changed(self, key: str) -> None:

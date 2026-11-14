@@ -310,6 +310,40 @@ def test_chat_end_role_keeps_full_content_shows_summary(qapp: QApplication) -> N
     pane.close()
 
 
+def test_mark_stopped_closes_all_typing_bubbles(qapp: QApplication) -> None:
+    from ai_qa_test_studio.constants import (
+        COPILOT_STOP_MARKER,
+        COPILOT_STOP_TOOLTIP,
+        ROLE_COORDINATOR,
+        ROLE_CRITIC,
+        ROLE_SYSTEM,
+    )
+    from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
+
+    pane = CopilotChatPane()
+    pane.show()
+    qapp.processEvents()
+    pane.begin_role(ROLE_COORDINATOR)
+    pane.begin_role(ROLE_CRITIC)
+    pane.append_status_summary(ROLE_SYSTEM, "Artifact sẵn sàng (12)", summary="Artifact sẵn sàng (12)")
+    assert pane.session.messages[0].content == ""
+    assert pane.session.messages[1].content == ""
+
+    pane.mark_stopped()
+    assert not pane._rows[0].is_typing()
+    assert not pane._rows[1].is_typing()
+    assert pane.session.messages[0].content == COPILOT_STOP_MARKER
+    assert pane.session.messages[1].content == COPILOT_STOP_MARKER
+    assert COPILOT_STOP_MARKER in pane.session.messages[-1].content
+    # Idempotent — second stop must not duplicate the marker.
+    before = pane.session.messages[-1].content
+    pane.mark_stopped()
+    assert pane.session.messages[-1].content == before
+    assert not pane.btn_stop.icon().isNull()
+    assert pane.btn_stop.toolTip() == COPILOT_STOP_TOOLTIP
+    pane.close()
+
+
 def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path: Path) -> None:
     from PySide6.QtWidgets import QSizePolicy
 

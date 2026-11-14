@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ai_qa_test_studio.constants import (
+    COPILOT_STOP_MARKER,
+    COPILOT_STOP_SUFFIX,
     ROLE_COMPOSER,
     ROLE_COORDINATOR,
     ROLE_CREW,
@@ -103,10 +105,20 @@ class CopilotTurnSink:
         if self.viewing():
             self._w.copilot.mark_stopped(role)
             return
-        suffix = "\n\n— Đã dừng —"
+        for msg in self.session.messages:
+            if msg.role == "user":
+                continue
+            content = msg.content or ""
+            if COPILOT_STOP_MARKER in content:
+                continue
+            if not content.strip():
+                msg.content = COPILOT_STOP_MARKER
+                msg.status = "stopped"
         if self.session.messages:
-            self.session.messages[-1].content += suffix
-            self.session.messages[-1].status = "stopped"
+            last = self.session.messages[-1]
+            if last.role != "user" and COPILOT_STOP_MARKER not in (last.content or ""):
+                last.content = (last.content or "") + COPILOT_STOP_SUFFIX
+                last.status = "stopped"
 
     def attach_apply_to_latest_crew(self, payload: dict[str, Any]) -> None:
         crew_roles = {ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, ROLE_COORDINATOR}

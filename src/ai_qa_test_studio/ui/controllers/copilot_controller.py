@@ -295,6 +295,9 @@ class CopilotController:
                 history=history[:-1] if history else [],
                 cancel=cancel,
             ):
+                # After Stop: ignore further UI events except the terminal "stopped".
+                if cancel.is_set() and event.kind != "stopped":
+                    continue
                 if event.kind == "role_start" and event.role:
                     current_role = event.role
                     sink.set_status(

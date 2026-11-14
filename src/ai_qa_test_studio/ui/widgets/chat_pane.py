@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, Qt, Signal
+from PySide6.QtGui import QGuiApplication, QHideEvent, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -61,7 +62,11 @@ from ai_qa_test_studio.constants import (
     COPILOT_DOWNLOAD_EMPTY,
     COPILOT_DOWNLOAD_FAIL_TITLE,
     COPILOT_DOWNLOAD_TOOLTIP,
-    COPILOT_HISTORY_OVERLAY_WIDTH,
+    COPILOT_HISTORY_POPOVER_GAP,
+    COPILOT_HISTORY_POPOVER_MARGIN,
+    COPILOT_HISTORY_POPOVER_MAX_HEIGHT,
+    COPILOT_HISTORY_POPOVER_MIN_HEIGHT,
+    COPILOT_HISTORY_POPOVER_WIDTH,
     COPILOT_HISTORY_TOGGLE_TIP,
     COPILOT_IDLE_PLACEHOLDER,
     COPILOT_INPUT_HEIGHT,
@@ -76,6 +81,9 @@ from ai_qa_test_studio.constants import (
     COPILOT_STARTER_PROMPTS,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_MIN_HEIGHT,
+    COPILOT_STOP_MARKER,
+    COPILOT_STOP_SUFFIX,
+    COPILOT_STOP_TOOLTIP,
     ROLE_COMPOSER,
     ROLE_CREW,
     ROLE_SYSTEM,
@@ -93,6 +101,7 @@ from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
 from ai_qa_test_studio.ui.bubble_summary import summarize_for_bubble
+from ai_qa_test_studio.ui.icons import make_stop_icon
 from ai_qa_test_studio.ui.motion import fade_in
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
@@ -140,6 +149,7 @@ class CopilotChatPane(QWidget):
         self._ingest_tasks: dict[str, asyncio.Task[IngestResult]] = {}
         self._ingest_results: dict[str, IngestResult] = {}
         self._history_visible = False
+        self._history_app_filter = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -321,9 +331,10 @@ class CopilotChatPane(QWidget):
         self.btn_send.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
         self.btn_send.setToolTip("Gửi")
         self.btn_send.clicked.connect(self._emit_send)
-        self.btn_stop = ToolButton(FIF.CANCEL, composer_wrap)
+        self.btn_stop = ToolButton(composer_wrap)
         self.btn_stop.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
-        self.btn_stop.setToolTip("Dừng LLM / orchestrator")
+        self.btn_stop.setToolTip(COPILOT_STOP_TOOLTIP)
+        self.btn_stop.setAccessibleName(COPILOT_STOP_TOOLTIP)
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(lambda: self.stop_requested.emit())
         input_row.addWidget(self.btn_attach, 0, Qt.AlignmentFlag.AlignBottom)
@@ -352,12 +363,12 @@ class CopilotChatPane(QWidget):
         chat_layout.addWidget(composer_wrap)
         chat_shell.addWidget(chat_main, stretch=1)
 
-        # Overlay drawer (not side-by-side): keeps transcript full-width in a narrow dock.
-        self.history_rail = ChatHistoryRail(chat_body)
+        # Compact popover under the history button (not a full-height side drawer).
+        self.history_rail = ChatHistoryRail(self)
         self.history_rail.hide()
-        self.history_rail.session_activated.connect(self.history_session_activated.emit)
+        self.history_rail.session_activated.connect(self._on_history_session_activated)
         self.history_rail.delete_requested.connect(self.history_delete_requested.emit)
-        chat_body.installEventFilter(self)
+        self.installEventFilter(self)
 
         self.wizard = ComposeWizardPanel(self.body_stack)
         self.wizard.drafts_ready.connect(self._on_wizard_drafts)
@@ -405,6 +416,8 @@ class CopilotChatPane(QWidget):
                 f"color: {t.warning_fg}; background-color: {t.warning_bg};"
                 f"border: 1px solid {t.warning_border}; border-radius: 6px; padding: 6px 8px;"
             )
+        if getattr(self, "btn_stop", None) is not None:
+            self.btn_stop.setIcon(make_stop_icon(color=t.text_primary))
 
     @property
     def session(self) -> CopilotSession:
@@ -415,7 +428,15 @@ class CopilotChatPane(QWidget):
         return self._busy
 
     def eventFilter(self, obj: object, event: object) -> bool:
-        if obj is getattr(self, "_chat_body", None) and isinstance(event, QEvent):
+        if self._history_visible and isinstance(event, QEvent):
+            if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+                if not self._history_chrome_contains(event.globalPosition().toPoint()):
+                    self.set_history_rail_visible(False)
+            elif event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+                if event.key() == Qt.Key.Key_Escape:
+                    self.set_history_rail_visible(False)
+                    return True
+        if obj is self and isinstance(event, QEvent):
             if event.type() == QEvent.Type.Resize and self._history_visible:
                 self._layout_history_overlay()
         if obj is self.input_box and isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
@@ -431,6 +452,12 @@ class CopilotChatPane(QWidget):
                 self._emit_send()
                 return True
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        # Drop app-level outside-click filter before this pane leaves the tree.
+        if self._history_visible:
+            self.set_history_rail_visible(False)
+        super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().resizeEvent(event)
@@ -501,16 +528,56 @@ class CopilotChatPane(QWidget):
             self._layout_history_overlay()
             self.history_rail.show()
             self.history_rail.raise_()
+            self._install_history_outside_filter()
         else:
             self.history_rail.hide()
+            self._remove_history_outside_filter()
+
+    def _install_history_outside_filter(self) -> None:
+        app = QApplication.instance()
+        if app is None or self._history_app_filter:
+            return
+        app.installEventFilter(self)
+        self._history_app_filter = True
+
+    def _remove_history_outside_filter(self) -> None:
+        app = QApplication.instance()
+        if app is None or not self._history_app_filter:
+            return
+        app.removeEventFilter(self)
+        self._history_app_filter = False
+
+    def _history_chrome_contains(self, global_pos: QPoint) -> bool:
+        """True when the click is on the popover or the history toggle button."""
+        for widget in (self.history_rail, self.btn_history):
+            if widget.rect().contains(widget.mapFromGlobal(global_pos)):
+                return True
+        return False
+
+    def _on_history_session_activated(self, session_id: str) -> None:
+        self.history_session_activated.emit(session_id)
+        self.set_history_rail_visible(False)
 
     def _layout_history_overlay(self) -> None:
-        host = getattr(self, "_chat_body", None)
-        if host is None:
+        """Anchor a content-sized popover under the history button (top-right)."""
+        btn = getattr(self, "btn_history", None)
+        if btn is None:
             return
-        width = min(COPILOT_HISTORY_OVERLAY_WIDTH, max(160, host.width()))
+        margin = COPILOT_HISTORY_POPOVER_MARGIN
+        width = min(COPILOT_HISTORY_POPOVER_WIDTH, max(200, self.width() - margin * 2))
+        anchor = btn.mapTo(self, QPoint(btn.width(), btn.height()))
+        max_height = max(
+            COPILOT_HISTORY_POPOVER_MIN_HEIGHT,
+            min(COPILOT_HISTORY_POPOVER_MAX_HEIGHT, self.height() - anchor.y() - margin * 2),
+        )
+        height = self.history_rail.preferred_popover_height(max_height=max_height)
+        x = min(max(margin, anchor.x() - width), max(margin, self.width() - width - margin))
+        y = anchor.y() + COPILOT_HISTORY_POPOVER_GAP
+        if y + height > self.height() - margin:
+            y = max(margin, self.height() - height - margin)
         self.history_rail.setFixedWidth(width)
-        self.history_rail.setGeometry(0, 0, width, host.height())
+        self.history_rail.setGeometry(x, y, width, height)
+        self.history_rail.raise_()
 
     def set_history_sessions(
         self,
@@ -526,6 +593,8 @@ class CopilotChatPane(QWidget):
             running_ids=running_ids,
             unread_ids=unread_ids,
         )
+        if self._history_visible:
+            self._layout_history_overlay()
 
     def new_session(self) -> None:
         mode = self._session.mode
@@ -659,19 +728,30 @@ class CopilotChatPane(QWidget):
         self.session_changed.emit()
 
     def mark_stopped(self, role: str | None = None) -> None:
+        """Settle every open/empty agent bubble and stamp the stop marker (idempotent)."""
         del role
-        suffix = "\n\n— Đã dừng —"
-        message_id: str | None = None
-        if self._session.messages:
-            self._session.messages[-1].content += suffix
-            self._session.messages[-1].status = "stopped"
-            message_id = self._session.messages[-1].id
-        if self._streaming_row is not None:
-            self._streaming_row.set_body(self._streaming_row._text + suffix)
-        elif message_id is not None:
-            row = self._row_for_message_id(message_id)
+        for msg in self._session.messages:
+            if msg.role == "user":
+                continue
+            content = msg.content or ""
+            if COPILOT_STOP_MARKER in content:
+                continue
+            row = self._row_for_message_id(msg.id)
+            pending = not content.strip() or (row is not None and row.is_typing())
+            if not pending:
+                continue
+            msg.content = COPILOT_STOP_MARKER
+            msg.status = "stopped"
             if row is not None:
-                row.set_body(row._text + suffix)
+                row.set_body(COPILOT_STOP_MARKER)
+        if self._session.messages:
+            last = self._session.messages[-1]
+            if last.role != "user" and COPILOT_STOP_MARKER not in (last.content or ""):
+                last.content = (last.content or "") + COPILOT_STOP_SUFFIX
+                last.status = "stopped"
+                paint_row = self._row_for_message_id(last.id)
+                if paint_row is not None and COPILOT_STOP_MARKER not in (paint_row._text or ""):
+                    paint_row.set_body((paint_row._text or "") + COPILOT_STOP_SUFFIX)
         self._streaming_row = None
         self.set_busy(False)
         self.session_changed.emit()

@@ -93,6 +93,7 @@ from ai_qa_test_studio.constants import (
     INTENT_EXPLAIN,
     INTENT_TEST_DATA,
     INTENT_VALUES,
+    LLM_OUTLINE_MAX_TOKENS,
     LLM_PROVIDER_OFFLINE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COORDINATE,
@@ -866,7 +867,7 @@ class CopilotOrchestrator:
                 gw,
                 [ChatMessage(role="user", content=prompt)],
                 stop,
-                max_tokens=min(max_tokens, 1800),
+                max_tokens=max(max_tokens, LLM_OUTLINE_MAX_TOKENS),
             )
 
         gen = SpecGenerator(llm=_llm, compressor=self.compressor)
