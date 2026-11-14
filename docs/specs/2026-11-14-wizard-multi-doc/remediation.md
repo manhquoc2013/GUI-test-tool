@@ -4,25 +4,29 @@ Tracked from five-axis review + [Bugbot](174e9d06-043c-41dd-b4ad-7a74d2e434c8) +
 
 ## Must fix
 
-1. Prefer **structural** classify (headers/sheets) over filename tokens — filename `*scenario*` / `*spec*` must not drop case rows
-2. Deduplicate scenario rows on import; never emit empty duplicate `TS_*` codes
-3. Stop advertising `.xls` (openpyxl cannot load legacy BIFF) — drop from filter/suffixes or convert explicitly
-4. When imports already produced scenarios, do **not** always append offline `TS_HAPPY_01` / `TS_NEG_01` phantoms (generate only if no import, or mark generated distinctly / skip offline stubs)
+1. [x] Prefer **structural** classify (headers/sheets) over filename tokens
+2. [x] Deduplicate scenario rows on import
+3. [x] Stop advertising `.xls`
+4. [x] No phantom outline when imports exist
 
 ## Should fix
 
-5. Reset clears sample markdown (and docs) so reopen does not keep seed SRS
-6. Do not overwrite imported `goto` `input_data` when wizard URL is set (set `start_url` only, or only fill empty goto)
-7. Normalize headers more aggressively (`TestCaseID` → match `test case id`)
-8. Cap file bytes / CSV-XLSX rows before full parse (DoS / UI freeze)
-9. Prefer single XLSX parse path (openpyxl **or** MarkItDown, not both)
+5. [x] Reset clears sample markdown (and docs)
+6. [x] Do not overwrite imported `goto` `input_data` when wizard URL is set
+7. [x] Normalize headers more aggressively (`TestCaseID` → `test case id`)
+8. [x] Cap file bytes / CSV-XLSX rows
+9. [x] Single XLSX parse path (openpyxl table markdown only)
 
 ## Nice to have
 
-10. MD with both scenario+case headings imports both
-11. Hint when re-attaching duplicate path
-12. Narrow `All (*)` filter
-13. Wire Figma into context only when product wants it (field currently display-only; pre-existing)
+10. [x] MD with both scenario+case headings imports both
+11. [x] Hint when re-attaching duplicate path
+12. [x] Narrow file filter (no `All (*)`, no `.xls`; add `.tsv`)
+13. [ ] Wire Figma into context (deferred — display-only pre-existing)
+
+## Added (user)
+
+- [x] Any tabular shape accepted; non-standard → loose heuristic + optional LLM parse; always SRS+docs LLM context
 
 ## Explicit non-issues vs SPEC
 

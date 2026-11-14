@@ -14,12 +14,12 @@ uv run pytest
 
 ## Requirements
 
-1. **Formats**: Anything MarkItDown can convert; first-class structured parse for `.md`, `.xlsx`, `.csv`.
-2. **Kinds** (auto, no manual picker): `srs` | `test_scenario` | `test_case`.
-3. **Import**: Scenario/case docs become `TestScenario`/`TestCase` with `binding_status=UNBOUND` and appear in Step 2 checklist.
-4. **LLM context**: Freeform markdown + all ingested markdown (tagged by kind) feed `SpecGenerator` outline.
-5. **Merge**: Imported scenarios first; generated outline appended (skip duplicate `code`).
-6. **UI**: Multi-file list with detected kind label; add/remove; keep URL/Figma/markdown fields.
+1. **Formats**: MarkItDown for docs; tabular test artefacts accept **any table shape** (`.csv`/`.tsv`/`.xlsx`/`.xlsm` + sheets). No legacy `.xls` in the picker.
+2. **Kinds** (auto): `srs` | `test_scenario` | `test_case`. **Structural headers/sheets beat filename tokens.**
+3. **Standard import**: Recognized IEEE/exporter-like columns → structured UNBOUND scenarios/cases.
+4. **Non-standard tables**: Still classified as test artefacts; raw table stays in **LLM context with SRS**; parse via **LLM** when available (`async_bridge`), else loose heuristic column mapping — never silent drop.
+5. **Merge**: Imported first; generate outline only when import list is empty (no phantom stubs alongside imports).
+6. **UI**: Multi-file list + kind label; reset clears sample markdown; URL sets `start_url` without clobbering imported goto data; size/row caps on ingest.
 7. **Validation**: Continue if markdown **or** ≥1 attached doc succeeds.
 
 ## Out of scope
