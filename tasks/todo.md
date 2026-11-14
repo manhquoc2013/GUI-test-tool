@@ -1,24 +1,22 @@
-# Todo — AI QA Test Studio
+# Todo — Review Remediation (2026-11-14)
 
-## Phase 5.1 Agent Crew — done
-- [x] SPEC.md + ADR 0002
-- [x] Constants + AppSettings multi-connection
-- [x] Bundled MCP registry
-- [x] ModelRouter + ComplexityClassifier
-- [x] Orchestrator crew pipeline
-- [x] SystemSettingsDialog + ClarifyDialog
-- [x] chat_pane + main_window wiring
-- [x] Unit tests + ruff/mypy/pytest
-
-## Phase 5.2 Airy UI — done
-- [x] Design tokens + theme QSS
-- [x] 2-pane shell + RightDrawer + breakpoints
-- [x] Airy Top Bar, Sidebar Pivot, Editor disclosure
-- [x] Copilot chat redesign (2×2 starters, per-msg Copy/Undo)
-- [x] UI smoke + gates
-- [x] Documentation refresh (SPEC, ADR 0003, README, ARCHITECTURE, BUILD, USER_GUIDE, CHANGELOG, RELEASE_NOTES, CAPABILITY_MAP)
-
-## Backlog (optional)
-- [ ] Live LLM E2E with real multi-API keys
-- [ ] Light theme polish
-- [ ] PyInstaller one-click package + Chromium bundle notes
+- [ ] T1: DualLoop + Session cooperative cancel; Stop settles before engine.stop
+- [ ] T2: Healer continues DOM/vision when locator still matches after action fail
+- [ ] T3: Auto-binder heuristic returns None (no first-node default)
+- [ ] T4: Orchestrator clarify races stop Event; UI rejects dialog on Stop
+- [ ] T5: Critic clarify merges into user_text
+- [ ] T6: Copilot history keeps composer/full artifact content for next turn
+- [ ] T7: Gemini stream close on cancel; ambiguity markers tightened; MCP role ACL on invoke
+- [ ] T8: Dual-loop expected_final_result normalized verify
+- [ ] T9: Replace QMessageBox/QInputDialog in @asyncSlot with InfoBar / non-blocking prompt
+- [ ] T10: closeEvent stops browser session
+- [ ] T11: Esc stops Copilot when chat busy; block Copilot DOM while Run busy
+- [ ] T12: Push drawer when width ≥ 960; overlay when < 960; update ADR tests
+- [ ] T13: Signal arity: lambda wrappers for clicked→Signal (project gotcha)
+- [x] T14: OS keyring secret store; settings.json never stores raw API keys
+- [ ] T15: Orchestrator yields chunk events during stream_chat
+- [ ] T16: Reuse AsyncOpenAI client per gateway instance
+- [ ] T17: Clear/rotate crew-memory per Copilot turn
+- [ ] T18: Split MainWindow → layout/run/copilot/export controllers
+- [ ] T19: Sync SPEC/ADR 0003/ARCHITECTURE/.ai-context for push layout + secrets
+- [ ] T20: Full gates + learnings.md + multi-axis verify

@@ -1,23 +1,26 @@
-# Plan — AI QA Test Studio v4.1
+# Plan — Review Remediation
 
-## Completed
+## Capability order
 
-### Phase 5.1 — Agent Crew
-1. SPEC + ADR 0002 + constants/schema  
-2. Bundled MCP + ModelRouter + ComplexityClassifier  
-3. Orchestrator hybrid events + debate + clarify hooks  
-4. System Settings + ClarifyDialog + chat_pane  
-5. Wire main_window; tests; gates  
+```text
+cancel-foundation → heal-bind → orchestrator-copilot → ui-shell
+  → secrets-keychain → nice-polish → mainwindow-split → docs-verify
+```
 
-### Phase 5.2 — Airy UI
-1. Tokens + theme QSS  
-2. RightDrawer + MainWindow 2-pane + `apply_layout_breakpoint`  
-3. Top Bar / Explorer / Editor airy  
-4. CopilotChatPane redesign + Browser tab feed  
-5. `tests/ui/test_airy_shell.py` + full gates  
-6. Documentation set aligned to v4.1  
+## Streams
 
-## Next (optional)
-- Packaging / installers for Python desktop  
-- Light theme parity  
-- Live multi-provider E2E checklist  
+| Stream | Tasks | Parallel? |
+|---|---|---|
+| A Agent runtime | T1 cancel, T2 healer, T3 binder, T8 dual-loop verify | A then sequential |
+| B Copilot | T4 clarify×stop, T5 critic merge, T6 history, T7 Gemini/MCP/heuristics | After T1 constants; parallel with A heal |
+| C UI shell | T9 modals, T10 closeEvent, T11 Esc+busy, T12 push layout | After cancel API stable |
+| D Secrets | T14 keyring | Independent early |
+| E Nice | T15 stream chunks, T16 client reuse, T17 crew-memory rotate | After B |
+| F Split | T18 Layout/Run/Copilot/Export controllers | After C+B stable |
+| G Ship | T19 docs, T20 gates+review+learnings | Last |
+
+## Risks
+
+- Push layout must not break `test_airy_shell` overlay assertions — update tests for ≥960 push.
+- Keyring in CI: use in-memory backend / monkeypatch.
+- MainWindow split: keep public widget attrs used by tests (`right_drawer`, `copilot`, `h_splitter`, …).

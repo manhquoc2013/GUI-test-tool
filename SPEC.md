@@ -1,68 +1,61 @@
-# Spec: AI QA Test Studio v4.1 — Copilot Crew + Airy UI
+# Spec: Review Remediation — Cancel, Heal, Secrets, Shell Split
 
 **Status**: ACTIVE  
-**Product**: AI QA Test Studio v4.1 (Python / PySide6)  
-**ADRs**: `docs/adr/0001-…`, `0002-…`, `0003-airy-ui-shell.md`  
-**UI design SoT**: `docs/Thiết Kế Chi Tiết Giao Diện AI QA Test Studio.md` (Airy v4.1)
+**Product**: AI QA Test Studio v4.1  
+**Date**: 2026-11-14  
+**Source**: s-review findings vs `docs/knowledge/` (Hermes cancel, Orca secrets, Skyvern/Midscene heal, ADR 0001–0003)  
+**Prior product SPEC**: `docs/specs/archive/2026-11-14-phase-5-crew-airy/SPEC.md`
 
 ## Objective
 
-Ship an MCP-powered Shift-Left QA desktop studio with:
+Close every Must / Should / Nice finding from the system review so Run/Stop, Copilot clarify, heal/bind, secrets, Airy push layout, and MainWindow modularity meet ADR contracts and knowledge-aligned patterns.
 
-1. **Crew Copilot** (Phase 5.1): Planner→Composer→Critic, hybrid summaries, clarify popup, bundled MCP, Settings hub, task×complexity ModelRouter.  
-2. **Airy shell** (Phase 5.2): 2-pane default + right drawer (Copilot | Browser), responsive width breakpoints, redesigned chat chrome.
+**Success**: `uv run ruff check src tests` · `uv run mypy src` · `uv run pytest` green; mutation on heal/bind no longer stays green; no plaintext API keys in `settings.json`.
 
-**Success**: All cognitive steps via `UnifiedLLMGateway`; drawer closed on startup; gates green (`ruff` / `mypy` / `pytest`).
-
-## Decisions locked
+## Decisions locked (interrogation 1C / 2C / 3B / 4C / 5A)
 
 | Area | Decision |
 |---|---|
-| Window | `QMainWindow` + qasync — **not** FluentWindow |
-| Layout | Default Sidebar + Editor; RightDrawer on demand |
-| Drawer | Closed at startup; Copilot \| Browser pivot |
-| Size | Min `800×600`; default `1200×720` |
-| Breakpoints | Width `≥1280` / `960–1279` / `800–959` (overlay) |
-| Chat UI | Context row + Chat\|Wizard; starters 2×2; Copy/Undo per bubble |
-| Feed | Compact agent feed under Browser tab (≤5 lines) |
-| Crew | Summaries ≤160 chars; debate ≤3; clarify any role |
-| MCP | In-process `qa-compress` / `qa-crew-memory` / `qa-project-context` |
-| Settings | System Settings hub — multi AI API + multi models + routing |
-| Router | Auto `(task, complexity)→tier→model`; manual pin overrides |
+| Scope | Must + Should + Nice |
+| Secrets | OS keychain (`keyring`) — JSON stores refs only |
+| Drawer | **Push** when `width ≥ 960`; **overlay** when `< 960` (restore ADR 0003) |
+| MainWindow | Full split: Layout + Run + Copilot + Export controllers |
+| Git | One atomic commit per completed task |
 
-## Architecture (UI)
+## Architecture changes
 
 ```text
-MainWindow
-  UnifiedTopBar (hamburger · Tạo bằng AI · URL · Sync(N) · Chạy · Copilot · ⋯)
-  IndeterminateProgressBar (Sync/Run busy)
-  workspace
-    h_splitter: ExplorerPane | EditorPane
-    RightDrawer (geometry overlay / push): CopilotChatPane | BrowserAgentPane
-  TestDataDrawer (bottom)
-  StatusBar (MCP / Skills / Tokens)
+ui/
+  main_window.py          # thin shell: construct + wire controllers
+  controllers/
+    layout_controller.py  # breakpoints, push/overlay drawer, sidebar
+    run_controller.py     # launch/sync/run/stop + session cancel
+    copilot_controller.py # orchestrator, clarify, Esc/stop, history
+    export_controller.py  # HTML/Excel/pytest export actions
+agent/
+  dual_loop_agent.py      # cooperative cancel between steps
+  healer.py               # heal even when locator still matches
+  auto_binder.py          # never default-bind first DOM node
+  orchestrator.py         # clarify×stop race; critic clarify→user_text
+  llm_gateway.py          # Gemini stream close on cancel
+  bundled_mcp.py          # enforce role ACL on invoke
+core/
+  secret_store.py         # keyring-backed API key persistence
+  env_manager.py          # write apiKeyRef slots, never raw keys
 ```
 
-Shortcuts: `Ctrl+K` palette · `Ctrl+\` sidebar · `Ctrl+I` Copilot drawer · `Ctrl+Enter` Run · `Esc` close drawer / Stop.
+## Pipeline / cancel contracts
 
-## Pipeline (Copilot)
-
-```text
-User → classify complexity → Planner (LLM)
-     → optional clarify → Composer → Critic
-     → bounded debate (≤3) → optional revise → complete
-```
-
-Events: `status_summary`, `agent_message`, `clarify_request`, `clarify_resolved`, `loop_halted`, `apply_ready`, `stopped`, `pipeline_complete`.
-
-## Key modules
-
-```text
-agent/     orchestrator, model_router, complexity_classifier, bundled_mcp, llm_gateway
-core/      models, storage, env_manager, chat_models/history
-ui/        main_window, theme, widgets/{right_drawer,chat_pane,top_toolbar,…}
-reporting/ html / excel / pytest exporters (no PySide6 import)
-```
+1. **Browser Run**: Stop sets `cancel_requested`; DualLoop checks between steps; Stop awaits run settle then `engine.stop()`.
+2. **closeEvent**: always `await session.stop()` when started.
+3. **Copilot**: Stop races clarify Future; Esc stops Copilot when chat busy; no Copilot DOM read while Run `_busy`.
+4. **Clarify**: Critic resolves append `[Clarify]` into `user_text` like Planner/Composer.
+5. **History**: sliding window includes composer full text and/or crew-memory refs.
+6. **Heal**: post-failure path attempts DOM/vision even if semantic match count==1.
+7. **Bind**: heuristic miss → `None` / UNBOUND.
+8. **Verify**: expected_final_result uses normalized containment (strip/collapse whitespace), not raw substring only when empty body.
+9. **Secrets**: `keyring.set_password(service, slot, key)`; settings JSON holds `keyring:<slot>` refs.
+10. **Layout**: `≥960` push (shrink splitter for drawer width); `<960` geometry overlay.
 
 ## Testing / Gates
 
@@ -72,9 +65,13 @@ uv run mypy src
 uv run pytest
 ```
 
-UI smoke: `tests/ui/test_main_window_smoke.py`, `tests/ui/test_airy_shell.py`.
+New/extended tests: dual-loop cancel, healer post-match fail, heuristic no default bind, clarify×stop, critic clarify merge, history refs, keychain round-trip (fake keyring), push vs overlay breakpoints, controller smoke.
 
 ## Boundaries
 
-**In**: Crew UX, clarify, bundled MCP, Settings, router, Airy shell/chat.  
-**Out**: Unlimited swarm; Dual-Loop rewrite; FluentWindow; light-theme polish; web/mobile UI.
+**In**: All review findings Must+Should+Nice; docs ADR/SPEC/ARCHITECTURE sync for push layout; `keyring` dependency.  
+**Out**: Live multi-provider E2E; PyInstaller packaging; light-theme polish; unlimited swarm.
+
+## Commit rule
+
+One atomic git commit per task in `tasks/todo.md` after that task’s tests pass.
