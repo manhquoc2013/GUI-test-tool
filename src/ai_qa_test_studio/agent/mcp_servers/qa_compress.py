@@ -33,6 +33,8 @@ class QaCompressServer:
             "original_tokens": before,
             "compressed_tokens": after,
             "savings_percent": round(100.0 * (before - after) / before, 1) if before else 0.0,
+            "engine": self.compressor.last_engine,
+            "bundled_mcp": True,
         }
 
     def retrieve(self, content_hash: str) -> dict[str, Any]:

@@ -45,10 +45,11 @@ class TokenBudget:
 
 
 class ContextCompressor:
-    """In-process headroom + markitdown wrappers (no MCP subprocess)."""
+    """In-process headroom + markitdown used by bundled MCP tools."""
 
     def __init__(self, budget: TokenBudget | None = None) -> None:
         self.budget = budget or TokenBudget()
+        self.last_engine = "truncate"
 
     def compress_text(self, text: str) -> str:
         try:
@@ -64,9 +65,11 @@ class ContextCompressor:
             try:
                 result = crush(text)
                 if isinstance(result, str):
+                    self.last_engine = "headroom"
                     return self.budget.truncate_to_cap(result)
             except Exception as exc:  # noqa: BLE001 — fallback to local truncate
                 logger.warning("headroom_compress_failed err=%s", exc)
+        self.last_engine = "truncate"
         return self.budget.truncate_to_cap(text)
 
     def document_to_markdown(self, path: Path) -> str:

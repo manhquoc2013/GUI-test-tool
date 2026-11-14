@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.constants import (
     MCP_QA_COMPRESS,
     MCP_QA_CREW_MEMORY,
+    MCP_QA_INGEST,
     MCP_QA_MIDSCENE,
+    MCP_QA_PERSISTENT_MEMORY,
     MCP_QA_PLAYWRIGHT,
     MCP_QA_PROJECT_CONTEXT,
+    MCP_TOOL_DOCUMENT_TO_MARKDOWN,
     MCP_TOOL_LOCATE,
+    MCP_TOOL_MEMORY_GET,
+    MCP_TOOL_MEMORY_PUT,
     ROLE_COMPOSER,
     ROLE_CRITIC,
     ROLE_PLANNER,
+    ROLE_SYSTEM,
 )
 
 
@@ -78,6 +86,53 @@ def test_role_none_defaults_to_system_acl() -> None:
     assert "compressed" in packed or "hash" in packed
     with pytest.raises(PermissionError):
         reg.invoke(MCP_QA_COMPRESS, "retrieve", {"hash": "missing"})
+
+
+def test_compress_reports_bundled_engine() -> None:
+    reg = BundledMcpRegistry()
+    reg.start()
+    packed = reg.invoke(
+        MCP_QA_COMPRESS, "compress", {"content": "word " * 80}, role=ROLE_COMPOSER
+    )
+    assert packed.get("bundled_mcp") is True
+    assert packed.get("engine") in {"headroom", "truncate", "passthrough"}
+
+
+def test_ingest_document_to_markdown(tmp_path: Path) -> None:
+    doc = tmp_path / "note.md"
+    doc.write_text("# Hello\n\nWorld body.\n", encoding="utf-8")
+    reg = BundledMcpRegistry()
+    reg.start()
+    result = reg.invoke(
+        MCP_QA_INGEST,
+        MCP_TOOL_DOCUMENT_TO_MARKDOWN,
+        {"path": str(doc)},
+        role=ROLE_PLANNER,
+    )
+    assert result["ok"] is True
+    assert "Hello" in result["markdown"] or "World" in result["markdown"]
+    assert MCP_QA_INGEST in reg.health()["servers"]
+
+
+def test_persistent_memory_round_trip(tmp_path: Path) -> None:
+    reg = BundledMcpRegistry()
+    reg.start()
+    reg.persistent_memory.bind_project(tmp_path)
+    put = reg.invoke(
+        MCP_QA_PERSISTENT_MEMORY,
+        MCP_TOOL_MEMORY_PUT,
+        {"domain": "login", "note": "use get_by_role for submit"},
+        role=ROLE_COMPOSER,
+    )
+    assert put["ok"] is True
+    got = reg.invoke(
+        MCP_QA_PERSISTENT_MEMORY,
+        MCP_TOOL_MEMORY_GET,
+        {"domain": "login"},
+        role=ROLE_SYSTEM,
+    )
+    assert got["count"] >= 1
+    assert "get_by_role" in got["notes"][0]["note"]
 
 
 def test_midscene_locate_routed_for_system_role() -> None:
