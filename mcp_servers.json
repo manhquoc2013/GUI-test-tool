@@ -4,22 +4,26 @@
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"],
       "cdpEndpointArg": "--cdp-endpoint",
-      "notes": "CDP URL injected in-memory at runtime; never write ephemeral ports here."
+      "disabled": false,
+      "notes": "Essential auto-on. CDP URL injected in-memory at runtime; never write ephemeral ports here."
     },
     "midscene": {
       "command": "npx",
       "args": ["-y", "@midscene/mcp"],
-      "notes": "Must consume screenshots/CDP from browser.engine — no second Chromium."
+      "disabled": false,
+      "notes": "Essential auto-on. Must consume screenshots/CDP from browser.engine — no second Chromium."
     },
     "figma": {
       "command": "npx",
       "args": ["-y", "figma-developer-mcp"],
-      "disabled": true
+      "disabled": true,
+      "notes": "Opt-in via Settings; requires Figma token."
     },
     "db": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sqlite"],
-      "disabled": true
+      "disabled": true,
+      "notes": "Opt-in via Settings; SELECT-only verification."
     }
   }
 }
