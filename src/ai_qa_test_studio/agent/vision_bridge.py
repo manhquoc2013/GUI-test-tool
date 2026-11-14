@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -15,7 +17,18 @@ logger = logging.getLogger(__name__)
 
 VisionLocateFn = Callable[[str], Awaitable[dict[str, Any] | None]]
 
-_EXTERNAL_LOCATE_ALIASES = ("locate", "ai_locate", "midscene_locate", "locateElement")
+_EXTERNAL_LOCATE_ALIASES = (
+    "ailocate",
+    "ai_locate",
+    "locate",
+    "midscene_locate",
+    "locateelement",
+)
+_CSS_SIMPLE_RE = re.compile(r"^([#.][\w-]+|\[[\w-]+(?:[*^$|]?=('[^']*'|\"[^\"]*\"|[^\]]+))?\])$")
+_CSS_LABELED_RE = re.compile(
+    r"(?:^|\b)(?:css|selector)\s*[:=]\s*([#.][\w-]+|\[[^\]]+\])",
+    re.IGNORECASE,
+)
 
 
 async def make_vision_locate(
@@ -53,6 +66,14 @@ async def make_vision_locate(
     return locate
 
 
+def _pick_locate_tool(tool_names: list[str]) -> str | None:
+    lowered = {name.lower(): name for name in tool_names if name}
+    for alias in _EXTERNAL_LOCATE_ALIASES:
+        if alias in lowered:
+            return lowered[alias]
+    return None
+
+
 async def _try_external_locate(
     bridge: ExternalMcpBridge,
     cdp_endpoint: str,
@@ -66,9 +87,7 @@ async def _try_external_locate(
         if session is None:
             return None
         tool_names = await session.list_tool_names()
-        tool = next((name for name in _EXTERNAL_LOCATE_ALIASES if name in tool_names), None)
-        if tool is None and tool_names:
-            tool = tool_names[0]
+        tool = _pick_locate_tool(tool_names)
         if not tool:
             return None
         raw = await bridge.call_tool(
@@ -88,14 +107,37 @@ async def _try_external_locate(
     return None
 
 
+def _looks_like_css(candidate: str) -> bool:
+    text = (candidate or "").strip()
+    if not text or " " in text or len(text) > 200:
+        return False
+    if text.lower().startswith("error") or "not found" in text.lower():
+        return False
+    if text.startswith("{") or text.startswith("["):
+        return False
+    return bool(_CSS_SIMPLE_RE.match(text))
+
+
 def _extract_css_hint(content: str) -> str:
     text = (content or "").strip()
     if not text:
         return ""
-    if text.startswith("#") or text.startswith(".") or text.startswith("["):
+    if text.startswith("{") or text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return ""
+        if isinstance(payload, dict):
+            for key in ("css", "selector", "locator"):
+                value = str(payload.get(key) or "").strip()
+                if _looks_like_css(value):
+                    return value
+        return ""
+    if _looks_like_css(text.splitlines()[0].strip()):
         return text.splitlines()[0].strip()
-    for line in text.splitlines():
-        stripped = line.strip()
-        if "css" in stripped.lower() and ":" in stripped:
-            return stripped.split(":", 1)[-1].strip().strip("\"'`")
+    match = _CSS_LABELED_RE.search(text)
+    if match:
+        candidate = match.group(1).strip().strip("\"'`")
+        if _looks_like_css(candidate):
+            return candidate
     return ""
