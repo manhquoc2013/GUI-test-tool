@@ -53,6 +53,28 @@ def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
     host.close()
 
 
+def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> None:
+    """Translucent CardWidget/SpinBox + transparent viewport ghosts while scrolling."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QScrollArea
+
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+
+    page = dialog.stack.currentWidget()
+    assert isinstance(page, QScrollArea)
+    assert page.objectName() == "SystemSettingsScroll"
+    assert "transparent" not in page.styleSheet().lower()
+    assert dialog.spin_summary.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert "transparent" not in dialog.spin_summary.styleSheet().lower()
+    dialog.close()
+    host.close()
+
+
 def test_settings_lists_are_top_aligned_fixed_height(qapp: QApplication) -> None:
     from ai_qa_test_studio.constants import UI_SETTINGS_LIST_HEIGHT
 
@@ -85,6 +107,25 @@ def test_models_tab_uses_editable_combo_for_model_id(qapp: QApplication) -> None
     qapp.processEvents()
     assert isinstance(dialog.model_id, EditableComboBox)
     assert hasattr(dialog, "btn_fetch_models")
+    dialog.close()
+    host.close()
+
+
+def test_models_api_combo_binds_connection_userdata(qapp: QApplication) -> None:
+    """Fluent ComboBox.addItem(text, icon, userData) — conn id must be userData=."""
+    host = QWidget()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.model_api_combo.count() >= 1
+    conn = dialog._models_conn()
+    assert conn is not None
+    assert conn.id == dialog._draft.ai.connections[0].id
+    data = dialog.model_api_combo.currentData()
+    assert data == conn.id
+    dialog._fetch_remote_models()
+    # Default ensure is offline → status must not be "Chọn một API trước."
+    assert "Chọn một API trước" not in dialog.model_fetch_status.text()
     dialog.close()
     host.close()
 

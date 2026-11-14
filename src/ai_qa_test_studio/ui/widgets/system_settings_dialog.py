@@ -7,9 +7,11 @@ import uuid
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFrame,
     QHBoxLayout,
     QListWidgetItem,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTreeWidgetItem,
@@ -19,7 +21,6 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
-    CardWidget,
     CheckBox,
     ComboBox,
     EditableComboBox,
@@ -30,7 +31,6 @@ from qfluentwidgets import (
     Pivot,
     PrimaryPushButton,
     PushButton,
-    SmoothScrollArea,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -48,6 +48,7 @@ from ai_qa_test_studio.constants import (
     LLM_TIER_STRONG,
     ROUTING_MODE_AUTO,
     ROUTING_MODE_MANUAL,
+    THEME_CARD_RADIUS,
     UI_SETTINGS_BTN_MAX_WIDTH,
     UI_SETTINGS_BTN_MIN_WIDTH,
     UI_SETTINGS_CONTENT_HEIGHT,
@@ -215,13 +216,29 @@ class SystemSettingsDialog(MessageBoxBase):
             btn.setMaximumWidth(UI_SETTINGS_BTN_MAX_WIDTH)
             self.buttonLayout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-    def _wrap_scroll(self, inner: QWidget) -> SmoothScrollArea:
-        scroll = SmoothScrollArea(self.widget)
+    def _wrap_scroll(self, inner: QWidget) -> QScrollArea:
+        # Native QScrollArea — SmoothScrollArea animation fights nested ListWidget wheels.
+        # Opaque fill is required: translucent CardWidget/SpinBox + transparent viewport
+        # makes Qt scroll-blit leave overlapping paint ghosts.
+        bg = get_theme_tokens().bg_canvas
+        scroll = QScrollArea(self.widget)
+        scroll.setObjectName("SystemSettingsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        viewport = scroll.viewport()
+        viewport.setObjectName("SystemSettingsScrollViewport")
+        viewport.setAutoFillBackground(True)
+        scroll.setStyleSheet(
+            "#SystemSettingsScroll, #SystemSettingsScrollViewport {"
+            f"background-color: {bg}; border: none;"
+            "}"
+        )
         scroll.setWidget(inner)
+        bar = scroll.verticalScrollBar()
+        bar.setSingleStep(24)
+        bar.setPageStep(120)
         return scroll
 
     def _on_nav_changed(
@@ -243,9 +260,20 @@ class SystemSettingsDialog(MessageBoxBase):
         elif key == "apis":
             self._reload_api_list()
 
-    def _card(self, parent: QWidget, title: str) -> tuple[CardWidget, QVBoxLayout]:
-        card = CardWidget(parent)
+    def _card(self, parent: QWidget, title: str) -> tuple[QFrame, QVBoxLayout]:
+        # Solid QFrame — Fluent CardWidget paints alpha overlays that ghost on scroll.
+        tokens = get_theme_tokens()
+        card = QFrame(parent)
+        card.setObjectName("SystemSettingsCard")
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        card.setAutoFillBackground(True)
+        card.setStyleSheet(
+            "#SystemSettingsCard {"
+            f"background-color: {tokens.bg_topbar};"
+            f"border: 1px solid {tokens.border_card};"
+            f"border-radius: {THEME_CARD_RADIUS}px;"
+            "}"
+        )
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(UI_SETTINGS_FIELD_SPACING)
@@ -257,6 +285,7 @@ class SystemSettingsDialog(MessageBoxBase):
         """Keep rows glued to the top — do not let the list viewport expand and float items."""
         widget.setFixedHeight(UI_SETTINGS_LIST_HEIGHT)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        widget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         widget.setSpacing(2)
@@ -272,15 +301,18 @@ class SystemSettingsDialog(MessageBoxBase):
         layout.addLayout(block)
 
     def _style_spin(self, spin: SpinBox, *, wide: bool = False) -> None:
-        """Fluent SpinBox needs fixed width + explicit text color or digits vanish."""
+        """Fluent SpinBox needs fixed width + opaque fill; StrongFocus so wheel scrolls the page."""
         width = UI_SETTINGS_SPIN_WIDTH_WIDE if wide else UI_SETTINGS_SPIN_WIDTH
+        tokens = get_theme_tokens()
         spin.setFixedWidth(width)
         spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        spin.setAutoFillBackground(True)
         spin.setStyleSheet(
             "SpinBox {"
             f"color: {text_primary_css()};"
-            "background-color: transparent;"
+            f"background-color: {tokens.bg_canvas};"
             "padding-left: 12px;"
             "padding-right: 72px;"
             "}"
@@ -309,8 +341,12 @@ class SystemSettingsDialog(MessageBoxBase):
         layout.addLayout(block)
 
     def _page_root(self) -> tuple[QWidget, QVBoxLayout]:
+        bg = get_theme_tokens().bg_canvas
         root = QWidget()
+        root.setObjectName("SystemSettingsPage")
         root.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        root.setAutoFillBackground(True)
+        root.setStyleSheet(f"#SystemSettingsPage {{ background-color: {bg}; }}")
         layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 4, 4, 8)
         layout.setSpacing(UI_SETTINGS_SECTION_GAP)
@@ -650,7 +686,7 @@ class SystemSettingsDialog(MessageBoxBase):
     def _reload_default_conn(self) -> None:
         self.default_conn.clear()
         for conn in self._draft.ai.connections:
-            self.default_conn.addItem(conn.label or conn.id, conn.id)
+            self.default_conn.addItem(conn.label or conn.id, userData=conn.id)
         idx = max(
             0,
             next(
@@ -668,7 +704,10 @@ class SystemSettingsDialog(MessageBoxBase):
         self.model_api_combo.blockSignals(True)
         self.model_api_combo.clear()
         for conn in self._draft.ai.connections:
-            self.model_api_combo.addItem(conn.label or conn.id, conn.id)
+            # Fluent ComboBox.addItem(text, icon=None, userData=None) — id must be userData=
+            self.model_api_combo.addItem(conn.label or conn.id, userData=conn.id)
+        if self.model_api_combo.count() > 0:
+            self.model_api_combo.setCurrentIndex(0)
         self.model_api_combo.blockSignals(False)
         self._reload_model_list()
 
@@ -681,10 +720,19 @@ class SystemSettingsDialog(MessageBoxBase):
         return conn if isinstance(conn, AiConnection) else None
 
     def _models_conn(self) -> AiConnection | None:
-        conn_id = self.model_api_combo.currentData()
-        if not isinstance(conn_id, str):
+        connections: list[AiConnection] = list(self._draft.ai.connections)
+        if not connections:
             return None
-        return next((c for c in self._draft.ai.connections if c.id == conn_id), None)
+        conn_id = self.model_api_combo.currentData()
+        if isinstance(conn_id, str) and conn_id:
+            matched = [c for c in connections if c.id == conn_id]
+            if matched:
+                return matched[0]
+        # Fallback: Fluent ComboBox index when userData missing
+        idx = int(self.model_api_combo.currentIndex())
+        if 0 <= idx < len(connections):
+            return connections[idx]
+        return connections[0]
 
     def _load_api_row(self, row: int) -> None:
         if row < 0 or row >= len(self._draft.ai.connections):
