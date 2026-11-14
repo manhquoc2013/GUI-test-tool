@@ -22,6 +22,7 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
+    CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
     COPILOT_AGENT_DEBATE_MAX_ROUNDS,
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
@@ -30,6 +31,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_SUMMARY_MAX_CHARS,
     DEFAULT_EXPECTED_OUTCOME,
     EVENT_AGENT_MESSAGE,
+    EVENT_CHUNK,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
     EVENT_LOOP_HALTED,
@@ -129,6 +131,7 @@ class CopilotOrchestrator:
         mcp = self.mcp or BundledMcpRegistry(compressor=self.compressor)
         if not mcp.ready:
             mcp.start()
+        mcp.crew_memory.clear()
         self._bind_project_context(mcp, context)
         ctx_block = self._format_context(context)
 
@@ -150,13 +153,18 @@ class CopilotOrchestrator:
             text=self._clip(f"Planner · {complexity} · {plan_route.model}"),
             model=plan_route.model,
         )
-        plan = await self._plan(user_text, mode, ctx_block, hist, stop, max_tokens, plan_route.gateway())
+        plan_out: list[_RoleResult] = []
+        async for ev in self._plan(
+            user_text, mode, ctx_block, hist, stop, max_tokens, plan_route.gateway(), plan_out
+        ):
+            yield ev
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_PLANNER, status=MSG_STATUS_STOPPED)
             return
+        plan = plan_out[0]
         plan_ref = self._put_artifact(mcp, ROLE_PLANNER, "plan", plan.text)
         plan.artifact_ref = plan_ref
-        plan.summary = self._summary_of(mcp, plan_ref, plan.text)
+        plan.summary = self._summary_of(mcp, plan_ref, plan.text, role=ROLE_PLANNER)
         async for ev in self._maybe_clarify(ROLE_PLANNER, plan, user_text, complexity, stop, max_tokens):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 user_text = f"{user_text}\n\n[Clarify] {ev.text}"
@@ -170,7 +178,7 @@ class CopilotOrchestrator:
             artifact_ref=plan_ref,
             model=plan_route.model,
         )
-        yield OrchestratorEvent(kind="role_end", role=ROLE_PLANNER, text=plan.summary)
+        yield OrchestratorEvent(kind="role_end", role=ROLE_PLANNER, text=plan.text)
 
         # --- Composer ---
         compose_route = self._route(LLM_TASK_COMPOSE, complexity)
@@ -181,15 +189,26 @@ class CopilotOrchestrator:
             text=self._clip(f"Composer · {complexity} · {compose_route.model}"),
             model=compose_route.model,
         )
-        composed = await self._compose(
-            user_text, mode, ctx_block, plan.text, hist, stop, max_tokens, compose_route.gateway()
-        )
+        composed_out: list[_RoleResult] = []
+        async for ev in self._compose(
+            user_text,
+            mode,
+            ctx_block,
+            plan.text,
+            hist,
+            stop,
+            max_tokens,
+            compose_route.gateway(),
+            composed_out,
+        ):
+            yield ev
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
             return
+        composed = composed_out[0]
         composed_ref = self._put_artifact(mcp, ROLE_COMPOSER, "compose", composed.text)
         composed.artifact_ref = composed_ref
-        composed.summary = self._summary_of(mcp, composed_ref, composed.text)
+        composed.summary = self._summary_of(mcp, composed_ref, composed.text, role=ROLE_COMPOSER)
         async for ev in self._maybe_clarify(ROLE_COMPOSER, composed, user_text, complexity, stop, max_tokens):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 user_text = f"{user_text}\n\n[Clarify] {ev.text}"
@@ -210,7 +229,7 @@ class CopilotOrchestrator:
                 apply_payload=composed.apply_payload,
                 text=composed.summary,
             )
-        yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=composed.summary)
+        yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=composed.text)
 
         # --- Critic ---
         if stop.is_set():
@@ -224,15 +243,20 @@ class CopilotOrchestrator:
             text=self._clip(f"Critic · {complexity} · {critique_route.model}"),
             model=critique_route.model,
         )
-        critique = await self._critique(
-            user_text, composed.text, stop, max_tokens, critique_route.gateway()
-        )
+        critique_out: list[_RoleResult] = []
+        async for ev in self._critique(
+            user_text, composed.text, stop, max_tokens, critique_route.gateway(), critique_out
+        ):
+            yield ev
         if stop.is_set():
             yield OrchestratorEvent(kind="stopped", role=ROLE_CRITIC, status=MSG_STATUS_STOPPED)
             return
+        critique = critique_out[0]
         critique_ref = self._put_artifact(mcp, ROLE_CRITIC, "critique", critique.text)
-        critique.summary = self._summary_of(mcp, critique_ref, critique.text)
+        critique.summary = self._summary_of(mcp, critique_ref, critique.text, role=ROLE_CRITIC)
         async for ev in self._maybe_clarify(ROLE_CRITIC, critique, user_text, complexity, stop, max_tokens):
+            if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
+                user_text = f"{user_text}\n\n[Clarify] {ev.text}"
             yield ev
             if stop.is_set():
                 return
@@ -243,7 +267,7 @@ class CopilotOrchestrator:
             artifact_ref=critique_ref,
             model=critique_route.model,
         )
-        yield OrchestratorEvent(kind="role_end", role=ROLE_CRITIC, text=critique.summary)
+        yield OrchestratorEvent(kind="role_end", role=ROLE_CRITIC, text=critique.text)
 
         # Bounded debate when not approved
         if not critique.approved and critique.revise_notes:
@@ -270,7 +294,8 @@ class CopilotOrchestrator:
                 text=self._clip(f"Composer revise · {revise_route.model}"),
                 model=revise_route.model,
             )
-            revised = await self._compose(
+            revised_out: list[_RoleResult] = []
+            async for ev in self._compose(
                 user_text,
                 mode,
                 ctx_block,
@@ -279,13 +304,16 @@ class CopilotOrchestrator:
                 stop,
                 max_tokens,
                 revise_route.gateway(),
+                revised_out,
                 revise=True,
-            )
+            ):
+                yield ev
             if stop.is_set():
                 yield OrchestratorEvent(kind="stopped", role=ROLE_COMPOSER, status=MSG_STATUS_STOPPED)
                 return
+            revised = revised_out[0]
             rev_ref = self._put_artifact(mcp, ROLE_COMPOSER, "revise", revised.text)
-            revised.summary = self._summary_of(mcp, rev_ref, revised.text)
+            revised.summary = self._summary_of(mcp, rev_ref, revised.text, role=ROLE_COMPOSER)
             yield OrchestratorEvent(
                 kind=EVENT_STATUS_SUMMARY,
                 role=ROLE_COMPOSER,
@@ -300,7 +328,7 @@ class CopilotOrchestrator:
                     apply_payload=revised.apply_payload,
                     text=revised.summary,
                 )
-            yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=revised.summary)
+            yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=revised.text)
 
         yield OrchestratorEvent(kind="pipeline_complete")
 
@@ -322,12 +350,23 @@ class CopilotOrchestrator:
         )
 
     def _put_artifact(self, mcp: BundledMcpRegistry, role: str, kind: str, text: str) -> str:
-        result = mcp.invoke(MCP_QA_CREW_MEMORY, "put_artifact", {"role": role, "kind": kind, "text": text})
+        result = mcp.invoke(
+            MCP_QA_CREW_MEMORY,
+            "put_artifact",
+            {"role": role, "kind": kind, "text": text},
+            role=role,
+        )
         return str(result.get("ref") or "")
 
-    def _summary_of(self, mcp: BundledMcpRegistry, ref: str, fallback: str) -> str:
+    def _summary_of(
+        self,
+        mcp: BundledMcpRegistry,
+        ref: str,
+        fallback: str,
+        role: str | None = None,
+    ) -> str:
         if ref:
-            got = mcp.invoke(MCP_QA_CREW_MEMORY, "get_summary", {"ref": ref})
+            got = mcp.invoke(MCP_QA_CREW_MEMORY, "get_summary", {"ref": ref}, role=role)
             if got.get("found"):
                 return self._clip(str(got.get("summary") or fallback))
         return self._clip(fallback)
@@ -373,13 +412,45 @@ class CopilotOrchestrator:
         answer = req.default_answer
         source = CLARIFY_SOURCE_DEFAULT_SKIP
         if self.clarify_handler is not None:
+            handler = self.clarify_handler
+
+            async def _await_clarify() -> ClarifyResponse:
+                return await handler(req)
+
+            handler_task: asyncio.Task[ClarifyResponse] = asyncio.create_task(_await_clarify())
+            stop_task: asyncio.Task[bool] = asyncio.create_task(stop.wait())
             try:
-                resp = await self.clarify_handler(req)
-                answer = resp.answer or req.default_answer
-                source = resp.source or CLARIFY_SOURCE_USER
+                done, pending = await asyncio.wait(
+                    {handler_task, stop_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
+                if stop_task in done and stop.is_set():
+                    answer = req.default_answer
+                    source = CLARIFY_SOURCE_STOPPED
+                elif handler_task in done:
+                    try:
+                        resp = handler_task.result()
+                    except TimeoutError:
+                        source = CLARIFY_SOURCE_DEFAULT_TIMEOUT
+                        answer = req.default_answer
+                    except Exception:  # noqa: BLE001
+                        source = CLARIFY_SOURCE_DEFAULT_SKIP
+                        answer = req.default_answer
+                    else:
+                        answer = resp.answer or req.default_answer
+                        source = resp.source or CLARIFY_SOURCE_USER
             except TimeoutError:
                 source = CLARIFY_SOURCE_DEFAULT_TIMEOUT
                 answer = req.default_answer
+        elif stop.is_set():
+            source = CLARIFY_SOURCE_STOPPED
+            answer = req.default_answer
         note = answer
         if source != CLARIFY_SOURCE_USER:
             note = f"(mặc định) {answer}"
@@ -390,12 +461,12 @@ class CopilotOrchestrator:
             status=source,
         )
 
-    def _looks_ambiguous(self, user_text: str, role_text: str) -> bool:
-        blob = f"{user_text}\n{role_text}".lower()
-        markers = ("chưa rõ", "unclear", "ambiguous", "cần làm rõ", "clarify", "???")
+    def _looks_ambiguous(self, user_text: str, _role_text: str = "") -> bool:
+        """User-intent markers only — do not treat role prose like 'clarify' as ambiguity."""
+        blob = (user_text or "").lower()
+        markers = ("chưa rõ", "unclear", "ambiguous", "cần làm rõ", "???")
         if any(m in blob for m in markers):
             return True
-        # Bare "?" alone in very short prompts
         return len(user_text.strip()) < 8 and "?" in user_text
 
     async def _draft_clarify(
@@ -521,6 +592,7 @@ class CopilotOrchestrator:
                 MCP_QA_CREW_MEMORY,
                 "put_artifact",
                 {"role": ROLE_CRITIC, "kind": "debate", "text": reply},
+                role=ROLE_CRITIC,
             )
             notes = reply
 
@@ -544,11 +616,13 @@ class CopilotOrchestrator:
         messages: list[ChatMessage],
         stop: asyncio.Event,
         max_tokens: int,
-    ) -> str:
-        buf: list[str] = []
-        async for chunk in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            buf.append(chunk)
-        return "".join(buf).strip()
+        sink: list[str],
+        role: str | None = None,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        """Yield stream chunk events; append pieces into sink for the caller."""
+        async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+            sink.append(piece)
+            yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
 
     async def _plan(
         self,
@@ -559,7 +633,8 @@ class CopilotOrchestrator:
         stop: asyncio.Event,
         max_tokens: int,
         gw: UnifiedLLMGateway,
-    ) -> _RoleResult:
+        out: list[_RoleResult],
+    ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Planner role for AI QA Test Studio. "
             "Output a short numbered plan (3-7 steps). Do not mutate test assets. "
@@ -570,7 +645,10 @@ class CopilotOrchestrator:
             *hist[-6:],
             ChatMessage(role="user", content=f"Mode={mode}\n{ctx_block}\n\nRequest:\n{user_text}"),
         ]
-        text = await self._collect(gw, messages, stop, max_tokens)
+        sink: list[str] = []
+        async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_PLANNER):
+            yield ev
+        text = "".join(sink).strip()
         if not text:
             steps = [
                 "1. Làm rõ mục tiêu từ yêu cầu người dùng",
@@ -580,8 +658,8 @@ class CopilotOrchestrator:
             if mode == COPILOT_MODE_COMPOSE:
                 steps.insert(1, "1b. Sinh outline scenario UNBOUND từ SRS/mô tả")
             text = "Kế hoạch:\n" + "\n".join(steps)
-        needs = "CLARIFY" in text.upper() or self._looks_ambiguous(user_text, text)
-        return _RoleResult(text=text, needs_clarify=needs)
+        needs = "CLARIFY" in text.upper() or self._looks_ambiguous(user_text)
+        out.append(_RoleResult(text=text, needs_clarify=needs))
 
     async def _compose(
         self,
@@ -593,8 +671,9 @@ class CopilotOrchestrator:
         stop: asyncio.Event,
         max_tokens: int,
         gw: UnifiedLLMGateway,
+        out: list[_RoleResult],
         revise: bool = False,
-    ) -> _RoleResult:
+    ) -> AsyncIterator[OrchestratorEvent]:
         lowered = user_text.lower()
         wants_bva = any(k in lowered for k in ("bva", "test data", "biên", "bộ dữ liệu"))
         wants_compose = mode == COPILOT_MODE_COMPOSE or any(
@@ -614,7 +693,10 @@ class CopilotOrchestrator:
                 content=f"Plan:\n{plan_text}\n\nContext:\n{ctx_block}\n\nRequest:\n{user_text}",
             ),
         ]
-        text = await self._collect(gw, messages, stop, max_tokens)
+        sink: list[str] = []
+        async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_COMPOSER):
+            yield ev
+        text = "".join(sink).strip()
         apply_payload = None
         if wants_bva and mode != COPILOT_MODE_COMPOSE:
             rows = self._offline_bva_rows()
@@ -644,7 +726,7 @@ class CopilotOrchestrator:
                 f"Plan ref:\n{plan_text[:400]}"
             )
         needs = "CLARIFY" in text.upper()
-        return _RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs)
+        out.append(_RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs))
 
     async def _critique(
         self,
@@ -653,7 +735,8 @@ class CopilotOrchestrator:
         stop: asyncio.Event,
         max_tokens: int,
         gw: UnifiedLLMGateway,
-    ) -> _RoleResult:
+        out: list[_RoleResult],
+    ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Critic. Reply with APPROVE or REVISE and short notes. "
             "One review only. If ambiguous user intent, include CLARIFY."
@@ -665,7 +748,10 @@ class CopilotOrchestrator:
                 content=f"Request:\n{user_text}\n\nComposer output:\n{composer_text}",
             ),
         ]
-        text = await self._collect(gw, messages, stop, max_tokens)
+        sink: list[str] = []
+        async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_CRITIC):
+            yield ev
+        text = "".join(sink).strip()
         if not text:
             notes = []
             if "UNBOUND" not in composer_text and "Draft" in composer_text:
@@ -673,12 +759,18 @@ class CopilotOrchestrator:
             if "BVA" in user_text.upper() or "biên" in user_text.lower():
                 notes.append("Đã kiểm tra biên min/max/empty — OK.")
             if notes:
-                return _RoleResult(
-                    text="Critic: cần chỉnh nhẹ.\n- " + "\n- ".join(notes),
-                    approved=False,
-                    revise_notes="\n".join(notes),
+                out.append(
+                    _RoleResult(
+                        text="Critic: cần chỉnh nhẹ.\n- " + "\n- ".join(notes),
+                        approved=False,
+                        revise_notes="\n".join(notes),
+                    )
                 )
-            return _RoleResult(text="Critic: APPROVE — không phát hiện lỗ hổng lớn.", approved=True)
+                return
+            out.append(
+                _RoleResult(text="Critic: APPROVE — không phát hiện lỗ hổng lớn.", approved=True)
+            )
+            return
         upper = text.upper()
         if "REVISE" in upper and "APPROVE" not in upper:
             approved = False
@@ -687,11 +779,13 @@ class CopilotOrchestrator:
         else:
             approved = "REVISE" not in upper
         revise_notes = text if not approved else ""
-        return _RoleResult(
-            text=text,
-            approved=approved,
-            revise_notes=revise_notes,
-            needs_clarify="CLARIFY" in upper,
+        out.append(
+            _RoleResult(
+                text=text,
+                approved=approved,
+                revise_notes=revise_notes,
+                needs_clarify="CLARIFY" in upper,
+            )
         )
 
     def _offline_bva_rows(self) -> list[dict[str, Any]]:

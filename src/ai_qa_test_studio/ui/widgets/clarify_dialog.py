@@ -9,6 +9,7 @@ from qfluentwidgets import CaptionLabel, LineEdit, MessageBoxBase, SubtitleLabel
 from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
+    CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
     COPILOT_CLARIFY_TIMEOUT_MS,
     UI_PALETTE_MIN_WIDTH,
@@ -85,3 +86,7 @@ class ClarifyDialog(MessageBoxBase):
 
     def _on_timeout(self) -> None:
         self._emit(self._default, CLARIFY_SOURCE_DEFAULT_TIMEOUT)
+
+    def abort_stopped(self) -> None:
+        """Close dialog when Copilot Stop wins the clarify race."""
+        self._emit(self._default, CLARIFY_SOURCE_STOPPED)

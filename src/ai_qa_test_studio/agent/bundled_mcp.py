@@ -26,6 +26,9 @@ _ROLE_TOOLS: dict[str, frozenset[str]] = {
         {
             f"{MCP_QA_COMPRESS}.compress",
             f"{MCP_QA_COMPRESS}.stats",
+            f"{MCP_QA_CREW_MEMORY}.put_artifact",
+            f"{MCP_QA_CREW_MEMORY}.get_summary",
+            f"{MCP_QA_CREW_MEMORY}.get_full",
             f"{MCP_QA_PROJECT_CONTEXT}.case_brief",
             f"{MCP_QA_PROJECT_CONTEXT}.srs_excerpt",
         }
@@ -46,6 +49,7 @@ _ROLE_TOOLS: dict[str, frozenset[str]] = {
     ROLE_CRITIC: frozenset(
         {
             f"{MCP_QA_COMPRESS}.compress",
+            f"{MCP_QA_CREW_MEMORY}.put_artifact",
             f"{MCP_QA_CREW_MEMORY}.get_summary",
             f"{MCP_QA_CREW_MEMORY}.get_full",
             f"{MCP_QA_PROJECT_CONTEXT}.case_brief",
@@ -79,9 +83,17 @@ class BundledMcpRegistry:
     def ready(self) -> bool:
         return self._started
 
-    def invoke(self, server: str, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    def invoke(
+        self,
+        server: str,
+        tool: str,
+        args: dict[str, Any] | None = None,
+        role: str | None = None,
+    ) -> dict[str, Any]:
         if not self._started:
             self.start()
+        if role is not None and not self.allowed(role, server, tool):
+            raise PermissionError(f"role {role!r} not allowed to call {server}.{tool}")
         payload = args or {}
         if server == MCP_QA_COMPRESS:
             result = self.compress.invoke(tool, payload)

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
-from ai_qa_test_studio.constants import MCP_QA_COMPRESS, MCP_QA_CREW_MEMORY, MCP_QA_PROJECT_CONTEXT
+from ai_qa_test_studio.constants import (
+    MCP_QA_COMPRESS,
+    MCP_QA_CREW_MEMORY,
+    MCP_QA_PROJECT_CONTEXT,
+    ROLE_CRITIC,
+    ROLE_PLANNER,
+)
 
 
 def test_compress_retrieve_round_trip() -> None:
@@ -36,3 +44,17 @@ def test_case_brief_smaller_than_full_dump() -> None:
     reg.project_context.bind(case_json=huge)
     brief = reg.invoke(MCP_QA_PROJECT_CONTEXT, "case_brief", {"case_id": "c1"})
     assert len(brief["brief"]) < len(huge)
+
+
+def test_bundled_mcp_rejects_disallowed_role() -> None:
+    reg = BundledMcpRegistry()
+    reg.start()
+    with pytest.raises((PermissionError, ValueError, KeyError)):
+        reg.invoke(MCP_QA_COMPRESS, "stats", {}, role=ROLE_CRITIC)
+    with pytest.raises((PermissionError, ValueError, KeyError)):
+        reg.invoke(
+            MCP_QA_PROJECT_CONTEXT,
+            "test_data_sample",
+            {},
+            role=ROLE_PLANNER,
+        )

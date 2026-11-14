@@ -170,6 +170,11 @@ class UnifiedLLMGateway:
             )
             async for chunk in response:
                 if cancel is not None and cancel.is_set():
+                    close = getattr(response, "aclose", None) or getattr(response, "close", None)
+                    if callable(close):
+                        result = close()
+                        if asyncio.iscoroutine(result):
+                            await result
                     return
                 text = getattr(chunk, "text", None)
                 if text:

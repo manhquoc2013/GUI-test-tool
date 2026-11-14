@@ -45,6 +45,8 @@ from ai_qa_test_studio.constants import (
     EVENT_STATUS_SUMMARY,
     FALLBACK_BLANK_URL,
     ROLE_COMPOSER,
+    ROLE_CRITIC,
+    ROLE_PLANNER,
     SCREENCAST_STATUS_NAV_FAILED,
     SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
@@ -108,6 +110,7 @@ class MainWindow(QMainWindow):
         self._skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
         self._chat_store = ChatHistoryStore(self.data_root)
         self._copilot_cancel: asyncio.Event | None = None
+        self._clarify_dialog: ClarifyDialog | None = None
         self._dom_distiller = DomDistiller(self._token_budget)
         self._bundled_mcp = BundledMcpRegistry()
         self._bundled_mcp.start()
@@ -461,6 +464,10 @@ class MainWindow(QMainWindow):
     def _stop_copilot(self) -> None:
         if self._copilot_cancel is not None:
             self._copilot_cancel.set()
+        dialog = self._clarify_dialog
+        if dialog is not None:
+            dialog.abort_stopped()
+            self._clarify_dialog = None
         self.copilot.mark_stopped()
 
     def _refresh_model_catalog(self) -> None:
@@ -477,6 +484,7 @@ class MainWindow(QMainWindow):
             parent=self,
             timeout_ms=self.env.settings.copilot.clarify_timeout_ms,
         )
+        self._clarify_dialog = dialog
 
         def _on_answered(answer: str, source: str) -> None:
             if not future.done():
@@ -484,7 +492,11 @@ class MainWindow(QMainWindow):
 
         dialog.answered.connect(_on_answered)
         dialog.show()
-        return await future
+        try:
+            return await future
+        finally:
+            if self._clarify_dialog is dialog:
+                self._clarify_dialog = None
 
     def _open_system_settings(self) -> None:
         dialog = SystemSettingsDialog(self.env.settings, self)
@@ -526,7 +538,8 @@ class MainWindow(QMainWindow):
             history = [
                 ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
                 for m in self.copilot.session.llm_window()
-                if m.role in {"user", ROLE_COMPOSER, "assistant"}
+                if m.role in {"user", ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, "assistant"}
+                and (m.content or "").strip()
             ]
             current_role: str | None = None
             async for event in orch.run(
