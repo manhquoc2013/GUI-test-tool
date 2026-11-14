@@ -1,6 +1,6 @@
 # ADR 0003 — Airy UI shell (2-pane + right drawer + responsive)
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR 0004](0004-three-column-shell.md)  
 **Date**: 2026-11-14  
 **Spec**: `SPEC.md` (Phase 5.2 / Airy v4.1)  
 **Design**: `docs/Thiết Kế Chi Tiết Giao Diện AI QA Test Studio.md`
@@ -22,3 +22,7 @@ Phase 4c used a fixed 3-column layout (Explorer | Editor | Browser+Copilot). The
 - `BrowserAgentPane` no longer embeds Copilot Segmented; `MainWindow` wires through `RightDrawer`.
 - Skill combo stays hidden on Top Bar (run still needs skill name); overflow `⋯` holds Export + Settings.
 - Tests: `tests/ui/test_airy_shell.py` covers drawer default, toggle, starters, undo-from-message, overlay breakpoint.
+
+## Supersession
+
+v4.2 redesign moves to a persistent 3-column splitter and new breakpoints. See ADR 0004.
