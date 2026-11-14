@@ -26,8 +26,10 @@ from ai_qa_test_studio.constants import (
     MCP_TOOL_MEMORY_GET,
     MCP_TOOL_MEMORY_PUT,
     MCP_TOOL_MEMORY_SEARCH,
+    ROLE_ANALYZER,
     ROLE_COMPOSER,
     ROLE_CRITIC,
+    ROLE_OPTIMIZER,
     ROLE_PLANNER,
     ROLE_SYSTEM,
 )
@@ -104,6 +106,28 @@ _ROLE_TOOLS: dict[str, frozenset[str]] = {
             f"{MCP_QA_CREW_MEMORY}.get_full",
             f"{MCP_QA_PROJECT_CONTEXT}.case_brief",
             _MIDSCENE_LOCATE,
+            _MEM_GET,
+            _MEM_SEARCH,
+        }
+    ),
+    ROLE_ANALYZER: frozenset(
+        {
+            f"{MCP_QA_COMPRESS}.compress",
+            f"{MCP_QA_CREW_MEMORY}.put_artifact",
+            f"{MCP_QA_CREW_MEMORY}.get_summary",
+            f"{MCP_QA_CREW_MEMORY}.get_full",
+            f"{MCP_QA_PROJECT_CONTEXT}.case_brief",
+            _MEM_GET,
+            _MEM_SEARCH,
+        }
+    ),
+    ROLE_OPTIMIZER: frozenset(
+        {
+            f"{MCP_QA_COMPRESS}.compress",
+            f"{MCP_QA_CREW_MEMORY}.put_artifact",
+            f"{MCP_QA_CREW_MEMORY}.get_summary",
+            f"{MCP_QA_CREW_MEMORY}.get_full",
+            f"{MCP_QA_PROJECT_CONTEXT}.case_brief",
             _MEM_GET,
             _MEM_SEARCH,
         }

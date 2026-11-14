@@ -15,10 +15,12 @@ from ai_qa_test_studio.constants import (
     COMPLEXITY_SIMPLE,
     KEYRING_SLOT_LEGACY_API,
     LLM_PROVIDER_OFFLINE,
+    LLM_TASK_ANALYZE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COMPOSE,
     LLM_TASK_CRITIQUE,
     LLM_TASK_DEBATE,
+    LLM_TASK_OPTIMIZE,
     LLM_TASK_PLAN,
     LLM_TASK_REVISE,
     LLM_TASK_SUMMARIZE,
@@ -83,6 +85,16 @@ def default_task_complexity_matrix() -> dict[str, dict[str, str]]:
             COMPLEXITY_SIMPLE: LLM_TIER_MID,
             COMPLEXITY_NORMAL: LLM_TIER_MID,
             COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+        LLM_TASK_ANALYZE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_MID,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
+        LLM_TASK_OPTIMIZE: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            COMPLEXITY_COMPLEX: LLM_TIER_MID,
         },
     }
 
@@ -293,11 +305,15 @@ class EnvManager:
                 loop_repeat_limit=int(copilot_raw.get("loopRepeatLimit") or 2),
                 clarify_timeout_ms=int(copilot_raw.get("clarifyTimeoutMs") or 60_000),
                 lean_tail_max_tokens=int(copilot_raw.get("leanTailMaxTokens") or 2400),
+                analyzer_enabled=bool(copilot_raw.get("analyzerEnabled", False)),
+                optimizer_enabled=bool(copilot_raw.get("optimizerEnabled", False)),
             ),
             mcp=McpSettings(
                 external=McpExternalSettings(
                     playwright=bool(ext.get("playwright", True)),
-                    midscene=bool(ext.get("midscene", False)),
+                    midscene=bool(ext.get("midscene", True)),
+                    figma=bool(ext.get("figma", False)),
+                    db=bool(ext.get("db", False)),
                 )
             ),
         )
@@ -315,11 +331,15 @@ class EnvManager:
                 "loopRepeatLimit": self._settings.copilot.loop_repeat_limit,
                 "clarifyTimeoutMs": self._settings.copilot.clarify_timeout_ms,
                 "leanTailMaxTokens": self._settings.copilot.lean_tail_max_tokens,
+                "analyzerEnabled": self._settings.copilot.analyzer_enabled,
+                "optimizerEnabled": self._settings.copilot.optimizer_enabled,
             },
             "mcp": {
                 "external": {
                     "playwright": self._settings.mcp.external.playwright,
                     "midscene": self._settings.mcp.external.midscene,
+                    "figma": self._settings.mcp.external.figma,
+                    "db": self._settings.mcp.external.db,
                 }
             },
         }
@@ -331,6 +351,12 @@ class EnvManager:
 
     def save_settings(self) -> None:
         payload = self._settings_to_payload()
+        try:
+            from ai_qa_test_studio.agent.mcp_defaults import sync_mcp_servers_disabled
+
+            sync_mcp_servers_disabled(self._settings.mcp.external)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mcp_servers_sync_failed err=%s", exc)
 
         async def _persist() -> None:
             await self._repo.open()

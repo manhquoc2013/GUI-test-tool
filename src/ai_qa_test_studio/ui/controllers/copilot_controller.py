@@ -17,6 +17,8 @@ from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -211,6 +213,9 @@ class CopilotController:
         if skill_name and skill_name in skills.registry:
             ctx[CONTEXT_KEY_SKILL_NAME] = skill_name
             ctx[CONTEXT_KEY_SKILL_BODY] = skills.load_skill_context(skill_name)
+        copilot_cfg = w.env.settings.copilot
+        ctx[CONTEXT_KEY_ANALYZER_ENABLED] = bool(copilot_cfg.analyzer_enabled)
+        ctx[CONTEXT_KEY_OPTIMIZER_ENABLED] = bool(copilot_cfg.optimizer_enabled)
         return ctx
 
     def apply_payload(self, payload: dict[str, Any]) -> None:

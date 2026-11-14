@@ -24,6 +24,8 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
+    CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -40,17 +42,21 @@ from ai_qa_test_studio.constants import (
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
     LLM_PROVIDER_OFFLINE,
+    LLM_TASK_ANALYZE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COMPOSE,
     LLM_TASK_CRITIQUE,
     LLM_TASK_DEBATE,
+    LLM_TASK_OPTIMIZE,
     LLM_TASK_PLAN,
     LLM_TASK_REVISE,
     LLM_TASK_SUMMARIZE,
     MCP_QA_CREW_MEMORY,
     MSG_STATUS_STOPPED,
+    ROLE_ANALYZER,
     ROLE_COMPOSER,
     ROLE_CRITIC,
+    ROLE_OPTIMIZER,
     ROLE_PLANNER,
     SKILL_CONTEXT_MAX_CHARS,
 )
@@ -333,6 +339,65 @@ class CopilotOrchestrator:
                     text=revised.summary,
                 )
             yield OrchestratorEvent(kind="role_end", role=ROLE_COMPOSER, text=revised.text)
+
+        final_compose = composed.text
+        if bool(context.get(CONTEXT_KEY_ANALYZER_ENABLED)):
+            analyze_route = self._route(LLM_TASK_ANALYZE, complexity)
+            yield OrchestratorEvent(kind="role_start", role=ROLE_ANALYZER)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_ANALYZER,
+                text=self._clip(f"Analyzer · {analyze_route.model}"),
+                model=analyze_route.model,
+            )
+            analyze_out: list[_RoleResult] = []
+            async for ev in self._analyze(
+                user_text, final_compose, critique.text, stop, max_tokens, analyze_route.gateway(), analyze_out
+            ):
+                yield ev
+            if stop.is_set():
+                yield OrchestratorEvent(kind="stopped", role=ROLE_ANALYZER, status=MSG_STATUS_STOPPED)
+                return
+            analysis = analyze_out[0]
+            analysis_ref = self._put_artifact(mcp, ROLE_ANALYZER, "analysis", analysis.text)
+            analysis.summary = self._summary_of(mcp, analysis_ref, analysis.text, role=ROLE_ANALYZER)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_ANALYZER,
+                text=analysis.summary,
+                artifact_ref=analysis_ref,
+                model=analyze_route.model,
+            )
+            yield OrchestratorEvent(kind="role_end", role=ROLE_ANALYZER, text=analysis.text)
+
+        if bool(context.get(CONTEXT_KEY_OPTIMIZER_ENABLED)):
+            optimize_route = self._route(LLM_TASK_OPTIMIZE, complexity)
+            yield OrchestratorEvent(kind="role_start", role=ROLE_OPTIMIZER)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_OPTIMIZER,
+                text=self._clip(f"Optimizer · {optimize_route.model}"),
+                model=optimize_route.model,
+            )
+            optimize_out: list[_RoleResult] = []
+            async for ev in self._optimize(
+                user_text, final_compose, stop, max_tokens, optimize_route.gateway(), optimize_out
+            ):
+                yield ev
+            if stop.is_set():
+                yield OrchestratorEvent(kind="stopped", role=ROLE_OPTIMIZER, status=MSG_STATUS_STOPPED)
+                return
+            optimized = optimize_out[0]
+            opt_ref = self._put_artifact(mcp, ROLE_OPTIMIZER, "optimize", optimized.text)
+            optimized.summary = self._summary_of(mcp, opt_ref, optimized.text, role=ROLE_OPTIMIZER)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_OPTIMIZER,
+                text=optimized.summary,
+                artifact_ref=opt_ref,
+                model=optimize_route.model,
+            )
+            yield OrchestratorEvent(kind="role_end", role=ROLE_OPTIMIZER, text=optimized.text)
 
         yield OrchestratorEvent(kind="pipeline_complete")
 
@@ -741,6 +806,72 @@ class CopilotOrchestrator:
             )
         needs = "CLARIFY" in text.upper()
         out.append(_RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs))
+
+    async def _analyze(
+        self,
+        user_text: str,
+        composer_text: str,
+        critique_text: str,
+        stop: asyncio.Event,
+        max_tokens: int,
+        gw: UnifiedLLMGateway,
+        out: list[_RoleResult],
+    ) -> AsyncIterator[OrchestratorEvent]:
+        system = (
+            "You are the Analyzer for AI QA Test Studio. "
+            "Diagnose failure risks, root causes, and healing hints in under 180 words."
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Request:\n{user_text}\n\nComposer:\n{composer_text[:1200]}\n\n"
+                    f"Critic:\n{critique_text[:800]}"
+                ),
+            ),
+        ]
+        sink: list[str] = []
+        async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_ANALYZER):
+            yield ev
+        text = "".join(sink).strip()
+        if not text or gw.provider == LLM_PROVIDER_OFFLINE:
+            text = (
+                "Analyzer: ưu tiên kiểm tra locator stale, timing/networkidle, "
+                "và assertion nghiệp vụ trước khi heal lại."
+            )
+        out.append(_RoleResult(text=text))
+
+    async def _optimize(
+        self,
+        user_text: str,
+        composer_text: str,
+        stop: asyncio.Event,
+        max_tokens: int,
+        gw: UnifiedLLMGateway,
+        out: list[_RoleResult],
+    ) -> AsyncIterator[OrchestratorEvent]:
+        system = (
+            "You are the Optimizer for AI QA Test Studio. "
+            "Suggest suite pruning, P0 prioritization, and coverage gaps in under 180 words."
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            ChatMessage(
+                role="user",
+                content=f"Request:\n{user_text}\n\nComposer:\n{composer_text[:1200]}",
+            ),
+        ]
+        sink: list[str] = []
+        async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_OPTIMIZER):
+            yield ev
+        text = "".join(sink).strip()
+        if not text or gw.provider == LLM_PROVIDER_OFFLINE:
+            text = (
+                "Optimizer: giữ P0 happy-path + 1 negative; "
+                "gộp case trùng bước; trì hoãn edge ít rủi ro."
+            )
+        out.append(_RoleResult(text=text))
 
     async def _critique(
         self,

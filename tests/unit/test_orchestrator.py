@@ -17,6 +17,8 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_STOPPED,
+    CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -26,8 +28,10 @@ from ai_qa_test_studio.constants import (
     EVENT_CLARIFY_RESOLVED,
     EVENT_STATUS_SUMMARY,
     LLM_PROVIDER_OFFLINE,
+    ROLE_ANALYZER,
     ROLE_COMPOSER,
     ROLE_CRITIC,
+    ROLE_OPTIMIZER,
     ROLE_PLANNER,
 )
 
@@ -283,6 +287,27 @@ async def test_collect_yields_chunk_events() -> None:
         if event.kind == "chunk":
             chunks.append(event.text)
     assert chunks
+
+
+@pytest.mark.asyncio
+async def test_optional_analyzer_optimizer_roles() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    roles: list[str] = []
+    async for event in orch.run(
+        user_text="Giải thích bước lỗi",
+        mode=COPILOT_MODE_CASE,
+        context={
+            CONTEXT_KEY_ANALYZER_ENABLED: True,
+            CONTEXT_KEY_OPTIMIZER_ENABLED: True,
+        },
+    ):
+        if event.kind == "role_start" and event.role:
+            roles.append(event.role)
+    assert ROLE_ANALYZER in roles
+    assert ROLE_OPTIMIZER in roles
+    assert roles.index(ROLE_CRITIC) < roles.index(ROLE_ANALYZER)
 
 
 def test_format_context_includes_skill_catalog_and_body() -> None:

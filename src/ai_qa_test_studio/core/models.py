@@ -141,11 +141,15 @@ class CopilotRuntimeSettings(BaseModel):
     loop_repeat_limit: int = 2
     clarify_timeout_ms: int = 60_000
     lean_tail_max_tokens: int = 2400
+    analyzer_enabled: bool = False
+    optimizer_enabled: bool = False
 
 
 class McpExternalSettings(BaseModel):
     playwright: bool = True
-    midscene: bool = False
+    midscene: bool = True
+    figma: bool = False
+    db: bool = False
 
 
 class McpSettings(BaseModel):

@@ -605,7 +605,15 @@ class SystemSettingsDialog(MessageBoxBase):
             self.spin_lean,
             wide=True,
         )
+        roles_card, roles_body = self._card(root, "Optional crew roles")
+        self.chk_analyzer = CheckBox("Bật Analyzer (fail triage)", roles_card)
+        self.chk_analyzer.setChecked(c.analyzer_enabled)
+        self.chk_optimizer = CheckBox("Bật Optimizer (suite prune)", roles_card)
+        self.chk_optimizer.setChecked(c.optimizer_enabled)
+        roles_body.addWidget(self.chk_analyzer)
+        roles_body.addWidget(self.chk_optimizer)
         layout.addWidget(card)
+        layout.addWidget(roles_card)
         layout.addStretch(1)
         return root
 
@@ -613,18 +621,25 @@ class SystemSettingsDialog(MessageBoxBase):
         root, layout = self._page_root()
         card, body = self._card(root, "MCP servers")
         note = BodyLabel(
-            "Bundled MCP (qa-compress / crew-memory / project-context): luôn bật.",
+            "Bundled MCP (compress / ingest / memory / midscene / playwright): luôn bật. "
+            "Playwright + Midscene external: bật mặc định. Figma/DB: opt-in.",
             card,
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         body.addWidget(note)
-        self.mcp_pw = CheckBox("External Playwright MCP", card)
+        self.mcp_pw = CheckBox("External Playwright MCP (auto-on)", card)
         self.mcp_pw.setChecked(self._draft.mcp.external.playwright)
-        self.mcp_mid = CheckBox("External Midscene MCP", card)
+        self.mcp_mid = CheckBox("External Midscene MCP (auto-on)", card)
         self.mcp_mid.setChecked(self._draft.mcp.external.midscene)
+        self.mcp_figma = CheckBox("External Figma MCP (opt-in)", card)
+        self.mcp_figma.setChecked(self._draft.mcp.external.figma)
+        self.mcp_db = CheckBox("External DB MCP SELECT-only (opt-in)", card)
+        self.mcp_db.setChecked(self._draft.mcp.external.db)
         body.addWidget(self.mcp_pw)
         body.addWidget(self.mcp_mid)
+        body.addWidget(self.mcp_figma)
+        body.addWidget(self.mcp_db)
         layout.addWidget(card)
         layout.addStretch(1)
         return root
@@ -668,11 +683,15 @@ class SystemSettingsDialog(MessageBoxBase):
             loop_repeat_limit=self.spin_loop.value(),
             clarify_timeout_ms=self.spin_clarify.value(),
             lean_tail_max_tokens=self.spin_lean.value(),
+            analyzer_enabled=self.chk_analyzer.isChecked(),
+            optimizer_enabled=self.chk_optimizer.isChecked(),
         )
         self._draft.mcp = McpSettings(
             external=McpExternalSettings(
                 playwright=self.mcp_pw.isChecked(),
                 midscene=self.mcp_mid.isChecked(),
+                figma=self.mcp_figma.isChecked(),
+                db=self.mcp_db.isChecked(),
             )
         )
 
