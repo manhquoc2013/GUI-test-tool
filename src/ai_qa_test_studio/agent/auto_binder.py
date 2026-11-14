@@ -100,7 +100,7 @@ def _heuristic_bind(intent: str, element_map: dict[str, dict[str, Any]]) -> str 
         css = str(meta.get("css") or "").lower()
         if needle and (needle in name or any(tok in name or tok in css for tok in needle.split() if len(tok) > 3)):
             return eid
-    return next(iter(element_map), None)
+    return None
 
 
 def repo_from_project(project: Project) -> dict[str, SharedElement]:
