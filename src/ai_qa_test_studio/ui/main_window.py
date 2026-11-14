@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
-    QMessageBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -22,47 +21,17 @@ from qasync import asyncSlot
 from qfluentwidgets import CaptionLabel, IndeterminateProgressBar, InfoBadge, InfoBar, InfoBarPosition
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
-from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
-from ai_qa_test_studio.agent.model_router import ModelRouter
-from ai_qa_test_studio.agent.orchestrator import (
-    ClarifyRequest,
-    ClarifyResponse,
-    CopilotOrchestrator,
-)
+from ai_qa_test_studio.agent.orchestrator import ClarifyRequest, ClarifyResponse
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.dom_distiller import DomDistiller
-from ai_qa_test_studio.browser.visual_inspector import element_from_point
 from ai_qa_test_studio.constants import (
-    APPLY_KIND_COMPOSE,
-    APPLY_KIND_TEST_DATA,
-    COPILOT_MODE_COMPOSE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
-    EVENT_AGENT_MESSAGE,
-    EVENT_CLARIFY_REQUEST,
-    EVENT_CLARIFY_RESOLVED,
-    EVENT_LOOP_HALTED,
-    EVENT_STATUS_SUMMARY,
-    FALLBACK_BLANK_URL,
-    ROLE_COMPOSER,
-    ROLE_CRITIC,
-    ROLE_PLANNER,
-    SCREENCAST_STATUS_NAV_FAILED,
-    SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
-    UI_BREAKPOINT_MEDIUM,
-    UI_BREAKPOINT_WIDE,
     UI_DRAWER_WIDTH,
-    UI_DRAWER_WIDTH_COMPACT,
-    UI_DRAWER_WIDTH_NARROW,
-    UI_EXPLORER_MIN_WIDTH,
     UI_INFOBAR_DURATION_MS,
-    UI_SIDEBAR_MAX_RATIO,
     UI_SIDEBAR_WIDTH,
-    UI_SIDEBAR_WIDTH_COMPACT,
-    UI_SIDEBAR_WIDTH_MAX,
     UI_SPLIT_SIZES_V,
-    UI_WIDGET_SIZE_MAX,
     UI_WINDOW_DEFAULT_HEIGHT,
     UI_WINDOW_DEFAULT_WIDTH,
     UI_WINDOW_MIN_HEIGHT,
@@ -74,9 +43,12 @@ from ai_qa_test_studio.core.java_importer import JavaProjectImporter
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario, TestStep
 from ai_qa_test_studio.core.storage import ProjectStorage
 from ai_qa_test_studio.core.token_budget import TokenBudget
-from ai_qa_test_studio.reporting.code_exporter import CodeExporter
-from ai_qa_test_studio.reporting.excel_exporter import ExcelExporter
-from ai_qa_test_studio.reporting.html_reporter import HtmlReporter
+from ai_qa_test_studio.ui.controllers import (
+    CopilotController,
+    ExportController,
+    LayoutController,
+    RunController,
+)
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
@@ -85,7 +57,7 @@ from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, Palette
 from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
 from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
-from ai_qa_test_studio.ui.widgets.right_drawer import TAB_COPILOT, RightDrawer
+from ai_qa_test_studio.ui.widgets.right_drawer import RightDrawer
 from ai_qa_test_studio.ui.widgets.system_settings_dialog import SystemSettingsDialog
 from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 
@@ -118,6 +90,10 @@ class MainWindow(QMainWindow):
         self._overlay_mode = False
         self._drawer_width = UI_DRAWER_WIDTH
         self._narrow_auto_collapsed = False
+        self._layout = LayoutController(self)
+        self._run = RunController(self)
+        self._copilot_ctl = CopilotController(self)
+        self._export_ctl = ExportController(self)
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
@@ -264,113 +240,29 @@ class MainWindow(QMainWindow):
         return self.data_drawer.collapsed
 
     def apply_layout_breakpoint(self, width: int) -> None:
-        # ≥960 push drawer; <960 overlay. Breakpoints also size chrome.
-        self._overlay_mode = width < UI_BREAKPOINT_MEDIUM
-        if width >= UI_BREAKPOINT_WIDE:
-            self._narrow_auto_collapsed = False
-            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH
-            self._drawer_width = UI_DRAWER_WIDTH
-        elif width >= UI_BREAKPOINT_MEDIUM:
-            self._narrow_auto_collapsed = False
-            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
-            self._drawer_width = UI_DRAWER_WIDTH_COMPACT
-        else:
-            if not self._narrow_auto_collapsed:
-                self._sidebar_collapsed = True
-                self._narrow_auto_collapsed = True
-            sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH_COMPACT
-            self._drawer_width = UI_DRAWER_WIDTH_NARROW
-        sidebar_cap = min(
-            UI_SIDEBAR_WIDTH_MAX,
-            max(UI_EXPLORER_MIN_WIDTH, int(width * UI_SIDEBAR_MAX_RATIO)),
-        )
-        if sidebar <= 0:
-            self.explorer.hide()
-        else:
-            was_hidden = self.explorer.isHidden()
-            self.explorer.show()
-            self.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
-            self.explorer.setMaximumWidth(sidebar_cap)
-            self.explorer.apply_density(self.explorer.width() or sidebar)
-            sizes = self.h_splitter.sizes()
-            current = sizes[0] if len(sizes) >= 2 else 0
-            if was_hidden or current < UI_EXPLORER_MIN_WIDTH or current > sidebar_cap:
-                total = max(self.h_splitter.width(), sum(sizes), 1)
-                target = min(sidebar, sidebar_cap)
-                editor = max(320, total - target)
-                self.h_splitter.setSizes([target, editor])
-        self.top_bar.apply_density(width)
-        self.builder.apply_density(width)
-        self._sync_drawer_geometry()
+        return self._layout.apply_layout_breakpoint(width)
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # type: ignore[override]
-        if event.type() == QEvent.Type.Resize:
-            if watched is getattr(self, "workspace", None):
-                self._sync_drawer_geometry()
-            elif watched is getattr(self, "explorer", None):
-                self.explorer.apply_density(self.explorer.width())
+        self._layout.handle_resize_filter(watched, event)
         return super().eventFilter(watched, event)  # type: ignore[arg-type]
 
     def _sync_drawer_geometry(self) -> None:
-        ww = self.workspace.width()
-        wh = self.workspace.height()
-        if ww <= 0 or wh <= 0:
-            return
-        layout = self.workspace.layout()
-        if self.right_drawer.is_open:
-            dw = min(self._drawer_width, max(1, ww))
-            # Push: reserve right margin so h_splitter shrinks; overlay: full canvas.
-            reserve = 0 if self._overlay_mode else dw
-            if layout is not None:
-                layout.setContentsMargins(0, 0, reserve, 0)
-            x = max(0, ww - dw)
-            self.right_drawer.setMinimumSize(0, 0)
-            self.right_drawer.setMaximumSize(UI_WIDGET_SIZE_MAX, UI_WIDGET_SIZE_MAX)
-            self.right_drawer.setGeometry(x, 0, dw, wh)
-            self.right_drawer.show()
-            self.right_drawer.raise_()
-        else:
-            if layout is not None:
-                layout.setContentsMargins(0, 0, 0, 0)
-            self.right_drawer.hide()
+        self._layout.sync_drawer_geometry()
 
     def _toggle_sidebar(self) -> None:
-        self._sidebar_collapsed = not self._sidebar_collapsed
-        self.apply_layout_breakpoint(self.width())
+        self._layout.toggle_sidebar()
 
     def _toggle_copilot_drawer(self) -> None:
-        if self.right_drawer.is_open and self.right_drawer.stack.currentIndex() == 0:
-            self.right_drawer.close_drawer()
-        else:
-            self.right_drawer.open_drawer(TAB_COPILOT)
-        self._sync_drawer_geometry()
+        self._layout.toggle_copilot_drawer()
 
     def _on_copilot_toggle(self, checked: bool) -> None:
-        if checked:
-            self.right_drawer.open_drawer(TAB_COPILOT)
-        else:
-            self.right_drawer.close_drawer()
-        self._sync_drawer_geometry()
+        self._layout.on_copilot_toggle(checked)
 
     def _on_escape(self) -> None:
-        if self.copilot.is_busy:
-            self._stop_copilot()
-            return
-        if self._busy:
-            self._stop_browser()
-            return
-        if self.right_drawer.is_open:
-            self.right_drawer.close_drawer()
-            self._sync_drawer_geometry()
+        self._layout.on_escape()
 
     def _set_busy_chrome(self, busy: bool) -> None:
-        self.top_bar.set_running(busy)
-        if busy:
-            self.busy_bar.show()
-            self.busy_bar.start()
-        else:
-            self.busy_bar.stop()
-            self.busy_bar.hide()
+        self._layout.set_busy_chrome(busy)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -447,13 +339,7 @@ class MainWindow(QMainWindow):
         self._status_caption.setText(f"Case {case.code} · {len(case.test_data_rows)} bộ Test Data")
 
     def _open_copilot(self) -> None:
-        self.right_drawer.show_copilot(compose=True)
-        self.top_bar.set_copilot_checked(True)
-        self._sync_drawer_geometry()
-        self._toast_info(
-            "QA Copilot",
-            "Tab AI Wizard (3 bước) nằm trong Copilot. Chat dùng Planner→Composer→Critic.",
-        )
+        self._layout.open_copilot()
 
     def _toast_info(self, title: str, content: str) -> None:
         InfoBar.success(
@@ -467,45 +353,16 @@ class MainWindow(QMainWindow):
         )
 
     def _persist_copilot_session(self) -> None:
-        self._chat_store.upsert(self.copilot.session)
-        self._chat_store.save()
+        self._copilot_ctl.persist_session()
 
     def _stop_copilot(self) -> None:
-        if self._copilot_cancel is not None:
-            self._copilot_cancel.set()
-        dialog = self._clarify_dialog
-        if dialog is not None:
-            dialog.abort_stopped()
-            self._clarify_dialog = None
-        self.copilot.mark_stopped()
+        self._copilot_ctl.stop()
 
     def _refresh_model_catalog(self) -> None:
-        router = ModelRouter(self.env.settings.ai)
-        self.copilot.set_model_catalog(router.catalog_labels())
+        self._copilot_ctl.refresh_model_catalog()
 
     async def _clarify_from_ui(self, request: ClarifyRequest) -> ClarifyResponse:
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[ClarifyResponse] = loop.create_future()
-        dialog = ClarifyDialog(
-            question=request.question,
-            suggestions=list(request.suggestions),
-            default_answer=request.default_answer,
-            parent=self,
-            timeout_ms=self.env.settings.copilot.clarify_timeout_ms,
-        )
-        self._clarify_dialog = dialog
-
-        def _on_answered(answer: str, source: str) -> None:
-            if not future.done():
-                future.set_result(ClarifyResponse(answer=answer, source=source))
-
-        dialog.answered.connect(_on_answered)
-        dialog.show()
-        try:
-            return await future
-        finally:
-            if self._clarify_dialog is dialog:
-                self._clarify_dialog = None
+        return await self._copilot_ctl.clarify_from_ui(request)
 
     def _open_system_settings(self) -> None:
         dialog = SystemSettingsDialog(self.env.settings, self)
@@ -520,154 +377,13 @@ class MainWindow(QMainWindow):
 
     @asyncSlot(str, dict)
     async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:
-        if self._busy and flags.get("include_dom"):
-            self._toast_warn(
-                "Copilot",
-                "Trình duyệt đang bận — bỏ qua @DOM cho lượt này.",
-            )
-        self.copilot.set_busy(True)
-        self._copilot_cancel = asyncio.Event()
-        self.copilot.set_apply_payload(None)
-        try:
-            context = await self._build_copilot_context(flags)
-            mode = str(flags.get("mode") or self.copilot.session.mode)
-            if "srs" in text.lower() or "kịch bản" in text.lower():
-                mode = COPILOT_MODE_COMPOSE
-                self.copilot.session.mode = mode
-            gateway = UnifiedLLMGateway.from_settings(self.env.settings.ai)
-            router = ModelRouter(
-                self.env.settings.ai,
-                pin_ref=str(flags.get("model") or self.copilot.selected_model_ref()),
-            )
-            copilot_cfg = self.env.settings.copilot
-            orch = CopilotOrchestrator(
-                gateway,
-                mcp=self._bundled_mcp,
-                router=router,
-                clarify_handler=self._clarify_from_ui,
-                debate_max_rounds=copilot_cfg.debate_max_rounds,
-                loop_repeat_limit=copilot_cfg.loop_repeat_limit,
-                summary_max_chars=copilot_cfg.summary_max_chars,
-            )
-            history = [
-                ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
-                for m in self.copilot.session.llm_window()
-                if m.role in {"user", ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, "assistant"}
-                and (m.content or "").strip()
-            ]
-            current_role: str | None = None
-            async for event in orch.run(
-                user_text=text,
-                mode=mode,
-                context=context,
-                history=history[:-1] if history else [],
-                cancel=self._copilot_cancel,
-            ):
-                if event.kind == "role_start" and event.role:
-                    current_role = event.role
-                    self.copilot.begin_role(event.role)
-                elif event.kind == "chunk":
-                    self.copilot.append_stream_chunk(event.text)
-                elif event.kind == "role_end" and event.role:
-                    self.copilot.end_role(event.role, event.text)
-                    current_role = None
-                elif event.kind == EVENT_STATUS_SUMMARY and event.role:
-                    if current_role:
-                        self.copilot.end_role(event.role, event.text)
-                        current_role = None
-                    else:
-                        self.copilot.append_status_summary(event.role, event.text)
-                elif event.kind == EVENT_AGENT_MESSAGE:
-                    self.copilot.append_agent_message(
-                        event.from_role or "critic",
-                        event.to_role or "composer",
-                        event.text,
-                    )
-                elif event.kind == EVENT_CLARIFY_REQUEST:
-                    self.copilot.append_clarify_note(event.role or "crew", event.question or event.text)
-                elif event.kind == EVENT_CLARIFY_RESOLVED:
-                    self.copilot.append_clarify_note(event.role or "crew", event.text)
-                elif event.kind == EVENT_LOOP_HALTED:
-                    self.copilot.append_clarify_note(event.role or "crew", event.text)
-                elif event.kind == "apply_ready" and event.apply_payload:
-                    self.copilot.set_apply_payload(event.apply_payload)
-                elif event.kind == "stopped":
-                    self.copilot.mark_stopped(event.role or current_role)
-                    return
-            self._persist_copilot_session()
-            used = self._token_budget.count(
-                "\n".join(m.content for m in self.copilot.session.messages)
-            )
-            self._set_pill(
-                self._pill_tokens,
-                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._last_error = str(exc)
-            self._toast_error("Copilot", str(exc))
-            self.copilot.mark_stopped()
-        finally:
-            self.copilot.set_busy(False)
-            self._copilot_cancel = None
+        await self._copilot_ctl.on_prompt(text, flags)
 
     async def _build_copilot_context(self, flags: dict[str, Any]) -> dict[str, Any]:
-        ctx: dict[str, Any] = {
-            "include_case": bool(flags.get("include_case")),
-            "include_dom": bool(flags.get("include_dom")),
-            "include_last_error": bool(flags.get("include_last_error")),
-        }
-        case = self.builder.peek_case() if hasattr(self.builder, "peek_case") else self.builder.current_case()
-        if ctx["include_case"] and case is not None:
-            ctx["case"] = case.model_dump_json()
-            ctx["srs"] = f"{case.title}\n{case.expected_final_result or ''}"
-        if ctx["include_last_error"] and self._last_error:
-            ctx["last_error"] = self._last_error
-        if ctx["include_dom"] and self.session.started and not self._busy:
-            try:
-                compact, _ = await self._dom_distiller.extract(self.session.engine.page)
-                ctx["dom"] = compact
-            except Exception as exc:  # noqa: BLE001
-                ctx["dom"] = f"(DOM unavailable: {exc})"
-        return ctx
+        return await self._copilot_ctl.build_context(flags)
 
     def _apply_copilot_payload(self, payload: dict[str, Any]) -> None:
-        if self.project is None:
-            return
-        kind = payload.get("kind")
-        if kind == APPLY_KIND_COMPOSE:
-            scenarios_raw = payload.get("scenarios") or []
-            scenarios = [TestScenario.model_validate(item) for item in scenarios_raw]
-            if not scenarios:
-                return
-            start_url = str(payload.get("start_url") or "").strip()
-            if start_url:
-                self.url_edit.setText(start_url)
-                for scenario in scenarios:
-                    for case in scenario.cases:
-                        case.start_url = start_url
-            self.project.root_group.scenarios.extend(scenarios)
-            self.storage.save(self.project)
-            self._reload_ui()
-            self._append_log(
-                f"Copilot/AI Wizard Apply: {len(scenarios)} scenario, "
-                f"{sum(len(s.cases) for s in scenarios)} case UNBOUND"
-            )
-            self._toast_info("Apply", f"Đã thêm {len(scenarios)} scenario draft.")
-            return
-        if kind == APPLY_KIND_TEST_DATA:
-            rows = list(payload.get("rows") or [])
-            target = self.builder.current_case()
-            if target is None:
-                self._toast_warn("Apply", "Chọn một test case trước khi thêm Test Data.")
-                return
-            target.test_data_rows = list(target.test_data_rows) + rows
-            self._merge_case(target)
-            self.storage.save(self.project)
-            self.data_drawer.load_rows(target.test_data_rows)
-            self._append_log(f"Copilot Apply: +{len(rows)} Test Data rows")
-            self._toast_info("Apply", f"Đã thêm {len(rows)} bộ Test Data.")
-            return
-        self._toast_warn("Apply", f"Loại artifact chưa hỗ trợ: {kind}")
+        self._copilot_ctl.apply_payload(payload)
 
     def _new_case(self) -> None:
         if self.project is None:
@@ -769,176 +485,30 @@ class MainWindow(QMainWindow):
 
     @asyncSlot()
     async def _launch_browser(self) -> None:
-        if self._busy:
-            return
-        self._busy = True
-        try:
-            url = self.url_edit.text().strip() or DEFAULT_TARGET_URL
-            self.viewport.set_placeholder(SCREENCAST_STATUS_WAITING)
-            opened = await self.session.launch_url(url, log=self._append_log)
-            self._set_pill(self._pill_mcp, "MCP: Playwright Ready")
-            if opened == FALLBACK_BLANK_URL and url not in {"", FALLBACK_BLANK_URL}:
-                self.viewport.set_placeholder(f"{SCREENCAST_STATUS_NAV_FAILED}\n«{url}»")
-                self._toast_warn(
-                    "URL không mở được",
-                    f"Không resolve được «{url}». Đã mở trang trống — nhập URL thật rồi Launch lại.",
-                )
-            else:
-                await self._refresh_viewport()
-        except Exception as exc:  # noqa: BLE001
-            self._append_log(f"Không mở được trình duyệt: {exc}")
-            self._toast_error("Launch Browser", str(exc))
-        finally:
-            self._busy = False
+        await self._run.launch_browser()
 
     @asyncSlot()
     async def _sync_url(self) -> None:
-        if self._busy or self.project is None:
-            return
-        case = self._require_case()
-        if case is None:
-            return
-        url = self.url_edit.text().strip()
-        if not url:
-            url = DEFAULT_TARGET_URL
-            self.url_edit.setText(url)
-            self._toast_info("Sync URL", f"URL trống — dùng mặc định {url}")
-        self._busy = True
-        self._set_busy_chrome(True)
-        self._status_caption.setText("Đang đồng bộ…")
-        try:
-            case.start_url = url
-            updated = await self.session.sync_bind(
-                self.project, case, url, log=self._append_log
-            )
-            self.builder.load_case(updated)
-            self._merge_case(updated)
-            self.storage.save(self.project)
-            self.explorer.load_project(self.project)
-            self._update_unbound_badge(updated)
-            await self._refresh_viewport()
-            endpoint = self.session.engine.cdp_http_for_mcp() if self.session.started else "n/a"
-            self._set_pill(self._pill_mcp, f"MCP: Playwright ({endpoint})")
-        except Exception as exc:  # noqa: BLE001
-            self._append_log(f"Sync thất bại: {exc}")
-            self._toast_error("Sync URL", str(exc))
-        finally:
-            self._busy = False
-            self._set_busy_chrome(False)
-            self._status_caption.setText("Sẵn sàng")
+        """Sync bind — empty URL uses DEFAULT_TARGET_URL; toast-only feedback."""
+        await self._run.sync_url()
 
     @asyncSlot()
     async def _run_current(self) -> None:
-        if self._busy or self.project is None:
-            return
-        case = self._require_case()
-        if case is None:
-            return
-        self.right_drawer.show_browser()
-        self.top_bar.set_copilot_checked(True)
-        self._sync_drawer_geometry()
-        self._busy = True
-        self._set_busy_chrome(True)
-        self._status_caption.setText("Đang chạy…")
-        self._run_logs.clear()
-        try:
-            skill = self.skill_combo.currentText()
-            report = await self.session.run_case(
-                self.project,
-                case,
-                log=self._append_log,
-                on_step=self._run_logs.append_step,
-                skill_name=skill,
-                skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
-            )
-            self._last_report = report
-            self.builder.load_case(case)
-            self._merge_case(case)
-            self.storage.save(self.project)
-            self.explorer.load_project(self.project)
-            await self._refresh_viewport()
-            out = self.data_root / "exports" / f"{report.run_id}.html"
-            HtmlReporter().write(report, out)
-            self._append_log(f"Báo cáo HTML: {out}")
-            self._set_pill(self._pill_mcp, f"MCP: Playwright ({report.cases[0].status})")
-            used = self._token_budget.count(self._run_logs.to_plain_text())
-            self._set_pill(
-                self._pill_tokens,
-                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._append_log(f"Chạy thất bại: {exc}")
-            self._toast_error("Run", str(exc))
-        finally:
-            self._busy = False
-            self._set_busy_chrome(False)
-            self._status_caption.setText("Sẵn sàng")
+        await self._run.run_current()
 
     @asyncSlot()
     async def _stop_browser(self) -> None:
-        try:
-            await self.session.stop(log=self._append_log)
-            self.viewport.set_placeholder("")
-            self._set_pill(self._pill_mcp, "MCP: Playwright (Stopped)")
-        except Exception as exc:  # noqa: BLE001
-            self._append_log(f"Stop thất bại: {exc}")
+        await self._run.stop_browser()
 
     @asyncSlot()
     async def _on_viewport_click(self, css_x: float, css_y: float) -> None:
-        if not self.session.started or self.project is None:
-            self._append_log("Hãy mở trình duyệt trước khi Inspect.")
-            return
-        if not self.viewport.inspect_mode:
-            return
-        try:
-            meta = await element_from_point(self.session.engine.page, css_x, css_y)
-            if not meta:
-                self._append_log("Không tìm thấy phần tử tại điểm click.")
-                return
-            case = self.builder.current_case()
-            case_code = case.code if case else "CASE"
-            el = self.session.pin_shared_element(self.project, meta, case_code=case_code)
-            bound = self.builder.bind_element_to_selected_step(el.element_id)
-            if case is not None:
-                self._merge_case(case)
-            self.storage.save(self.project)
-            self.explorer.load_project(self.project)
-            msg = f"Đã ghim {el.element_id} — {el.friendly_name}"
-            if bound:
-                msg += " và gắn vào bước đang chọn"
-            self._append_log(msg)
-            await self._refresh_viewport()
-        except Exception as exc:  # noqa: BLE001
-            self._append_log(f"Inspect thất bại: {exc}")
+        await self._run.on_viewport_click(css_x, css_y)
 
     async def _refresh_viewport(self) -> None:
-        if not self.session.started:
-            return
-        png, w, h = await self.session.capture_png()
-        self.viewport.set_frame_png(png, w, h)
+        await self._run.refresh_viewport()
 
     def _export(self, kind: str) -> None:
-        if self.project is None:
-            return
-        exports = self.data_root / "exports"
-        exports.mkdir(parents=True, exist_ok=True)
-        try:
-            if kind == "html":
-                if self._last_report is None:
-                    QMessageBox.information(self, "Export", "Chạy test trước để có báo cáo HTML.")
-                    return
-                path = exports / f"{self._last_report.run_id}.html"
-                HtmlReporter().write(self._last_report, path)
-            elif kind == "excel":
-                path = exports / f"{self.project.name.replace(' ', '_')}_ieee829.xlsx"
-                ExcelExporter().write(self.project, self._last_report, path)
-            else:
-                path = exports / "pytest_suite"
-                CodeExporter().export(self.project, path)
-            self._append_log(f"Đã xuất: {path}")
-            QMessageBox.information(self, "Export", f"Đã xuất:\n{path}")
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Export", str(exc))
+        self._export_ctl.export(kind)
 
     def _palette_commands(self) -> list[PaletteCommand]:
         return [
