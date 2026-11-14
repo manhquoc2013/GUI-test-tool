@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
 
 from ai_qa_test_studio.agent.binary_resolver import BinaryResolver
+from ai_qa_test_studio.agent.mcp_client import McpClientFactory
 from ai_qa_test_studio.agent.mcp_manager import McpManager
 from ai_qa_test_studio.constants import DEFAULT_MCP_SERVERS_FILENAME
 
@@ -18,21 +18,26 @@ EXTERNAL_PLAYWRIGHT = "playwright"
 
 
 class ExternalMcpBridge:
-    """Starts optional npx MCP servers with in-memory CDP injection."""
+    """Starts optional npx MCP servers with in-memory CDP injection + JSON-RPC tools."""
 
     def __init__(
         self,
         config_path: Path | None = None,
         resolver: BinaryResolver | None = None,
+        client: McpClientFactory | None = None,
     ) -> None:
         self.config_path = config_path or Path(DEFAULT_MCP_SERVERS_FILENAME)
         self.resolver = resolver or BinaryResolver()
         self._manager = McpManager(self.config_path, resolver=self.resolver)
-        self._procs: dict[str, asyncio.subprocess.Process] = {}
+        self._client = client or McpClientFactory(self._manager)
 
     @property
     def npx_available(self) -> bool:
         return self.resolver.which("npx") is not None
+
+    @property
+    def client(self) -> McpClientFactory:
+        return self._client
 
     async def ensure_midscene(self, cdp_endpoint: str, log: Any = None) -> bool:
         return await self._ensure(EXTERNAL_MIDSCENE, cdp_endpoint, log=log)
@@ -40,9 +45,21 @@ class ExternalMcpBridge:
     async def ensure_playwright(self, cdp_endpoint: str, log: Any = None) -> bool:
         return await self._ensure(EXTERNAL_PLAYWRIGHT, cdp_endpoint, log=log)
 
+    async def call_tool(
+        self,
+        server: str,
+        tool: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cdp_endpoint: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._client.call_tool(
+            server, tool, arguments, cdp_endpoint=cdp_endpoint
+        )
+
     async def _ensure(self, name: str, cdp_endpoint: str, log: Any = None) -> bool:
         emit = log or (lambda _m: None)
-        if name in self._procs and self._procs[name].returncode is None:
+        if self._client.get(name) is not None:
             return True
         if not self.npx_available:
             emit(f"External MCP {name}: npx không có — dùng bundled")
@@ -51,9 +68,8 @@ class ExternalMcpBridge:
             emit(f"External MCP {name}: không cấu hình / disabled")
             return False
         try:
-            proc = await self._manager.start_stdio(name, cdp_endpoint=cdp_endpoint)
-            self._procs[name] = proc
-            emit(f"External MCP {name}: started (CDP in-memory)")
+            await self._client.connect(name, cdp_endpoint=cdp_endpoint)
+            emit(f"External MCP {name}: connected (JSON-RPC + CDP in-memory)")
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("external_mcp_start_failed name=%s err=%s", name, exc)
@@ -61,14 +77,5 @@ class ExternalMcpBridge:
             return False
 
     async def stop_all(self) -> None:
-        for name, proc in list(self._procs.items()):
-            try:
-                if proc.returncode is None:
-                    proc.terminate()
-                    try:
-                        await asyncio.wait_for(proc.wait(), timeout=3.0)
-                    except TimeoutError:
-                        proc.kill()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("external_mcp_stop_failed name=%s err=%s", name, exc)
-            self._procs.pop(name, None)
+        await self._client.close_all()
+        await self._manager.stop_all()
