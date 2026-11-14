@@ -19,4 +19,4 @@
 - [x] T17: Clear/rotate crew-memory per Copilot turn
 - [x] T18: Split MainWindow → layout/run/copilot/export controllers
 - [x] T19: Sync SPEC/ADR 0003/ARCHITECTURE/.ai-context for push layout + secrets
-- [ ] T20: Full gates + learnings.md + multi-axis verify
+- [x] T20: Full gates + learnings.md + multi-axis verify
