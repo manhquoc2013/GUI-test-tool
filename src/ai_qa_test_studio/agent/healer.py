@@ -30,10 +30,6 @@ class Healer:
         vision_locate: Any | None = None,
     ) -> StepAuditEntry | None:
         old = element.primary_playwright or element.css
-        matched = await self.resolver.try_semantic_match(page, element)
-        if matched is not None:
-            return None
-
         compact_dom, element_map = await self.distiller.extract(page)
         for eid, meta in element_map.items():
             name = str(meta.get("name") or "").lower()
