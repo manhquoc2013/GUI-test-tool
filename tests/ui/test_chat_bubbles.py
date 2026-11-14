@@ -99,6 +99,11 @@ def test_empty_agent_bubble_shows_typing_indicator(qapp: QApplication) -> None:
     assert row.body.isHidden()
     assert row.typing.is_running()
 
+    row.set_typing_status("Đang chờ phản hồi model…")
+    qapp.processEvents()
+    assert row.is_typing()
+    assert row.typing_label.text() == "Đang chờ phản hồi model…"
+
     row.set_body("…")
     qapp.processEvents()
     assert row.is_typing()

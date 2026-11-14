@@ -131,6 +131,7 @@ class ChatMessageRow(QWidget):
         self.message_id = message_id
         self.role = role
         self._text = text
+        self._typing_active = False
         self._is_user = role == "user"
         self._is_system = role == ROLE_SYSTEM
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -309,7 +310,20 @@ class ChatMessageRow(QWidget):
         return text.strip() in CHAT_TYPING_EMPTY_MARKERS
 
     def is_typing(self) -> bool:
-        return self._typing_wrap.isVisible()
+        # Flag — not isVisible(); headless/offscreen parents report hidden children.
+        return self._typing_active
+
+    def set_typing_status(self, label: str) -> None:
+        """Update the in-bubble progress label while keeping the typing dots."""
+        text = (label or "").strip() or CHAT_TYPING_LABEL
+        self.typing_label.setText(text)
+        if not self._typing_active:
+            self._text = ""
+            self.body.clear()
+            self.body.hide()
+            self._typing_wrap.show()
+            self.typing.start()
+            self._typing_active = True
 
     def set_body(self, text: str) -> None:
         if self._is_pending_body(text):
@@ -318,9 +332,11 @@ class ChatMessageRow(QWidget):
             self.body.hide()
             self._typing_wrap.show()
             self.typing.start()
+            self._typing_active = True
             return
         self._text = text
         self.typing.stop()
         self._typing_wrap.hide()
+        self._typing_active = False
         self.body.setText(text)
         self.body.show()

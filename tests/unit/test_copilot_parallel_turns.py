@@ -26,6 +26,10 @@ class _FakePane:
     def set_status(self, text: str) -> None:
         self.statuses.append(text)
 
+    def set_streaming_status(self, text: str, *, role: str | None = None) -> None:
+        del role
+        self.statuses.append(text)
+
     def begin_role(self, role: str) -> None:
         self.roles.append(role)
         self.session.messages.append(CopilotMessage(role=role, content=""))

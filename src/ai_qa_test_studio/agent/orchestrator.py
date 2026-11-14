@@ -71,6 +71,10 @@ from ai_qa_test_studio.constants import (
     COPILOT_MODE_COMPOSE,
     COPILOT_ROLE_BRIEFS,
     COPILOT_ROLE_REPLY_STYLE,
+    COPILOT_STATUS_CLASSIFYING,
+    COPILOT_STATUS_COORD_DECIDE,
+    COPILOT_STATUS_INFERRING_INTENT,
+    COPILOT_STATUS_WAITING_LLM,
     COPILOT_SUMMARY_MAX_CHARS,
     CTX_MARKER_ACTIVE_SKILL,
     CTX_MARKER_ATTACHMENTS,
@@ -208,6 +212,8 @@ class CopilotOrchestrator:
         mcp.crew_memory.clear()
         self._bind_project_context(mcp, context)
         ctx_block = self._format_context(context, query=user_text)
+        # Open coordinator bubble early so classify/intent status is visible in-chat.
+        yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
         retrieved_n = ctx_block.count("### doc=")
         if retrieved_n:
             yield OrchestratorEvent(
@@ -216,6 +222,11 @@ class CopilotOrchestrator:
                 text=self._clip(f"Retrieve {retrieved_n} đoạn từ corpus (Top-K)"),
             )
 
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COORDINATOR,
+            text=COPILOT_STATUS_CLASSIFYING,
+        )
         complexity = await self.classifier.classify(
             user_text, mode, context, gateway=self._gw(LLM_TASK_SUMMARIZE, "simple"), cancel=stop
         )
@@ -226,6 +237,11 @@ class CopilotOrchestrator:
             text=self._clip(f"Độ khó: {complexity_vn} ({complexity}) → chọn model theo ma trận"),
         )
 
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COORDINATOR,
+            text=COPILOT_STATUS_INFERRING_INTENT,
+        )
         intent = await self._infer_intent(
             user_text,
             mode,
@@ -356,7 +372,6 @@ class CopilotOrchestrator:
         )
         seen: dict[str, int] = {}
         coord_route = self._route(LLM_TASK_COORDINATE, complexity)
-        yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
         yield OrchestratorEvent(
             kind=EVENT_STATUS_SUMMARY,
             role=ROLE_COORDINATOR,
@@ -388,6 +403,11 @@ class CopilotOrchestrator:
                     kind="stopped", role=ROLE_COORDINATOR, status=MSG_STATUS_STOPPED
                 )
                 return
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_COORDINATOR,
+                text=COPILOT_STATUS_COORD_DECIDE,
+            )
             decision = await self._coordinator_decide(
                 board, roster, coord_route.gateway(), stop
             )
@@ -500,6 +520,11 @@ class CopilotOrchestrator:
             )
 
         report = build_final_report(board, closing=closing_summary)
+        yield OrchestratorEvent(
+            kind="role_end",
+            role=ROLE_COORDINATOR,
+            text=closing_summary or report,
+        )
         yield OrchestratorEvent(
             kind=EVENT_FINAL_REPORT,
             role=ROLE_COORDINATOR,
@@ -1129,6 +1154,12 @@ class CopilotOrchestrator:
         role: str | None = None,
     ) -> AsyncIterator[OrchestratorEvent]:
         """Yield stream chunk events; append pieces into sink for the caller."""
+        if role:
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=role,
+                text=COPILOT_STATUS_WAITING_LLM,
+            )
         async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
             sink.append(piece)
             yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)

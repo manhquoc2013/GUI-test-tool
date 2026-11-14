@@ -38,8 +38,10 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    CHAT_ROLE_LABELS,
     CHAT_TRANSCRIPT_PAD,
     CHAT_TRANSCRIPT_SPACING,
+    CHAT_TYPING_LABEL,
     COPILOT_APPLY_TOOLTIP,
     COPILOT_ATTACH_BTN_LABEL,
     COPILOT_ATTACH_CHIP_HEIGHT,
@@ -81,6 +83,8 @@ from ai_qa_test_studio.constants import (
     COPILOT_STARTER_PROMPTS,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_MIN_HEIGHT,
+    COPILOT_STATUS_ROLE_HANDOFF,
+    COPILOT_STATUS_WORKING,
     COPILOT_STOP_MARKER,
     COPILOT_STOP_SUFFIX,
     COPILOT_STOP_TOOLTIP,
@@ -494,6 +498,19 @@ class CopilotChatPane(QWidget):
         self.status_label.setText(message)
         self.status_label.setVisible(bool(message))
 
+    def set_streaming_status(self, text: str, *, role: str | None = None) -> None:
+        """Push live progress into an open typing bubble (and the footer status)."""
+        label = (text or "").strip() or CHAT_TYPING_LABEL
+        if role:
+            for row in reversed(self._rows):
+                if row.role == role and row.is_typing():
+                    row.set_typing_status(label)
+                    self.set_status(label)
+                    return
+        if self._streaming_row is not None and self._streaming_row.is_typing():
+            self._streaming_row.set_typing_status(label)
+        self.set_status(label)
+
     def set_apply_payload(self, payload: dict[str, Any] | None) -> None:
         self._pending_apply = payload
         ready = bool(payload)
@@ -693,17 +710,37 @@ class CopilotChatPane(QWidget):
         self.session_changed.emit()
 
     def begin_role(self, role: str) -> None:
+        if self._streaming_row is not None and self._streaming_row.is_typing():
+            prev = self._streaming_row.role
+            self._streaming_row.set_typing_status(
+                COPILOT_STATUS_ROLE_HANDOFF.format(
+                    role=CHAT_ROLE_LABELS.get(prev, prev),
+                    next_role=CHAT_ROLE_LABELS.get(role, role),
+                )
+            )
         msg = CopilotMessage(role=role, content="")
         self._session.messages.append(msg)
         self._streaming_row = self._append_row(msg.id, role, "")
+        working = COPILOT_STATUS_WORKING.format(
+            role=CHAT_ROLE_LABELS.get(role, role)
+        )
+        self._streaming_row.set_typing_status(working)
+        self.set_status(working)
         self.session_changed.emit()
 
     def preview_role(self, role: str, summary: str) -> None:
         """Update open bubble display only — session content stays for role_end."""
-        del role
-        if self._streaming_row is not None:
+        if self._streaming_row is not None and (
+            not role or self._streaming_row.role == role
+        ):
             self._streaming_row.set_body(summary)
             self._scroll_transcript()
+            return
+        for row in reversed(self._rows):
+            if row.role == role and row.is_typing():
+                row.set_body(summary)
+                self._scroll_transcript()
+                return
 
     def append_stream_chunk(self, chunk: str) -> None:
         if self._streaming_row is None:
@@ -718,14 +755,41 @@ class CopilotChatPane(QWidget):
     def end_role(self, role: str, text: str, *, summary: str = "") -> None:
         """Persist full `text` for agents; show `summary` (or text) in the bubble."""
         display = summary or text
+        target = self._open_message_for_role(role)
         message_id: str | None = None
-        if self._session.messages and self._session.messages[-1].role == role:
-            self._session.messages[-1].content = text
-            self._session.messages[-1].summary = display
-            message_id = self._session.messages[-1].id
+        if target is not None:
+            target.content = text
+            target.summary = display
+            message_id = target.id
         self._paint_role_body(display, message_id=message_id)
-        self._streaming_row = None
+        if (
+            self._streaming_row is not None
+            and message_id is not None
+            and self._streaming_row.message_id == message_id
+        ):
+            self._streaming_row = None
+        elif self._streaming_row is not None and self._streaming_row.role == role:
+            self._streaming_row = None
         self.session_changed.emit()
+
+    def _open_message_for_role(self, role: str) -> CopilotMessage | None:
+        """Prefer the live typing/empty bubble for ``role`` (coordinator may outlive hops)."""
+        if (
+            self._streaming_row is not None
+            and self._streaming_row.role == role
+        ):
+            for msg in reversed(self._session.messages):
+                if msg.id == self._streaming_row.message_id:
+                    return msg
+        for msg in reversed(self._session.messages):
+            if msg.role != role:
+                continue
+            row = self._row_for_message_id(msg.id)
+            if not (msg.content or "").strip() or (row is not None and row.is_typing()):
+                return msg
+        if self._session.messages and self._session.messages[-1].role == role:
+            return self._session.messages[-1]
+        return None
 
     def mark_stopped(self, role: str | None = None) -> None:
         """Settle every open/empty agent bubble and stamp the stop marker (idempotent)."""
@@ -764,14 +828,13 @@ class CopilotChatPane(QWidget):
 
     def _paint_role_body(self, display: str, *, message_id: str | None) -> None:
         """Update streaming row, or the rebuilt row after a mid-turn session switch."""
+        if message_id:
+            row = self._row_for_message_id(message_id)
+            if row is not None:
+                row.set_body(display)
+                return
         if self._streaming_row is not None:
             self._streaming_row.set_body(display)
-            return
-        if not message_id:
-            return
-        row = self._row_for_message_id(message_id)
-        if row is not None:
-            row.set_body(display)
 
     def copy_selected(self) -> None:
         if not self._session.messages:

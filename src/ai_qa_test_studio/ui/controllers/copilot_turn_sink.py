@@ -41,6 +41,11 @@ class CopilotTurnSink:
         if self.viewing():
             self._w.copilot.set_status(text)
 
+    def set_streaming_status(self, text: str, *, role: str | None = None) -> None:
+        self._w._chat_runs.update_status(self.session_id, text)
+        if self.viewing():
+            self._w.copilot.set_streaming_status(text, role=role)
+
     def set_apply_payload(self, payload: dict[str, Any] | None) -> None:
         if self.viewing():
             self._w.copilot.set_apply_payload(payload)

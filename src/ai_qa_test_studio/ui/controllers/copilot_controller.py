@@ -17,6 +17,7 @@ from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CHAT_ROLE_LABELS,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_ATTACHMENTS,
     CONTEXT_KEY_DOC_IDS,
@@ -30,7 +31,9 @@ from ai_qa_test_studio.constants import (
     COPILOT_FINAL_REPORT_MAX_CHARS,
     COPILOT_STATUS_CLARIFY,
     COPILOT_STATUS_CONNECTING,
+    COPILOT_STATUS_INDEXING,
     COPILOT_STATUS_PREPARING,
+    COPILOT_STATUS_STREAMING,
     COPILOT_STATUS_WORKING,
     DEFAULT_SKILLS_DIRNAME,
     EVENT_AGENT_MESSAGE,
@@ -231,7 +234,7 @@ class CopilotController:
                 str(p) for p in (flags.get("attach_paths") or []) if str(p).strip()
             ]
             if attach_paths:
-                sink.set_status("Đang index tài liệu đính kèm…")
+                sink.set_status(COPILOT_STATUS_INDEXING)
                 doc_by_path = await self._resolve_attachment_doc_ids(attach_paths)
                 if doc_by_path:
                     flags[CONTEXT_KEY_DOC_IDS] = list(doc_by_path.values())
@@ -283,6 +286,7 @@ class CopilotController:
                 and (m.content or "").strip()
             ]
             current_role: str | None = None
+            stream_hinted = False
             reply_cap = max(
                 80,
                 int(getattr(w.env.settings.copilot, "summary_max_chars", 0) or COPILOT_CHAT_REPLY_MAX_CHARS),
@@ -300,23 +304,32 @@ class CopilotController:
                     continue
                 if event.kind == "role_start" and event.role:
                     current_role = event.role
-                    sink.set_status(
-                        COPILOT_STATUS_WORKING.format(role=event.role.capitalize())
-                    )
+                    stream_hinted = False
                     sink.begin_role(event.role)
+                    sink.set_streaming_status(
+                        COPILOT_STATUS_WORKING.format(
+                            role=CHAT_ROLE_LABELS.get(event.role, event.role)
+                        ),
+                        role=event.role,
+                    )
                 elif event.kind == "chunk":
-                    # Skip raw token stream in transcript — bubbles stay short.
+                    # Skip raw tokens in transcript; surface that the model is streaming.
+                    if current_role and not stream_hinted:
+                        stream_hinted = True
+                        sink.set_streaming_status(
+                            COPILOT_STATUS_STREAMING, role=current_role
+                        )
                     continue
                 elif event.kind == "role_end" and event.role:
                     # Persist FULL body for next-turn / agent history; bubble stays short.
                     full = event.text or ""
                     display = clip_chat_reply(full, reply_cap)
                     sink.end_role(event.role, full, summary=display)
-                    current_role = None
+                    if current_role == event.role:
+                        current_role = None
+                    stream_hinted = False
                 elif event.kind == EVENT_STATUS_SUMMARY and event.role:
                     summary = clip_chat_reply(event.text, reply_cap)
-                    if summary:
-                        sink.set_status(summary)
                     # Preview only — do not overwrite session with the short summary.
                     # role_end carries the full body for agent/LLM context.
                     if current_role and event.artifact_ref:
@@ -325,6 +338,8 @@ class CopilotController:
                         sink.append_status_summary(
                             event.role, event.text or summary, summary=summary
                         )
+                    elif summary:
+                        sink.set_streaming_status(summary, role=event.role)
                 elif event.kind == EVENT_AGENT_MESSAGE:
                     full = event.text or ""
                     from_role = event.from_role or "critic"
