@@ -165,7 +165,6 @@ def test_crew_roster_explain_skips_tail_roles() -> None:
     )
     assert roster.roles[0] == ROLE_COORDINATOR
     assert roster.run_critic is True
-    assert roster.run_debate is True
     assert roster.run_analyzer is False
     assert roster.run_optimizer is False
 
@@ -180,7 +179,7 @@ def test_crew_roster_complex_compose_enables_analyzer_optimizer() -> None:
         {"analyzer_enabled": True, "optimizer_enabled": True},
     )
     assert roster.roles[0] == ROLE_COORDINATOR
-    assert roster.run_debate is True
+    assert roster.run_critic is True
     assert roster.run_analyzer is True
     assert roster.run_optimizer is True
     assert "analyzer" in roster.roles
@@ -200,11 +199,53 @@ def test_heuristic_coord_revises_after_critic_reject() -> None:
         critique_text="REVISE",
         critique_approved=False,
         critique_notes="thiếu expected",
+        critique_stale=False,
+        critique_rounds=1,
         dispatched=["composer", "critic"],
     )
-    nxt = heuristic_next_action(board, run_analyzer=False, run_optimizer=False)
+    nxt = heuristic_next_action(
+        board, run_analyzer=False, run_optimizer=False, max_critique_rounds=3
+    )
     assert nxt["action"] == "dispatch"
     assert nxt["to"] == ROLE_COMPOSER
+
+
+def test_heuristic_re_critics_after_revise() -> None:
+    from ai_qa_test_studio.agent.crew_exchange import CrewBoard, heuristic_next_action
+
+    board = CrewBoard(
+        user_text="tạo kịch bản",
+        mode=COPILOT_MODE_COMPOSE,
+        ctx_block="",
+        intent="compose",
+        complexity="normal",
+        compose_text="draft v2",
+        critique_text="REVISE",
+        critique_approved=False,
+        critique_notes="thiếu expected",
+        revise_done=True,
+        critique_stale=True,
+        critique_rounds=1,
+        dispatched=["composer", "critic", "composer"],
+    )
+    nxt = heuristic_next_action(
+        board, run_analyzer=False, run_optimizer=False, max_critique_rounds=3
+    )
+    assert nxt["action"] == "dispatch"
+    assert nxt["to"] == ROLE_CRITIC
+
+
+def test_parse_coord_clarify_action() -> None:
+    from ai_qa_test_studio.agent.crew_exchange import parse_coord_decision
+    from ai_qa_test_studio.constants import COORD_ACTION_CLARIFY
+
+    fallback = {"action": "complete", "summary": "x", "to": "coordinator", "goal": "", "acceptance": "", "brief": ""}
+    got = parse_coord_decision(
+        '{"action":"clarify","goal":"Happy path hay full BVA?"}',
+        fallback,
+    )
+    assert got["action"] == COORD_ACTION_CLARIFY
+    assert "BVA" in got["goal"]
 
 
 def test_handoff_packet_is_structured() -> None:

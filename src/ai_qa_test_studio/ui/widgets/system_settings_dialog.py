@@ -552,7 +552,9 @@ class SystemSettingsDialog(MessageBoxBase):
         self.spin_debate.setRange(0, 8)
         self.spin_debate.setValue(c.debate_max_rounds)
         self.spin_debate.setSuffix(" vòng")
-        self.spin_debate.setToolTip("Số vòng Critic phản biện Composer trước khi chốt kết quả.")
+        self.spin_debate.setToolTip(
+            "Số lần Critic được gọi (gồm re-critique sau REVISE). 0 = bỏ qua Critic."
+        )
 
         self.spin_loop = SpinBox(card)
         self.spin_loop.setRange(1, 5)

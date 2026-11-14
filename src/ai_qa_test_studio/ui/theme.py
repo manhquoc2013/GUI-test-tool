@@ -80,6 +80,7 @@ DARK_TOKENS = ThemeTokens(
     bubble_system_border="rgba(245, 158, 11, 0.28)",
     bubble_role_accents={
         "user": "#38BDF8",
+        "coordinator": "#C4B5FD",
         "planner": "#FACC15",
         "composer": "#A5B4FC",
         "critic": "#FB7185",
@@ -123,6 +124,7 @@ LIGHT_TOKENS = ThemeTokens(
     bubble_system_border="#FCD34D",
     bubble_role_accents={
         "user": "#0369A1",
+        "coordinator": "#6D28D9",
         "planner": "#A16207",
         "composer": "#4F46E5",
         "critic": "#BE123C",

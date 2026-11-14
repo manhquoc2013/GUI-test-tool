@@ -1,16 +1,19 @@
 """Coordinator-led multi-agent exchange (NEXUS/Ruflo hierarchical — not vendored).
 
 Điều phối viên giữ board ngữ cảnh, dispatch chuyên gia, nhận báo cáo, quyết định
-bước tiếp (dispatch lại / complete). Offline dùng heuristic state machine.
+bước tiếp (dispatch lại / complete / clarify). Offline dùng heuristic Dev↔QA.
 """
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from ai_qa_test_studio.constants import (
     COMPLEXITY_SIMPLE,
+    COORD_ACTION_CLARIFY,
     COORD_ACTION_COMPLETE,
     COORD_ACTION_DISPATCH,
     COORD_SPECIALISTS,
@@ -23,6 +26,12 @@ from ai_qa_test_studio.constants import (
     ROLE_OPTIMIZER,
     ROLE_PLANNER,
 )
+
+_DIGEST_MAX_CHARS = 1800
+_REPORT_SUMMARY_MAX = 220
+_NOTES_DIGEST_MAX = 240
+_SOFT_BRIEF_MAX = 500
+_SOFT_SUMMARY_MAX = 200
 
 
 @dataclass
@@ -43,10 +52,12 @@ class CrewBoard:
     critique_approved: bool = True
     critique_notes: str = ""
     revise_done: bool = False
+    critique_stale: bool = False
+    critique_rounds: int = 0
     dispatched: list[str] = field(default_factory=list)
     reports: list[str] = field(default_factory=list)
 
-    def digest(self, *, max_chars: int = 1800) -> str:
+    def digest(self, *, max_chars: int = _DIGEST_MAX_CHARS) -> str:
         parts = [
             f"Intent={self.intent}",
             f"Complexity={self.complexity}",
@@ -55,13 +66,15 @@ class CrewBoard:
             f"HasCompose={bool(self.compose_text)}",
             f"HasCritique={bool(self.critique_text)}",
             f"CritiqueApproved={self.critique_approved}",
+            f"CritiqueStale={self.critique_stale}",
+            f"CritiqueRounds={self.critique_rounds}",
             f"HasAnalyze={bool(self.analyze_text)}",
             f"HasOptimize={bool(self.optimize_text)}",
             f"HasArtifact={bool(self.apply_payload)}",
             f"ReviseDone={self.revise_done}",
         ]
         if self.critique_notes:
-            parts.append(f"CritiqueNotes={self.critique_notes[:240]}")
+            parts.append(f"CritiqueNotes={self.critique_notes[:_NOTES_DIGEST_MAX]}")
         if self.reports:
             parts.append("RecentReports:\n" + "\n".join(self.reports[-4:]))
         blob = "\n".join(parts)
@@ -69,9 +82,24 @@ class CrewBoard:
 
     def record_report(self, role: str, text: str) -> None:
         summary = " ".join((text or "").split())
-        if len(summary) > 220:
-            summary = summary[:219] + "…"
+        if len(summary) > _REPORT_SUMMARY_MAX:
+            summary = summary[: _REPORT_SUMMARY_MAX - 1] + "…"
         self.reports.append(f"{role}: {summary}")
+
+    def mark_compose(self, *, revising: bool) -> None:
+        """Composer produced new text — Critic must re-gate (agency Dev↔QA)."""
+        self.critique_stale = True
+        if revising:
+            self.revise_done = True
+
+    def mark_critique(self, *, approved: bool, notes: str, text: str) -> None:
+        self.critique_text = text
+        self.critique_approved = approved
+        self.critique_notes = notes
+        self.critique_stale = False
+        self.critique_rounds += 1
+        if approved:
+            self.revise_done = True
 
 
 def heuristic_next_action(
@@ -79,6 +107,7 @@ def heuristic_next_action(
     *,
     run_analyzer: bool,
     run_optimizer: bool,
+    max_critique_rounds: int,
 ) -> dict[str, str]:
     """Deterministic coordinator policy when LLM is offline / parse fails."""
     dispatched = set(board.dispatched)
@@ -96,18 +125,17 @@ def heuristic_next_action(
             "acceptance": "Mục tiêu + bước + acceptance rõ",
             "brief": board.user_text,
         }
-    if not board.compose_text or (
-        not board.critique_approved and board.critique_notes and not board.revise_done
-    ):
-        revise = bool(board.compose_text and not board.critique_approved)
+    if not board.compose_text:
         return {
             "action": COORD_ACTION_DISPATCH,
             "to": ROLE_COMPOSER,
-            "goal": "Sửa theo phản biện" if revise else "Soạn deliverable theo intent",
+            "goal": "Soạn deliverable theo intent",
             "acceptance": "Artifact/Apply hoặc câu trả lời rõ theo intent",
-            "brief": board.critique_notes if revise else (board.plan_text or board.user_text),
+            "brief": board.plan_text or board.user_text,
         }
-    if ROLE_CRITIC not in dispatched:
+
+    quality_on = max_critique_rounds > 0
+    if quality_on and board.critique_stale and board.critique_rounds < max_critique_rounds:
         return {
             "action": COORD_ACTION_DISPATCH,
             "to": ROLE_CRITIC,
@@ -115,6 +143,29 @@ def heuristic_next_action(
             "acceptance": "APPROVE có căn cứ hoặc REVISE cụ thể",
             "brief": board.compose_text,
         }
+    if (
+        quality_on
+        and not board.critique_approved
+        and board.critique_notes
+        and board.critique_rounds < max_critique_rounds
+    ):
+        return {
+            "action": COORD_ACTION_DISPATCH,
+            "to": ROLE_COMPOSER,
+            "goal": "Sửa theo phản biện",
+            "acceptance": "Artifact/Apply hoặc câu trả lời rõ theo intent",
+            "brief": board.critique_notes,
+        }
+    if quality_on and not board.critique_approved and board.critique_rounds >= max_critique_rounds:
+        return {
+            "action": COORD_ACTION_COMPLETE,
+            "summary": "Hết ngân sách phản biện — đóng vòng với bản đã sửa gần nhất",
+            "to": ROLE_COORDINATOR,
+            "goal": "",
+            "acceptance": "",
+            "brief": "",
+        }
+
     if run_analyzer and ROLE_ANALYZER not in dispatched and board.intent != INTENT_EXPLAIN:
         return {
             "action": COORD_ACTION_DISPATCH,
@@ -141,11 +192,48 @@ def heuristic_next_action(
     }
 
 
+def _empty_clarify(goal: str = "") -> dict[str, str]:
+    return {
+        "action": COORD_ACTION_CLARIFY,
+        "to": ROLE_COORDINATOR,
+        "goal": goal or "Cần làm rõ yêu cầu?",
+        "acceptance": "",
+        "brief": "",
+        "summary": "",
+    }
+
+
+def _empty_complete(summary: str) -> dict[str, str]:
+    return {
+        "action": COORD_ACTION_COMPLETE,
+        "summary": summary,
+        "to": ROLE_COORDINATOR,
+        "goal": "",
+        "acceptance": "",
+        "brief": "",
+    }
+
+
+def _soft_parse(text: str, fallback: dict[str, str]) -> dict[str, str]:
+    lowered = text.lower()
+    if COORD_ACTION_COMPLETE in lowered:
+        return _empty_complete(text[:_SOFT_SUMMARY_MAX])
+    if COORD_ACTION_CLARIFY in lowered:
+        return _empty_clarify(text[:_SOFT_SUMMARY_MAX])
+    hits = [role for role in COORD_SPECIALISTS if re.search(rf"\b{re.escape(role)}\b", lowered)]
+    if len(hits) == 1:
+        return {
+            "action": COORD_ACTION_DISPATCH,
+            "to": hits[0],
+            "goal": "Tiếp tục theo quyết định điều phối",
+            "acceptance": "Báo cáo rõ cho Điều phối viên",
+            "brief": text[:_SOFT_BRIEF_MAX],
+        }
+    return fallback
+
+
 def parse_coord_decision(raw: str, fallback: dict[str, str]) -> dict[str, str]:
     """Parse coordinator JSON; fall back to heuristic on failure."""
-    import json
-    import re
-
     text = (raw or "").strip()
     if not text:
         return fallback
@@ -157,40 +245,15 @@ def parse_coord_decision(raw: str, fallback: dict[str, str]) -> dict[str, str]:
         else:
             data = json.loads(text)
     except (json.JSONDecodeError, TypeError, ValueError):
-        # Soft parse: look for dispatch to=<role>
-        lowered = text.lower()
-        if COORD_ACTION_COMPLETE in lowered:
-            return {
-                "action": COORD_ACTION_COMPLETE,
-                "summary": text[:200],
-                "to": ROLE_COORDINATOR,
-                "goal": "",
-                "acceptance": "",
-                "brief": "",
-            }
-        for role in COORD_SPECIALISTS:
-            if re.search(rf"\b{role}\b", lowered):
-                return {
-                    "action": COORD_ACTION_DISPATCH,
-                    "to": role,
-                    "goal": "Tiếp tục theo quyết định điều phối",
-                    "acceptance": "Báo cáo rõ cho Điều phối viên",
-                    "brief": text[:500],
-                }
-        return fallback
+        return _soft_parse(text, fallback)
     if not isinstance(data, dict):
         return fallback
     action = str(data.get("action") or "").strip().lower()
     to = str(data.get("to") or "").strip().lower()
     if action == COORD_ACTION_COMPLETE:
-        return {
-            "action": COORD_ACTION_COMPLETE,
-            "summary": str(data.get("summary") or "Hoàn tất"),
-            "to": ROLE_COORDINATOR,
-            "goal": "",
-            "acceptance": "",
-            "brief": "",
-        }
+        return _empty_complete(str(data.get("summary") or "Hoàn tất"))
+    if action == COORD_ACTION_CLARIFY:
+        return _empty_clarify(str(data.get("goal") or data.get("question") or "Cần làm rõ yêu cầu?"))
     if action == COORD_ACTION_DISPATCH and to in COORD_SPECIALISTS:
         return {
             "action": COORD_ACTION_DISPATCH,
