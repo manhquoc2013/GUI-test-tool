@@ -74,6 +74,9 @@ from ai_qa_test_studio.constants import (
     COPILOT_SUMMARY_MAX_CHARS,
     CTX_MARKER_ACTIVE_SKILL,
     CTX_MARKER_ATTACHMENTS,
+    CTX_MARKER_CASE,
+    CTX_MARKER_DOM,
+    CTX_MARKER_LAST_ERROR,
     CTX_MARKER_RETRIEVED,
     CTX_MARKER_SECTION,
     CTX_MARKER_SKILLS,
@@ -907,9 +910,9 @@ class CopilotOrchestrator:
             CTX_MARKER_ATTACHMENTS,
             CTX_MARKER_SKILLS,
             CTX_MARKER_ACTIVE_SKILL,
-            "DOM:",
-            "CASE:",
-            "LAST_ERROR:",
+            CTX_MARKER_DOM,
+            CTX_MARKER_CASE,
+            CTX_MARKER_LAST_ERROR,
         )
         cut = len(body)
         for stop in stops:
@@ -1056,11 +1059,16 @@ class CopilotOrchestrator:
     def _format_context(self, context: dict[str, Any], *, query: str = "") -> str:
         parts: list[str] = []
         if context.get("include_case") and context.get("case"):
-            parts.append("CASE:\n" + self.compressor.compress_text(str(context["case"])))
+            parts.append(
+                f"{CTX_MARKER_CASE}\n" + self.compressor.compress_text(str(context["case"]))
+            )
         if context.get("include_dom") and context.get("dom"):
-            parts.append("DOM:\n" + self.compressor.budget.truncate_to_cap(str(context["dom"])))
+            parts.append(
+                f"{CTX_MARKER_DOM}\n"
+                + self.compressor.budget.truncate_to_cap(str(context["dom"]))
+            )
         if context.get("include_last_error") and context.get("last_error"):
-            parts.append("LAST_ERROR:\n" + str(context["last_error"])[:1000])
+            parts.append(f"{CTX_MARKER_LAST_ERROR}\n" + str(context["last_error"])[:1000])
         if context.get("srs"):
             parts.append(
                 f"{CTX_MARKER_SRS}\n"

@@ -78,6 +78,12 @@ CTX_MARKER_SRS = "SRS:"
 CTX_MARKER_ATTACHMENTS = "ATTACHMENTS:"
 CTX_MARKER_SKILLS = "SKILLS:"
 CTX_MARKER_ACTIVE_SKILL = "ACTIVE_SKILL"
+CTX_MARKER_DOM = "DOM:"
+CTX_MARKER_CASE = "CASE:"
+CTX_MARKER_LAST_ERROR = "LAST_ERROR:"
+COPILOT_RESULT_LINE_MAX = 160
+COPILOT_FINAL_REPORT_CLOSING_MAX = 120
+COPILOT_FINAL_REPORT_NOTE_MAX = 100
 SPEC_OUTLINE_COVER_RULE = (
     "Cover main flows, alternate/exception flows, validations, and notifications "
     "found in the SRS — emit as many scenarios as the source warrants "

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 
+from ai_qa_test_studio.agent.result_snippet import (
+    VERDICT_RE,
+    coverage_headline,
+)
 from ai_qa_test_studio.constants import (
     CHAT_ROLE_LABELS,
     COPILOT_CHAT_REPLY_MAX_CHARS,
@@ -14,10 +18,6 @@ from ai_qa_test_studio.constants import (
 
 _HANDOFF_GOAL_RE = re.compile(r"(?im)^\s*Goal:\s*(.+?)\s*$")
 _HANDOFF_BODY_RE = re.compile(r"(?is)^.*?---\s*(.*)\s*$")
-_COVERAGE_LINE_RE = re.compile(
-    r"(?im)^\s*(Coverage(?:\s+Pass)?(?:\s+xong)?[^\n]*)",
-)
-_VERDICT_RE = re.compile(r"(?i)\b(APPROVE|REVISE)\b")
 _BULLET_RE = re.compile(r"(?m)^\s*[-*•]\s+(.+)$")
 _PROTOCOL_LINE_RE = re.compile(
     r"(?i)^(From|To|Goal|Acceptance|\[HANDOFF\])\b",
@@ -71,15 +71,8 @@ def _collect_result_lines(text: str, *, limit: int = 4) -> list[str]:
     return lines
 
 
-def _coverage_headline(text: str) -> str | None:
-    match = _COVERAGE_LINE_RE.search(text or "")
-    if not match:
-        return None
-    return " ".join(match.group(1).split())
-
-
 def _verdict_summary(text: str, max_chars: int) -> str | None:
-    verdict_match = _VERDICT_RE.search(text or "")
+    verdict_match = VERDICT_RE.search(text or "")
     if not verdict_match:
         return None
     verdict = verdict_match.group(1).upper()
@@ -109,7 +102,7 @@ def _result_core(text: str, max_chars: int) -> str:
     if not raw or raw == "(empty)":
         return ""
 
-    coverage = _coverage_headline(raw)
+    coverage = coverage_headline(raw)
     if coverage:
         return _clip(coverage, max_chars)
 
@@ -160,7 +153,7 @@ def _handoff_bubble(
     # agent result (coverage / verdict). Plain task briefs stay a short cue.
     if from_role == ROLE_COORDINATOR and to_role and to_role != ROLE_COORDINATOR:
         if result and (
-            _coverage_headline(body) is not None or _VERDICT_RE.search(body) is not None
+            coverage_headline(body) is not None or VERDICT_RE.search(body) is not None
         ):
             return _clip(f"→ {to}: {result}", max_chars)
         return _clip(f"→ Giao {to}", max_chars)
