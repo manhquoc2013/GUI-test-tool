@@ -48,11 +48,11 @@ def surface_border_css(*, dark: bool | None = None) -> str:
 
 
 def unbound_banner_bg_css(*, dark: bool | None = None) -> str:
-    return "rgba(245, 158, 11, {:.2f})".format(THEME_UNBOUND_BG_ALPHA)
+    return f"rgba(245, 158, 11, {THEME_UNBOUND_BG_ALPHA:.2f})"
 
 
 def unbound_banner_border_css(*, dark: bool | None = None) -> str:
-    return "rgba(245, 158, 11, {:.2f})".format(THEME_UNBOUND_BORDER_ALPHA)
+    return f"rgba(245, 158, 11, {THEME_UNBOUND_BORDER_ALPHA:.2f})"
 
 
 def action_badge_bg_css(fg_hex: str) -> str:
