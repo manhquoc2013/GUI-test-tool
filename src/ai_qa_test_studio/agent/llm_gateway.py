@@ -73,7 +73,9 @@ class UnifiedLLMGateway:
         messages: list[ChatMessage],
         max_tokens: int = COPILOT_CHAT_MAX_TOKENS,
         cancel: asyncio.Event | None = None,
+        **provider_kwargs: Any,
     ) -> AsyncIterator[str]:
+        """Stream chat. ``provider_kwargs`` maps ThinkingLevel (e.g. reasoning_effort)."""
         self.last_finish_reason = None
         if cancel is not None and cancel.is_set():
             return
@@ -84,10 +86,20 @@ class UnifiedLLMGateway:
                 self.last_finish_reason = LLM_FINISH_REASON_STOP
             return
         if self.provider == LLM_PROVIDER_GEMINI:
-            async for chunk in self._stream_gemini(messages, max_tokens=max_tokens, cancel=cancel):
+            async for chunk in self._stream_gemini(
+                messages,
+                max_tokens=max_tokens,
+                cancel=cancel,
+                **provider_kwargs,
+            ):
                 yield chunk
             return
-        async for chunk in self._stream_openai(messages, max_tokens=max_tokens, cancel=cancel):
+        async for chunk in self._stream_openai(
+            messages,
+            max_tokens=max_tokens,
+            cancel=cancel,
+            **provider_kwargs,
+        ):
             yield chunk
 
     async def _stream_offline(
@@ -157,6 +169,7 @@ class UnifiedLLMGateway:
         messages: list[ChatMessage],
         max_tokens: int,
         cancel: asyncio.Event | None,
+        **provider_kwargs: Any,
     ) -> AsyncIterator[str]:
         try:
             from openai import AsyncOpenAI
@@ -168,13 +181,18 @@ class UnifiedLLMGateway:
             )
         client = self._openai_client
         payload = [{"role": m.role, "content": m.content} for m in messages]
-        stream = await client.chat.completions.create(
-            model=self.model,
-            messages=payload,  # type: ignore[arg-type]
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        async for chunk in stream:  # type: ignore[union-attr]
+        create_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": payload,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        # ThinkingLevel.OFF → empty; otherwise reasoning_effort / etc.
+        for key, value in provider_kwargs.items():
+            if value is not None:
+                create_kwargs[key] = value
+        stream = await client.chat.completions.create(**create_kwargs)
+        async for chunk in stream:
             if cancel is not None and cancel.is_set():
                 close = getattr(stream, "close", None)
                 if callable(close):
@@ -198,6 +216,7 @@ class UnifiedLLMGateway:
         messages: list[ChatMessage],
         max_tokens: int,
         cancel: asyncio.Event | None,
+        **provider_kwargs: Any,
     ) -> AsyncIterator[str]:
         try:
             from google import genai
@@ -208,11 +227,18 @@ class UnifiedLLMGateway:
         client = self._gemini_client
         sys_prompt = next((m.content for m in messages if m.role == "system"), "")
         contents = "\n\n".join(f"{m.role.upper()}: {m.content}" for m in messages if m.role != "system")
+        config_dict: dict[str, Any] = {
+            "system_instruction": sys_prompt,
+            "max_output_tokens": max_tokens,
+        }
+        budget = provider_kwargs.get("thinking_budget")
+        if budget is not None:
+            config_dict["thinking_budget"] = budget
         try:
             response = await client.aio.models.generate_content_stream(
                 model=self.model,
                 contents=contents,
-                config={"system_instruction": sys_prompt, "max_output_tokens": max_tokens},
+                config=config_dict,  # type: ignore[arg-type]
             )
             async for chunk in response:
                 if cancel is not None and cancel.is_set():

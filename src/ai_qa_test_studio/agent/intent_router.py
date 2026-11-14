@@ -13,8 +13,11 @@ from typing import Any
 from ai_qa_test_studio.constants import (
     APPLY_PROMPT_RE,
     INTENT_SLASH_MAP,
+    MICRO_ROUTER_MAX_TOKENS,
     MICRO_ROUTER_MIN_CONFIDENCE,
+    MICRO_ROUTER_SYSTEM_PROMPT,
     MICRO_ROUTER_TIMEOUT_S,
+    MICRO_ROUTER_USER_TEMPLATE,
     THINKING_BUDGET_HIGH,
     THINKING_BUDGET_LOW,
     THINKING_BUDGET_MEDIUM,
@@ -25,6 +28,54 @@ from ai_qa_test_studio.core.enums import DeliveryMode, IntentType, ThinkingLevel
 logger = logging.getLogger(__name__)
 
 MicroRouterFn = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+MicroStreamFn = Callable[..., Any]
+
+
+def make_llm_micro_router(
+    stream_chat: MicroStreamFn,
+    *,
+    provider: str = "openai",
+) -> MicroRouterFn:
+    """Tier-2 micro-router: short JSON classify with ThinkingLevel.OFF (0 reasoning)."""
+
+    off = ThinkingConfig(level=ThinkingLevel.OFF, budget_tokens=THINKING_BUDGET_OFF)
+    provider_kwargs = off.to_provider_kwargs(provider)
+
+    async def _micro(prompt: str, context: dict[str, Any]) -> dict[str, Any]:
+        from ai_qa_test_studio.agent.llm_gateway import ChatMessage
+
+        keys = ",".join(sorted(str(k) for k in context.keys())[:12])
+        user = MICRO_ROUTER_USER_TEMPLATE.format(prompt=prompt, context_keys=keys or "(none)")
+        messages = [
+            ChatMessage(role="system", content=MICRO_ROUTER_SYSTEM_PROMPT),
+            ChatMessage(role="user", content=user),
+        ]
+        chunks: list[str] = []
+        async for piece in stream_chat(
+            messages,
+            max_tokens=MICRO_ROUTER_MAX_TOKENS,
+            cancel=None,
+            **provider_kwargs,
+        ):
+            chunks.append(str(piece))
+        raw = "".join(chunks).strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.lower().startswith("json"):
+                raw = raw[4:].lstrip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start < 0 or end <= start:
+                raise
+            parsed = json.loads(raw[start : end + 1])
+        if not isinstance(parsed, dict):
+            raise ValueError("micro_router_non_object")
+        return parsed
+
+    return _micro
 
 _APPLY_RE = re.compile(APPLY_PROMPT_RE)
 _KEYWORD_RULES: tuple[tuple[re.Pattern[str], IntentType], ...] = (
@@ -135,6 +186,14 @@ class HybridIntentRouter:
         self.policy = policy or ThinkingPolicy()
         self.timeout_s = timeout_s
         self.min_confidence = min_confidence
+
+    def bind_micro(self, micro_router: MicroRouterFn) -> None:
+        """Attach Tier-2 LLM micro-router (ThinkingLevel.OFF) after gateway is ready."""
+        self._micro = micro_router
+
+    @property
+    def has_micro(self) -> bool:
+        return self._micro is not None
 
     def route_fast(
         self,

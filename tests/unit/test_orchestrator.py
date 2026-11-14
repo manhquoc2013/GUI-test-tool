@@ -428,6 +428,7 @@ async def test_critic_clarify_appends_to_user_text() -> None:
             messages: list[ChatMessage],
             max_tokens: int = 256,
             cancel: asyncio.Event | None = None,
+            **_kwargs: object,
         ):
             system = next((m.content for m in messages if m.role == "system"), "")
             user = next((m.content for m in reversed(messages) if m.role == "user"), "")
@@ -564,6 +565,7 @@ async def test_clear_compose_request_does_not_emit_clarify() -> None:
             messages: list[ChatMessage],
             max_tokens: int = 256,
             cancel: asyncio.Event | None = None,
+            **_kwargs: object,
         ):
             system = next((m.content for m in messages if m.role == "system"), "").lower()
             if "planner" in system:
@@ -613,6 +615,7 @@ async def test_composer_role_end_keeps_full_text() -> None:
             messages: list[ChatMessage],
             max_tokens: int = 256,
             cancel: asyncio.Event | None = None,
+            **_kwargs: object,
         ):
             system = next((m.content for m in messages if m.role == "system"), "")
             if "Composer" in system or "composer" in system.lower():

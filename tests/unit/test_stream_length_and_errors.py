@@ -36,8 +36,9 @@ class _LengthGateway(UnifiedLLMGateway):
         messages: list[ChatMessage],
         max_tokens: int = 64,
         cancel: asyncio.Event | None = None,
+        **_kwargs: object,
     ) -> AsyncIterator[str]:
-        del messages, max_tokens, cancel
+        del messages, max_tokens, cancel, _kwargs
         self.last_finish_reason = None
         yield "Kịch bản đăng nhập bị cắt giữa "
         self.last_finish_reason = LLM_FINISH_REASON_LENGTH
@@ -52,8 +53,9 @@ class _TimeoutGateway(UnifiedLLMGateway):
         messages: list[ChatMessage],
         max_tokens: int = 64,
         cancel: asyncio.Event | None = None,
+        **_kwargs: object,
     ) -> AsyncIterator[str]:
-        del messages, max_tokens, cancel
+        del messages, max_tokens, cancel, _kwargs
         self.last_finish_reason = None
         yield "Bắt đầu…"
         raise TimeoutError("LLM stream timed out")

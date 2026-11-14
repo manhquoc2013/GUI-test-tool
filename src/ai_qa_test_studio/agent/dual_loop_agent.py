@@ -46,6 +46,33 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip())
 
 
+def _snapshot_shared_element(element: SharedElement) -> dict[str, Any]:
+    """Capture SharedElement fields so mid-band heal can restore before YAML save."""
+    fp = element.fingerprint
+    return {
+        "css": element.css,
+        "primary_playwright": element.primary_playwright,
+        "test_id": element.test_id,
+        "role": element.role,
+        "name": element.name,
+        "xpath": element.xpath,
+        "vision_prompt": element.vision_prompt,
+        "fingerprint": fp.model_copy(deep=True) if fp is not None else None,
+    }
+
+
+def _restore_shared_element(element: SharedElement, snap: dict[str, Any]) -> None:
+    """Revert runtime-only heal mutations so mid-band scores never overwrite YAML."""
+    element.css = snap["css"]
+    element.primary_playwright = snap["primary_playwright"]
+    element.test_id = snap["test_id"]
+    element.role = snap["role"]
+    element.name = snap["name"]
+    element.xpath = snap["xpath"]
+    element.vision_prompt = snap["vision_prompt"]
+    element.fingerprint = snap["fingerprint"]
+
+
 class DualLoopAgent:
     def __init__(
         self,
@@ -169,6 +196,7 @@ class DualLoopAgent:
                     message = "cancelled"
                     step_status = StepStatus.SKIPPED
                 elif element is not None:
+                    pre_heal = _snapshot_shared_element(element)
                     audit = await self.healer.heal_step(
                         self.page, step, element, vision_locate=locate
                     )
@@ -177,6 +205,8 @@ class DualLoopAgent:
                         status = CASE_STATUS_CANCELLED  # type: ignore[assignment]
                         message = "cancelled"
                         step_status = StepStatus.SKIPPED
+                        if audit is not None and not audit.persisted:
+                            _restore_shared_element(element, pre_heal)
                     elif audit is not None and should_run_heal(audit.confidence_score or 0.0):
                         audits.append(audit)
                         audit_entry = audit
@@ -188,7 +218,11 @@ class DualLoopAgent:
                             message = f"healed:{audit.reason}"
                             if not audit.persisted:
                                 message = f"{message};persist_skipped"
+                                # Runtime-only: restore SharedElement so Run save ≠ YAML overwrite
+                                _restore_shared_element(element, pre_heal)
                         except Exception as exc2:  # noqa: BLE001
+                            if not audit.persisted:
+                                _restore_shared_element(element, pre_heal)
                             message = masker.mask_text(
                                 f"{message}; retest_failed:{exc2}"
                             )
@@ -201,6 +235,8 @@ class DualLoopAgent:
                             audits.append(audit)
                             audit_entry = audit
                             confidence = audit.confidence_score
+                            if not audit.persisted:
+                                _restore_shared_element(element, pre_heal)
                         case_status = CASE_STATUS_FAIL
                         status = "FAIL"
                         step_status = StepStatus.FAILED

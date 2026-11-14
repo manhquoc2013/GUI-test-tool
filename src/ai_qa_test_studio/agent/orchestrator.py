@@ -232,7 +232,49 @@ def _case_from_context(context: dict[str, Any]) -> TestCase | None:
             return TestCase.model_validate(raw)
         except Exception:  # noqa: BLE001
             return None
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return TestCase.model_validate_json(raw)
+        except Exception:  # noqa: BLE001
+            return None
     return None
+
+
+def _fingerprints_overlay_for_case(
+    case: TestCase, context: dict[str, Any]
+) -> str:
+    """Serialize known ElementFingerprints for partial/unbound script LLM path."""
+    project = context.get("project")
+    elements: dict[str, Any] = {}
+    shared = getattr(project, "shared_elements", None) if project is not None else None
+    if isinstance(shared, list):
+        for el in shared:
+            eid = getattr(el, "element_id", None)
+            if eid:
+                elements[str(eid)] = el
+    lines: list[str] = []
+    for step in case.steps:
+        if not step.enabled or not step.element_ref:
+            continue
+        el = elements.get(step.element_ref)
+        fp = getattr(el, "fingerprint", None) if el is not None else None
+        if fp is None and el is not None:
+            lines.append(
+                f"- step {step.step_no} ref={step.element_ref} "
+                f"css={getattr(el, 'css', None)!r} test_id={getattr(el, 'test_id', None)!r}"
+            )
+            continue
+        if fp is None:
+            continue
+        dump = fp.model_dump() if hasattr(fp, "model_dump") else {}
+        lines.append(
+            f"- step {step.step_no} ref={step.element_ref} fingerprint={dump}"
+        )
+    if not lines:
+        return ""
+    return "Known ElementFingerprints (partial/unbound — prefer these over inventing selectors):\n" + "\n".join(
+        lines
+    )
 
 
 def _legacy_intent_from_hybrid(intent: IntentType) -> str:
@@ -284,6 +326,20 @@ class CopilotOrchestrator:
     swarm_auditor: SwarmAuditor = field(default_factory=SwarmAuditor)
     last_routing: RoutingDecision | None = field(default=None, repr=False)
     last_skill_matches: list[SkillMatch] = field(default_factory=list, repr=False)
+    _active_thinking_kwargs: dict[str, Any] = field(default_factory=dict, repr=False, init=False)
+
+    def _ensure_micro_router(self) -> None:
+        """Wire Tier-2 micro-router once — ThinkingLevel.OFF via gateway stream."""
+        if self.intent_router.has_micro:
+            return
+        from ai_qa_test_studio.agent.intent_router import make_llm_micro_router
+
+        self.intent_router.bind_micro(
+            make_llm_micro_router(
+                self.gateway.stream_chat,
+                provider=str(getattr(self.gateway, "provider", "openai") or "openai"),
+            )
+        )
 
     async def prepare_hybrid_turn(
         self,
@@ -293,6 +349,7 @@ class CopilotOrchestrator:
         apply_requested: bool = False,
     ) -> tuple[str, RoutingDecision, list[SkillMatch]]:
         """route → (optional case_binding) → match skills. Router never calls matcher."""
+        self._ensure_micro_router()
         decision = await self.intent_router.route(
             user_text,
             ui_intent=_ui_intent_from_context(context),
@@ -320,6 +377,15 @@ class CopilotOrchestrator:
                     source=decision.source,
                     prompt_body=prompt_body,
                 )
+                # Deterministic exporter only when fully bound; else LLM + fingerprints
+                if (
+                    binding.total_bindable_steps > 0
+                    and not binding.is_fully_bound
+                ):
+                    overlay = _fingerprints_overlay_for_case(case, context)
+                    if overlay:
+                        prompt_body = f"{prompt_body}\n\n{overlay}"
+                        context["script_fingerprints_overlay"] = overlay
         workspace = [
             str(context.get(CONTEXT_KEY_PROJECT_ROOT) or ""),
             str(context.get(CONTEXT_KEY_SKILL_NAME) or ""),
@@ -508,16 +574,26 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         hist = list(history or [])
         apply_requested = bool(context.get("apply_requested"))
+        self._ensure_micro_router()
         prompt_body, hybrid, _skills = await self.prepare_hybrid_turn(
             user_text, context, apply_requested=apply_requested
         )
         max_tokens = self._max_tokens_for_intent(hybrid.intent, max_tokens)
-        # Compact history with pin rules before crew exchange
+        # Compact history with pin rules before crew exchange; mask outbound secrets
         if hist:
-            raw_hist = [{"role": m.role, "content": m.content} for m in hist]
+            masker = get_secret_masker()
+            raw_hist = [
+                {"role": m.role, "content": masker.mask_text(m.content)} for m in hist
+            ]
             pruned = self.context_compactor.drop_intermediate_crew_drafts(raw_hist)
             compacted = self.context_compactor.compact_messages(pruned)
-            hist = [ChatMessage(role=m["role"], content=str(m["content"])) for m in compacted]
+            hist = [
+                ChatMessage(
+                    role=m["role"],
+                    content=masker.mask_snapshot(str(m["content"])),
+                )
+                for m in compacted
+            ]
         escalate_reason = _escalate_reason(context)
         thinking = hybrid.thinking
         if escalate_reason:
@@ -530,6 +606,9 @@ class CopilotOrchestrator:
                 source=hybrid.source,
                 prompt_body=hybrid.prompt_body,
             )
+        self._active_thinking_kwargs = thinking.to_provider_kwargs(
+            str(getattr(self.gateway, "provider", "openai") or "openai")
+        )
         # CHAT_FAST / SWARM_AUDIT: Evidence RO — skip Playwright/MCP warm
         if hybrid.intent in {IntentType.CHAT_FAST, IntentType.SWARM_AUDIT}:
             mode = mode or COPILOT_MODE_COMPOSE
@@ -1327,7 +1406,12 @@ class CopilotOrchestrator:
     ) -> str:
         sink: list[str] = []
         try:
-            async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+            async for piece in gw.stream_chat(
+                messages,
+                max_tokens=max_tokens,
+                cancel=stop,
+                **self._active_thinking_kwargs,
+            ):
                 sink.append(piece)
                 if stop.is_set():
                     break
@@ -1513,7 +1597,12 @@ class CopilotOrchestrator:
             ),
         ]
         buf: list[str] = []
-        async for chunk in gw.stream_chat(messages, max_tokens=min(max_tokens, 256), cancel=stop):
+        async for chunk in gw.stream_chat(
+            messages,
+            max_tokens=min(max_tokens, 256),
+            cancel=stop,
+            **self._active_thinking_kwargs,
+        ):
             buf.append(chunk)
         raw = "".join(buf)
         parsed = self._parse_json_obj(raw)
@@ -1644,7 +1733,12 @@ class CopilotOrchestrator:
                 text=COPILOT_STATUS_WAITING_LLM,
             )
         try:
-            async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+            async for piece in gw.stream_chat(
+                messages,
+                max_tokens=max_tokens,
+                cancel=stop,
+                **self._active_thinking_kwargs,
+            ):
                 sink.append(piece)
                 yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
         except Exception as exc:  # noqa: BLE001

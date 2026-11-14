@@ -1095,3 +1095,12 @@ SECRET_MASK_KEY_HINTS = (
 SUPERVISOR_KEY_COPILOT_PREFIX = "copilot:"
 MICRO_ROUTER_TIMEOUT_S = 3.5
 MICRO_ROUTER_MIN_CONFIDENCE = 0.6
+MICRO_ROUTER_MAX_TOKENS = 128
+MICRO_ROUTER_SYSTEM_PROMPT = (
+    "Classify the user message into exactly one intent. "
+    "Reply with JSON only (no markdown): "
+    '{"intent":"<chat_fast|research|test_scenario|test_case_gen|test_script_gen|'
+    'exec_and_bind|swarm_audit>","confidence":0.0,"delivery_mode":"draft"|"apply"}. '
+    "Use ThinkingLevel OFF — no chain-of-thought."
+)
+MICRO_ROUTER_USER_TEMPLATE = "User message:\n{prompt}\n\nContext keys: {context_keys}"

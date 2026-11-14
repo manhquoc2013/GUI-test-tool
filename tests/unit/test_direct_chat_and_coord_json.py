@@ -137,6 +137,7 @@ async def test_explain_keeps_coordinator_answer_without_redispatch() -> None:
             messages: list[ChatMessage],
             max_tokens: int = 256,
             cancel=None,
+            **_kwargs: object,
         ):
             system = next((m.content for m in messages if m.role == "system"), "").lower()
             if "you are the coordinator" in system:
