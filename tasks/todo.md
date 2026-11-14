@@ -1,22 +1,22 @@
 # Todo — Review Remediation (2026-11-14)
 
-- [ ] T1: DualLoop + Session cooperative cancel; Stop settles before engine.stop
-- [ ] T2: Healer continues DOM/vision when locator still matches after action fail
-- [ ] T3: Auto-binder heuristic returns None (no first-node default)
-- [ ] T4: Orchestrator clarify races stop Event; UI rejects dialog on Stop
-- [ ] T5: Critic clarify merges into user_text
-- [ ] T6: Copilot history keeps composer/full artifact content for next turn
-- [ ] T7: Gemini stream close on cancel; ambiguity markers tightened; MCP role ACL on invoke
-- [ ] T8: Dual-loop expected_final_result normalized verify
-- [ ] T9: Replace QMessageBox/QInputDialog in @asyncSlot with InfoBar / non-blocking prompt
-- [ ] T10: closeEvent stops browser session
-- [ ] T11: Esc stops Copilot when chat busy; block Copilot DOM while Run busy
-- [ ] T12: Push drawer when width ≥ 960; overlay when < 960; update ADR tests
-- [ ] T13: Signal arity: lambda wrappers for clicked→Signal (project gotcha)
+- [x] T1: DualLoop + Session cooperative cancel; Stop settles before engine.stop
+- [x] T2: Healer continues DOM/vision when locator still matches after action fail
+- [x] T3: Auto-binder heuristic returns None (no first-node default)
+- [x] T4: Orchestrator clarify races stop Event; UI rejects dialog on Stop
+- [x] T5: Critic clarify merges into user_text
+- [x] T6: Copilot history keeps composer/full artifact content for next turn
+- [x] T7: Gemini stream close on cancel; ambiguity markers tightened; MCP role ACL on invoke
+- [x] T8: Dual-loop expected_final_result normalized verify
+- [x] T9: Replace QMessageBox/QInputDialog in @asyncSlot with InfoBar / non-blocking prompt
+- [x] T10: closeEvent stops browser session
+- [x] T11: Esc stops Copilot when chat busy; block Copilot DOM while Run busy
+- [x] T12: Push drawer when width ≥ 960; overlay when < 960; update ADR tests
+- [x] T13: Signal arity: lambda wrappers for clicked→Signal (project gotcha)
 - [x] T14: OS keyring secret store; settings.json never stores raw API keys
-- [ ] T15: Orchestrator yields chunk events during stream_chat
-- [ ] T16: Reuse AsyncOpenAI client per gateway instance
-- [ ] T17: Clear/rotate crew-memory per Copilot turn
-- [ ] T18: Split MainWindow → layout/run/copilot/export controllers
-- [ ] T19: Sync SPEC/ADR 0003/ARCHITECTURE/.ai-context for push layout + secrets
+- [x] T15: Orchestrator yields chunk events during stream_chat
+- [x] T16: Reuse AsyncOpenAI client per gateway instance
+- [x] T17: Clear/rotate crew-memory per Copilot turn
+- [x] T18: Split MainWindow → layout/run/copilot/export controllers
+- [x] T19: Sync SPEC/ADR 0003/ARCHITECTURE/.ai-context for push layout + secrets
 - [ ] T20: Full gates + learnings.md + multi-axis verify

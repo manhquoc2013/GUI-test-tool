@@ -77,7 +77,8 @@ ai_qa_test_studio/
 ├── browser/                    # engine, DOM, inspector, screencast helpers
 ├── core/                       # models, storage, env_manager, chat_*
 ├── ui/
-│   ├── main_window.py          # shell + breakpoints + wiring
+│   ├── main_window.py          # thin shell + wiring
+│   ├── controllers/            # layout / run / copilot / export
 │   ├── theme.py                # Airy QSS tokens
 │   └── widgets/
 │       ├── top_toolbar.py
@@ -98,13 +99,14 @@ ai_qa_test_studio/
 |---------|----------|
 | Default | Sidebar + Editor only; drawer **closed** |
 | Drawer | Pivot **AI Copilot** \| **Trình duyệt**; width ~340–420 by breakpoint |
-| Overlay | Window width `< 960` → drawer overlays canvas |
+| Push / Overlay | `≥960` push (workspace right margin); `<960` drawer overlays canvas |
 | Floor | `setMinimumSize(800, 600)`; default `1200×720` |
 | Top Bar | Hamburger, Tạo bằng AI, URL, Sync(N), single Primary Chạy/Dừng, Copilot toggle, `⋯` |
 | Chat | Context row + Chat\|Wizard; empty **2×2** starters; Copy/Undo on each bubble |
 | Busy | Thin `IndeterminateProgressBar` under Top Bar during Sync/Run |
+| Controllers | `ui/controllers/{layout,run,copilot,export}_controller.py` — MainWindow thin shell |
 
-`MainWindow.apply_layout_breakpoint(width)` + `_sync_drawer_geometry()` own responsive layout.
+`LayoutController.apply_layout_breakpoint` + `_sync_drawer_geometry` (via MainWindow) own responsive layout.
 
 ---
 
@@ -124,6 +126,7 @@ Sessions persist at `{data_root}/copilot/sessions.json`.
 
 - Project: `{data_root}/v4/project.v4.json` (Pydantic `Project`).  
 - Config: `{data_root}/config/` — `AppSettings` with `ai.connections[]`, models, routing, MCP flags, Copilot limits.  
+- API keys: OS keyring via `core/secret_store.py`; `settings.json` stores `keyring:<slot>` refs only.  
 - Flat legacy `aiConfig` still migrates on load.
 
 ---

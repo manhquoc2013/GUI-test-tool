@@ -13,7 +13,7 @@ Phase 4c used a fixed 3-column layout (Explorer | Editor | Browser+Copilot). The
 
 1. **Shell**: `QMainWindow` + qasync remains. Horizontal workspace = Sidebar + Editor; `RightDrawer` hosts Pivot `AI Copilot` | `Trình duyệt`.
 2. **Drawer closed by default**; open via Copilot toggle / `Tạo bằng AI` / Run (Browser tab) / shortcuts.
-3. **Breakpoints (window width)**: `≥1280` sidebar 260 / drawer ~400; `960–1279` sidebar 220 / drawer ~360; `<960` sidebar auto-collapse + drawer overlay; floor `800×600`; default open size `1200×720`.
+3. **Breakpoints (window width)**: `≥1280` sidebar 260 / drawer ~400; `960–1279` sidebar 220 / drawer ~360; `<960` sidebar auto-collapse + drawer **overlay**. When `width ≥ 960` and the drawer is open, the shell **pushes** the canvas (workspace right margin) so content is not covered; only `<960` uses geometry overlay. Floor `800×600`; default open size `1200×720`.
 4. **Copilot chat chrome**: one context row + thin Chat|Wizard pivot + empty **2×2 starters**; composer = input + Apply + Send; **Copy/Undo per message** (not chrome row). Agent Feed lives under Browser tab (≤5 lines).
 5. **Tokens**: `bg.canvas/surface/elevated` + subtle borders in `theme.py` / `constants.py`.
 

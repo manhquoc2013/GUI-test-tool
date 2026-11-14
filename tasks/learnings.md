@@ -1,15 +1,21 @@
-# Learnings — Phase 5.1 / 5.2
+# Learnings — Review Remediation (2026-11-14)
 
-## Crew (5.1)
-- Hybrid UI: keep full artifacts in crew-memory refs; chat only ≤160 char summaries.
-- Clarify must use `show()` + `asyncio.Future`, never blocking exec inside `@asyncSlot`.
-- Bundled MCP in-process avoids npx/install friction; keep external Playwright optional.
-- ModelRouter `(task, complexity)→tier` lets one turn use different models per role.
-- Migrate flat `aiConfig` → `connections[]` for backward-compatible settings.json.
+## Decisions
+- Cooperative cancel beats hard `engine.stop()` mid-run (Hermes/Orca settle pattern).
+- Heal must not treat “locator resolves” as healthy after action failure.
+- Heuristic bind must fail closed (UNBOUND), never first-node default.
+- API keys belong in OS keyring; JSON refs only (`keyring:<slot>`).
+- ADR 0003 restored: push ≥960, overlay <960 (not always-overlay).
+- MainWindow logic lives in controllers; window keeps test-facing public attrs.
 
-## Airy UI (5.2)
-- Drawer as sibling with manual geometry (push vs overlay) beats a 3-way splitter for “closed = 0 width”.
-- Breakpoint **959 is width**, not height; min height 600 is independent.
-- Qt `isVisible()` is false when ancestors are hidden — UI tests should use `isHidden()` for own flag or open the drawer first.
-- Per-message Copy/Undo keeps chrome to one composer row; undo-from-id shares session truncate semantics with undo-last.
-- Agent Feed belongs under Browser tab so Copilot chrome stays ≤2 rows + starters.
+## Patterns established
+- `SessionController._active_run` Future + `should_cancel` callback into DualLoop.
+- Clarify×Stop via `asyncio.wait` + `ClarifyDialog.abort_stopped()`.
+- `LayoutController` push = workspace `setContentsMargins(0,0,drawer_w,0)`.
+- Gateway caches `AsyncOpenAI` per instance; resolve keys at ModelRouter boundary.
+
+## Gotchas
+- `uv.lock` is gitignored — still run `uv add` so local envs pick up `keyring`.
+- Async generators cannot `return value` — use out-lists for role results.
+- Keep `_require_case` / `DEFAULT_TARGET_URL` strings discoverable for inspect-based UI tests.
+- CI without keyring backend: tests monkeypatch `keyring.get/set_password`.
