@@ -202,17 +202,23 @@ def test_editor_title_elides_long_names(qapp: QApplication, tmp_path: Path) -> N
 
 
 def test_data_drawer_toggled_emits_and_clamps_height(qapp: QApplication) -> None:
+    from ai_qa_test_studio.ui.motion import bind_motion_enabled
+
+    bind_motion_enabled(lambda: False)
     drawer = TestDataDrawer()
     seen: list[bool] = []
     drawer.toggled.connect(lambda expanded: seen.append(expanded))
     drawer.toggle_collapse()
+    qapp.processEvents()
     assert seen == [False]
     assert drawer.collapsed is True
     assert drawer.minimumHeight() == UI_DRAWER_COLLAPSED_HEIGHT
     assert drawer.maximumHeight() == UI_DRAWER_COLLAPSED_HEIGHT
     drawer.toggle_collapse()
+    qapp.processEvents()
     assert seen == [False, True]
     assert drawer.collapsed is False
+    bind_motion_enabled(lambda: True)
 
 
 def test_chat_undo_from_message(qapp: QApplication, tmp_path: Path) -> None:

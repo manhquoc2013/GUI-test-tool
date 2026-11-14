@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPaintEvent
+from PySide6.QtGui import QColor, QPainter, QPaintEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -20,9 +20,10 @@ from qfluentwidgets import TransparentToolButton
 from ai_qa_test_studio.constants import (
     CHAT_BODY_FONT_PX,
     CHAT_BUBBLE_GAP,
-    CHAT_BUBBLE_MAX_WIDTH,
+    CHAT_BUBBLE_MIN_WIDTH,
     CHAT_BUBBLE_PADDING_H,
     CHAT_BUBBLE_PADDING_V,
+    CHAT_BUBBLE_PANEL_RATIO,
     CHAT_BUBBLE_RADIUS,
     CHAT_BUBBLE_ROW_MARGIN,
     CHAT_ROLE_BADGE_FONT_PX,
@@ -132,6 +133,7 @@ class ChatMessageRow(QWidget):
         self._text = text
         self._is_user = role == "user"
         self._is_system = role == ROLE_SYSTEM
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(
@@ -145,7 +147,7 @@ class ChatMessageRow(QWidget):
         self.bubble = QFrame(self)
         self.bubble.setObjectName("ChatBubble")
         self.bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        self.bubble.setMaximumWidth(CHAT_BUBBLE_MAX_WIDTH)
+        self.bubble.setMinimumWidth(CHAT_BUBBLE_MIN_WIDTH)
 
         bubble_col = QVBoxLayout(self.bubble)
         bubble_col.setContentsMargins(
@@ -219,6 +221,23 @@ class ChatMessageRow(QWidget):
         self._apply_theme_style()
         self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
         self.set_body(text)
+        self.sync_bubble_width()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.sync_bubble_width()
+
+    def sync_bubble_width(self) -> None:
+        """Cap bubble width to the current panel/row width (content still shrink-wraps)."""
+        inner = self.width() - (CHAT_BUBBLE_ROW_MARGIN * 2)
+        if inner <= 0:
+            return
+        max_w = max(CHAT_BUBBLE_MIN_WIDTH, int(inner * CHAT_BUBBLE_PANEL_RATIO))
+        if self.bubble.maximumWidth() == max_w:
+            return
+        self.bubble.setMaximumWidth(max_w)
+        body_max = max(CHAT_BUBBLE_MIN_WIDTH // 2, max_w - (CHAT_BUBBLE_PADDING_H * 2))
+        self.body.setMaximumWidth(body_max)
 
     def _apply_theme_style(self) -> None:
         t = get_theme_tokens()

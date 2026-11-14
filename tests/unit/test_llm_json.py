@@ -37,8 +37,22 @@ def test_loads_prose_wrapped_array() -> None:
 def test_loads_rejects_garbage() -> None:
     assert loads_llm_json("not json at all") is None
     assert loads_llm_json("") is None
+    assert loads_llm_json("```json") is None
+
+
+def test_loads_unclosed_fence_array() -> None:
+    raw = '```json\n[{"code":"TS1","title":"A"}]\n'
+    data = loads_llm_json(raw)
+    assert isinstance(data, list)
+    assert data[0]["code"] == "TS1"
+
+
+def test_loads_incomplete_array_does_not_promote_first_object() -> None:
+    raw = '```json\n[{"code":"TS1","title":"A"}'
+    assert loads_llm_json(raw) is None
 
 
 def test_strip_fence_and_preview() -> None:
     assert strip_markdown_fence("```\n[1]\n```") == "[1]"
+    assert strip_markdown_fence("```json\n[1]") == "[1]"
     assert "…" in preview_llm_text("word " * 80, limit=40)

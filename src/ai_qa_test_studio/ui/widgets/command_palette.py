@@ -20,6 +20,7 @@ from qfluentwidgets import (
 )
 
 from ai_qa_test_studio.constants import UI_PALETTE_MAX_HEIGHT, UI_PALETTE_MIN_WIDTH
+from ai_qa_test_studio.ui.motion import animate_dialog_show
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,7 @@ class CommandPalette(MessageBoxBase):
         QShortcut(QKeySequence(Qt.Key.Key_Enter), self, self._activate_current)
         QShortcut(QKeySequence(Qt.Key.Key_Down), self, self._focus_list)
         self.search.setFocus()
+        animate_dialog_show(self)
 
     def chosen(self) -> PaletteCommand | None:
         return self._chosen

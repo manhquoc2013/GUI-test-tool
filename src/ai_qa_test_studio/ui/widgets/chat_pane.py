@@ -37,6 +37,7 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    CHAT_TRANSCRIPT_PAD,
     CHAT_TRANSCRIPT_SPACING,
     COPILOT_APPLY_TOOLTIP,
     COPILOT_ATTACH_BTN_LABEL,
@@ -77,6 +78,7 @@ from ai_qa_test_studio.constants import (
     ROLE_CREW,
     ROLE_SYSTEM,
     THEME_CARD_RADIUS,
+    UI_MOTION_CHAT_MS,
     VN_TC_FILE_FILTER,
     VN_TC_FILENAME_DEFAULT,
     WIZARD_DOC_FILE_FILTER,
@@ -88,6 +90,8 @@ from ai_qa_test_studio.core.doc_corpus import IngestResult, ingest_path
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
+from ai_qa_test_studio.ui.bubble_summary import summarize_for_bubble
+from ai_qa_test_studio.ui.motion import fade_in
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
@@ -129,6 +133,7 @@ class CopilotChatPane(QWidget):
         self._attach_compressor = ContextCompressor()
         self._project_root: Path | None = None
         self._ingest_tasks: dict[str, asyncio.Task[IngestResult]] = {}
+        self._ingest_results: dict[str, IngestResult] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -232,7 +237,12 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.transcript_host = QWidget()
         self.transcript_layout = QVBoxLayout(self.transcript_host)
-        self.transcript_layout.setContentsMargins(8, 8, 8, 8)
+        self.transcript_layout.setContentsMargins(
+            CHAT_TRANSCRIPT_PAD,
+            CHAT_TRANSCRIPT_PAD,
+            CHAT_TRANSCRIPT_PAD,
+            CHAT_TRANSCRIPT_PAD,
+        )
         self.transcript_layout.setSpacing(CHAT_TRANSCRIPT_SPACING)
         self.transcript_layout.addStretch(1)
         self.transcript_scroll.setWidget(self.transcript_host)
@@ -391,6 +401,11 @@ class CopilotChatPane(QWidget):
         # Keep chip labels visible; FlowLayout wraps. Invalidate so heightForWidth updates.
         self._context_flow.invalidate()
         self._pill_box.updateGeometry()
+        self._sync_bubble_widths()
+
+    def _sync_bubble_widths(self) -> None:
+        for row in self._rows:
+            row.sync_bubble_width()
 
     def _on_mode_pivot(self, key: str) -> None:
         if key == "wizard":
@@ -506,10 +521,12 @@ class CopilotChatPane(QWidget):
         self, from_role: str, to_role: str, text: str, *, summary: str = ""
     ) -> None:
         body = f"{from_role} → {to_role}: {text}"
-        display = (
-            f"{from_role} → {to_role}: {summary}" if summary else body
+        display = (summary or "").strip() or summarize_for_bubble(
+            text,
+            from_role=from_role,
+            to_role=to_role,
         )
-        msg = CopilotMessage(role=ROLE_CREW, content=body, summary=display if summary else "")
+        msg = CopilotMessage(role=ROLE_CREW, content=body, summary=display)
         self._session.messages.append(msg)
         self._append_row(msg.id, ROLE_CREW, display)
         self.session_changed.emit()
@@ -793,23 +810,33 @@ class CopilotChatPane(QWidget):
             item.total_chunks = result.total_chunks
             item.index_status = _ATTACH_STATUS_READY
             item.index_detail = f"{result.total_chunks} chunks"
+            self._ingest_results[str(path)] = result
             break
         self._rebuild_attach_chips()
 
     async def await_attachment_ingests(self, paths: list[str]) -> list[str]:
-        """Wait for pending corpus ingest; return doc_ids in path order."""
+        """Wait for pending corpus ingest; return doc_ids in path order.
+
+        Completed ingests stay in ``_ingest_results`` so a send after chips clear
+        still resolves doc_ids for Coverage Pass.
+        """
         doc_ids: list[str] = []
         for raw in paths:
             task = self._ingest_tasks.get(raw)
-            if task is None:
+            if task is not None:
+                try:
+                    result = await task
+                except Exception:  # noqa: BLE001
+                    self._ingest_tasks.pop(raw, None)
+                    continue
+                self._ingest_tasks.pop(raw, None)
+                self._ingest_results[raw] = result
+                if result.doc_id:
+                    doc_ids.append(result.doc_id)
                 continue
-            try:
-                result = await task
-            except Exception:  # noqa: BLE001
-                continue
-            if result.doc_id:
-                doc_ids.append(result.doc_id)
-            self._ingest_tasks.pop(raw, None)
+            cached = self._ingest_results.get(raw)
+            if cached is not None and cached.doc_id:
+                doc_ids.append(cached.doc_id)
         return doc_ids
 
     def _rebuild_attach_chips(self) -> None:
@@ -878,6 +905,7 @@ class CopilotChatPane(QWidget):
     def _remove_attachment(self, path: Path) -> None:
         key = str(path)
         task = self._ingest_tasks.pop(key, None)
+        self._ingest_results.pop(key, None)
         if task is not None and not task.done():
             task.cancel()
         self._attachments = [item for item in self._attachments if item.path != path]
@@ -897,15 +925,25 @@ class CopilotChatPane(QWidget):
     def _rebuild_from_session(self) -> None:
         self._clear_transcript()
         for msg in self._session.messages:
-            self._append_row(msg.id, msg.role, msg.bubble_text())
+            self._append_row(msg.id, msg.role, msg.bubble_text(), animate=False)
 
-    def _append_row(self, message_id: str, role: str, text: str) -> ChatMessageRow:
+    def _append_row(
+        self,
+        message_id: str,
+        role: str,
+        text: str,
+        *,
+        animate: bool = True,
+    ) -> ChatMessageRow:
         row = ChatMessageRow(message_id, role, text, self.transcript_host)
         row.copy_clicked.connect(self._on_copy_row)
         row.undo_clicked.connect(self._on_undo_row)
         stretch = self.transcript_layout.count() - 1
         self.transcript_layout.insertWidget(max(0, stretch), row)
         self._rows.append(row)
+        row.sync_bubble_width()
+        if animate:
+            fade_in(row, duration_ms=UI_MOTION_CHAT_MS)
         self._scroll_transcript()
         return row
 

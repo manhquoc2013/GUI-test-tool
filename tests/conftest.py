@@ -7,6 +7,8 @@ import os
 
 # Force pytest-qt onto PySide6 before it probes backends.
 os.environ.setdefault("QT_API", "pyside6")
+# Headless CI / no display: avoid plugin load requiring a real GPU/EGL stack.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import PySide6
 

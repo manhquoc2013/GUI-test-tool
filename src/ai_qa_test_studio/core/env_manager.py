@@ -311,6 +311,9 @@ class EnvManager:
                 payload.get("headlessDefault", payload.get("headless_default", False))
             ),
             theme=str(payload.get("theme") or THEME_PREF_AUTO),
+            reduce_motion=bool(
+                payload.get("reduceMotion", payload.get("reduce_motion", False))
+            ),
             ai=migrate_ai_config(ai_raw if isinstance(ai_raw, dict) else {}),
             active_environment=str(payload.get("active_environment") or "DEV"),
             copilot=CopilotRuntimeSettings(
@@ -337,6 +340,7 @@ class EnvManager:
             "browser": self._settings.browser,
             "headlessDefault": self._settings.headless_default,
             "theme": self._settings.theme,
+            "reduceMotion": self._settings.reduce_motion,
             "active_environment": self._settings.active_environment,
             "aiConfig": ai_settings_to_payload(self._settings.ai),
             "copilot": {

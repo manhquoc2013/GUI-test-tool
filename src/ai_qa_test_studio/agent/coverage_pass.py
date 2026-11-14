@@ -16,6 +16,7 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_DOC_IDS,
     CONTEXT_KEY_PROJECT_ROOT,
     COPILOT_ARTIFACT_CTA_COMPOSE,
+    CTX_MARKER_SECTION,
     EVENT_AGENT_MESSAGE,
     EVENT_CHUNK,
     EVENT_STATUS_SUMMARY,
@@ -149,14 +150,12 @@ async def _emit_coverage_result(
             role=ROLE_COMPOSER,
             from_role=ROLE_COMPOSER,
             to_role=ROLE_COORDINATOR,
-            text=host._clip(
-                host._handoff(
-                    ROLE_COMPOSER,
-                    ROLE_COORDINATOR,
-                    goal="Báo cáo coverage",
-                    acceptance="Đủ mục đã soạn",
-                    body=summary,
-                )
+            text=host._handoff(
+                ROLE_COMPOSER,
+                ROLE_COORDINATOR,
+                goal="Báo cáo coverage",
+                acceptance="Đủ mục đã soạn",
+                body=summary,
             ),
         )
     board.record_report(ROLE_COMPOSER, summary)
@@ -256,7 +255,7 @@ async def run_coverage_pass(
                 ),
             )
             body = window.body
-            section_ctx = f"{board.ctx_block}\n\nSECTION:\n{body}"
+            section_ctx = f"{board.ctx_block}\n\n{CTX_MARKER_SECTION}\n{body}"
             handoff = host._handoff(
                 ROLE_COORDINATOR,
                 ROLE_COMPOSER,

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ai_qa_test_studio.agent.llm_json import loads_llm_json, preview_llm_text
-from ai_qa_test_studio.constants import LLM_JSON_ONLY_RULE
+from ai_qa_test_studio.constants import LLM_JSON_ONLY_RULE, SPEC_OUTLINE_COVER_RULE
 from ai_qa_test_studio.core.models import TestCase, TestScenario, TestStep
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
@@ -57,7 +57,7 @@ class SpecGenerator:
             f"{LLM_JSON_ONLY_RULE} "
             "Shape: a JSON array of scenarios, or {\"scenarios\":[...]}. "
             "Each item keys: code,title,requirement_ref,description. "
-            "Cover Happy / Negative / Edge only.\n\n"
+            f"{SPEC_OUTLINE_COVER_RULE}\n\n"
             + self.compressor.budget.truncate_to_cap(markdown_spec, cap=3000)
         )
         if self.llm is None:
@@ -147,13 +147,14 @@ class SpecGenerator:
         return []
 
     def _parse_scenarios(self, raw: str) -> list[TestScenario]:
+        """Parse LLM outline JSON. Empty on failure — never treat the raw reply as SRS."""
         data = loads_llm_json(raw)
         if data is None:
             logger.warning(
                 "outline_json_failed preview=%s",
                 preview_llm_text(raw),
             )
-            return self._offline_outline(raw)
+            return []
         items = self._scenario_items(data)
         scenarios: list[TestScenario] = []
         for item in items:
@@ -173,7 +174,7 @@ class SpecGenerator:
                 "outline_json_empty_shape preview=%s",
                 preview_llm_text(raw),
             )
-            return self._offline_outline(raw)
+            return []
         return scenarios
 
     def _parse_artifact_bundle(self, raw: str) -> list[TestScenario]:
@@ -255,13 +256,14 @@ class SpecGenerator:
         return scenarios
 
     def _parse_cases(self, raw: str, scenario: TestScenario) -> list[TestCase]:
+        """Parse LLM case JSON. Empty on failure — caller may fall back to offline cases."""
         data = loads_llm_json(raw)
         if data is None:
             logger.warning(
                 "cases_json_failed preview=%s",
                 preview_llm_text(raw),
             )
-            return self._offline_cases(scenario, 2)
+            return []
         items = self._case_items(data)
         cases: list[TestCase] = []
         for item in items:
@@ -305,4 +307,4 @@ class SpecGenerator:
                     requirement_ref=scenario.requirement_ref,
                 )
             )
-        return cases or self._offline_cases(scenario, 2)
+        return cases

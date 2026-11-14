@@ -12,6 +12,10 @@ _FENCE_RE = re.compile(
     r"```(?:json|JSON|Json)?\s*\n?(.*?)```",
     re.DOTALL,
 )
+_OPEN_FENCE_RE = re.compile(
+    r"^```(?:json|JSON|Json)?\s*\n?(.*)$",
+    re.DOTALL,
+)
 _TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
 
@@ -23,13 +27,16 @@ def preview_llm_text(raw: str, *, limit: int = LLM_JSON_LOG_PREVIEW_CHARS) -> st
 
 
 def strip_markdown_fence(text: str) -> str:
-    """Return inner body of the first ``` / ```json fence, else the original text."""
+    """Return inner body of a ``` / ```json fence (closed or unclosed), else original text."""
     stripped = (text or "").strip()
     if not stripped:
         return ""
     match = _FENCE_RE.search(stripped)
     if match:
         return match.group(1).strip()
+    open_match = _OPEN_FENCE_RE.match(stripped)
+    if open_match:
+        return open_match.group(1).strip()
     return stripped
 
 
@@ -96,11 +103,15 @@ def loads_llm_json(raw: str) -> Any | None:
             return parsed
         text = unfenced
 
+    looks_like_array = text.lstrip().startswith("[")
     array_blob = _extract_balanced(text, "[", "]")
     if array_blob is not None:
         parsed = _loads_tolerant(array_blob)
         if parsed is not None:
             return parsed
+    if looks_like_array:
+        # Incomplete array — do not silently promote the first nested object.
+        return None
 
     object_blob = _extract_balanced(text, "{", "}")
     if object_blob is not None:

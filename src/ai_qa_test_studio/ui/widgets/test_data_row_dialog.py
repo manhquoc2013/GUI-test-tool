@@ -26,6 +26,7 @@ from ai_qa_test_studio.constants import (
     UI_TEST_DATA_PARAM_ROW_SPACING,
     ExpectedOutcome,
 )
+from ai_qa_test_studio.ui.motion import animate_dialog_show
 
 
 class TestDataRowDialog(MessageBoxBase):
@@ -108,6 +109,7 @@ class TestDataRowDialog(MessageBoxBase):
             self.btn_delete = PushButton(FIF.DELETE, "Xóa bộ này", self.widget)
             self.btn_delete.clicked.connect(self._on_delete)
             self.viewLayout.addWidget(self.btn_delete, alignment=Qt.AlignmentFlag.AlignLeft)
+        animate_dialog_show(self)
 
     def _on_outcome_changed(self, text: str) -> None:
         if text in EXPECTED_OUTCOME_VALUES:

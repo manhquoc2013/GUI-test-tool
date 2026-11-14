@@ -19,6 +19,7 @@ from ai_qa_test_studio.agent.coverage_pass import run_coverage_pass
 from ai_qa_test_studio.agent.crew_dispatch import dispatch_specialist
 from ai_qa_test_studio.agent.crew_exchange import (
     CrewBoard,
+    build_final_report,
     heuristic_next_action,
     parse_coord_decision,
 )
@@ -71,11 +72,18 @@ from ai_qa_test_studio.constants import (
     COPILOT_ROLE_BRIEFS,
     COPILOT_ROLE_REPLY_STYLE,
     COPILOT_SUMMARY_MAX_CHARS,
+    CTX_MARKER_ACTIVE_SKILL,
+    CTX_MARKER_ATTACHMENTS,
+    CTX_MARKER_RETRIEVED,
+    CTX_MARKER_SECTION,
+    CTX_MARKER_SKILLS,
+    CTX_MARKER_SRS,
     DEFAULT_EXPECTED_OUTCOME,
     EVENT_AGENT_MESSAGE,
     EVENT_CHUNK,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
+    EVENT_FINAL_REPORT,
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
     INTENT_COMPOSE,
@@ -369,6 +377,7 @@ class CopilotOrchestrator:
             if ev.kind == "stopped":
                 return
 
+        closing_summary = ""
         for _round in range(COPILOT_COORDINATOR_MAX_ROUNDS):
             if stop.is_set():
                 yield OrchestratorEvent(
@@ -380,11 +389,11 @@ class CopilotOrchestrator:
             )
             action = decision.get("action") or COORD_ACTION_COMPLETE
             if action == COORD_ACTION_COMPLETE:
-                summary = decision.get("summary") or "Hoàn tất điều phối"
+                closing_summary = str(decision.get("summary") or "Hoàn tất điều phối")
                 yield OrchestratorEvent(
                     kind=EVENT_STATUS_SUMMARY,
                     role=ROLE_COORDINATOR,
-                    text=self._clip(summary),
+                    text=self._clip(closing_summary),
                     model=coord_route.model,
                 )
                 break
@@ -418,6 +427,7 @@ class CopilotOrchestrator:
                     text=self._clip("Anti-loop: điều phối lặp cùng giao việc — dừng."),
                     fingerprint=fp,
                 )
+                closing_summary = "Dừng do anti-loop"
                 break
 
             packet = self._handoff(
@@ -432,7 +442,8 @@ class CopilotOrchestrator:
                 role=ROLE_COORDINATOR,
                 from_role=ROLE_COORDINATOR,
                 to_role=to_role,
-                text=self._clip(packet),
+                # Full packet — UI bubble summarizer clips for display.
+                text=packet,
                 model=coord_route.model,
             )
 
@@ -473,22 +484,23 @@ class CopilotOrchestrator:
                 role=to_role,
                 from_role=to_role,
                 to_role=ROLE_COORDINATOR,
-                text=self._clip(back),
+                # Full report body preserved for user-facing bubble synthesis.
+                text=back,
             )
         else:
+            closing_summary = "Hết vòng điều phối — đóng pipeline"
             yield OrchestratorEvent(
                 kind=EVENT_LOOP_HALTED,
                 role=ROLE_COORDINATOR,
-                text=self._clip("Hết vòng điều phối — đóng pipeline."),
+                text=self._clip(closing_summary),
             )
 
+        report = build_final_report(board, closing=closing_summary)
         yield OrchestratorEvent(
-            kind="role_end",
+            kind=EVENT_FINAL_REPORT,
             role=ROLE_COORDINATOR,
-            text=self._clip(
-                f"Điều phối xong · intent={board.intent} · "
-                f"dispatched={','.join(board.dispatched) or '-'}"
-            ),
+            text=report,
+            model=coord_route.model,
         )
         yield OrchestratorEvent(kind="pipeline_complete")
 
@@ -752,7 +764,9 @@ class CopilotOrchestrator:
         lowered = (user_text or "").lower()
         if any(k in lowered for k in COPILOT_COMPOSE_KEYWORDS):
             return True
-        has_doc = "ATTACHMENTS:" in (ctx_block or "") or "SRS:" in (ctx_block or "")
+        has_doc = CTX_MARKER_ATTACHMENTS in (ctx_block or "") or CTX_MARKER_SRS in (
+            ctx_block or ""
+        ) or CTX_MARKER_RETRIEVED in (ctx_block or "")
         if has_doc and any(k in lowered for k in COPILOT_COMPOSE_DOC_HINTS):
             return True
         return False
@@ -765,7 +779,9 @@ class CopilotOrchestrator:
             return INTENT_TEST_DATA
         if any(k in lowered for k in ("giải thích", "explain", "vì sao", "why")):
             return INTENT_EXPLAIN
-        has_doc = "ATTACHMENTS:" in (ctx_block or "") or "SRS:" in (ctx_block or "")
+        has_doc = CTX_MARKER_ATTACHMENTS in (ctx_block or "") or CTX_MARKER_SRS in (
+            ctx_block or ""
+        ) or CTX_MARKER_RETRIEVED in (ctx_block or "")
         if has_doc:
             # Attached QA doc without an explicit "chỉ giải thích" → assume compose.
             return INTENT_COMPOSE
@@ -878,19 +894,42 @@ class CopilotOrchestrator:
             json.dumps(parsed)
         )
 
+    @staticmethod
+    def _marked_context_body(block: str, marker: str) -> str:
+        """Slice text after ``marker``, stopping before later context sections."""
+        if marker not in block:
+            return ""
+        body = block.split(marker, 1)[-1]
+        stops = (
+            CTX_MARKER_SECTION,
+            CTX_MARKER_RETRIEVED,
+            CTX_MARKER_SRS,
+            CTX_MARKER_ATTACHMENTS,
+            CTX_MARKER_SKILLS,
+            CTX_MARKER_ACTIVE_SKILL,
+            "DOM:",
+            "CASE:",
+            "LAST_ERROR:",
+        )
+        cut = len(body)
+        for stop in stops:
+            if stop == marker:
+                continue
+            idx = body.find(f"\n{stop}")
+            if 0 <= idx < cut:
+                cut = idx
+        return body[:cut].strip()
+
     def _srs_from_context(self, ctx_block: str, user_text: str) -> str:
-        """Prefer section / SRS / attachment body over the short chat prompt."""
+        """Prefer coverage section / corpus retrieve over short attach preview / prompt."""
         block = ctx_block or ""
-        if "SECTION:" in block:
-            body = block.split("SECTION:", 1)[-1].strip()
-            if body:
-                return body
-        if "SRS:" in block:
-            body = block.split("SRS:", 1)[-1].strip()
-            if body:
-                return body
-        if "ATTACHMENTS:" in block:
-            body = block.split("ATTACHMENTS:", 1)[-1].strip()
+        for marker in (
+            CTX_MARKER_SECTION,
+            CTX_MARKER_RETRIEVED,
+            CTX_MARKER_SRS,
+            CTX_MARKER_ATTACHMENTS,
+        ):
+            body = self._marked_context_body(block, marker)
             if body:
                 return body
         return user_text
@@ -1024,7 +1063,8 @@ class CopilotOrchestrator:
             parts.append("LAST_ERROR:\n" + str(context["last_error"])[:1000])
         if context.get("srs"):
             parts.append(
-                "SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
+                f"{CTX_MARKER_SRS}\n"
+                + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
             )
         attachments = context.get(CONTEXT_KEY_ATTACHMENTS) or []
         doc_ids: list[str] = []
@@ -1047,7 +1087,7 @@ class CopilotOrchestrator:
                         clipped = clipped[: COPILOT_ATTACH_PREVIEW_CHARS - 1] + "…"
                     preview_bits.append(f"### Attached: {name}\n{clipped}")
             if preview_bits:
-                parts.append("ATTACHMENTS:\n" + "\n\n".join(preview_bits))
+                parts.append(f"{CTX_MARKER_ATTACHMENTS}\n" + "\n\n".join(preview_bits))
         root = str(context.get(CONTEXT_KEY_PROJECT_ROOT) or "").strip() or None
         if query.strip() or doc_ids:
             hits = retrieve(
@@ -1060,14 +1100,14 @@ class CopilotOrchestrator:
                 parts.append(block)
         catalog = str(context.get(CONTEXT_KEY_SKILL_CATALOG) or "").strip()
         if catalog:
-            parts.append("SKILLS:\n" + catalog)
+            parts.append(f"{CTX_MARKER_SKILLS}\n{catalog}")
         skill_body = str(context.get(CONTEXT_KEY_SKILL_BODY) or "").strip()
         if skill_body:
             name = str(context.get(CONTEXT_KEY_SKILL_NAME) or "active")
             clipped = skill_body
             if len(clipped) > SKILL_CONTEXT_MAX_CHARS:
                 clipped = clipped[: SKILL_CONTEXT_MAX_CHARS - 1] + "…"
-            parts.append(f"ACTIVE_SKILL ({name}):\n{clipped}")
+            parts.append(f"{CTX_MARKER_ACTIVE_SKILL} ({name}):\n{clipped}")
         return "\n\n".join(parts)
 
     async def _collect(

@@ -34,9 +34,9 @@ from ai_qa_test_studio.constants import (
     UI_DRAWER_COLLAPSED_HEIGHT,
     UI_DRAWER_EXPAND_MIN_HEIGHT,
     UI_DRAWER_EXPANDED_HEIGHT,
-    UI_WIDGET_SIZE_MAX,
 )
 from ai_qa_test_studio.ui.formatting import format_param_cell, humanize_header
+from ai_qa_test_studio.ui.motion import slide_height, unlock_height
 from ai_qa_test_studio.ui.theme import card_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.test_data_row_dialog import TestDataRowDialog
@@ -201,17 +201,37 @@ class TestDataDrawer(QWidget):
         self.open_add_dialog()
 
     def toggle_collapse(self) -> None:
-        self._collapsed = not self._collapsed
-        self.stack.setVisible(not self._collapsed)
-        self.btn_add_row.setVisible(not self._collapsed)
-        self.btn_toggle.setIcon(FIF.CHEVRON_RIGHT_MED if self._collapsed else FIF.CHEVRON_DOWN_MED)
-        if self._collapsed:
-            self.setMinimumHeight(UI_DRAWER_COLLAPSED_HEIGHT)
-            self.setMaximumHeight(UI_DRAWER_COLLAPSED_HEIGHT)
-        else:
+        collapsing = not self._collapsed
+        self._collapsed = collapsing
+        self.btn_toggle.setIcon(FIF.CHEVRON_RIGHT_MED if collapsing else FIF.CHEVRON_DOWN_MED)
+        if collapsing:
+            start = max(self.height(), UI_DRAWER_EXPAND_MIN_HEIGHT)
+            end = UI_DRAWER_COLLAPSED_HEIGHT
+
+            def _after_collapse() -> None:
+                self.stack.setVisible(False)
+                self.btn_add_row.setVisible(False)
+                unlock_height(
+                    self,
+                    collapsed=True,
+                    collapsed_height=UI_DRAWER_COLLAPSED_HEIGHT,
+                )
+                self.toggled.emit(False)
+
+            slide_height(self, start, end, on_done=_after_collapse)
+            return
+
+        self.stack.setVisible(True)
+        self.btn_add_row.setVisible(True)
+        start = UI_DRAWER_COLLAPSED_HEIGHT
+        end = UI_DRAWER_EXPANDED_HEIGHT
+
+        def _after_expand() -> None:
+            unlock_height(self, collapsed=False)
             self.setMinimumHeight(UI_DRAWER_EXPAND_MIN_HEIGHT)
-            self.setMaximumHeight(UI_WIDGET_SIZE_MAX)
-        self.toggled.emit(not self._collapsed)
+            self.toggled.emit(True)
+
+        slide_height(self, start, end, on_done=_after_expand)
 
     def _apply_theme_style(self) -> None:
         self.setStyleSheet(card_stylesheet("#TestDataDrawer"))

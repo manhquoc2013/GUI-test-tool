@@ -79,6 +79,7 @@ from ai_qa_test_studio.ui.controllers import (
     RunController,
 )
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
+from ai_qa_test_studio.ui.motion import bind_motion_enabled
 from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
 from ai_qa_test_studio.ui.theme import apply_studio_theme, studio_shell_qss, toggle_resolved_theme
@@ -102,6 +103,7 @@ class MainWindow(QMainWindow):
         self.storage = ProjectStorage(self.data_root / "v4")
         self.env = EnvManager(self.data_root / "config")
         self.env.load_settings()
+        bind_motion_enabled(lambda: not self.env.settings.reduce_motion)
         self._index_sync = ProjectIndexSync(self.storage.root)
         self.project: Project | None = self.storage.load()
         self.session = SessionController()

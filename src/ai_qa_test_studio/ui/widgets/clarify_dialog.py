@@ -19,6 +19,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_CLARIFY_TIMEOUT_MS,
     UI_PALETTE_MIN_WIDTH,
 )
+from ai_qa_test_studio.ui.motion import animate_dialog_show
 
 
 class ClarifyDialog(MessageBoxBase):
@@ -70,6 +71,7 @@ class ClarifyDialog(MessageBoxBase):
         self._timer.timeout.connect(self._on_timeout)
         if timeout_ms > 0:
             self._timer.start(timeout_ms)
+        animate_dialog_show(self)
 
     def _selected(self) -> str:
         custom = str(self.custom.text()).strip()

@@ -3,7 +3,9 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication, QHBoxLayout
 
 from ai_qa_test_studio.constants import (
-    CHAT_BUBBLE_MAX_WIDTH,
+    CHAT_BUBBLE_MIN_WIDTH,
+    CHAT_BUBBLE_PANEL_RATIO,
+    CHAT_BUBBLE_ROW_MARGIN,
     CHAT_ROLE_LABELS,
     CHAT_TYPING_LABEL,
     ROLE_COMPOSER,
@@ -15,18 +17,42 @@ from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 
 def test_user_bubble_aligns_right(qapp: QApplication) -> None:
     row = ChatMessageRow("m1", "user", "xin chào")
+    row.resize(400, 80)
     row.show()
     qapp.processEvents()
     layout = row.layout()
     assert isinstance(layout, QHBoxLayout)
     # stretch, bubble
     assert layout.count() == 2
-    assert row.bubble.maximumWidth() == CHAT_BUBBLE_MAX_WIDTH
     assert row.btn_undo.isVisible()
     assert row.badge.text() == CHAT_ROLE_LABELS["user"]
     assert "ChatBubble" in row.bubble.styleSheet() or row.bubble.objectName() == "ChatBubble"
     assert "border-radius" in row.bubble.styleSheet()
     assert not row.is_typing()
+    row.close()
+
+
+def test_bubble_max_width_tracks_panel_width(qapp: QApplication) -> None:
+    row = ChatMessageRow("m1b", ROLE_COMPOSER, "nội dung dài " * 20)
+    row.show()
+    row.resize(360, 120)
+    qapp.processEvents()
+    row.sync_bubble_width()
+    expected = max(
+        CHAT_BUBBLE_MIN_WIDTH,
+        int((360 - CHAT_BUBBLE_ROW_MARGIN * 2) * CHAT_BUBBLE_PANEL_RATIO),
+    )
+    assert row.bubble.maximumWidth() == expected
+
+    row.resize(640, 120)
+    qapp.processEvents()
+    row.sync_bubble_width()
+    expected_wide = max(
+        CHAT_BUBBLE_MIN_WIDTH,
+        int((640 - CHAT_BUBBLE_ROW_MARGIN * 2) * CHAT_BUBBLE_PANEL_RATIO),
+    )
+    assert row.bubble.maximumWidth() == expected_wide
+    assert expected_wide > expected
     row.close()
 
 

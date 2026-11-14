@@ -27,6 +27,7 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_NAME,
     COPILOT_ARTIFACT_READY_NOTE,
     COPILOT_CHAT_REPLY_MAX_CHARS,
+    COPILOT_FINAL_REPORT_MAX_CHARS,
     COPILOT_STATUS_CLARIFY,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_PREPARING,
@@ -35,6 +36,7 @@ from ai_qa_test_studio.constants import (
     EVENT_AGENT_MESSAGE,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
+    EVENT_FINAL_REPORT,
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
     ROLE_COMPOSER,
@@ -46,18 +48,27 @@ from ai_qa_test_studio.constants import (
     WIZARD_IMPORT_BATCH_SIZE,
 )
 from ai_qa_test_studio.core.models import TestScenario
+from ai_qa_test_studio.ui.bubble_summary import format_final_report_bubble, summarize_for_bubble
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 
 if TYPE_CHECKING:
     from ai_qa_test_studio.ui.main_window import MainWindow
 
 
-def clip_chat_reply(text: str, max_chars: int = COPILOT_CHAT_REPLY_MAX_CHARS) -> str:
-    """Short bubble for the transcript; full body stays in artifacts / Apply."""
-    compact = " ".join((text or "").split())
-    if len(compact) <= max_chars:
-        return compact
-    return compact[: max_chars - 1].rstrip() + "…"
+def clip_chat_reply(
+    text: str,
+    max_chars: int = COPILOT_CHAT_REPLY_MAX_CHARS,
+    *,
+    from_role: str | None = None,
+    to_role: str | None = None,
+) -> str:
+    """Short user-facing bubble; full body stays in artifacts / Apply / history."""
+    return summarize_for_bubble(
+        text,
+        max_chars=max_chars,
+        from_role=from_role,
+        to_role=to_role,
+    )
 
 
 class CopilotController:
@@ -130,6 +141,13 @@ class CopilotController:
                 doc_ids = await w.copilot.await_attachment_ingests(attach_paths)
                 if doc_ids:
                     flags[CONTEXT_KEY_DOC_IDS] = doc_ids
+                    attachments = flags.get("attachments")
+                    if isinstance(attachments, list):
+                        for item, doc_id in zip(attachments, doc_ids, strict=False):
+                            if isinstance(item, dict) and not str(
+                                item.get("doc_id") or ""
+                            ).strip():
+                                item["doc_id"] = doc_id
             context = await self.build_context(flags)
             # Mode is a UI hint only — orchestrator LLM classifies compose/test_data/explain.
             mode = str(flags.get("mode") or w.copilot.session.mode)
@@ -207,12 +225,33 @@ class CopilotController:
                         )
                 elif event.kind == EVENT_AGENT_MESSAGE:
                     full = event.text or ""
+                    from_role = event.from_role or "critic"
+                    to_role = event.to_role or "composer"
                     w.copilot.append_agent_message(
-                        event.from_role or "critic",
-                        event.to_role or "composer",
+                        from_role,
+                        to_role,
                         full,
-                        summary=clip_chat_reply(full, reply_cap),
+                        summary=clip_chat_reply(
+                            full,
+                            reply_cap,
+                            from_role=from_role,
+                            to_role=to_role,
+                        ),
                     )
+                elif event.kind == EVENT_FINAL_REPORT:
+                    full = (event.text or "").strip()
+                    if not full:
+                        continue
+                    display = format_final_report_bubble(
+                        full,
+                        max_chars=max(reply_cap, COPILOT_FINAL_REPORT_MAX_CHARS),
+                    )
+                    w.copilot.append_status_summary(
+                        event.role or ROLE_COORDINATOR,
+                        full,
+                        summary=display,
+                    )
+                    w.copilot.set_status(display.splitlines()[0] if display else "")
                 elif event.kind == EVENT_CLARIFY_REQUEST:
                     w.copilot.set_status(COPILOT_STATUS_CLARIFY)
                     w.copilot.append_clarify_note(

@@ -12,11 +12,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai_qa_test_studio.constants import (
+    APPLY_KIND_COMPOSE,
+    APPLY_KIND_TEST_DATA,
     COMPLEXITY_SIMPLE,
     COORD_ACTION_CLARIFY,
     COORD_ACTION_COMPLETE,
     COORD_ACTION_DISPATCH,
     COORD_SPECIALISTS,
+    COPILOT_FINAL_REPORT_EMPTY,
     INTENT_COMPOSE,
     INTENT_EXPLAIN,
     ROLE_ANALYZER,
@@ -100,6 +103,98 @@ class CrewBoard:
         self.critique_rounds += 1
         if approved:
             self.revise_done = True
+
+
+_RESULT_LINE_MAX = 160
+_COVERAGE_LINE_RE = re.compile(
+    r"(?im)^\s*(Coverage(?:\s+Pass)?(?:\s+xong)?[^\n]*)",
+)
+_VERDICT_RE = re.compile(r"(?i)\b(APPROVE|REVISE)\b")
+
+
+def _one_line(text: str, *, max_chars: int = _RESULT_LINE_MAX) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 1].rstrip() + "…"
+
+
+def _agent_result_line(text: str) -> str:
+    """Pick the most user-relevant line from a specialist return."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    coverage = _COVERAGE_LINE_RE.search(raw)
+    if coverage:
+        return _one_line(coverage.group(1))
+    verdict = _VERDICT_RE.search(raw)
+    if verdict:
+        bullets = re.findall(r"(?m)^\s*[-*•]\s+(.+)$", raw)
+        if bullets:
+            return _one_line(f"{verdict.group(1).upper()} · {bullets[0]}")
+        after = raw[verdict.end() :].lstrip(" -:·")
+        head = after.splitlines()[0].strip() if after else ""
+        return _one_line(f"{verdict.group(1).upper()} · {head}" if head else verdict.group(1).upper())
+    for line in raw.splitlines():
+        stripped = line.strip().lstrip("-*• ").strip()
+        if not stripped or stripped == "(empty)":
+            continue
+        if stripped.startswith("→"):
+            continue
+        if re.match(r"(?i)^S\d+\b", stripped):
+            continue
+        return _one_line(stripped)
+    return _one_line(raw)
+
+
+def build_final_report(board: CrewBoard, *, closing: str = "") -> str:
+    """User-facing closing report from specialist results + artifact state."""
+    lines: list[str] = []
+    close = _one_line(closing, max_chars=120)
+    if close:
+        lines.append(close)
+
+    payload = board.apply_payload if isinstance(board.apply_payload, dict) else None
+    if payload:
+        kind = str(payload.get("kind") or "")
+        if kind == APPLY_KIND_COMPOSE or isinstance(payload.get("scenarios"), list):
+            scenarios = [s for s in (payload.get("scenarios") or []) if isinstance(s, dict)]
+            case_count = sum(len(s.get("cases") or []) for s in scenarios)
+            lines.append(
+                f"Artifact: {len(scenarios)} scenario / {case_count} case — Tải Excel hoặc Apply."
+            )
+        elif kind == APPLY_KIND_TEST_DATA or isinstance(payload.get("rows"), list):
+            rows = payload.get("rows") or []
+            lines.append(f"Test data: {len(rows)} bộ — Tải Excel hoặc Apply.")
+
+    sections: list[tuple[str, str]] = [
+        ("Kế hoạch", board.plan_text),
+        ("Soạn thảo", board.compose_text),
+        ("Phản biện", board.critique_text),
+        ("Phân tích", board.analyze_text),
+        ("Tối ưu", board.optimize_text),
+    ]
+    seen: set[str] = set()
+    for label, body in sections:
+        snippet = _agent_result_line(body)
+        if not snippet:
+            continue
+        key = snippet.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"{label}: {snippet}")
+
+    if board.critique_text:
+        gate = "APPROVE" if board.critique_approved else "REVISE"
+        note = _one_line(board.critique_notes, max_chars=100) if board.critique_notes else ""
+        gate_line = f"Quality gate: {gate}" + (f" — {note}" if note and not board.critique_approved else "")
+        if gate_line.casefold() not in {line.casefold() for line in lines}:
+            lines.append(gate_line)
+
+    if len(lines) <= (1 if close else 0):
+        return close or COPILOT_FINAL_REPORT_EMPTY
+    return "\n".join(lines)
 
 
 def heuristic_next_action(

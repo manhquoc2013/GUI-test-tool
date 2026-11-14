@@ -299,6 +299,22 @@ def test_srs_from_attachments_preferred_over_prompt() -> None:
     assert orch._wants_compose("phân tích và tạo các test screnaro", COPILOT_MODE_CASE, ctx)
 
 
+def test_srs_from_retrieved_preferred_over_short_attachment_preview() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    ctx = (
+        "ATTACHMENTS:\n### Attached: a.docx\nPreview ngắn 800 ký tự…\n\n"
+        "RETRIEVED:\n### doc=d1 | prose#0\n"
+        "Luồng chính tạo hồ sơ người yếu thế + NL01 thiếu cam kết + TB07.\n\n"
+        "SKILLS:\ncatalog"
+    )
+    srs = orch._srs_from_context(ctx, "sinh kịch bản")
+    assert "Luồng chính tạo hồ sơ" in srs
+    assert "Preview ngắn" not in srs
+    assert "SKILLS" not in srs
+
+
 @pytest.mark.asyncio
 async def test_bva_request_emits_test_data_rows() -> None:
     orch = CopilotOrchestrator(

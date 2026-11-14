@@ -53,3 +53,21 @@ def test_settings_theme_combo_includes_auto(qapp: QApplication) -> None:
     assert dialog.theme_combo.currentText() == "auto"
     dialog.close()
     host.close()
+
+
+def test_settings_reduce_motion_switch(qapp: QApplication) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    host = QWidget()
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(reduce_motion=True), host)
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.reduce_motion_switch.isChecked() is True
+    dialog.reduce_motion_switch.setChecked(False)
+    dialog.validate()
+    result = dialog.result_settings()
+    assert result is not None
+    assert result.reduce_motion is False
+    dialog.close()
+    host.close()

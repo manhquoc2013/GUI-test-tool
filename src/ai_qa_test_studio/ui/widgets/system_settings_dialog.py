@@ -78,6 +78,7 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
+from ai_qa_test_studio.ui.motion import animate_dialog_show
 from ai_qa_test_studio.ui.theme import get_theme_tokens, text_primary_css
 
 _TAB_DEFS: tuple[tuple[str, str], ...] = (
@@ -185,6 +186,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self.yesButton.setText("Lưu")
         self.cancelButton.setText("Hủy")
         self._layout_footer_buttons()
+        animate_dialog_show(self)
 
     def _ensure_ai_defaults(self) -> None:
         if not self._draft.ai.connections:
@@ -369,6 +371,9 @@ class SystemSettingsDialog(MessageBoxBase):
         self.env_edit.setPlaceholderText("DEV / STAGING / PROD")
         self.headless_switch = SwitchButton(card)
         self.headless_switch.setChecked(self._draft.headless_default)
+        self.reduce_motion_switch = SwitchButton(card)
+        self.reduce_motion_switch.setChecked(self._draft.reduce_motion)
+        self.reduce_motion_switch.setToolTip("Tắt fade/slide drawer, dialog và tin nhắn chat")
         self._add_field(body, card, "Theme", self.theme_combo)
         self._add_field(body, card, "Environment", self.env_edit)
         switch_row = QHBoxLayout()
@@ -376,6 +381,11 @@ class SystemSettingsDialog(MessageBoxBase):
         switch_row.addStretch(1)
         switch_row.addWidget(self.headless_switch)
         body.addLayout(switch_row)
+        motion_row = QHBoxLayout()
+        motion_row.addWidget(CaptionLabel("Giảm chuyển động", card))
+        motion_row.addStretch(1)
+        motion_row.addWidget(self.reduce_motion_switch)
+        body.addLayout(motion_row)
         layout.addWidget(card)
         layout.addStretch(1)
         return root
@@ -660,6 +670,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self._draft.theme = self.theme_combo.currentText()
         self._draft.active_environment = self.env_edit.text().strip() or "DEV"
         self._draft.headless_default = self.headless_switch.isChecked()
+        self._draft.reduce_motion = self.reduce_motion_switch.isChecked()
         self._draft.browser = self.browser_combo.currentText()
         self._draft.ai.routing.mode = self.route_mode.currentText()
         self._draft.ai.routing.complexity_enabled = self.complexity_enabled.isChecked()

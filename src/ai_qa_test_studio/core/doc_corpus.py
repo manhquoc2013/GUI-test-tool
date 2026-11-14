@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_qa_test_studio.constants import (
+    CTX_MARKER_RETRIEVED,
     DOC_CHUNK_OVERLAP_CHARS,
     DOC_CHUNK_SIZE_CHARS,
     DOC_CORPUS_CACHE_DIRNAME,
@@ -391,4 +392,4 @@ def format_retrieved_block(hits: list[ChunkHit]) -> str:
     for hit in hits:
         meta = hit.section_meta or f"chunk#{hit.chunk_index}"
         parts.append(f"### doc={hit.doc_id} | {meta}\n{hit.content}")
-    return "RETRIEVED:\n" + "\n\n".join(parts)
+    return f"{CTX_MARKER_RETRIEVED}\n" + "\n\n".join(parts)
