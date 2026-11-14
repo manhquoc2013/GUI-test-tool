@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
 from ai_qa_test_studio.agent.healer import Healer
 from ai_qa_test_studio.browser.locator_resolver import LocatorResolver
-from ai_qa_test_studio.constants import TOKEN_MAX_ATOMIC_OUTPUT
+from ai_qa_test_studio.constants import (
+    CASE_STATUS_CANCELLED,
+    CASE_STATUS_FAIL,
+    CASE_STATUS_PASS,
+    TOKEN_MAX_ATOMIC_OUTPUT,
+)
 from ai_qa_test_studio.core.models import (
     CaseRunResult,
     RunReport,
@@ -20,6 +27,12 @@ from ai_qa_test_studio.core.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+CancelFn = Callable[[], bool]
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip())
 
 
 class DualLoopAgent:
@@ -37,13 +50,29 @@ class DualLoopAgent:
         self.healer = healer or Healer(resolver=self.resolver)
         self.max_tokens = max_tokens
 
-    async def run_case(self, test_case: TestCase, project_name: str = "") -> RunReport:
+    async def run_case(
+        self,
+        test_case: TestCase,
+        project_name: str = "",
+        should_cancel: CancelFn | None = None,
+    ) -> RunReport:
         started = datetime.now(UTC).isoformat()
         step_results: list[RunStepResult] = []
         audits = []
-        case_status: str = "PASS"
+        case_status: str = CASE_STATUS_PASS
 
         for step in test_case.steps:
+            if should_cancel is not None and should_cancel():
+                case_status = CASE_STATUS_CANCELLED
+                step_results.append(
+                    RunStepResult(
+                        step_no=step.step_no,
+                        action=step.action,
+                        status=CASE_STATUS_CANCELLED,  # type: ignore[arg-type]
+                        message="cancelled",
+                    )
+                )
+                break
             if not step.enabled:
                 step_results.append(
                     RunStepResult(
@@ -57,13 +86,12 @@ class DualLoopAgent:
             t0 = time.perf_counter()
             element = self.element_repo.get(step.element_ref or "") if step.element_ref else None
             try:
-                # Inner loop: one atomic action
                 await self.resolver.execute_step(self.page, step, element)
-                status = "PASS"
+                status = CASE_STATUS_PASS
                 message = "ok"
             except Exception as exc:  # noqa: BLE001
                 message = str(exc)
-                status = "FAIL"
+                status = CASE_STATUS_FAIL
                 if element is not None:
                     audit = await self.healer.heal_step(self.page, step, element)
                     if audit is not None:
@@ -74,11 +102,11 @@ class DualLoopAgent:
                             message = f"healed:{audit.reason}"
                         except Exception as exc2:  # noqa: BLE001
                             message = f"{message}; retest_failed:{exc2}"
-                            case_status = "FAIL"
+                            case_status = CASE_STATUS_FAIL
                     else:
-                        case_status = "FAIL"
+                        case_status = CASE_STATUS_FAIL
                 else:
-                    case_status = "FAIL"
+                    case_status = CASE_STATUS_FAIL
             duration = int((time.perf_counter() - t0) * 1000)
             step_results.append(
                 RunStepResult(
@@ -89,24 +117,24 @@ class DualLoopAgent:
                     message=message,
                 )
             )
-            if case_status == "FAIL" and status == "FAIL":
+            if case_status == CASE_STATUS_FAIL and status == CASE_STATUS_FAIL:
                 break
 
-        # Outer loop: Ralph verification against expected_final_result
-        if case_status == "PASS" and test_case.expected_final_result:
+        if case_status == CASE_STATUS_PASS and test_case.expected_final_result:
             body_text = ""
             try:
                 body_text = await self.page.inner_text("body")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("verify_read_failed err=%s", exc)
-            expected = test_case.expected_final_result.strip()
-            if expected and expected not in body_text:
-                case_status = "FAIL"
+            expected = _normalize_text(test_case.expected_final_result)
+            haystack = _normalize_text(body_text)
+            if expected and expected not in haystack:
+                case_status = CASE_STATUS_FAIL
                 step_results.append(
                     RunStepResult(
                         step_no=len(step_results) + 1,
                         action="assert_text",
-                        status="FAIL",
+                        status=CASE_STATUS_FAIL,  # type: ignore[arg-type]
                         message=f"verification missing: {expected!r}",
                     )
                 )

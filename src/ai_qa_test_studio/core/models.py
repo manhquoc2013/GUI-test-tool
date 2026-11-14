@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 Priority = Literal["P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low"]
 TestType = Literal["Functional", "Negative", "Boundary", "UI/UX", "Security"]
 BindingStatus = Literal["UNBOUND", "BOUND", "HEALED"]
-CaseStatus = Literal["NOT_RUN", "PASS", "FAIL", "HEALED", "SKIPPED"]
+CaseStatus = Literal["NOT_RUN", "PASS", "FAIL", "HEALED", "SKIPPED", "CANCELLED"]
 StepAction = Literal[
     "goto",
     "click",

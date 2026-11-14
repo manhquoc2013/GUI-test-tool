@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -13,6 +14,7 @@ from ai_qa_test_studio.browser.engine import BrowserEngine
 from ai_qa_test_studio.constants import (
     DEFAULT_TARGET_URL,
     FALLBACK_BLANK_URL,
+    RUN_CANCEL_WAIT_TIMEOUT_S,
     UI_VIEWPORT_HEIGHT,
     UI_VIEWPORT_WIDTH,
 )
@@ -29,10 +31,15 @@ class SessionController:
         self.engine = BrowserEngine()
         self._started = False
         self.cancel_requested = False
+        self._active_run: asyncio.Future[None] | None = None
 
     @property
     def started(self) -> bool:
         return self._started
+
+    @property
+    def run_in_progress(self) -> bool:
+        return self._active_run is not None and not self._active_run.done()
 
     async def ensure_started(self, headless: bool = False, log: LogFn | None = None) -> None:
         emit = log or (lambda _m: None)
@@ -67,9 +74,20 @@ class SessionController:
                     emit(f"Fallback {FALLBACK_BLANK_URL} cũng thất bại: {blank_exc}")
             raise
 
+    def request_cancel(self) -> None:
+        self.cancel_requested = True
+
     async def stop(self, log: LogFn | None = None) -> None:
         emit = log or (lambda _m: None)
         self.cancel_requested = True
+        if self.run_in_progress and self._active_run is not None:
+            emit("Đang chờ dual-loop dừng…")
+            try:
+                await asyncio.wait_for(self._active_run, timeout=RUN_CANCEL_WAIT_TIMEOUT_S)
+            except TimeoutError:
+                emit("Hết thời gian chờ dual-loop — tiếp tục đóng trình duyệt")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("wait_active_run_failed err=%s", exc)
         if self._started:
             await self.engine.stop()
             self._started = False
@@ -118,31 +136,49 @@ class SessionController:
     ) -> RunReport:
         emit = log or (lambda _m: None)
         self.cancel_requested = False
-        await self.ensure_started(headless=False, log=emit)
-        if skill_name and skills_dir is not None:
-            loader = ProgressiveSkillLoader(skills_dir)
-            if skill_name in loader.registry:
-                emit(f"[✓] Nạp skill: {skill_name}")
-                _ = loader.load_skill_context(skill_name)
-        if case.start_url:
-            await self.engine.goto(case.start_url)
-            emit(f"Mở start_url={case.start_url}")
-        repo = repo_from_project(project)
-        agent = DualLoopAgent(self.engine.page, repo)
-        emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
-        report = await agent.run_case(case, project_name=project.name)
-        result = report.cases[0]
-        case.last_status = result.status
-        emit(f"Hoàn tất {case.code}: {result.status}")
-        for step in result.steps:
-            if on_step is not None:
-                on_step(step.step_no, step.action, step.status, float(step.duration_ms), step.message)
-            else:
-                emit(
-                    f"  #{step.step_no} {step.action} → {step.status} "
-                    f"({step.duration_ms} ms) {step.message}"
-                )
-        return report
+        loop = asyncio.get_running_loop()
+        done: asyncio.Future[None] = loop.create_future()
+        self._active_run = done
+        try:
+            await self.ensure_started(headless=False, log=emit)
+            if skill_name and skills_dir is not None:
+                loader = ProgressiveSkillLoader(skills_dir)
+                if skill_name in loader.registry:
+                    emit(f"[✓] Nạp skill: {skill_name}")
+                    _ = loader.load_skill_context(skill_name)
+            if case.start_url:
+                await self.engine.goto(case.start_url)
+                emit(f"Mở start_url={case.start_url}")
+            repo = repo_from_project(project)
+            agent = DualLoopAgent(self.engine.page, repo)
+            emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
+            report = await agent.run_case(
+                case,
+                project_name=project.name,
+                should_cancel=lambda: self.cancel_requested,
+            )
+            result = report.cases[0]
+            case.last_status = result.status
+            emit(f"Hoàn tất {case.code}: {result.status}")
+            for step in result.steps:
+                if on_step is not None:
+                    on_step(
+                        step.step_no,
+                        step.action,
+                        step.status,
+                        float(step.duration_ms),
+                        step.message,
+                    )
+                else:
+                    emit(
+                        f"  #{step.step_no} {step.action} → {step.status} "
+                        f"({step.duration_ms} ms) {step.message}"
+                    )
+            return report
+        finally:
+            if not done.done():
+                done.set_result(None)
+            self._active_run = None
 
     def pin_shared_element(
         self,
