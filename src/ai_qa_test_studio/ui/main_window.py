@@ -47,8 +47,10 @@ from ai_qa_test_studio.constants import (
     UI_WINDOW_MIN_HEIGHT,
     UI_WINDOW_MIN_WIDTH,
 )
+from ai_qa_test_studio.core.async_bridge import run_sync
 from ai_qa_test_studio.core.chat_history import ChatHistoryStore
 from ai_qa_test_studio.core.env_manager import EnvManager
+from ai_qa_test_studio.core.index_sync import ProjectIndexSync
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario, TestStep
 from ai_qa_test_studio.core.storage import ProjectStorage
@@ -83,6 +85,7 @@ class MainWindow(QMainWindow):
         self.storage = ProjectStorage(self.data_root / "v4")
         self.env = EnvManager(self.data_root / "config")
         self.env.load_settings()
+        self._index_sync = ProjectIndexSync(self.storage.root)
         self.project: Project | None = self.storage.load()
         self.session = SessionController()
         self._busy = False
@@ -157,6 +160,7 @@ class MainWindow(QMainWindow):
         self.h_splitter = QSplitter(Qt.Orientation.Horizontal, self.workspace)
 
         self.explorer = ExplorerPane(self.h_splitter)
+        self.explorer.set_index_sync(self._index_sync)
         self.explorer.installEventFilter(self)
         self.explorer.case_selected.connect(self._on_case_selected)
         self.builder = EditorPane(self.h_splitter)
@@ -295,6 +299,7 @@ class MainWindow(QMainWindow):
         if self.project is None:
             return
         self.explorer.load_project(self.project)
+        self._refresh_project_index()
         case = self._first_case(self.project)
         if case:
             self._load_case(case)
@@ -487,8 +492,15 @@ class MainWindow(QMainWindow):
         if case is not None:
             self._merge_case(case)
         self.storage.save(self.project)
+        self._refresh_project_index()
         self._append_log(f"Đã lưu {self.storage.project_path}")
         self._status_caption.setText("Đã lưu")
+
+    def _refresh_project_index(self) -> None:
+        try:
+            run_sync(self._index_sync.sync())
+        except (OSError, RuntimeError, ValueError):
+            return
 
     def _merge_case(self, case: TestCase) -> None:
         if self.project is None:

@@ -22,6 +22,8 @@ from ai_qa_test_studio.constants import (
     UI_TREE_INDENT,
     UI_TREE_ROW_HEIGHT,
 )
+from ai_qa_test_studio.core.async_bridge import run_sync
+from ai_qa_test_studio.core.index_sync import ProjectIndexSync
 from ai_qa_test_studio.core.models import Project, SharedElement, TestCase
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
 from ai_qa_test_studio.ui.theme import get_theme_tokens
@@ -45,6 +47,8 @@ class ExplorerPane(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._project: Project | None = None
         self._filter = ""
+        self._fts_ids: set[str] | None = None
+        self._index_sync: ProjectIndexSync | None = None
         self._element_count = 0
         self._density = "wide"
 
@@ -146,6 +150,9 @@ class ExplorerPane(QWidget):
         self._element_count = max(0, count)
         self.apply_density(self.width() or UI_EXPLORER_MIN_WIDTH)
 
+    def set_index_sync(self, index_sync: ProjectIndexSync | None) -> None:
+        self._index_sync = index_sync
+
     def load_project(self, project: Project) -> None:
         self._project = project
         self.set_element_count(len(project.shared_elements))
@@ -157,6 +164,13 @@ class ExplorerPane(QWidget):
 
     def _on_filter(self, text: str) -> None:
         self._filter = text.strip().lower()
+        self._fts_ids = None
+        if self._index_sync is not None and self._filter:
+            try:
+                hits = run_sync(self._index_sync.search(self._filter))
+                self._fts_ids = {hit.entity_id for hit in hits}
+            except (OSError, RuntimeError, ValueError):
+                self._fts_ids = None
         # Hide/show only — never clear() on each keystroke (macOS AX invalid-object spam)
         self._apply_filter(self.suite_tree)
         self._apply_filter(self.element_tree)
@@ -211,7 +225,14 @@ class ExplorerPane(QWidget):
                 matched_child = True
         blob = item.data(0, _SEARCH_ROLE)
         text = str(blob) if blob else item.text(0)
-        self_match = not kw or kw in text.lower()
+        fts_match = False
+        if self._fts_ids is not None:
+            payload = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(payload, TestCase) and payload.id in self._fts_ids:
+                fts_match = True
+            elif isinstance(payload, SharedElement) and payload.element_id in self._fts_ids:
+                fts_match = True
+        self_match = not kw or kw in text.lower() or fts_match
         visible = self_match or matched_child
         if item.parent() is not None:
             item.setHidden(not visible)
