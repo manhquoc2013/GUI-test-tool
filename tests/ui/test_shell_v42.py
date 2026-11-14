@@ -168,6 +168,58 @@ def test_mutual_exclusion_under_three_col_safe(qapp: QApplication, tmp_path: Pat
     window.close()
 
 
+def test_narrow_sidebar_snap_cancels_dock_width_anim(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    """Removing stop_channel from toggle_sidebar must fail this test."""
+    import time
+
+    from ai_qa_test_studio.ui.motion import (
+        animate_splitter_size,
+        bind_motion_enabled,
+        clear_registry_for_tests,
+        registry_size,
+    )
+
+    bind_motion_enabled(lambda: True)
+    clear_registry_for_tests()
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    width = UI_THREE_COL_SAFE - 20
+    window.resize(width, 720)
+    qapp.processEvents()
+    window.right_drawer.open_drawer()
+    window._prefer_dock = True
+    window._sidebar_collapsed = True
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+    assert window.right_drawer.is_open is True
+    assert window._sidebar_collapsed is True
+
+    done = {"n": 0}
+    animate_splitter_size(
+        window.h_splitter,
+        2,
+        0,
+        max(120, window._drawer_width),
+        host=window.right_drawer,
+        duration_ms=800,
+        on_done=lambda: done.__setitem__("n", done["n"] + 1),
+    )
+    assert registry_size() == 1
+
+    window._layout.toggle_sidebar()
+    qapp.processEvents()
+    assert registry_size() == 0
+    time.sleep(0.08)
+    qapp.processEvents()
+    assert done["n"] == 0
+    assert window.explorer.isVisible()
+    window.close()
+    clear_registry_for_tests()
+
+
 def test_top_bar_density_compacts_labels(qapp: QApplication, tmp_path: Path) -> None:
     _seed(tmp_path)
     window = MainWindow(data_root=tmp_path)
