@@ -141,8 +141,8 @@ class CopilotRuntimeSettings(BaseModel):
     loop_repeat_limit: int = 2
     clarify_timeout_ms: int = 60_000
     lean_tail_max_tokens: int = 2400
-    analyzer_enabled: bool = False
-    optimizer_enabled: bool = False
+    analyzer_enabled: bool = True
+    optimizer_enabled: bool = True
 
 
 class McpExternalSettings(BaseModel):

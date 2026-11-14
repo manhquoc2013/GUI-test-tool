@@ -4,5 +4,5 @@
 - External MCP spawn without JSON-RPC `tools/call` is not a client — use the official `mcp` SDK + AsyncExitStack sessions.
 - Midscene must share app CDP; bundled heuristic is a fallback, not a vision substitute.
 - Knowledge MCP capabilities (headroom/markitdown/memory) belong as bundled in-process servers for zero-install UX.
-- Analyzer/Optimizer should stay Settings opt-in to preserve default Copilot latency.
+- Analyzer/Optimizer default on; Settings can disable if latency matters.
 - `docs/knowledge/` pollutes codegraph — keep AGENTS.md pointing agents at `src/` + active SPEC.

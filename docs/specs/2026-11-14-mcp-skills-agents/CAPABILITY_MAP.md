@@ -6,7 +6,7 @@
 | mcp-client | JSON-RPC stdio MCP client for external servers (list/call tools) | — |
 | midscene-vision | External Midscene via CDP + heuristic bundled fallback | mcp-client |
 | bundled-knowledge-mcp | In-app MCP: compress (headroom), ingest (markitdown), persistent memory | — |
-| crew-roles | Analyzer + Optimizer opt-in Settings; role-gated tools | skill-runtime, bundled-knowledge-mcp |
+| crew-roles | Analyzer + Optimizer on by default (Settings can disable); role-gated tools | skill-runtime, bundled-knowledge-mcp |
 | new-skills | a11y / flaky / security-negative / traceability + fix existing frontmatter | skill-runtime |
 | settings-mcp-defaults | Essential MCP auto-on; Figma/DB opt-in; Settings toggles | mcp-client, midscene-vision |
 | agent-docs | `AGENTS.md` + `.ai-context` update; knowledge index hygiene notes | — |

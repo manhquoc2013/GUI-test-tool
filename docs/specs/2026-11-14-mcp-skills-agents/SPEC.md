@@ -7,7 +7,7 @@
 
 ## Objective
 
-Close the gap between knowledge-derived agent patterns and the live Studio runtime: skills must load into Copilot/Dual-Loop; external MCP must speak JSON-RPC; Midscene vision uses CDP with heuristic fallback; headroom/markitdown/memory ship as **bundled in-process MCP** (not lib-only wrappers); Analyzer/Optimizer are Settings opt-in; essential external MCP (Playwright, Midscene) auto-on; Figma/DB remain opt-in.
+Close the gap between knowledge-derived agent patterns and the live Studio runtime: skills must load into Copilot/Dual-Loop; external MCP must speak JSON-RPC; Midscene vision uses CDP with heuristic fallback; headroom/markitdown/memory ship as **bundled in-process MCP** (not lib-only wrappers); Analyzer/Optimizer on by default (Settings can disable); essential external MCP (Playwright, Midscene) auto-on; Figma/DB remain opt-in.
 
 **Success**: ruff / mypy / pytest green; each module task has atomic commit; skill content reaches LLM context; `tools/call` works against external Midscene/Playwright; new skills discoverable; persistent notes survive sessions under `.studio/`.
 
@@ -15,7 +15,7 @@ Close the gap between knowledge-derived agent patterns and the live Studio runti
 
 1. Scope = full P0→P2.
 2. Midscene = external MCP + bundled heuristic fallback.
-3. Crew = Planner/Composer/Critic default; Analyzer + Optimizer opt-in Settings (off by default).
+3. Crew = Planner/Composer/Critic + Analyzer + Optimizer (on by default; Settings can disable).
 4. Atomic git commit per completed task (user override for this initiative).
 5. Memory = local-first under project `.studio/` via bundled MCP.
 6. Knowledge MCP capabilities (headroom, markitdown, memory) = **bundled MCP servers inside the app**, not pip-only helpers.

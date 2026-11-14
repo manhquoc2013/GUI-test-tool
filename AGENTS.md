@@ -13,7 +13,7 @@ uv run python -m ai_qa_test_studio
 
 ## Architecture
 
-- `agent/` — Copilot crew (Planner/Composer/Critic + optional Analyzer/Optimizer), Dual-Loop, bundled MCP, external MCP JSON-RPC client
+- `agent/` — Copilot crew (Planner/Composer/Critic/Analyzer/Optimizer; last two disable via Settings), Dual-Loop, bundled MCP, external MCP JSON-RPC client
 - `browser/` — Playwright engine + CDP (single Chromium)
 - `core/` — models, YAML project tree, `.studio/runtime.db`, settings
 - `ui/` — Airy shell; theme via `ThemeTokens` + `bind_widget_theme` only

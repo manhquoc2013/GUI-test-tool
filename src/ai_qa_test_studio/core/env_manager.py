@@ -305,8 +305,8 @@ class EnvManager:
                 loop_repeat_limit=int(copilot_raw.get("loopRepeatLimit") or 2),
                 clarify_timeout_ms=int(copilot_raw.get("clarifyTimeoutMs") or 60_000),
                 lean_tail_max_tokens=int(copilot_raw.get("leanTailMaxTokens") or 2400),
-                analyzer_enabled=bool(copilot_raw.get("analyzerEnabled", False)),
-                optimizer_enabled=bool(copilot_raw.get("optimizerEnabled", False)),
+                analyzer_enabled=bool(copilot_raw.get("analyzerEnabled", True)),
+                optimizer_enabled=bool(copilot_raw.get("optimizerEnabled", True)),
             ),
             mcp=McpSettings(
                 external=McpExternalSettings(

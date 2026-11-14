@@ -606,9 +606,9 @@ class SystemSettingsDialog(MessageBoxBase):
             wide=True,
         )
         roles_card, roles_body = self._card(root, "Optional crew roles")
-        self.chk_analyzer = CheckBox("Bật Analyzer (fail triage)", roles_card)
+        self.chk_analyzer = CheckBox("Analyzer (fail triage) — mặc định bật", roles_card)
         self.chk_analyzer.setChecked(c.analyzer_enabled)
-        self.chk_optimizer = CheckBox("Bật Optimizer (suite prune)", roles_card)
+        self.chk_optimizer = CheckBox("Optimizer (suite prune) — mặc định bật", roles_card)
         self.chk_optimizer.setChecked(c.optimizer_enabled)
         roles_body.addWidget(self.chk_analyzer)
         roles_body.addWidget(self.chk_optimizer)
