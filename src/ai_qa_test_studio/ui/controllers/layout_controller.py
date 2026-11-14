@@ -144,7 +144,8 @@ class LayoutController:
             w._stop_copilot()
             return
         if w._busy:
-            w._stop_browser()
+            w.session.request_cancel()
+            w._request_stop_browser()
             return
         if w.right_drawer.is_open:
             w.right_drawer.close_drawer()

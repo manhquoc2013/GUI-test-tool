@@ -328,12 +328,40 @@ def test_escape_stops_copilot_before_browser(qapp: QApplication, tmp_path: Path)
     window._busy = True
     stopped: list[str] = []
     window._stop_copilot = lambda: stopped.append("copilot")  # type: ignore[method-assign]
-    window._stop_browser = lambda: stopped.append("browser")  # type: ignore[method-assign]
+    window._request_stop_browser = lambda: stopped.append("browser")  # type: ignore[method-assign]
     window._on_escape()
     assert stopped == ["copilot"]
     window.copilot.set_busy(False)
     window._on_escape()
     assert stopped == ["copilot", "browser"]
+    window.close()
+
+
+def test_on_escape_busy_uses_request_cancel_and_create_task() -> None:
+    from ai_qa_test_studio.ui.controllers.layout_controller import LayoutController
+
+    esc_src = inspect.getsource(LayoutController.on_escape)
+    assert "request_cancel" in esc_src
+    assert "_request_stop_browser" in esc_src or "create_task" in esc_src
+    assert "w._stop_browser()" not in esc_src.replace("w._request_stop_browser()", "")
+
+    req_src = inspect.getsource(MainWindow._request_stop_browser)
+    assert "request_cancel" in req_src
+    assert "create_task" in req_src
+
+
+@pytest.mark.asyncio
+async def test_stop_browser_clears_busy(qapp: QApplication, tmp_path: Path) -> None:
+    from unittest.mock import AsyncMock
+
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window._busy = True
+    window._set_busy_chrome(True)
+    window._status_caption.setText("Đang chạy…")
+    window.session.stop = AsyncMock(side_effect=RuntimeError("stop failed"))  # type: ignore[method-assign]
+    await window._run.stop_browser()
+    assert window._busy is False
     window.close()
 
 

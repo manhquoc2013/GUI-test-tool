@@ -498,6 +498,10 @@ class MainWindow(QMainWindow):
     async def _run_current(self) -> None:
         await self._run.run_current()
 
+    def _request_stop_browser(self) -> None:
+        self.session.request_cancel()
+        asyncio.get_running_loop().create_task(self._run.stop_browser())
+
     @asyncSlot()
     async def _stop_browser(self) -> None:
         await self._run.stop_browser()
