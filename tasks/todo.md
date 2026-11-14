@@ -1,22 +1,11 @@
-# Todo — Review Remediation (2026-11-14)
+# Todo — Bugbot P0 + Midscene MCP (2026-11-14)
 
-- [x] T1: DualLoop + Session cooperative cancel; Stop settles before engine.stop
-- [x] T2: Healer continues DOM/vision when locator still matches after action fail
-- [x] T3: Auto-binder heuristic returns None (no first-node default)
-- [x] T4: Orchestrator clarify races stop Event; UI rejects dialog on Stop
-- [x] T5: Critic clarify merges into user_text
-- [x] T6: Copilot history keeps composer/full artifact content for next turn
-- [x] T7: Gemini stream close on cancel; ambiguity markers tightened; MCP role ACL on invoke
-- [x] T8: Dual-loop expected_final_result normalized verify
-- [x] T9: Replace QMessageBox/QInputDialog in @asyncSlot with InfoBar / non-blocking prompt
-- [x] T10: closeEvent stops browser session
-- [x] T11: Esc stops Copilot when chat busy; block Copilot DOM while Run busy
-- [x] T12: Push drawer when width ≥ 960; overlay when < 960; update ADR tests
-- [x] T13: Signal arity: lambda wrappers for clicked→Signal (project gotcha)
-- [x] T14: OS keyring secret store; settings.json never stores raw API keys
-- [x] T15: Orchestrator yields chunk events during stream_chat
-- [x] T16: Reuse AsyncOpenAI client per gateway instance
-- [x] T17: Clear/rotate crew-memory per Copilot turn
-- [x] T18: Split MainWindow → layout/run/copilot/export controllers
-- [x] T19: Sync SPEC/ADR 0003/ARCHITECTURE/.ai-context for push layout + secrets
-- [x] T20: Full gates + learnings.md + multi-axis verify
+- [ ] B1: Constants ROLE_SYSTEM + MCP_QA_MIDSCENE + MCP_QA_PLAYWRIGHT
+- [ ] B2: Bundled qa-midscene server (locate) + unit tests
+- [ ] B3: Bundled qa-playwright server (screenshot/cdp_info) + registry wiring + system ACL
+- [ ] B4: Vision bridge + DualLoop/Session pass vision_locate when midscene enabled
+- [ ] B5: Cancel poll before/after execute and heal (2A)
+- [ ] B6: Esc schedules async stop; stop_browser clears _busy; sync request_cancel
+- [ ] B7: lean_tail_max_tokens bounds llm_window / history build
+- [ ] B8: Reuse Gemini client on gateway; seal api key in settings draft on leave/save
+- [ ] B9: Docs SPEC/ARCHITECTURE/.ai-context + learnings; full gates
