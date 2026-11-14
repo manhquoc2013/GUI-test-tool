@@ -7,6 +7,11 @@ from PySide6.QtWidgets import QButtonGroup, QRadioButton, QWidget
 from qfluentwidgets import CaptionLabel, LineEdit, MessageBoxBase, SubtitleLabel
 
 from ai_qa_test_studio.constants import (
+    CLARIFY_DIALOG_CUSTOM_PLACEHOLDER,
+    CLARIFY_DIALOG_HEADING,
+    CLARIFY_DIALOG_OK,
+    CLARIFY_DIALOG_TITLE,
+    CLARIFY_DIALOG_USE_DEFAULT,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
@@ -26,14 +31,19 @@ class ClarifyDialog(MessageBoxBase):
         default_answer: str,
         parent: QWidget,
         timeout_ms: int = COPILOT_CLARIFY_TIMEOUT_MS,
+        *,
+        role: str = "Agents",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Làm rõ yêu cầu")
+        self.setWindowTitle(CLARIFY_DIALOG_TITLE)
         self._default = default_answer or (suggestions[0] if suggestions else "")
         self._resolved = False
         self.widget.setMinimumWidth(UI_PALETTE_MIN_WIDTH)
 
-        self.viewLayout.addWidget(SubtitleLabel("Agents cần làm rõ", self.widget))
+        heading = CLARIFY_DIALOG_HEADING.format(
+            role=(role or "Agents").strip().title() or "Agents"
+        )
+        self.viewLayout.addWidget(SubtitleLabel(heading, self.widget))
         self.viewLayout.addWidget(CaptionLabel(question, self.widget))
 
         self._group = QButtonGroup(self.widget)
@@ -47,11 +57,11 @@ class ClarifyDialog(MessageBoxBase):
             self.viewLayout.addWidget(radio)
 
         self.custom = LineEdit(self.widget)
-        self.custom.setPlaceholderText("Hoặc tự nhập câu trả lời…")
+        self.custom.setPlaceholderText(CLARIFY_DIALOG_CUSTOM_PLACEHOLDER)
         self.viewLayout.addWidget(self.custom)
 
-        self.yesButton.setText("OK")
-        self.cancelButton.setText("Dùng mặc định")
+        self.yesButton.setText(CLARIFY_DIALOG_OK)
+        self.cancelButton.setText(CLARIFY_DIALOG_USE_DEFAULT)
         self.yesButton.clicked.connect(self._on_ok)
         self.cancelButton.clicked.connect(self._on_skip)
 
@@ -82,7 +92,7 @@ class ClarifyDialog(MessageBoxBase):
         self._emit(self._selected(), CLARIFY_SOURCE_USER)
 
     def _on_skip(self) -> None:
-        self._emit(self._default, CLARIFY_SOURCE_DEFAULT_SKIP)
+        self._emit(self._selected() if self._radios else self._default, CLARIFY_SOURCE_DEFAULT_SKIP)
 
     def _on_timeout(self) -> None:
         self._emit(self._default, CLARIFY_SOURCE_DEFAULT_TIMEOUT)

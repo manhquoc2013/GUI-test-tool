@@ -21,6 +21,16 @@ from ai_qa_test_studio.agent.spec_generator import SpecGenerator
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CLARIFY_AMBIGUITY_MARKERS,
+    CLARIFY_FALLBACK_DEFAULT,
+    CLARIFY_GENERIC_QUESTION,
+    CLARIFY_OPT_ATTACH_SRS,
+    CLARIFY_OPT_BVA_EDITOR,
+    CLARIFY_OPT_BVA_LOGIN,
+    CLARIFY_OPT_COMPOSE_FULL,
+    CLARIFY_OPT_COMPOSE_HAPPY,
+    CLARIFY_OPT_EXPLAIN_ONLY,
+    CLARIFY_OPT_WAIT_DETAIL,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
@@ -34,8 +44,12 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_NAME,
     COPILOT_AGENT_DEBATE_MAX_ROUNDS,
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
+    COPILOT_ARTIFACT_CTA_COMPOSE,
+    COPILOT_ARTIFACT_CTA_TEST_DATA,
     COPILOT_ATTACH_TOTAL_CHARS,
     COPILOT_CHAT_MAX_TOKENS,
+    COPILOT_COMPOSE_DOC_HINTS,
+    COPILOT_COMPOSE_KEYWORDS,
     COPILOT_MODE_COMPOSE,
     COPILOT_ROLE_REPLY_STYLE,
     COPILOT_SUMMARY_MAX_CHARS,
@@ -46,12 +60,17 @@ from ai_qa_test_studio.constants import (
     EVENT_CLARIFY_RESOLVED,
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
+    INTENT_COMPOSE,
+    INTENT_EXPLAIN,
+    INTENT_TEST_DATA,
+    INTENT_VALUES,
     LLM_PROVIDER_OFFLINE,
     LLM_TASK_ANALYZE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COMPOSE,
     LLM_TASK_CRITIQUE,
     LLM_TASK_DEBATE,
+    LLM_TASK_INTENT,
     LLM_TASK_OPTIMIZE,
     LLM_TASK_PLAN,
     LLM_TASK_REVISE,
@@ -65,6 +84,7 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
     SKILL_CONTEXT_MAX_CHARS,
 )
+from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
 logger = logging.getLogger(__name__)
@@ -180,7 +200,9 @@ class CopilotOrchestrator:
         plan_ref = self._put_artifact(mcp, ROLE_PLANNER, "plan", plan.text)
         plan.artifact_ref = plan_ref
         plan.summary = self._summary_of(mcp, plan_ref, plan.text, role=ROLE_PLANNER)
-        async for ev in self._maybe_clarify(ROLE_PLANNER, plan, user_text, complexity, stop, max_tokens):
+        async for ev in self._maybe_clarify(
+            ROLE_PLANNER, plan, user_text, complexity, stop, max_tokens, mode=mode
+        ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 user_text = f"{user_text}\n\n[Clarify] {ev.text}"
             yield ev
@@ -224,7 +246,9 @@ class CopilotOrchestrator:
         composed_ref = self._put_artifact(mcp, ROLE_COMPOSER, "compose", composed.text)
         composed.artifact_ref = composed_ref
         composed.summary = self._summary_of(mcp, composed_ref, composed.text, role=ROLE_COMPOSER)
-        async for ev in self._maybe_clarify(ROLE_COMPOSER, composed, user_text, complexity, stop, max_tokens):
+        async for ev in self._maybe_clarify(
+            ROLE_COMPOSER, composed, user_text, complexity, stop, max_tokens, mode=mode
+        ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 user_text = f"{user_text}\n\n[Clarify] {ev.text}"
             yield ev
@@ -269,7 +293,9 @@ class CopilotOrchestrator:
         critique = critique_out[0]
         critique_ref = self._put_artifact(mcp, ROLE_CRITIC, "critique", critique.text)
         critique.summary = self._summary_of(mcp, critique_ref, critique.text, role=ROLE_CRITIC)
-        async for ev in self._maybe_clarify(ROLE_CRITIC, critique, user_text, complexity, stop, max_tokens):
+        async for ev in self._maybe_clarify(
+            ROLE_CRITIC, critique, user_text, complexity, stop, max_tokens, mode=mode
+        ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 user_text = f"{user_text}\n\n[Clarify] {ev.text}"
             yield ev
@@ -470,7 +496,13 @@ class CopilotOrchestrator:
         complexity: str,
         stop: asyncio.Event,
         max_tokens: int,
+        *,
+        mode: str = "",
     ) -> AsyncIterator[OrchestratorEvent]:
+        # Clear QA intents (compose / BVA / explain) must not pop a vague dialog
+        # just because the model hedged with the word CLARIFY.
+        if self._intent_is_actionable(user_text, mode) and not self._looks_ambiguous(user_text):
+            return
         ambiguous = result.needs_clarify or self._looks_ambiguous(user_text, result.text)
         if not ambiguous:
             return
@@ -545,10 +577,240 @@ class CopilotOrchestrator:
     def _looks_ambiguous(self, user_text: str, _role_text: str = "") -> bool:
         """User-intent markers only — do not treat role prose like 'clarify' as ambiguity."""
         blob = (user_text or "").lower()
-        markers = ("chưa rõ", "unclear", "ambiguous", "cần làm rõ", "???")
-        if any(m in blob for m in markers):
+        if any(m in blob for m in CLARIFY_AMBIGUITY_MARKERS):
             return True
         return len(user_text.strip()) < 8 and "?" in user_text
+
+    def _intent_is_actionable(self, user_text: str, mode: str = "") -> bool:
+        """True when the request already names a concrete QA deliverable."""
+        if mode == COPILOT_MODE_COMPOSE:
+            return True
+        lowered = (user_text or "").lower()
+        if any(k in lowered for k in COPILOT_COMPOSE_KEYWORDS):
+            return True
+        keywords = (
+            "test data",
+            "bva",
+            "biên",
+            "bộ dữ liệu",
+            "giải thích lỗi",
+            "giải thích bước",
+            "yaml",
+            "tải",
+            "happy path",
+            "negative",
+        )
+        return any(k in lowered for k in keywords)
+
+    def _wants_compose(self, user_text: str, mode: str, ctx_block: str) -> bool:
+        """Soft keyword/doc heuristic — LLM intent is the primary gate."""
+        if mode == COPILOT_MODE_COMPOSE:
+            return True
+        lowered = (user_text or "").lower()
+        if any(k in lowered for k in COPILOT_COMPOSE_KEYWORDS):
+            return True
+        has_doc = "ATTACHMENTS:" in (ctx_block or "") or "SRS:" in (ctx_block or "")
+        if has_doc and any(k in lowered for k in COPILOT_COMPOSE_DOC_HINTS):
+            return True
+        return False
+
+    def _heuristic_intent(self, user_text: str, mode: str, ctx_block: str) -> str:
+        lowered = (user_text or "").lower()
+        if mode == COPILOT_MODE_COMPOSE or self._wants_compose(user_text, mode, ctx_block):
+            return INTENT_COMPOSE
+        if any(k in lowered for k in ("bva", "test data", "biên", "bộ dữ liệu")):
+            return INTENT_TEST_DATA
+        if any(k in lowered for k in ("giải thích", "explain", "vì sao", "why")):
+            return INTENT_EXPLAIN
+        has_doc = "ATTACHMENTS:" in (ctx_block or "") or "SRS:" in (ctx_block or "")
+        if has_doc:
+            # Attached QA doc without an explicit "chỉ giải thích" → assume compose.
+            return INTENT_COMPOSE
+        return INTENT_EXPLAIN
+
+    async def _infer_intent(
+        self,
+        user_text: str,
+        mode: str,
+        ctx_block: str,
+        plan_text: str,
+        gw: UnifiedLLMGateway,
+        stop: asyncio.Event,
+    ) -> str:
+        """LLM classifies intent; keywords are offline/fallback only — never a hard gate."""
+        heuristic = self._heuristic_intent(user_text, mode, ctx_block)
+        if gw.provider == LLM_PROVIDER_OFFLINE:
+            return heuristic
+        system = (
+            "Classify the Vietnamese QA Copilot request by meaning, not keywords. "
+            "Paraphrases, typos, and informal wording still count. "
+            "compose = create/analyze/draft test scenarios or cases from SRS/docs "
+            "(user wants Apply/Excel artifact). "
+            "test_data = boundary/BVA rows for an existing case. "
+            "explain = only explain/plan/debug, no artifact. "
+            "If a document is attached and the user asks to help build tests "
+            "(any wording), prefer compose. "
+            'Reply JSON only: {"intent":"compose"|"test_data"|"explain"}.'
+        )
+        messages = [
+            ChatMessage(role="system", content=system),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"ModeHint={mode}\nHeuristicHint={heuristic}\n"
+                    f"Plan:\n{plan_text[:600]}\n"
+                    f"ContextHead:\n{(ctx_block or '')[:1200]}\n"
+                    f"Request:\n{user_text}"
+                ),
+            ),
+        ]
+        raw = await self._collect_text(gw, messages, stop, max_tokens=64)
+        parsed = self._parse_json_obj(raw)
+        intent = str((parsed or {}).get("intent") or "").strip().lower()
+        if intent in INTENT_VALUES:
+            return intent
+        blob = (raw or "").lower()
+        if INTENT_TEST_DATA in blob:
+            return INTENT_TEST_DATA
+        if INTENT_COMPOSE in blob:
+            return INTENT_COMPOSE
+        if INTENT_EXPLAIN in blob:
+            return INTENT_EXPLAIN
+        return heuristic
+
+    async def _collect_text(
+        self,
+        gw: UnifiedLLMGateway,
+        messages: list[ChatMessage],
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> str:
+        sink: list[str] = []
+        async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+            sink.append(piece)
+            if stop.is_set():
+                break
+        return "".join(sink).strip()
+
+    async def _generate_scenarios_llm(
+        self,
+        srs: str,
+        gw: UnifiedLLMGateway,
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> list[TestScenario]:
+        async def _llm(prompt: str) -> str:
+            return await self._collect_text(
+                gw,
+                [ChatMessage(role="user", content=prompt)],
+                stop,
+                max_tokens=min(max_tokens, 1800),
+            )
+
+        gen = SpecGenerator(llm=_llm, compressor=self.compressor)
+        if gw.provider == LLM_PROVIDER_OFFLINE:
+            scenarios = gen.generate_outline_sync(srs)
+            for sc in scenarios:
+                sc.cases = gen.generate_cases_sync(sc, batch_size=2)
+            return scenarios
+        scenarios = await gen.generate_outline(srs)
+        if not scenarios:
+            scenarios = gen.generate_outline_sync(srs)
+        for sc in scenarios:
+            if stop.is_set():
+                break
+            cases = await gen.generate_cases_batch(sc, batch_size=2)
+            sc.cases = cases or gen.generate_cases_sync(sc, batch_size=2)
+        return scenarios
+
+    def _scenarios_from_composer_json(self, text: str) -> list[TestScenario]:
+        parsed = self._parse_json_obj(text)
+        if not parsed:
+            return []
+        kind = str(parsed.get("kind") or "")
+        if kind and kind not in {APPLY_KIND_COMPOSE, "scenarios", "compose"}:
+            if "scenarios" not in parsed:
+                return []
+        return SpecGenerator(compressor=self.compressor)._parse_artifact_bundle(
+            json.dumps(parsed)
+        )
+
+    def _srs_from_context(self, ctx_block: str, user_text: str) -> str:
+        """Prefer attached / SRS document body over the short chat prompt."""
+        block = ctx_block or ""
+        if "SRS:" in block:
+            body = block.split("SRS:", 1)[-1].strip()
+            if body:
+                return body
+        if "ATTACHMENTS:" in block:
+            body = block.split("ATTACHMENTS:", 1)[-1].strip()
+            if body:
+                return body
+        return user_text
+
+    def _with_artifact_cta(self, text: str, cta: str) -> str:
+        body = (text or "").strip()
+        marker = "Tải Excel"
+        if marker in body or "Apply" in body:
+            return body
+        if not body:
+            return cta
+        return f"{body}\n{cta}"
+
+    def _heuristic_clarify_draft(self, user_text: str) -> dict[str, Any]:
+        """Concrete VN options — never vague 'giả định mặc định'."""
+        lowered = (user_text or "").lower()
+        if any(k in lowered for k in ("bva", "test data", "biên", "bộ dữ liệu")):
+            return {
+                "question": "Bạn muốn sinh Test Data biên (BVA) theo hướng nào?",
+                "suggestions": [
+                    CLARIFY_OPT_BVA_EDITOR,
+                    CLARIFY_OPT_BVA_LOGIN,
+                    CLARIFY_OPT_WAIT_DETAIL,
+                ],
+                "default": CLARIFY_OPT_BVA_EDITOR,
+            }
+        if any(
+            k in lowered
+            for k in ("kịch bản", "scenario", "srs", "test case", "draft", "assertion")
+        ):
+            return {
+                "question": "Bạn muốn Copilot sinh kịch bản kiểm thử thế nào?",
+                "suggestions": [
+                    CLARIFY_OPT_COMPOSE_HAPPY,
+                    CLARIFY_OPT_COMPOSE_FULL,
+                    CLARIFY_OPT_ATTACH_SRS,
+                    CLARIFY_OPT_WAIT_DETAIL,
+                ],
+                "default": CLARIFY_OPT_COMPOSE_HAPPY,
+            }
+        return {
+            "question": CLARIFY_GENERIC_QUESTION,
+            "suggestions": [
+                CLARIFY_OPT_COMPOSE_HAPPY,
+                CLARIFY_OPT_BVA_EDITOR,
+                CLARIFY_OPT_EXPLAIN_ONLY,
+                CLARIFY_OPT_WAIT_DETAIL,
+            ],
+            "default": CLARIFY_FALLBACK_DEFAULT,
+        }
+
+    def _is_vague_clarify_draft(self, draft: dict[str, Any]) -> bool:
+        question = str(draft.get("question") or "").lower()
+        suggestions = [str(s).lower() for s in (draft.get("suggestions") or [])]
+        vague_bits = (
+            "điểm mờ",
+            "giả định mặc định",
+            "bổ sung chi tiết sau",
+            "làm rõ yêu cầu thế nào",
+            "tiếp tục theo hướng nào",
+        )
+        if any(bit in question for bit in vague_bits):
+            return True
+        return any(
+            any(bit in s for bit in ("giả định mặc định", "bổ sung chi tiết sau"))
+            for s in suggestions
+        )
 
     async def _draft_clarify(
         self,
@@ -559,10 +821,13 @@ class CopilotOrchestrator:
         stop: asyncio.Event,
         max_tokens: int,
     ) -> dict[str, Any]:
+        heuristic = self._heuristic_clarify_draft(user_text)
         gw = self._gw(LLM_TASK_CLARIFY_DRAFT, complexity)
         system = (
-            "Draft one clarification question for a QA user. "
-            "Reply JSON: {\"question\":\"...\",\"suggestions\":[\"a\",\"b\"],\"default\":\"a\"}"
+            "Draft ONE clarification for a Vietnamese QA user. "
+            "Options must name a concrete deliverable (compose scenarios, BVA rows, explain only). "
+            "Never use vague options like 'default assumption' or 'add details later'. "
+            'Reply JSON only: {"question":"...","suggestions":["a","b"],"default":"a"}'
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -576,20 +841,19 @@ class CopilotOrchestrator:
             buf.append(chunk)
         raw = "".join(buf)
         parsed = self._parse_json_obj(raw)
-        if parsed:
-            suggestions = [str(s) for s in (parsed.get("suggestions") or [])][:4]
-            fallback = "Tiếp tục với giả định mặc định"
-            default = str(parsed.get("default") or (suggestions[0] if suggestions else fallback))
-            return {
-                "question": str(parsed.get("question") or "Bạn muốn làm rõ yêu cầu thế nào?"),
-                "suggestions": suggestions or [fallback, "Bổ sung chi tiết sau"],
-                "default": default,
-            }
-        return {
-            "question": "Yêu cầu còn điểm mờ — bạn muốn tiếp tục theo hướng nào?",
-            "suggestions": ["Tiếp tục với giả định mặc định", "Bổ sung chi tiết sau"],
-            "default": "Tiếp tục với giả định mặc định",
+        if not parsed:
+            return heuristic
+        suggestions = [str(s).strip() for s in (parsed.get("suggestions") or []) if str(s).strip()][:4]
+        question = str(parsed.get("question") or "").strip()
+        default = str(parsed.get("default") or (suggestions[0] if suggestions else "")).strip()
+        draft = {
+            "question": question or heuristic["question"],
+            "suggestions": suggestions or list(heuristic["suggestions"]),
+            "default": default or heuristic["default"],
         }
+        if self._is_vague_clarify_draft(draft):
+            return heuristic
+        return draft
 
     def _parse_json_obj(self, raw: str) -> dict[str, Any] | None:
         text = raw.strip()
@@ -749,7 +1013,8 @@ class CopilotOrchestrator:
             "You are the Planner role for AI QA Test Studio. "
             "Output a short numbered plan (3-5 steps). Do not mutate test assets. "
             f"{COPILOT_ROLE_REPLY_STYLE} "
-            "If the request is ambiguous, include the word CLARIFY."
+            "Only include the word CLARIFY when blocked (missing URL/SRS/field) — "
+            "never for mild uncertainty."
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -785,54 +1050,97 @@ class CopilotOrchestrator:
         out: list[_RoleResult],
         revise: bool = False,
     ) -> AsyncIterator[OrchestratorEvent]:
-        lowered = user_text.lower()
-        wants_bva = any(k in lowered for k in ("bva", "test data", "biên", "bộ dữ liệu"))
-        wants_compose = mode == COPILOT_MODE_COMPOSE or any(
-            k in lowered for k in ("tạo kịch bản", "srs", "scenario", "draft")
+        intent_gw = self._gw(LLM_TASK_INTENT, "simple")
+        intent = await self._infer_intent(
+            user_text, mode, ctx_block, plan_text, intent_gw, stop
         )
         system = (
-            "You are the Composer role. Produce the deliverable for the QA request. "
-            "If proposing test data, include a compact JSON block with key rows. "
-            "If proposing scenarios, list code + title only for Apply. "
+            "You are the Composer role for AI QA Test Studio. "
+            "Understand the user intent in natural language (Vietnamese/English) — "
+            "do not require exact keywords. "
+            "Write a short Vietnamese summary for the chat bubble. "
+            "When creating scenarios/cases, ALSO append a JSON object "
+            '{"kind":"compose_scenarios","scenarios":[{"code","title","requirement_ref",'
+            '"description","cases":[{"code","title","preconditions","steps":'
+            '[{"step_no","action","intent_hint","input_data","expected_result"}]}]}]}. '
+            "When creating test data only, append "
+            '{"kind":"test_data_rows","rows":[...]} . '
             f"{COPILOT_ROLE_REPLY_STYLE} "
-            "If ambiguous, include the word CLARIFY."
+            "Only include CLARIFY when blocked by missing required input."
         )
         messages = [
             ChatMessage(role="system", content=system),
             *hist[-6:],
             ChatMessage(
                 role="user",
-                content=f"Plan:\n{plan_text}\n\nContext:\n{ctx_block}\n\nRequest:\n{user_text}",
+                content=(
+                    f"IntentHint={intent}\nPlan:\n{plan_text}\n\n"
+                    f"Context:\n{ctx_block}\n\nRequest:\n{user_text}"
+                ),
             ),
         ]
         sink: list[str] = []
         async for ev in self._collect(gw, messages, stop, max_tokens, sink, role=ROLE_COMPOSER):
             yield ev
         text = "".join(sink).strip()
-        apply_payload = None
-        if wants_bva and mode != COPILOT_MODE_COMPOSE:
+        apply_payload: dict[str, Any] | None = None
+
+        # Prefer structured JSON the LLM already emitted.
+        parsed = self._parse_json_obj(text)
+        if parsed and str(parsed.get("kind") or "") == APPLY_KIND_TEST_DATA:
+            rows = parsed.get("rows") or []
+            if isinstance(rows, list) and rows:
+                apply_payload = {"kind": APPLY_KIND_TEST_DATA, "rows": rows}
+                intent = INTENT_TEST_DATA
+        scenarios = self._scenarios_from_composer_json(text)
+        if scenarios:
+            intent = INTENT_COMPOSE
+            apply_payload = {
+                "kind": APPLY_KIND_COMPOSE,
+                "scenarios": [s.model_dump(mode="json") for s in scenarios],
+            }
+
+        if apply_payload is None and intent == INTENT_TEST_DATA:
             rows = self._offline_bva_rows()
             apply_payload = {"kind": APPLY_KIND_TEST_DATA, "rows": rows}
             if not text or gw.provider == LLM_PROVIDER_OFFLINE:
-                text = f"Đề xuất {len(rows)} bộ Test Data BVA — bấm Apply để thêm."
-        elif wants_compose:
-            srs = ""
-            if "SRS:" in ctx_block:
-                srs = ctx_block.split("SRS:", 1)[-1].strip()
-            srs = srs or user_text
-            scenarios = self.generator.generate_outline_sync(srs)
-            for sc in scenarios:
-                sc.cases = self.generator.generate_cases_sync(sc, batch_size=2)
-            payload_scenarios = [s.model_dump(mode="json") for s in scenarios]
-            apply_payload = {"kind": APPLY_KIND_COMPOSE, "scenarios": payload_scenarios}
+                text = f"Đề xuất {len(rows)} bộ Test Data BVA — bấm Tải Excel hoặc Apply."
+            text = self._with_artifact_cta(
+                text, COPILOT_ARTIFACT_CTA_TEST_DATA.format(count=len(rows))
+            )
+        elif apply_payload is None and intent == INTENT_COMPOSE:
+            srs = self._srs_from_context(ctx_block, user_text)
+            scenarios = await self._generate_scenarios_llm(srs, gw, stop, max_tokens)
+            apply_payload = {
+                "kind": APPLY_KIND_COMPOSE,
+                "scenarios": [s.model_dump(mode="json") for s in scenarios],
+            }
+            case_count = sum(len(s.cases) for s in scenarios)
             if not text or gw.provider == LLM_PROVIDER_OFFLINE:
                 names = ", ".join(s.code for s in scenarios[:5])
-                body = f"Draft UNBOUND: {len(scenarios)} scenario ({names}) — Apply để thêm."
+                body = (
+                    f"Draft UNBOUND: {len(scenarios)} scenario / {case_count} case "
+                    f"({names}) — Tải Excel hoặc Apply."
+                )
                 text = ("[Revised] " + body) if revise else body
+            text = self._with_artifact_cta(
+                text, COPILOT_ARTIFACT_CTA_COMPOSE.format(count=len(scenarios))
+            )
+        elif apply_payload and apply_payload.get("kind") == APPLY_KIND_COMPOSE:
+            count = len(apply_payload.get("scenarios") or [])
+            text = self._with_artifact_cta(
+                text, COPILOT_ARTIFACT_CTA_COMPOSE.format(count=count)
+            )
+        elif apply_payload and apply_payload.get("kind") == APPLY_KIND_TEST_DATA:
+            count = len(apply_payload.get("rows") or [])
+            text = self._with_artifact_cta(
+                text, COPILOT_ARTIFACT_CTA_TEST_DATA.format(count=count)
+            )
+
         if not text:
             text = (
                 f"{'[Revised] ' if revise else ''}"
-                f"Đã xử lý yêu cầu «{user_text[:80]}» — xem Apply nếu có artifact."
+                f"Đã xử lý yêu cầu «{user_text[:80]}» — xem Apply / Tải Excel nếu có artifact."
             )
         needs = "CLARIFY" in text.upper()
         out.append(_RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs))
@@ -918,7 +1226,7 @@ class CopilotOrchestrator:
             "You are the Critic. Reply with APPROVE or REVISE and short notes. "
             "One review only. "
             f"{COPILOT_ROLE_REPLY_STYLE} "
-            "If ambiguous user intent, include CLARIFY."
+            "Do not include CLARIFY unless the user request itself is empty or contradictory."
         )
         messages = [
             ChatMessage(role="system", content=system),

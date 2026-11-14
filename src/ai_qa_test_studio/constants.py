@@ -85,6 +85,58 @@ COPILOT_MODE_CASE = "case_chat"
 APPLY_KIND_COMPOSE = "compose_scenarios"
 APPLY_KIND_TEST_DATA = "test_data_rows"
 APPLY_KIND_STEPS = "steps_patch"
+# Intent → compose artifact (Apply / Tải Excel). Typo-tolerant stems included.
+COPILOT_COMPOSE_KEYWORDS: tuple[str, ...] = (
+    "tạo kịch bản",
+    "sinh kịch bản",
+    "kịch bản",
+    "srs",
+    "scenario",
+    "scenar",  # typo: screnaro / scenaro
+    "draft",
+    "test case",
+    "test scen",
+    "test scren",
+    "phân tích",
+    "tạo các test",
+    "sinh test",
+    "assertion",
+    "excel",
+    "trích xuất",
+    "generate",
+    "analyze",
+)
+COPILOT_COMPOSE_DOC_HINTS: tuple[str, ...] = (
+    "tạo",
+    "sinh",
+    "phân tích",
+    "analyze",
+    "generate",
+    "test",
+    "draft",
+    "excel",
+    "kiểm thử",
+    "kiem thu",
+    "bộ kiểm",
+    "bo kiem",
+    "làm giúp",
+    "lam giup",
+    "giúp tôi",
+    "giup toi",
+    "file này",
+    "file nay",
+    "từ file",
+    "tu file",
+    "đính kèm",
+    "dinh kem",
+)
+COPILOT_ARTIFACT_CTA_COMPOSE = (
+    "→ {count} scenario draft sẵn sàng — bấm Tải Excel hoặc Apply vào Editor."
+)
+COPILOT_ARTIFACT_CTA_TEST_DATA = (
+    "→ {count} bộ Test Data sẵn sàng — bấm Tải Excel hoặc Apply."
+)
+COPILOT_ARTIFACT_READY_NOTE = "Artifact sẵn sàng ({count}). Bấm Tải Excel hoặc Apply bên dưới."
 # VN QA test-doc Excel (ISTQB / IEEE 829 style — aligned with legacy Test Studio)
 VN_TC_SHEET_OVERVIEW = "Tổng quan"
 VN_TC_SHEET_SCENARIOS = "Kịch bản"
@@ -165,6 +217,11 @@ LLM_TASK_CRITIQUE = "critique"
 LLM_TASK_DEBATE = "debate"
 LLM_TASK_SUMMARIZE = "summarize"
 LLM_TASK_CLARIFY_DRAFT = "clarify_draft"
+LLM_TASK_INTENT = "intent"
+INTENT_COMPOSE = "compose"
+INTENT_TEST_DATA = "test_data"
+INTENT_EXPLAIN = "explain"
+INTENT_VALUES: tuple[str, ...] = (INTENT_COMPOSE, INTENT_TEST_DATA, INTENT_EXPLAIN)
 LLM_TIER_FAST = "fast"
 LLM_TIER_MID = "mid"
 LLM_TIER_STRONG = "strong"
@@ -197,6 +254,30 @@ CLARIFY_SOURCE_USER = "user"
 CLARIFY_SOURCE_DEFAULT_TIMEOUT = "default_timeout"
 CLARIFY_SOURCE_DEFAULT_SKIP = "default_skip"
 CLARIFY_SOURCE_STOPPED = "stopped"
+CLARIFY_DIALOG_TITLE = "Làm rõ yêu cầu"
+CLARIFY_DIALOG_HEADING = "{role} cần làm rõ"
+CLARIFY_DIALOG_CUSTOM_PLACEHOLDER = "Hoặc tự nhập câu trả lời…"
+CLARIFY_DIALOG_OK = "OK"
+CLARIFY_DIALOG_USE_DEFAULT = "Dùng gợi ý đã chọn"
+CLARIFY_GENERIC_QUESTION = (
+    "Cần chọn hướng xử lý trước khi sinh artifact — bạn muốn gì?"
+)
+CLARIFY_OPT_COMPOSE_HAPPY = "Sinh kịch bản happy path (UNBOUND) rồi cho Tải Excel / Apply"
+CLARIFY_OPT_COMPOSE_FULL = "Sinh kèm negative + BVA (nhiều case hơn)"
+CLARIFY_OPT_EXPLAIN_ONLY = "Chỉ giải thích / lập kế hoạch — chưa sinh kịch bản"
+CLARIFY_OPT_BVA_EDITOR = "Sinh Test Data biên cho case đang mở trên Editor"
+CLARIFY_OPT_BVA_LOGIN = "Sinh Test Data biên mẫu cho form login (user/password)"
+CLARIFY_OPT_ATTACH_SRS = "Dùng tài liệu / SRS đã đính kèm làm nguồn"
+CLARIFY_OPT_WAIT_DETAIL = "Dừng lại — tôi sẽ nhập thêm chi tiết ngay"
+CLARIFY_FALLBACK_DEFAULT = CLARIFY_OPT_COMPOSE_HAPPY
+CLARIFY_AMBIGUITY_MARKERS = (
+    "chưa rõ",
+    "unclear",
+    "ambiguous",
+    "cần làm rõ",
+    "???",
+    "không biết",
+)
 ROUTING_MODE_AUTO = "auto"
 ROUTING_MODE_MANUAL = "manual"
 UI_SETTINGS_MIN_WIDTH = 820
@@ -267,6 +348,29 @@ UI_STATUS_BAR_HEIGHT = 28
 UI_TABLE_ROW_HEIGHT = 42
 UI_TREE_ROW_HEIGHT = 34
 UI_MSG_ACTION_BTN_SIZE = 28
+CHAT_BUBBLE_MAX_WIDTH = 520
+CHAT_BUBBLE_RADIUS = 12
+CHAT_BUBBLE_PADDING_H = 12
+CHAT_BUBBLE_PADDING_V = 10
+CHAT_BUBBLE_GAP = 8
+CHAT_BUBBLE_ROW_MARGIN = 6
+CHAT_ROLE_BADGE_PAD_H = 8
+CHAT_ROLE_BADGE_PAD_V = 2
+CHAT_ROLE_BADGE_RADIUS = 8
+CHAT_ROLE_BADGE_FONT_PX = 11
+CHAT_BODY_FONT_PX = 13
+CHAT_TRANSCRIPT_SPACING = 10
+CHAT_ROLE_LABELS: dict[str, str] = {
+    "user": "Bạn",
+    ROLE_PLANNER: "Chuyên gia hoạch định",
+    ROLE_COMPOSER: "Chuyên gia kiểm thử",
+    ROLE_CRITIC: "Chuyên gia phản biện",
+    ROLE_ANALYZER: "Chuyên gia phân tích",
+    ROLE_OPTIMIZER: "Chuyên gia tối ưu",
+    ROLE_CREW: "Đội Copilot",
+    ROLE_SYSTEM: "Hệ thống",
+    "assistant": "Trợ lý AI",
+}
 UI_DRAWER_COLLAPSED_HEIGHT = 42
 UI_DRAWER_EXPANDED_HEIGHT = 210
 UI_DRAWER_EXPAND_MIN_HEIGHT = 150

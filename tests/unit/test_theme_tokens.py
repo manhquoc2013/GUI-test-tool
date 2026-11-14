@@ -23,6 +23,8 @@ def test_light_tokens_use_three_tier_surfaces() -> None:
     assert t.action_styles["click"] == ("rgba(2, 132, 199, 0.12)", "#0369A1")
     assert t.warning_fg == "#B45309"
     assert t.success_fg == "#047857"
+    assert t.bubble_user_bg == "#EFF6FF"
+    assert t.bubble_role_accents["planner"] == "#A16207"
 
 
 def test_dark_tokens_match_design_elevation() -> None:
@@ -31,6 +33,7 @@ def test_dark_tokens_match_design_elevation() -> None:
     assert t.bg_topbar == "#1E2025"
     assert t.text_primary == "#F8FAFC"
     assert t.action_styles["assert"][1] == "#FBBF24"
+    assert "composer" in t.bubble_role_accents
 
 
 def test_surface_helpers_honor_forced_theme() -> None:

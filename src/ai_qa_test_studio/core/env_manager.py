@@ -20,6 +20,7 @@ from ai_qa_test_studio.constants import (
     LLM_TASK_COMPOSE,
     LLM_TASK_CRITIQUE,
     LLM_TASK_DEBATE,
+    LLM_TASK_INTENT,
     LLM_TASK_OPTIMIZE,
     LLM_TASK_PLAN,
     LLM_TASK_REVISE,
@@ -60,6 +61,11 @@ def default_task_complexity_matrix() -> dict[str, dict[str, str]]:
             COMPLEXITY_SIMPLE: LLM_TIER_FAST,
             COMPLEXITY_NORMAL: LLM_TIER_FAST,
             COMPLEXITY_COMPLEX: LLM_TIER_MID,
+        },
+        LLM_TASK_INTENT: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_FAST,
+            COMPLEXITY_COMPLEX: LLM_TIER_FAST,
         },
         LLM_TASK_PLAN: {
             COMPLEXITY_SIMPLE: LLM_TIER_FAST,

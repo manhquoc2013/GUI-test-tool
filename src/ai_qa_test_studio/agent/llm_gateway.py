@@ -95,6 +95,29 @@ class UnifiedLLMGateway:
         sys_l = system.lower()
         if "classify" in sys_l and "complexity" in sys_l:
             text = "normal"
+        elif "classify the vietnamese qa" in sys_l or '"intent"' in sys_l:
+            last_l = last.lower()
+            has_doc = "attachment" in last_l or "srs" in last_l
+            if any(k in last_l for k in ("bva", "test data", "biên", "bộ dữ liệu")):
+                text = '{"intent":"test_data"}'
+            elif any(
+                k in last_l for k in ("giải thích", "explain", "heuristichint=explain")
+            ) and not has_doc:
+                text = '{"intent":"explain"}'
+            elif has_doc or any(
+                k in last_l
+                for k in (
+                    "compose",
+                    "kịch bản",
+                    "kiểm thử",
+                    "scenario",
+                    "làm giúp",
+                    "heuristichint=compose",
+                )
+            ):
+                text = '{"intent":"compose"}'
+            else:
+                text = '{"intent":"explain"}'
         elif "clarification question" in sys_l or "draft one clarification" in sys_l:
             text = (
                 '{"question":"Bạn muốn phạm vi nào?","suggestions":'

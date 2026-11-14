@@ -22,10 +22,18 @@ def _now_iso() -> str:
 class CopilotMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     role: str
+    # Full body for agent/LLM handoff (never clipped).
     content: str = ""
+    # Short bubble text for the transcript UI; empty → UI may clip content.
+    summary: str = ""
     status: str = MSG_STATUS_COMPLETE
     apply_payload: dict[str, Any] | None = None
     created_at: str = Field(default_factory=_now_iso)
+
+    def bubble_text(self) -> str:
+        """Prefer short summary for display; fall back to full content."""
+        short = (self.summary or "").strip()
+        return short if short else self.content
 
 
 class CopilotSession(BaseModel):

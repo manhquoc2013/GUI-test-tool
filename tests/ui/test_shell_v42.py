@@ -235,6 +235,23 @@ def test_chat_undo_from_message(qapp: QApplication, tmp_path: Path) -> None:
     window.close()
 
 
+def test_chat_end_role_keeps_full_content_shows_summary(qapp: QApplication) -> None:
+    from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
+
+    pane = CopilotChatPane()
+    pane.show()
+    qapp.processEvents()
+    pane.begin_role("composer")
+    full = "FULL draft: " + ("scenario detail. " * 30)
+    summary = "Draft ngắn — Tải Excel / Apply."
+    pane.end_role("composer", full, summary=summary)
+    msg = pane.session.messages[-1]
+    assert msg.content == full
+    assert msg.summary == summary
+    assert pane._rows[-1]._text == summary
+    pane.close()
+
+
 def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path: Path) -> None:
     from PySide6.QtWidgets import QSizePolicy
 

@@ -76,3 +76,31 @@ def test_copilot_controller_passes_lean_tail_as_max_chars() -> None:
     src = inspect.getsource(CopilotController.on_prompt)
     assert "lean_tail_max_tokens" in src
     assert "max_chars=" in src
+
+
+def test_message_bubble_text_prefers_summary_keeps_full_content() -> None:
+    msg = CopilotMessage(
+        role=ROLE_COMPOSER,
+        content="FULL draft with 18 scenarios and detailed steps…",
+        summary="Draft 18 scenario — Tải Excel / Apply.",
+    )
+    assert msg.bubble_text() == "Draft 18 scenario — Tải Excel / Apply."
+    assert "18 scenarios" in msg.content
+
+
+def test_persist_summary_and_full_content(tmp_path: Path) -> None:
+    store = ChatHistoryStore(tmp_path)
+    session = CopilotSession(mode=COPILOT_MODE_CASE, title="Hybrid")
+    session.messages.append(
+        CopilotMessage(
+            role=ROLE_COMPOSER,
+            content="FULL BODY " + ("x" * 200),
+            summary="short summary",
+        )
+    )
+    store.upsert(session)
+    store.save()
+    loaded = ChatHistoryStore(tmp_path).list_sessions()[0]
+    assert loaded.messages[0].summary == "short summary"
+    assert loaded.messages[0].content.startswith("FULL BODY")
+    assert loaded.messages[0].bubble_text() == "short summary"

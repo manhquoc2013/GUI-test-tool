@@ -37,6 +37,15 @@ class ThemeTokens:
     success_bg: str
     success_fg: str
     action_styles: dict[str, tuple[str, str]]
+    # Copilot chat bubbles
+    bubble_user_bg: str
+    bubble_user_border: str
+    bubble_user_fg: str
+    bubble_agent_bg: str
+    bubble_agent_border: str
+    bubble_system_bg: str
+    bubble_system_border: str
+    bubble_role_accents: dict[str, str]
 
 
 DARK_TOKENS = ThemeTokens(
@@ -62,6 +71,24 @@ DARK_TOKENS = ThemeTokens(
         "select": ("rgba(167, 139, 250, 0.16)", "#A78BFA"),
         "assert": ("rgba(251, 191, 36, 0.16)", "#FBBF24"),
     },
+    bubble_user_bg="rgba(14, 165, 233, 0.18)",
+    bubble_user_border="rgba(56, 189, 248, 0.45)",
+    bubble_user_fg="#E0F2FE",
+    bubble_agent_bg="rgba(255, 255, 255, 0.05)",
+    bubble_agent_border="rgba(255, 255, 255, 0.12)",
+    bubble_system_bg="rgba(245, 158, 11, 0.10)",
+    bubble_system_border="rgba(245, 158, 11, 0.28)",
+    bubble_role_accents={
+        "user": "#38BDF8",
+        "planner": "#FACC15",
+        "composer": "#A5B4FC",
+        "critic": "#FB7185",
+        "analyzer": "#34D399",
+        "optimizer": "#67E8F9",
+        "crew": "#94A3B8",
+        "system": "#FBBF24",
+        "assistant": "#A5B4FC",
+    },
 )
 
 LIGHT_TOKENS = ThemeTokens(
@@ -86,6 +113,24 @@ LIGHT_TOKENS = ThemeTokens(
         "fill": ("rgba(5, 150, 105, 0.12)", "#047857"),
         "select": ("rgba(124, 58, 237, 0.12)", "#6D28D9"),
         "assert": ("rgba(217, 119, 6, 0.13)", "#B45309"),
+    },
+    bubble_user_bg="#EFF6FF",
+    bubble_user_border="#BFDBFE",
+    bubble_user_fg="#1E3A8A",
+    bubble_agent_bg="#F8FAFC",
+    bubble_agent_border="#E2E8F0",
+    bubble_system_bg="#FFFBEB",
+    bubble_system_border="#FCD34D",
+    bubble_role_accents={
+        "user": "#0369A1",
+        "planner": "#A16207",
+        "composer": "#4F46E5",
+        "critic": "#BE123C",
+        "analyzer": "#047857",
+        "optimizer": "#0E7490",
+        "crew": "#64748B",
+        "system": "#B45309",
+        "assistant": "#4F46E5",
     },
 )
 

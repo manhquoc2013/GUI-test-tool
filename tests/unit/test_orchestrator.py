@@ -27,6 +27,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
     COPILOT_SUMMARY_MAX_CHARS,
+    EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
     EVENT_STATUS_SUMMARY,
     LLM_PROVIDER_OFFLINE,
@@ -70,6 +71,99 @@ async def test_compose_mode_emits_apply_payload() -> None:
     assert payloads
     assert payloads[-1]["kind"] == APPLY_KIND_COMPOSE
     assert payloads[-1]["scenarios"]
+
+
+@pytest.mark.asyncio
+async def test_attachment_analyze_typo_emits_apply_payload() -> None:
+    """Regression: 'test screnaro' + attached SRS must still produce Apply/Excel artifact."""
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    payloads = []
+    texts: list[str] = []
+    async for event in orch.run(
+        user_text="phân tích và tạo các test screnaro",
+        mode=COPILOT_MODE_CASE,
+        context={
+            CONTEXT_KEY_ATTACHMENTS: [
+                {
+                    "name": "srs.docx",
+                    "markdown": "# SRS Đăng ký người yếu thế\n## Happy path\n## Negative",
+                }
+            ]
+        },
+    ):
+        if event.kind == "apply_ready" and event.apply_payload:
+            payloads.append(event.apply_payload)
+        if event.kind == "role_end" and event.role == ROLE_COMPOSER:
+            texts.append(event.text)
+    assert payloads, "expected compose artifact for attached SRS + create intent"
+    assert payloads[-1]["kind"] == APPLY_KIND_COMPOSE
+    assert payloads[-1]["scenarios"]
+    assert any("Tải Excel" in t or "Apply" in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_natural_language_without_keywords_still_composes() -> None:
+    """LLM/heuristic intent — no magic keywords required when a doc is attached."""
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    payloads = []
+    async for event in orch.run(
+        user_text="làm giúp tôi bộ kiểm thử từ file này đi",
+        mode=COPILOT_MODE_CASE,
+        context={
+            CONTEXT_KEY_ATTACHMENTS: [
+                {"name": "req.docx", "markdown": "# Yêu cầu đăng ký\nForm CCCD"}
+            ]
+        },
+    ):
+        if event.kind == "apply_ready" and event.apply_payload:
+            payloads.append(event.apply_payload)
+    assert payloads
+    assert payloads[-1]["kind"] == APPLY_KIND_COMPOSE
+
+
+@pytest.mark.asyncio
+async def test_explain_only_skips_compose_artifact() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    payloads = []
+    async for event in orch.run(
+        user_text="Giải thích lỗi bước đăng nhập vừa chạy",
+        mode=COPILOT_MODE_CASE,
+        context={},
+    ):
+        if event.kind == "apply_ready" and event.apply_payload:
+            payloads.append(event.apply_payload)
+    assert payloads == []
+
+
+def test_infer_intent_attachment_defaults_to_compose() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    ctx = "ATTACHMENTS:\n### Attached: a.docx\n# SRS"
+    assert orch._heuristic_intent("làm giúp tôi từ file này", COPILOT_MODE_CASE, ctx) == "compose"
+    assert orch._heuristic_intent("Giải thích lỗi bước", COPILOT_MODE_CASE, "") == "explain"
+
+
+def test_srs_from_attachments_preferred_over_prompt() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    ctx = orch._format_context(
+        {
+            CONTEXT_KEY_ATTACHMENTS: [
+                {"name": "a.docx", "markdown": "Nội dung SRS dài về đăng ký"}
+            ]
+        }
+    )
+    srs = orch._srs_from_context(ctx, "phân tích file")
+    assert "Nội dung SRS dài" in srs
+    assert orch._wants_compose("phân tích và tạo các test screnaro", COPILOT_MODE_CASE, ctx)
 
 
 @pytest.mark.asyncio
@@ -176,7 +270,7 @@ async def test_critic_clarify_appends_to_user_text() -> None:
             system = next((m.content for m in messages if m.role == "system"), "")
             user = next((m.content for m in reversed(messages) if m.role == "user"), "")
             sys_l = system.lower()
-            if "critic" in sys_l and "clarification" not in sys_l:
+            if "you are the critic" in sys_l:
                 critic_calls["n"] += 1
                 if critic_calls["n"] == 1:
                     yield "CLARIFY — need scope. REVISE: add expected outcome."
@@ -202,7 +296,11 @@ async def test_critic_clarify_appends_to_user_text() -> None:
                 yield "Draft artifact"
                 return
             if "classify" in sys_l:
-                yield "simple"
+                # Complexity (simple/normal) vs intent JSON — keep both offline-safe.
+                if "vietnamese qa" in sys_l or '"intent"' in sys_l:
+                    yield '{"intent":"explain"}'
+                else:
+                    yield "simple"
                 return
             yield "ok"
 
@@ -214,7 +312,7 @@ async def test_critic_clarify_appends_to_user_text() -> None:
         clarify_handler=clarify,
     )
     async for _ in orch.run(
-        user_text="Tạo draft login happy path",
+        user_text="Yêu cầu chưa rõ phạm vi login — ???",
         mode=COPILOT_MODE_CASE,
         context={},
     ):
@@ -232,6 +330,67 @@ def test_looks_ambiguous_ignores_role_clarify_word() -> None:
     assert orch._looks_ambiguous("normal request here", "This is unclear; please clarify") is False
     assert orch._looks_ambiguous("Yêu cầu chưa rõ phạm vi", "ok") is True
     assert orch._looks_ambiguous("???", "anything") is True
+
+
+def test_actionable_intent_skips_clarify_popup() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    assert orch._intent_is_actionable("Tạo draft login happy path") is True
+    assert orch._intent_is_actionable("Sinh thêm 5 bộ Test Data biên (BVA)") is True
+    assert orch._intent_is_actionable("ok?", mode="") is False
+    draft = orch._heuristic_clarify_draft("làm gì đó")
+    assert "giả định mặc định" not in draft["question"].lower()
+    assert all("giả định mặc định" not in s.lower() for s in draft["suggestions"])
+    assert draft["default"] == draft["suggestions"][0]
+
+
+@pytest.mark.asyncio
+async def test_clear_compose_request_does_not_emit_clarify() -> None:
+    class _ClarifyHappyGateway(UnifiedLLMGateway):
+        async def stream_chat(  # type: ignore[override]
+            self,
+            messages: list[ChatMessage],
+            max_tokens: int = 256,
+            cancel: asyncio.Event | None = None,
+        ):
+            system = next((m.content for m in messages if m.role == "system"), "").lower()
+            if "planner" in system:
+                yield "1. Plan\nCLARIFY maybe"
+                return
+            if "composer" in system:
+                yield "Draft UNBOUND CLARIFY"
+                return
+            if "critic" in system:
+                yield "APPROVE"
+                return
+            if "clarification" in system or "draft one clarification" in system:
+                yield (
+                    '{"question":"điểm mờ","suggestions":["Tiếp tục với giả định mặc định"],'
+                    '"default":"Tiếp tục với giả định mặc định"}'
+                )
+                return
+            yield "ok"
+
+    asked: list[str] = []
+
+    async def clarify(req: ClarifyRequest) -> ClarifyResponse:
+        asked.append(req.question)
+        return ClarifyResponse(answer=req.default_answer, source="user")
+
+    orch = CopilotOrchestrator(
+        _ClarifyHappyGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline"),
+        clarify_handler=clarify,
+    )
+    kinds: list[str] = []
+    async for ev in orch.run(
+        user_text="Tạo kịch bản login từ SRS",
+        mode=COPILOT_MODE_CASE,
+        context={},
+    ):
+        kinds.append(ev.kind)
+    assert EVENT_CLARIFY_REQUEST not in kinds
+    assert asked == []
 
 
 @pytest.mark.asyncio

@@ -164,18 +164,36 @@ class SpecGenerator:
                     for idx, step in enumerate(case_item.get("steps") or [], start=1):
                         if not isinstance(step, dict):
                             continue
-                        steps.append(
-                            TestStep(
-                                step_no=int(step.get("step_no") or idx),
-                                action=step.get("action") or "click",
-                                intent_hint=str(
-                                    step.get("intent_hint") or step.get("description") or ""
-                                ),
-                                input_data=step.get("input_data"),
-                                expected_result=str(step.get("expected_result") or ""),
-                                binding_status="UNBOUND",
+                        try:
+                            steps.append(
+                                TestStep(
+                                    step_no=int(step.get("step_no") or idx),
+                                    action=step.get("action") or "click",
+                                    intent_hint=str(
+                                        step.get("intent_hint")
+                                        or step.get("description")
+                                        or ""
+                                    ),
+                                    input_data=step.get("input_data"),
+                                    expected_result=str(step.get("expected_result") or ""),
+                                    binding_status="UNBOUND",
+                                )
                             )
-                        )
+                        except Exception:  # noqa: BLE001 — LLM may emit invalid action literals
+                            steps.append(
+                                TestStep(
+                                    step_no=idx,
+                                    action="click",
+                                    intent_hint=str(
+                                        step.get("intent_hint")
+                                        or step.get("action")
+                                        or step.get("description")
+                                        or ""
+                                    ),
+                                    expected_result=str(step.get("expected_result") or ""),
+                                    binding_status="UNBOUND",
+                                )
+                            )
                     scenario.cases.append(
                         TestCase(
                             id=str(uuid.uuid4()),

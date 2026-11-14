@@ -24,8 +24,8 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
+    COPILOT_ARTIFACT_READY_NOTE,
     COPILOT_CHAT_REPLY_MAX_CHARS,
-    COPILOT_MODE_COMPOSE,
     COPILOT_STATUS_CLARIFY,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_PREPARING,
@@ -39,6 +39,7 @@ from ai_qa_test_studio.constants import (
     ROLE_COMPOSER,
     ROLE_CRITIC,
     ROLE_PLANNER,
+    ROLE_SYSTEM,
     TOKEN_CONTEXT_BUDGET,
 )
 from ai_qa_test_studio.core.models import TestScenario
@@ -90,6 +91,7 @@ class CopilotController:
             default_answer=request.default_answer,
             parent=w,
             timeout_ms=w.env.settings.copilot.clarify_timeout_ms,
+            role=request.role or "Agents",
         )
         w._clarify_dialog = dialog
 
@@ -118,10 +120,8 @@ class CopilotController:
         w.copilot.set_apply_payload(None)
         try:
             context = await self.build_context(flags)
+            # Mode is a UI hint only — orchestrator LLM classifies compose/test_data/explain.
             mode = str(flags.get("mode") or w.copilot.session.mode)
-            if "srs" in text.lower() or "kịch bản" in text.lower():
-                mode = COPILOT_MODE_COMPOSE
-                w.copilot.session.mode = mode
             w.copilot.set_status(COPILOT_STATUS_PREPARING)
             gateway = UnifiedLLMGateway.from_settings(w.env.settings.ai)
             router = ModelRouter(
@@ -169,27 +169,30 @@ class CopilotController:
                     # Skip raw token stream in transcript — bubbles stay short.
                     continue
                 elif event.kind == "role_end" and event.role:
-                    if current_role:
-                        w.copilot.end_role(
-                            event.role, clip_chat_reply(event.text, reply_cap)
-                        )
-                        current_role = None
+                    # Persist FULL body for next-turn / agent history; bubble stays short.
+                    full = event.text or ""
+                    display = clip_chat_reply(full, reply_cap)
+                    w.copilot.end_role(event.role, full, summary=display)
+                    current_role = None
                 elif event.kind == EVENT_STATUS_SUMMARY and event.role:
                     summary = clip_chat_reply(event.text, reply_cap)
                     if summary:
                         w.copilot.set_status(summary)
-                    # Progress lines (no artifact) only update the status bar.
-                    # Final role summary carries artifact_ref — close the bubble short.
+                    # Preview only — do not overwrite session with the short summary.
+                    # role_end carries the full body for agent/LLM context.
                     if current_role and event.artifact_ref:
-                        w.copilot.end_role(event.role, summary)
-                        current_role = None
+                        w.copilot.preview_role(event.role, summary)
                     elif current_role is None and event.artifact_ref:
-                        w.copilot.append_status_summary(event.role, summary)
+                        w.copilot.append_status_summary(
+                            event.role, event.text or summary, summary=summary
+                        )
                 elif event.kind == EVENT_AGENT_MESSAGE:
+                    full = event.text or ""
                     w.copilot.append_agent_message(
                         event.from_role or "critic",
                         event.to_role or "composer",
-                        clip_chat_reply(event.text, reply_cap),
+                        full,
+                        summary=clip_chat_reply(full, reply_cap),
                     )
                 elif event.kind == EVENT_CLARIFY_REQUEST:
                     w.copilot.set_status(COPILOT_STATUS_CLARIFY)
@@ -206,7 +209,22 @@ class CopilotController:
                         event.role or "crew", clip_chat_reply(event.text, reply_cap)
                     )
                 elif event.kind == "apply_ready" and event.apply_payload:
-                    w.copilot.set_apply_payload(event.apply_payload)
+                    payload = event.apply_payload
+                    w.copilot.set_apply_payload(payload)
+                    # Keep artifact on the latest composer/crew message for session history.
+                    for msg in reversed(w.copilot.session.messages):
+                        if msg.role in {ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC}:
+                            msg.apply_payload = dict(payload)
+                            break
+                    if payload.get("kind") == APPLY_KIND_COMPOSE:
+                        count = len(payload.get("scenarios") or [])
+                    elif payload.get("kind") == APPLY_KIND_TEST_DATA:
+                        count = len(payload.get("rows") or [])
+                    else:
+                        count = 1
+                    note = COPILOT_ARTIFACT_READY_NOTE.format(count=count)
+                    w.copilot.append_status_summary(ROLE_SYSTEM, note, summary=note)
+                    w.copilot.set_status(note)
                 elif event.kind == "stopped":
                     w.copilot.mark_stopped(event.role or current_role)
                     return

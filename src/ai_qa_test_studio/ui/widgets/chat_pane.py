@@ -36,6 +36,7 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    CHAT_TRANSCRIPT_SPACING,
     COPILOT_APPLY_TOOLTIP,
     COPILOT_ATTACH_BTN_LABEL,
     COPILOT_ATTACH_CHIP_HEIGHT,
@@ -220,8 +221,8 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.transcript_host = QWidget()
         self.transcript_layout = QVBoxLayout(self.transcript_host)
-        self.transcript_layout.setContentsMargins(6, 6, 6, 6)
-        self.transcript_layout.setSpacing(4)
+        self.transcript_layout.setContentsMargins(8, 8, 8, 8)
+        self.transcript_layout.setSpacing(CHAT_TRANSCRIPT_SPACING)
         self.transcript_layout.addStretch(1)
         self.transcript_scroll.setWidget(self.transcript_host)
         self.transcript_scroll.setAccessibleName("Lịch sử hội thoại Copilot")
@@ -446,7 +447,7 @@ class CopilotChatPane(QWidget):
         self._session = session
         self._clear_transcript()
         for msg in session.messages:
-            self._append_row(msg.id, msg.role, msg.content)
+            self._append_row(msg.id, msg.role, msg.bubble_text())
         self.starters.setVisible(len(session.messages) == 0)
         self.focus_case_chat()
         self.session_changed.emit()
@@ -479,29 +480,35 @@ class CopilotChatPane(QWidget):
             "include_last_error": self.chip_error.isChecked(),
         }
 
-    def append_status_summary(self, role: str, text: str) -> None:
+    def append_status_summary(self, role: str, text: str, *, summary: str = "") -> None:
         self._streaming_row = None
-        msg = CopilotMessage(role=role, content=text)
+        display = summary or text
+        msg = CopilotMessage(role=role, content=text, summary=summary or text)
         self._session.messages.append(msg)
-        self._append_row(msg.id, role, text)
+        self._append_row(msg.id, role, display)
         self.session_changed.emit()
 
-    def append_agent_message(self, from_role: str, to_role: str, text: str) -> None:
+    def append_agent_message(
+        self, from_role: str, to_role: str, text: str, *, summary: str = ""
+    ) -> None:
         body = f"{from_role} → {to_role}: {text}"
-        msg = CopilotMessage(role=ROLE_CREW, content=body)
+        display = (
+            f"{from_role} → {to_role}: {summary}" if summary else body
+        )
+        msg = CopilotMessage(role=ROLE_CREW, content=body, summary=display if summary else "")
         self._session.messages.append(msg)
-        self._append_row(msg.id, ROLE_CREW, body)
+        self._append_row(msg.id, ROLE_CREW, display)
         self.session_changed.emit()
 
     def append_clarify_note(self, role: str, text: str) -> None:
         body = f"Clarify ({role}): {text}"
-        msg = CopilotMessage(role=ROLE_SYSTEM, content=body)
+        msg = CopilotMessage(role=ROLE_SYSTEM, content=body, summary=body)
         self._session.messages.append(msg)
         self._append_row(msg.id, ROLE_SYSTEM, body)
         self.session_changed.emit()
 
     def append_user(self, text: str) -> None:
-        msg = CopilotMessage(role="user", content=text)
+        msg = CopilotMessage(role="user", content=text, summary=text)
         self._session.messages.append(msg)
         self._append_row(msg.id, "user", text)
         self.starters.setVisible(False)
@@ -515,6 +522,13 @@ class CopilotChatPane(QWidget):
         self._streaming_row = self._append_row(msg.id, role, "")
         self.session_changed.emit()
 
+    def preview_role(self, role: str, summary: str) -> None:
+        """Update open bubble display only — session content stays for role_end."""
+        del role
+        if self._streaming_row is not None:
+            self._streaming_row.set_body(summary or "…")
+            self._scroll_transcript()
+
     def append_stream_chunk(self, chunk: str) -> None:
         if self._streaming_row is None:
             self.begin_role(ROLE_COMPOSER)
@@ -525,11 +539,14 @@ class CopilotChatPane(QWidget):
             self._session.messages[-1].content = current
         self._scroll_transcript()
 
-    def end_role(self, role: str, text: str) -> None:
+    def end_role(self, role: str, text: str, *, summary: str = "") -> None:
+        """Persist full `text` for agents; show `summary` (or text) in the bubble."""
+        display = summary or text
         if self._session.messages and self._session.messages[-1].role == role:
             self._session.messages[-1].content = text
+            self._session.messages[-1].summary = display
         if self._streaming_row is not None:
-            self._streaming_row.set_body(text)
+            self._streaming_row.set_body(display or "…")
         self._streaming_row = None
         self.session_changed.emit()
 
@@ -546,18 +563,27 @@ class CopilotChatPane(QWidget):
         self.session_changed.emit()
 
     def copy_selected(self) -> None:
-        if not self._rows:
+        if not self._session.messages:
             return
-        text = self._rows[-1]._text
+        text = self._session.messages[-1].content or self._session.messages[-1].bubble_text()
         QGuiApplication.clipboard().setText(text)
         self.info_message.emit("Đã copy", "Nội dung tin nhắn đã vào clipboard.")
 
     def undo_last_user(self) -> None:
         self._undo_session(self._session.undo_last_user_turn())
 
-    def _on_copy_row(self, text: str) -> None:
+    def _on_copy_row(self, message_id: str) -> None:
+        text = next(
+            (m.content for m in self._session.messages if m.id == message_id and m.content),
+            "",
+        )
+        if not text:
+            text = next(
+                (m.bubble_text() for m in self._session.messages if m.id == message_id),
+                "",
+            )
         QGuiApplication.clipboard().setText(text)
-        self.info_message.emit("Đã copy", "Nội dung tin nhắn đã vào clipboard.")
+        self.info_message.emit("Đã copy", "Nội dung đầy đủ đã vào clipboard.")
 
     def _on_undo_row(self, message_id: str) -> None:
         if self._busy:
@@ -776,7 +802,7 @@ class CopilotChatPane(QWidget):
     def _rebuild_from_session(self) -> None:
         self._clear_transcript()
         for msg in self._session.messages:
-            self._append_row(msg.id, msg.role, msg.content)
+            self._append_row(msg.id, msg.role, msg.bubble_text())
 
     def _append_row(self, message_id: str, role: str, text: str) -> ChatMessageRow:
         row = ChatMessageRow(message_id, role, text, self.transcript_host)
