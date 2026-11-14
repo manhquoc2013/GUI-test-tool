@@ -43,3 +43,36 @@ def test_sliding_window_limits_llm_turns() -> None:
     window = session.llm_window(max_turns=4)
     assert len(window) == 4
     assert window[0].content == "u10"
+
+
+def test_llm_window_trims_oldest_by_max_chars() -> None:
+    session = CopilotSession(mode=COPILOT_MODE_CASE)
+    session.messages.extend(
+        [
+            CopilotMessage(role="user", content="AAAA"),
+            CopilotMessage(role=ROLE_COMPOSER, content="BBBB"),
+            CopilotMessage(role="user", content="CCCC"),
+            CopilotMessage(role=ROLE_COMPOSER, content="DD"),
+        ]
+    )
+    window = session.llm_window(max_turns=10, max_chars=6)
+    assert [m.content for m in window] == ["CCCC", "DD"]
+    assert sum(len(m.content) for m in window) <= 6
+
+
+def test_llm_window_keeps_latest_when_over_budget() -> None:
+    session = CopilotSession(mode=COPILOT_MODE_CASE)
+    session.messages.append(CopilotMessage(role="user", content="X" * 20))
+    window = session.llm_window(max_turns=5, max_chars=5)
+    assert len(window) == 1
+    assert window[0].content == "X" * 20
+
+
+def test_copilot_controller_passes_lean_tail_as_max_chars() -> None:
+    import inspect
+
+    from ai_qa_test_studio.ui.controllers.copilot_controller import CopilotController
+
+    src = inspect.getsource(CopilotController.on_prompt)
+    assert "lean_tail_max_tokens" in src
+    assert "max_chars=" in src

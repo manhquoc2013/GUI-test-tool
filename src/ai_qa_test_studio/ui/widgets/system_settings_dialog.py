@@ -549,7 +549,7 @@ class SystemSettingsDialog(MessageBoxBase):
         conn.label = self.api_label.text().strip() or conn.label
         conn.provider = self.api_provider.currentText()
         conn.base_url = self.api_base.text().strip()
-        conn.api_key_ref = self.api_key.text()
+        conn.api_key_ref = seal_api_key_ref(conn.id, self.api_key.text())
         conn.enabled = self.api_enabled.isChecked()
         self._reload_api_list()
         self._reload_model_api_combo()

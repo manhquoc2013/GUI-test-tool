@@ -54,6 +54,7 @@ class UnifiedLLMGateway:
         self.model = model or "offline"
         self.base_url = base_url
         self._openai_client: Any | None = None
+        self._gemini_client: Any | None = None
 
     @classmethod
     def from_settings(cls, ai: AiSettings) -> UnifiedLLMGateway:
@@ -165,7 +166,9 @@ class UnifiedLLMGateway:
             from google import genai
         except ImportError as exc:
             raise RuntimeError("google-genai package required for Gemini provider") from exc
-        client = genai.Client(api_key=self.api_key)
+        if self._gemini_client is None:
+            self._gemini_client = genai.Client(api_key=self.api_key)
+        client = self._gemini_client
         sys_prompt = next((m.content for m in messages if m.role == "system"), "")
         contents = "\n\n".join(f"{m.role.upper()}: {m.content}" for m in messages if m.role != "system")
         try:

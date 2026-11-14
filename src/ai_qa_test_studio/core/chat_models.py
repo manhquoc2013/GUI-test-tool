@@ -68,8 +68,17 @@ class CopilotSession(BaseModel):
                 return self.undo_from_index(idx)
         return None
 
-    def llm_window(self, max_turns: int = COPILOT_SLIDING_TURNS) -> list[CopilotMessage]:
-        """Return up to max_turns recent user/assistant-role pairs (message count capped)."""
+    def llm_window(
+        self,
+        max_turns: int = COPILOT_SLIDING_TURNS,
+        max_chars: int | None = None,
+    ) -> list[CopilotMessage]:
+        """Return up to max_turns recent messages, optionally trimmed by content chars."""
         if max_turns <= 0:
             return []
-        return self.messages[-max_turns:]
+        window = self.messages[-max_turns:]
+        if max_chars is None:
+            return window
+        while len(window) > 1 and sum(len(m.content) for m in window) > max_chars:
+            window = window[1:]
+        return window

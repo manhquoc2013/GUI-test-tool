@@ -95,6 +95,52 @@ async def test_gemini_cancel_closes_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gemini_client_reused_across_streams() -> None:
+    created = {"n": 0}
+
+    class _EmptyStream:
+        def __aiter__(self) -> _EmptyStream:
+            return self
+
+        async def __anext__(self) -> Any:
+            raise StopAsyncIteration
+
+    fake_genai = ModuleType("google.genai")
+    fake_client = MagicMock()
+    fake_client.aio.models.generate_content_stream = AsyncMock(return_value=_EmptyStream())
+
+    def _client_factory(*args: Any, **kwargs: Any) -> Any:
+        created["n"] += 1
+        return fake_client
+
+    fake_genai.Client = _client_factory  # type: ignore[attr-defined]
+    google_mod = ModuleType("google")
+    google_mod.genai = fake_genai  # type: ignore[attr-defined]
+    prev_google = sys.modules.get("google")
+    prev_genai = sys.modules.get("google.genai")
+    sys.modules["google"] = google_mod
+    sys.modules["google.genai"] = fake_genai
+    try:
+        gw = UnifiedLLMGateway(
+            provider=LLM_PROVIDER_GEMINI, api_key="k", model="gemini-2.0-flash"
+        )
+        async for _ in gw.stream_chat([ChatMessage(role="user", content="a")]):
+            pass
+        async for _ in gw.stream_chat([ChatMessage(role="user", content="b")]):
+            pass
+        assert created["n"] == 1
+    finally:
+        if prev_google is None:
+            sys.modules.pop("google", None)
+        else:
+            sys.modules["google"] = prev_google
+        if prev_genai is None:
+            sys.modules.pop("google.genai", None)
+        else:
+            sys.modules["google.genai"] = prev_genai
+
+
+@pytest.mark.asyncio
 async def test_openai_client_reused_across_streams() -> None:
     created = {"n": 0}
 

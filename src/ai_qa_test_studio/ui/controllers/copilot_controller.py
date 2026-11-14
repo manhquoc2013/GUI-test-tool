@@ -115,7 +115,9 @@ class CopilotController:
             )
             history = [
                 ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
-                for m in w.copilot.session.llm_window()
+                for m in w.copilot.session.llm_window(
+                    max_chars=copilot_cfg.lean_tail_max_tokens
+                )
                 if m.role in {"user", ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, "assistant"}
                 and (m.content or "").strip()
             ]
