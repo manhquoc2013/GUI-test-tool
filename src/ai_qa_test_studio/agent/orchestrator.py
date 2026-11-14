@@ -127,6 +127,9 @@ from ai_qa_test_studio.constants import (
     LLM_FINISH_REASON_LENGTH,
     LLM_OUTLINE_MAX_TOKENS,
     LLM_PROVIDER_OFFLINE,
+    LLM_STREAM_CONTINUE_PRIOR_CHARS,
+    LLM_STREAM_CONTINUE_PROMPT,
+    LLM_STREAM_MAX_CONTINUATIONS,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COORDINATE,
     LLM_TASK_INTENT,
@@ -147,7 +150,11 @@ from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScen
 from ai_qa_test_studio.core.secret_masker import get_secret_masker
 from ai_qa_test_studio.core.token_budget import ContextCompactor, ContextCompressor
 from ai_qa_test_studio.reporting.evidence import EvidenceCollector
-from ai_qa_test_studio.ui.bubble_summary import sanitize_user_reply, usable_explain_answer
+from ai_qa_test_studio.ui.bubble_summary import (
+    extract_structured_payload,
+    sanitize_user_reply,
+    usable_explain_answer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1397,6 +1404,70 @@ class CopilotOrchestrator:
             return INTENT_EXPLAIN
         return heuristic
 
+    @staticmethod
+    def _stitch_stream_continuation(prior: str, addition: str) -> str:
+        """Append a continuation segment, dropping repeated prefix overlap / reopened fences."""
+        base = prior or ""
+        chunk = addition or ""
+        if not chunk:
+            return base
+        if not base:
+            return chunk
+        add = chunk.lstrip("\n")
+        lowered = add[:12].lower()
+        if lowered.startswith("```json") or lowered.startswith("```"):
+            fence_end = add.find("\n")
+            opener = add[: fence_end if fence_end >= 0 else len(add)]
+            if "```" in base and opener.strip().startswith("```"):
+                add = add[len(opener) :].lstrip("\n")
+        max_overlap = min(len(base), len(add), 256)
+        for size in range(max_overlap, 0, -1):
+            if base.endswith(add[:size]):
+                return base + add[size:]
+        return base + add
+
+    @staticmethod
+    def _looks_like_structured_json_attempt(text: str) -> bool:
+        raw = (text or "").strip()
+        if not raw:
+            return False
+        if "```json" in raw.lower():
+            return True
+        if raw.startswith("{") and (
+            '"scenarios"' in raw
+            or '"cases"' in raw
+            or '"kind"' in raw
+            or '"rows"' in raw
+        ):
+            return True
+        return False
+
+    def _validate_structured_sink(self, sink: list[str]) -> bool:
+        """Return True when sink is not a structured attempt, or JSON parses cleanly."""
+        joined = "".join(sink)
+        if not self._looks_like_structured_json_attempt(joined):
+            return True
+        if extract_structured_payload(joined) is not None:
+            return True
+        return self._parse_json_obj(joined) is not None
+
+    def _continuation_messages(
+        self,
+        base_messages: list[ChatMessage],
+        prior_text: str,
+    ) -> list[ChatMessage]:
+        clipped = prior_text
+        if len(clipped) > LLM_STREAM_CONTINUE_PRIOR_CHARS:
+            clipped = clipped[-LLM_STREAM_CONTINUE_PRIOR_CHARS:]
+        return [
+            *base_messages,
+            ChatMessage(role="assistant", content=prior_text),
+            ChatMessage(
+                role="user",
+                content=LLM_STREAM_CONTINUE_PROMPT.format(prior=clipped),
+            ),
+        ]
+
     async def _collect_text(
         self,
         gw: UnifiedLLMGateway,
@@ -1405,25 +1476,57 @@ class CopilotOrchestrator:
         max_tokens: int,
     ) -> str:
         sink: list[str] = []
-        try:
-            async for piece in gw.stream_chat(
-                messages,
-                max_tokens=max_tokens,
-                cancel=stop,
-                **self._active_thinking_kwargs,
-            ):
-                sink.append(piece)
-                if stop.is_set():
-                    break
-        except Exception as exc:  # noqa: BLE001
-            masked = get_secret_masker().mask_text(str(exc))
-            sink.append(f"{COPILOT_STREAM_ERROR_PREFIX}{masked}")
-            return "".join(sink).strip()
-        text = "".join(sink).strip()
-        if gw.last_finish_reason == LLM_FINISH_REASON_LENGTH:
-            if COPILOT_STREAM_LENGTH_NOTICE not in text:
-                text = f"{text}{COPILOT_STREAM_LENGTH_NOTICE}"
-        return text
+        working = list(messages)
+        continuations_used = 0
+        while True:
+            if stop.is_set():
+                break
+            segment: list[str] = []
+            try:
+                async for piece in gw.stream_chat(
+                    working,
+                    max_tokens=max_tokens,
+                    cancel=stop,
+                    **self._active_thinking_kwargs,
+                ):
+                    segment.append(piece)
+                    if stop.is_set():
+                        break
+            except Exception as exc:  # noqa: BLE001
+                masked = get_secret_masker().mask_text(str(exc))
+                sink.append(f"{COPILOT_STREAM_ERROR_PREFIX}{masked}")
+                return "".join(sink).strip()
+
+            addition = "".join(segment)
+            if continuations_used == 0:
+                sink.append(addition)
+            else:
+                prior = "".join(sink)
+                merged = self._stitch_stream_continuation(prior, addition)
+                delta = merged[len(prior) :] if merged.startswith(prior) else addition
+                if delta:
+                    sink.append(delta)
+
+            if stop.is_set():
+                break
+            if gw.last_finish_reason != LLM_FINISH_REASON_LENGTH:
+                break
+            if continuations_used >= LLM_STREAM_MAX_CONTINUATIONS:
+                text = "".join(sink)
+                if COPILOT_STREAM_LENGTH_NOTICE not in text:
+                    sink.append(COPILOT_STREAM_LENGTH_NOTICE)
+                break
+            continuations_used += 1
+            working = self._continuation_messages(messages, "".join(sink))
+
+        joined = "".join(sink).strip()
+        if (
+            gw.last_finish_reason != LLM_FINISH_REASON_LENGTH
+            and self._looks_like_structured_json_attempt(joined)
+            and not self._validate_structured_sink(sink)
+        ):
+            logger.info("structured_json_incomplete_after_stream chars=%s", len(joined))
+        return joined
 
     async def _generate_scenarios_llm(
         self,
@@ -1725,36 +1828,75 @@ class CopilotOrchestrator:
         sink: list[str],
         role: str | None = None,
     ) -> AsyncIterator[OrchestratorEvent]:
-        """Yield stream chunk events; append pieces into sink for the caller."""
+        """Yield stream chunk events; auto-continue on finish_reason=length (max 2)."""
         if role:
             yield OrchestratorEvent(
                 kind=EVENT_STATUS_SUMMARY,
                 role=role,
                 text=COPILOT_STATUS_WAITING_LLM,
             )
-        try:
-            async for piece in gw.stream_chat(
-                messages,
-                max_tokens=max_tokens,
-                cancel=stop,
-                **self._active_thinking_kwargs,
-            ):
-                sink.append(piece)
-                yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
-        except Exception as exc:  # noqa: BLE001
-            masked = get_secret_masker().mask_text(str(exc))
-            notice = f"{COPILOT_STREAM_ERROR_PREFIX}{masked}"
-            sink.append(notice)
-            yield OrchestratorEvent(kind=EVENT_ERROR, role=role or ROLE_COMPOSER, text=notice)
-            return
-        if gw.last_finish_reason == LLM_FINISH_REASON_LENGTH:
-            if COPILOT_STREAM_LENGTH_NOTICE not in "".join(sink):
-                sink.append(COPILOT_STREAM_LENGTH_NOTICE)
+        working = list(messages)
+        continuations_used = 0
+        while True:
+            if stop.is_set():
+                return
+            segment: list[str] = []
+            try:
+                async for piece in gw.stream_chat(
+                    working,
+                    max_tokens=max_tokens,
+                    cancel=stop,
+                    **self._active_thinking_kwargs,
+                ):
+                    segment.append(piece)
+                    if continuations_used == 0:
+                        # Live-stream the first segment for responsive UI.
+                        sink.append(piece)
+                        yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
+                    if stop.is_set():
+                        return
+            except Exception as exc:  # noqa: BLE001
+                masked = get_secret_masker().mask_text(str(exc))
+                notice = f"{COPILOT_STREAM_ERROR_PREFIX}{masked}"
+                sink.append(notice)
                 yield OrchestratorEvent(
-                    kind=EVENT_CHUNK,
-                    role=role,
-                    text=COPILOT_STREAM_LENGTH_NOTICE,
+                    kind=EVENT_ERROR, role=role or ROLE_COMPOSER, text=notice
                 )
+                return
+
+            if continuations_used > 0:
+                prior = "".join(sink)
+                addition = "".join(segment)
+                merged = self._stitch_stream_continuation(prior, addition)
+                delta = merged[len(prior) :] if merged.startswith(prior) else addition
+                if delta:
+                    sink.append(delta)
+                    yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=delta)
+
+            if stop.is_set():
+                return
+            if gw.last_finish_reason != LLM_FINISH_REASON_LENGTH:
+                if (
+                    self._looks_like_structured_json_attempt("".join(sink))
+                    and not self._validate_structured_sink(sink)
+                ):
+                    logger.info(
+                        "structured_json_incomplete_after_stream role=%s chars=%s",
+                        role,
+                        len("".join(sink)),
+                    )
+                return
+            if continuations_used >= LLM_STREAM_MAX_CONTINUATIONS:
+                if COPILOT_STREAM_LENGTH_NOTICE not in "".join(sink):
+                    sink.append(COPILOT_STREAM_LENGTH_NOTICE)
+                    yield OrchestratorEvent(
+                        kind=EVENT_CHUNK,
+                        role=role,
+                        text=COPILOT_STREAM_LENGTH_NOTICE,
+                    )
+                return
+            continuations_used += 1
+            working = self._continuation_messages(messages, "".join(sink))
 
     async def _plan(
         self,

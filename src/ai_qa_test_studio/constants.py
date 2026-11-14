@@ -77,6 +77,16 @@ COPILOT_STREAM_LENGTH_NOTICE = (
     "\n\n⚠️ Phản hồi tạm dừng do đạt giới hạn độ dài. "
     "Nhập 'tiếp tục' để sinh nốt phần còn lại."
 )
+# Auto-continue when finish_reason=length before surfacing the notice above.
+LLM_STREAM_MAX_CONTINUATIONS = 2
+LLM_STREAM_CONTINUE_PRIOR_CHARS = 6000
+LLM_STREAM_CONTINUE_PROMPT = (
+    "Phản hồi trước bị cắt giữa chừng vì giới hạn độ dài. "
+    "Hãy viết tiếp CHÍNH XÁC từ điểm ngắt — không lặp lại tiêu đề, "
+    "phần mở đầu, hay các dòng đã có. "
+    "Nếu đang viết JSON, chỉ nối tiếp đúng cú pháp còn thiếu.\n\n"
+    "Nội dung đã sinh (neo ngữ cảnh):\n{prior}"
+)
 COPILOT_STREAM_ERROR_PREFIX = "⚠️ Lỗi khi đọc phản hồi model:\n"
 COPILOT_URL_BROWSER_OFF_NOTE = (
     "ℹ️ Browser/MCP chưa bật — scenario dựa trên prompt (chưa đọc cấu trúc trang)."
@@ -101,8 +111,9 @@ URL_HTTP_RE = r"https?://[^\s<>\"'`\])\},]+"
 URL_CONTEXT_MAX_CHARS = 6000
 URL_FETCH_TIMEOUT_S = 12.0
 CHAT_MD_TABLE_CSS = (
-    "table{border-collapse:collapse;width:100%;margin:6px 0;}"
-    "th,td{border:1px solid #94A3B8;padding:4px 8px;text-align:left;vertical-align:top;}"
+    "table{width:100%;table-layout:fixed;border-collapse:collapse;margin:6px 0;}"
+    "th,td{border:1px solid #94A3B8;padding:4px 8px;text-align:left;"
+    "vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere;}"
     "th{font-weight:600;}"
 )
 COPILOT_ATTACH_MAX_FILES = 5

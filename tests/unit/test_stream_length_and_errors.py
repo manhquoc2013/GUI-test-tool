@@ -14,11 +14,14 @@ from PySide6.QtWidgets import QApplication
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
 from ai_qa_test_studio.agent.orchestrator import CopilotOrchestrator
 from ai_qa_test_studio.constants import (
+    CHAT_MD_TABLE_CSS,
     COPILOT_STREAM_ERROR_PREFIX,
     COPILOT_STREAM_LENGTH_NOTICE,
     EVENT_CHUNK,
     EVENT_ERROR,
     LLM_FINISH_REASON_LENGTH,
+    LLM_FINISH_REASON_STOP,
+    LLM_STREAM_MAX_CONTINUATIONS,
     ROLE_COMPOSER,
     ROLE_COORDINATOR,
 )
@@ -27,9 +30,12 @@ from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
 
 
-class _LengthGateway(UnifiedLLMGateway):
+class _AlwaysLengthGateway(UnifiedLLMGateway):
+    """Every stream call hits finish_reason=length (forces notice after max continuations)."""
+
     def __init__(self) -> None:
         super().__init__(provider="offline", api_key="", model="offline")
+        self.calls = 0
 
     async def stream_chat(
         self,
@@ -39,9 +45,35 @@ class _LengthGateway(UnifiedLLMGateway):
         **_kwargs: object,
     ) -> AsyncIterator[str]:
         del messages, max_tokens, cancel, _kwargs
+        self.calls += 1
         self.last_finish_reason = None
-        yield "Kịch bản đăng nhập bị cắt giữa "
+        yield f"SEG{self.calls}."
         self.last_finish_reason = LLM_FINISH_REASON_LENGTH
+
+
+class _LengthThenStopGateway(UnifiedLLMGateway):
+    """First call truncated; second continuation completes with stop."""
+
+    def __init__(self) -> None:
+        super().__init__(provider="offline", api_key="", model="offline")
+        self.calls = 0
+
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 64,
+        cancel: asyncio.Event | None = None,
+        **_kwargs: object,
+    ) -> AsyncIterator[str]:
+        del messages, max_tokens, cancel, _kwargs
+        self.calls += 1
+        self.last_finish_reason = None
+        if self.calls == 1:
+            yield "PART_ONE_"
+            self.last_finish_reason = LLM_FINISH_REASON_LENGTH
+            return
+        yield "PART_TWO"
+        self.last_finish_reason = LLM_FINISH_REASON_STOP
 
 
 class _TimeoutGateway(UnifiedLLMGateway):
@@ -62,8 +94,9 @@ class _TimeoutGateway(UnifiedLLMGateway):
 
 
 @pytest.mark.asyncio
-async def test_collect_appends_length_notice() -> None:
-    orch = CopilotOrchestrator(gateway=_LengthGateway())
+async def test_collect_auto_continues_then_appends_length_notice() -> None:
+    gw = _AlwaysLengthGateway()
+    orch = CopilotOrchestrator(gateway=gw)
     sink: list[str] = []
     events = [
         ev
@@ -77,9 +110,52 @@ async def test_collect_appends_length_notice() -> None:
         )
     ]
     body = "".join(sink)
-    assert "Kịch bản đăng nhập bị cắt giữa" in body
+    # initial + max_continuations streams
+    assert gw.calls == LLM_STREAM_MAX_CONTINUATIONS + 1
+    assert "SEG1." in body
     assert COPILOT_STREAM_LENGTH_NOTICE in body
-    assert any(ev.kind == EVENT_CHUNK and COPILOT_STREAM_LENGTH_NOTICE in (ev.text or "") for ev in events)
+    assert any(
+        ev.kind == EVENT_CHUNK and COPILOT_STREAM_LENGTH_NOTICE in (ev.text or "")
+        for ev in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_collect_auto_continues_once_then_stop_no_notice() -> None:
+    gw = _LengthThenStopGateway()
+    orch = CopilotOrchestrator(gateway=gw)
+    sink: list[str] = []
+    events = [
+        ev
+        async for ev in orch._collect(
+            orch.gateway,
+            [ChatMessage(role="user", content="viết tiếp")],
+            asyncio.Event(),
+            64,
+            sink,
+            role=ROLE_COMPOSER,
+        )
+    ]
+    body = "".join(sink)
+    assert gw.calls == 2
+    assert body == "PART_ONE_PART_TWO"
+    assert COPILOT_STREAM_LENGTH_NOTICE not in body
+    assert not any(COPILOT_STREAM_LENGTH_NOTICE in (ev.text or "") for ev in events)
+
+
+@pytest.mark.asyncio
+async def test_collect_text_auto_continues_without_notice() -> None:
+    gw = _LengthThenStopGateway()
+    orch = CopilotOrchestrator(gateway=gw)
+    text = await orch._collect_text(
+        orch.gateway,
+        [ChatMessage(role="user", content="x")],
+        asyncio.Event(),
+        64,
+    )
+    assert text == "PART_ONE_PART_TWO"
+    assert COPILOT_STREAM_LENGTH_NOTICE not in text
+    assert gw.calls == 2
 
 
 @pytest.mark.asyncio
@@ -187,16 +263,29 @@ async def test_openai_stream_records_finish_reason_length() -> None:
 def test_composer_markdown_table_renders_html(qapp: QApplication) -> None:
     del qapp
     table = (
-        "| ID | Title |\n"
-        "|----|-------|\n"
-        "| TS01 | Login happy |\n"
-        "| TS02 | Login negative |"
+        "| ID | Title | Requirement |\n"
+        "|----|-------|-------------|\n"
+        "| TS01 | Login happy | Sidebar navigation |\n"
+        "| TS02 | Login negative | Long requirement text that must wrap |"
     )
     assert looks_like_markdown_table(table)
     html = markdown_to_bubble_html(table)
     assert "<table" in html.lower()
+    assert "table-layout:fixed" in CHAT_MD_TABLE_CSS
+    assert "overflow-wrap:anywhere" in CHAT_MD_TABLE_CSS
+    assert "word-wrap:break-word" in CHAT_MD_TABLE_CSS
+    assert "table-layout:fixed" in html
+    assert "overflow-wrap:anywhere" in html
 
     row = ChatMessageRow("m1", ROLE_COMPOSER, table)
     assert row.body.textFormat() == Qt.TextFormat.RichText
     assert "<table" in row.body.text().lower()
     row.close()
+
+
+def test_stitch_stream_continuation_drops_overlap() -> None:
+    orch = CopilotOrchestrator(gateway=_LengthThenStopGateway())
+    assert (
+        orch._stitch_stream_continuation("hello world", "world!!!") == "hello world!!!"
+    )
+    assert orch._stitch_stream_continuation('{"a":1', ', "b":2}') == '{"a":1, "b":2}'
