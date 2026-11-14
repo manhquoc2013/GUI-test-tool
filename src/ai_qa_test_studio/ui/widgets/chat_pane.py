@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 from qfluentwidgets import (
     ComboBox,
+    FlowLayout,
     PillPushButton,
     PlainTextEdit,
     PrimaryPushButton,
@@ -71,8 +72,11 @@ class CopilotChatPane(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        context = QHBoxLayout()
-        context.setSpacing(6)
+        context_wrap = QWidget(self)
+        context = FlowLayout(context_wrap, needAni=False)
+        context.setContentsMargins(0, 0, 0, 0)
+        context.setHorizontalSpacing(6)
+        context.setVerticalSpacing(6)
         self.model_combo = ComboBox(self)
         self.model_combo.setFixedHeight(COPILOT_MODEL_COMBO_HEIGHT)
         self.model_combo.setMinimumWidth(96)
@@ -95,7 +99,6 @@ class CopilotChatPane(QWidget):
         self.chip_error.setFixedHeight(COPILOT_CHIP_HEIGHT)
         for chip in (self.chip_case, self.chip_dom, self.chip_error):
             context.addWidget(chip)
-        context.addStretch(1)
 
         self.btn_settings = TransparentToolButton(FIF.SETTING, self)
         self.btn_settings.setFixedSize(28, 28)
@@ -112,7 +115,7 @@ class CopilotChatPane(QWidget):
         context.addWidget(self.btn_settings)
         context.addWidget(self.btn_new)
         context.addWidget(self.btn_clear)
-        layout.addLayout(context)
+        layout.addWidget(context_wrap)
 
         self.mode_pivot = SegmentedWidget(self)
         self.mode_pivot.setAccessibleName("Chat hoặc AI Wizard trong Copilot")

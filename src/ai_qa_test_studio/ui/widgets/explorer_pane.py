@@ -244,6 +244,37 @@ class ExplorerPane(QWidget):
         item.setForeground(0, QBrush(QColor(color)))
         return item
 
+    def focus_path(self, module: str, suite: str = "") -> None:
+        """Expand/select tree nodes matching module (and optional suite) labels."""
+        self.pivot.setCurrentItem("suites")
+        root = self.suite_tree.invisibleRootItem()
+        target = self._find_named_item(root, module) if module else None
+        if target is None:
+            return
+        target.setExpanded(True)
+        self.suite_tree.setCurrentItem(target)
+        if suite:
+            child = self._find_named_item(target, suite)
+            if child is not None:
+                child.setExpanded(True)
+                self.suite_tree.setCurrentItem(child)
+                self.suite_tree.scrollToItem(child)
+
+    def _find_named_item(self, parent: QTreeWidgetItem, name: str) -> QTreeWidgetItem | None:
+        needle = name.lower()
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child is None:
+                continue
+            blob = child.data(0, _SEARCH_ROLE)
+            text = str(blob) if blob else child.text(0)
+            if needle and needle in text.lower():
+                return child
+            nested = self._find_named_item(child, name)
+            if nested is not None:
+                return nested
+        return None
+
     def _on_case_selection(self) -> None:
         items = self.suite_tree.selectedItems()
         if not items:

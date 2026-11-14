@@ -22,8 +22,8 @@ from qfluentwidgets import (
     PlainTextEdit,
     PrimaryPushButton,
     PushButton,
+    SmoothScrollArea,
     StrongBodyLabel,
-    ToolButton,
 )
 from qfluentwidgets import (
     FluentIcon as FIF,
@@ -33,7 +33,7 @@ from ai_qa_test_studio.agent.spec_generator import SpecGenerator
 from ai_qa_test_studio.constants import (
     DEFAULT_TARGET_URL,
     ICON_COLOR_WARN,
-    THEME_BG_PANEL,
+    UI_CARD_GAP,
     UI_MARKDOWN_PREVIEW_CHARS,
     UI_WIZARD_STEP_COUNT,
 )
@@ -160,51 +160,64 @@ class _SourceStep(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        card = CardWidget(self)
-        card.setStyleSheet(f"CardWidget {{ background-color: {THEME_BG_PANEL}; }}")
-        form = QVBoxLayout(card)
-        form.setContentsMargins(12, 10, 12, 10)
-        form.setSpacing(6)
+        scroll = SmoothScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        container = QWidget()
+        form = QVBoxLayout(container)
+        form.setContentsMargins(2, 4, 6, 4)
+        form.setSpacing(UI_CARD_GAP)
 
-        form.addWidget(StrongBodyLabel("Nguồn đầu vào", card))
-        form.addWidget(CaptionLabel("URL đích (tuỳ chọn)", card))
-        self.url = LineEdit(card)
+        def add_card(title: str, hint: str, widget: QWidget) -> CardWidget:
+            card = CardWidget(container)
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(12, 10, 12, 10)
+            cl.setSpacing(6)
+            cl.addWidget(StrongBodyLabel(title, card))
+            if hint:
+                h = CaptionLabel(hint, card)
+                h.setWordWrap(True)
+                cl.addWidget(h)
+            cl.addWidget(widget)
+            form.addWidget(card)
+            return card
+
+        self.url = LineEdit()
         self.url.setPlaceholderText(_URL_HINT)
         self.url.setText(DEFAULT_TARGET_URL)
         self.url.setClearButtonEnabled(True)
-        form.addWidget(self.url)
+        add_card("URL đích (tùy chọn)", "Dùng để Agent quét DOM trực tiếp khi tạo draft.", self.url)
 
-        form.addWidget(CaptionLabel("Figma link (tuỳ chọn)", card))
-        self.figma = LineEdit(card)
+        self.figma = LineEdit()
         self.figma.setPlaceholderText("https://www.figma.com/file/…")
         self.figma.setClearButtonEnabled(True)
-        form.addWidget(self.figma)
+        add_card("Figma Design Link", "", self.figma)
 
-        doc_row = QHBoxLayout()
-        doc_col = QVBoxLayout()
-        doc_col.addWidget(CaptionLabel("Tài liệu SRS", card))
-        self.doc_path = LineEdit(card)
+        srs_wrap = QWidget()
+        srs_row = QHBoxLayout(srs_wrap)
+        srs_row.setContentsMargins(0, 0, 0, 0)
+        self.doc_path = LineEdit()
         self.doc_path.setReadOnly(True)
-        self.doc_path.setPlaceholderText("Chưa chọn file…")
-        doc_col.addWidget(self.doc_path)
-        doc_row.addLayout(doc_col, stretch=1)
-        self.btn_browse = ToolButton(FIF.FOLDER, card)
+        self.doc_path.setPlaceholderText("Chọn file .pdf, .docx, .md...")
+        self.btn_browse = PushButton(FIF.FOLDER, "Chọn tệp")
         self.btn_browse.setToolTip("Chọn file SRS (md/txt/docx/pdf)")
         self.btn_browse.clicked.connect(self._browse)
-        doc_row.addWidget(self.btn_browse, alignment=Qt.AlignmentFlag.AlignBottom)
-        form.addLayout(doc_row)
+        srs_row.addWidget(self.doc_path, 1)
+        srs_row.addWidget(self.btn_browse)
+        add_card("Tài liệu đặc tả (SRS)", "", srs_wrap)
 
-        form.addWidget(CaptionLabel("Markdown / mô tả tính năng", card))
-        self.markdown = PlainTextEdit(card)
-        self.markdown.setPlaceholderText("Mô tả luồng nghiệp vụ, tiêu chí chấp nhận…")
+        self.markdown = PlainTextEdit()
+        self.markdown.setPlaceholderText("Mô tả luồng nghiệp vụ hoặc dán User Story...")
         self.markdown.setPlainText("Sample SRS: login and checkout happy path")
         self.markdown.setMinimumHeight(100)
-        form.addWidget(self.markdown)
+        add_card("Mô tả tính năng / Markdown", "", self.markdown)
 
-        self.hint = CaptionLabel("", card)
+        self.hint = CaptionLabel("")
         self.hint.setStyleSheet(f"color: {ICON_COLOR_WARN};")
         form.addWidget(self.hint)
-        layout.addWidget(card)
+        form.addStretch(1)
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

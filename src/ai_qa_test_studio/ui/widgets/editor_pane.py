@@ -1,32 +1,32 @@
-"""Center editor: Segmented 4 modes + InfoBar + expanding Spec CardWidget form."""
+"""Center editor: breadcrumb, elided title, modes, steps, owned data drawer."""
 
 from __future__ import annotations
 
 import yaml
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QResizeEvent
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QSizePolicy,
+    QSplitter,
     QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    BreadcrumbBar,
     CaptionLabel,
     CardWidget,
     ComboBox,
-    InfoBar,
-    InfoBarPosition,
     LineEdit,
+    PillPushButton,
     PlainTextEdit,
-    PrimaryPushButton,
+    PushButton,
     SegmentedWidget,
     SmoothScrollArea,
     StrongBodyLabel,
-    SubtitleLabel,
     TableWidget,
     TextEdit,
     TransparentToolButton,
@@ -38,22 +38,27 @@ from qfluentwidgets import (
 from ai_qa_test_studio.constants import (
     BINDING_UNBOUND,
     THEME_BG_CANVAS,
+    THEME_STATUS_UNBOUND,
     UI_BREAKPOINT_MEDIUM,
     UI_BREAKPOINT_WIDE,
     UI_CANVAS_MARGIN_H,
     UI_CANVAS_MARGIN_H_COMPACT,
     UI_CANVAS_MARGIN_V,
     UI_CANVAS_MARGIN_V_COMPACT,
+    UI_DRAWER_COLLAPSED_HEIGHT,
     UI_EDITOR_MIN_WIDTH,
+    UI_SPLIT_SIZES_V,
     UI_STEPS_COL_ACTION_WIDTH,
     UI_STEPS_COL_BINDING_WIDTH,
     UI_STEPS_COL_INDEX_WIDTH,
     UI_STEPS_HEADER_MIN_SECTION,
-    UI_UNBOUND_BANNER_BODY,
-    UI_UNBOUND_BANNER_TITLE,
+    UI_TABLE_ROW_HEIGHT,
 )
 from ai_qa_test_studio.core.models import TestCase, TestStep
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
+from ai_qa_test_studio.ui.theme import card_stylesheet
+from ai_qa_test_studio.ui.widgets.badges import ActionBadge, ElidedTitleLabel, UnboundAlertBanner
+from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 
 _PRIORITIES = ["P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low"]
 _TYPES = ["Functional", "E2E Regression", "Boundary (BVA)", "API + UI Hybrid", "Negative", "UI/UX", "Security"]
@@ -65,6 +70,7 @@ class EditorPane(QWidget):
     case_changed = Signal()
     step_row_selected = Signal(int)
     sync_requested = Signal()
+    breadcrumb_navigate = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -75,19 +81,29 @@ class EditorPane(QWidget):
         self._case: TestCase | None = None
         self._loading = False
         self._details_expanded = False
-        self._title_full = _EMPTY_TITLE
+        self._module_name = ""
+        self._suite_name = ""
+        self._last_drawer_ratio = 0.25
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V, UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
 
-        self.title_label = SubtitleLabel(_EMPTY_TITLE, self)
+        self.breadcrumb = BreadcrumbBar(self)
+        self.breadcrumb.setAccessibleName("Breadcrumb Module Suite")
+        self.breadcrumb.currentItemChanged.connect(self._on_breadcrumb_changed)
+        layout.addWidget(self.breadcrumb)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(12)
+        self.title_label = ElidedTitleLabel(_EMPTY_TITLE, self)
         self.title_label.setAccessibleName("Tiêu đề kịch bản")
-        self.title_label.setWordWrap(False)
-        self.title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        # Ignored H-policy so long titles never inflate splitter minimumSizeHint.
-        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label, 1)
+        self.btn_add_step = PushButton(FIF.ADD, "Thêm bước", self)
+        self.btn_add_step.setFixedHeight(32)
+        self.btn_add_step.clicked.connect(self._add_step)
+        title_row.addWidget(self.btn_add_step)
+        layout.addLayout(title_row)
 
         header_row = QHBoxLayout()
         self.mode_switch = SegmentedWidget(self)
@@ -100,44 +116,91 @@ class EditorPane(QWidget):
         header_row.addStretch(1)
         layout.addLayout(header_row)
 
-        self.unbound_banner = InfoBar.warning(
-            title=UI_UNBOUND_BANNER_TITLE,
-            content=UI_UNBOUND_BANNER_BODY,
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.NONE,
-            duration=-1,
-            parent=self,
-        )
-        self.unbound_banner.setAccessibleName("Cảnh báo bước UNBOUND")
-        self.unbound_banner.setMinimumWidth(0)
-        self.unbound_banner.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        self.unbound_banner.contentLabel.setWordWrap(True)
-        btn_quick_sync = PrimaryPushButton("Sync ngay", self.unbound_banner)
-        btn_quick_sync.clicked.connect(lambda: self.sync_requested.emit())
-        self.unbound_banner.addWidget(btn_quick_sync)
+        self.unbound_banner = UnboundAlertBanner(0, self)
+        self.unbound_banner.sync_clicked.connect(lambda: self.sync_requested.emit())
         self.unbound_banner.hide()
         layout.addWidget(self.unbound_banner)
 
-        self.stack = QStackedWidget(self)
+        self.v_splitter = QSplitter(Qt.Orientation.Vertical, self)
+        self.v_splitter.setHandleWidth(6)
+
+        self.steps_card = CardWidget(self.v_splitter)
+        self.steps_card.setObjectName("StepsCard")
+        self.steps_card.setStyleSheet(card_stylesheet("CardWidget#StepsCard"))
+        steps_layout = QVBoxLayout(self.steps_card)
+        steps_layout.setContentsMargins(8, 8, 8, 8)
+
+        self.stack = QStackedWidget(self.steps_card)
         self.stack.addWidget(self._build_spec_view())
         self.table = self._build_nocode_table()
         self.stack.addWidget(self.table)
-        self.yaml_edit = PlainTextEdit(self)
+        self.yaml_edit = PlainTextEdit(self.steps_card)
         self.yaml_edit.setStyleSheet("font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 13px;")
         self.stack.addWidget(self.yaml_edit)
-        self.code_edit = PlainTextEdit(self)
+        self.code_edit = PlainTextEdit(self.steps_card)
         self.code_edit.setStyleSheet("font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 13px;")
         self.stack.addWidget(self.code_edit)
-        layout.addWidget(self.stack, stretch=1)
         self.stack.setCurrentIndex(1)
+        steps_layout.addWidget(self.stack)
+
+        self.data_drawer = TestDataDrawer(self.v_splitter)
+        self.data_drawer.toggled.connect(self._on_drawer_toggled)
+
+        self.v_splitter.addWidget(self.steps_card)
+        self.v_splitter.addWidget(self.data_drawer)
+        self.v_splitter.setSizes(list(UI_SPLIT_SIZES_V))
+        layout.addWidget(self.v_splitter, stretch=1)
 
         self.mode_switch.currentItemChanged.connect(self._on_mode_changed)
         self.table.itemSelectionChanged.connect(self._emit_step_selection)
-
         self.title_input.textChanged.connect(lambda _t: self._capture_spec_fields())
         self.priority_combo.currentIndexChanged.connect(lambda _i: self._capture_spec_fields())
         self.type_combo.currentIndexChanged.connect(lambda _i: self._capture_spec_fields())
+
+    def _on_drawer_toggled(self, expanded: bool) -> None:
+        total = max(self.v_splitter.height(), 1)
+        if expanded:
+            drawer = max(150, int(total * self._last_drawer_ratio))
+            self.v_splitter.setSizes([max(1, total - drawer), drawer])
+        else:
+            sizes = self.v_splitter.sizes()
+            if len(sizes) >= 2 and sum(sizes) > 0 and sizes[1] > UI_DRAWER_COLLAPSED_HEIGHT:
+                self._last_drawer_ratio = sizes[1] / max(sum(sizes), 1)
+            self.v_splitter.setSizes([max(1, total - UI_DRAWER_COLLAPSED_HEIGHT), UI_DRAWER_COLLAPSED_HEIGHT])
+
+    def set_breadcrumb(self, module: str, suite: str) -> None:
+        self._module_name = module
+        self._suite_name = suite
+        self.breadcrumb.blockSignals(True)
+        try:
+            self.breadcrumb.clear()
+            if module:
+                self.breadcrumb.addItem("module", module)
+            if suite:
+                self.breadcrumb.addItem("suite", suite)
+        finally:
+            self.breadcrumb.blockSignals(False)
+
+    def _on_breadcrumb_changed(self, key: str) -> None:
+        if key == "module":
+            self.breadcrumb_navigate.emit(self._module_name, "")
+        elif key == "suite":
+            self.breadcrumb_navigate.emit(self._module_name, self._suite_name)
+
+    def _add_step(self) -> None:
+        if self._case is None:
+            return
+        next_no = len(self._case.steps) + 1
+        self._case.steps.append(
+            TestStep(
+                step_no=next_no,
+                action="click",
+                intent_hint="Bước mới",
+                binding_status="UNBOUND",
+            )
+        )
+        self._render_all()
+        self.case_changed.emit()
 
     def _build_spec_view(self) -> SmoothScrollArea:
         scroll = SmoothScrollArea(self)
@@ -232,12 +295,13 @@ class EditorPane(QWidget):
     def _build_nocode_table(self) -> TableWidget:
         table = TableWidget(self)
         table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["#", "Action", "Intent", "Data", "Binding"])
+        table.setHorizontalHeaderLabels(["#", "Action", "Intent (Mô tả hành động)", "Data / Input", "Binding"])
         table.setAccessibleName("Bảng bước No-Code")
         table.setWordWrap(False)
         table.setTextElideMode(Qt.TextElideMode.ElideRight)
         table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(UI_TABLE_ROW_HEIGHT)
         table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._apply_steps_header(table)
@@ -267,11 +331,8 @@ class EditorPane(QWidget):
         if layout is not None:
             layout.setContentsMargins(h, v, h, v)
         self._apply_steps_header(self.table)
-        self._elide_title()
 
     def minimumSizeHint(self) -> QSize:
-        # Cap floor so QSplitter can grow the sidebar (childrenCollapsible=False
-        # otherwise clamps against SubtitleLabel/InfoBar content hints ~1300px).
         base = super().minimumSizeHint()
         return QSize(UI_EDITOR_MIN_WIDTH, max(base.height(), 200))
 
@@ -280,19 +341,6 @@ class EditorPane(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        self._elide_title()
-
-    def _set_title(self, title: str) -> None:
-        self._title_full = title
-        self.title_label.setToolTip(title)
-        self._elide_title()
-
-    def _elide_title(self) -> None:
-        metrics = QFontMetrics(self.title_label.font())
-        avail = max(48, self.title_label.width() - 8)
-        self.title_label.setText(
-            metrics.elidedText(self._title_full, Qt.TextElideMode.ElideRight, avail)
-        )
 
     def _toggle_details(self) -> None:
         self._details_expanded = not self._details_expanded
@@ -300,11 +348,13 @@ class EditorPane(QWidget):
         icon = FIF.CARE_UP_SOLID if self._details_expanded else FIF.CARE_DOWN_SOLID
         self.btn_toggle_details.setIcon(icon.icon())
 
-    def load_case(self, case: TestCase) -> None:
+    def load_case(self, case: TestCase, *, module: str = "", suite: str = "") -> None:
         self._loading = True
         try:
             self._case = case
-            self._set_title(f"{case.code} — {case.title}")
+            self.title_label.setText(f"{case.code} — {case.title}" if case.title else case.code)
+            if module or suite:
+                self.set_breadcrumb(module, suite)
             self._render_all()
         finally:
             self._loading = False
@@ -351,9 +401,9 @@ class EditorPane(QWidget):
         if self._case is None:
             return
         unbound = count_unbound_steps(self._case)
+        self.mode_switch.setItemText("nocode", f"Steps ({len(self._case.steps)})")
         if unbound > 0:
-            self.unbound_banner.titleLabel.setText(f"{unbound} bước chưa gắn selector (UNBOUND)")
-            self.unbound_banner.contentLabel.setText(UI_UNBOUND_BANNER_BODY)
+            self.unbound_banner.set_count(unbound)
             self.unbound_banner.show()
         else:
             self.unbound_banner.hide()
@@ -369,17 +419,38 @@ class EditorPane(QWidget):
         for step in self._case.steps:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            values = [
-                str(step.step_no),
-                step.action,
-                step.intent_hint,
-                step.input_data or "",
-                step.binding_status,
-            ]
-            for col, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(value)
-                self.table.setItem(row, col, item)
+            self.table.setRowHeight(row, UI_TABLE_ROW_HEIGHT)
+            num = QTableWidgetItem(str(step.step_no))
+            num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 0, num)
+
+            badge_wrap = QWidget()
+            bl = QHBoxLayout(badge_wrap)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            bl.addWidget(ActionBadge(step.action))
+            self.table.setCellWidget(row, 1, badge_wrap)
+
+            intent = QTableWidgetItem(step.intent_hint)
+            intent.setToolTip(step.intent_hint)
+            self.table.setItem(row, 2, intent)
+            data = QTableWidgetItem(step.input_data or "")
+            data.setToolTip(step.input_data or "")
+            self.table.setItem(row, 3, data)
+
+            bind_wrap = QWidget()
+            bwl = QHBoxLayout(bind_wrap)
+            bwl.setContentsMargins(4, 0, 4, 0)
+            bwl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
+            bind_btn.setFixedHeight(26)
+            if (step.binding_status or "").upper() == BINDING_UNBOUND:
+                bind_btn.setStyleSheet(
+                    f"color: {THEME_STATUS_UNBOUND}; font-size: 11px; font-weight: 600;"
+                )
+            bwl.addWidget(bind_btn)
+            self.table.setCellWidget(row, 4, bind_wrap)
+
         self._apply_steps_header(self.table)
 
         payload = {

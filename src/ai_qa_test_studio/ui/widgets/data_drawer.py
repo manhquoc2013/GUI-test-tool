@@ -1,34 +1,44 @@
-"""Collapsible Test Data drawer with fixed 38px row height TableWidget."""
+"""Collapsible Test Data drawer — emits toggled; owner drives QSplitter sizes."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QHeaderView, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QStackedWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import (
     FluentIcon as FIF,
 )
 from qfluentwidgets import (
     PushButton,
-    StrongBodyLabel,
+    SegmentedWidget,
     TableWidget,
-    ToolButton,
+    TextEdit,
+    TransparentToolButton,
 )
 
 from ai_qa_test_studio.constants import (
     DEFAULT_EXPECTED_OUTCOME,
     TEST_DATA_NEW_ROW_LABEL,
-    THEME_BG_PANEL,
     UI_DATA_COL_EXPECTED_WIDTH,
     UI_DATA_COL_SCENARIO_WIDTH,
     UI_DATA_HEADER_MIN_SECTION,
+    UI_DATA_TABLE_ROW_HEIGHT,
     UI_DRAWER_COLLAPSED_HEIGHT,
+    UI_DRAWER_EXPAND_MIN_HEIGHT,
     UI_DRAWER_EXPANDED_HEIGHT,
-    UI_TABLE_ROW_HEIGHT,
     UI_WIDGET_SIZE_MAX,
 )
 from ai_qa_test_studio.ui.formatting import format_param_cell, humanize_header
+from ai_qa_test_studio.ui.theme import card_stylesheet
+from ai_qa_test_studio.ui.theme_bind import bind_theme_changed, safe_theme_slot
 
 _SCENARIO_KEYS = ("scenario", "Scenario", "case", "Case", "name", "Name", "title")
 _EXPECTED_KEYS = (
@@ -44,22 +54,28 @@ _EXPECTED_KEYS = (
 class TestDataDrawer(QWidget):
     add_requested = Signal()
     rows_changed = Signal(list)
+    toggled = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("TestDataDrawer")
         self.setAccessibleName("Bottom Drawer")
-        self.setStyleSheet(f"background-color: {THEME_BG_PANEL};")
         self._collapsed = False
         self._raw_rows: list[dict[str, Any]] = []
         self._loading = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 6, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 6, 12, 10)
+        layout.setSpacing(8)
 
         header = QHBoxLayout()
         header.setSpacing(8)
-        header.addWidget(StrongBodyLabel("Test Data (Data-Driven Matrix)", self))
+
+        self.tabs = SegmentedWidget(self)
+        self.tabs.addItem("data", "Test Data")
+        self.tabs.addItem("console", "Console Log")
+        self.tabs.setCurrentItem("data")
+        header.addWidget(self.tabs)
 
         self.btn_add_row = PushButton(FIF.ADD, "Thêm bộ dữ liệu", self)
         self.btn_add_row.setFixedHeight(28)
@@ -69,7 +85,7 @@ class TestDataDrawer(QWidget):
         header.addWidget(self.btn_add_row)
         header.addStretch(1)
 
-        self.btn_toggle = ToolButton(FIF.CHEVRON_DOWN_MED, self)
+        self.btn_toggle = TransparentToolButton(FIF.CHEVRON_DOWN_MED, self)
         self.btn_toggle.setFixedSize(28, 28)
         self.btn_toggle.setToolTip("Thu gọn / Mở rộng ngăn dữ liệu")
         self.btn_toggle.setAccessibleName("Thu gọn Bottom Drawer")
@@ -77,32 +93,49 @@ class TestDataDrawer(QWidget):
         header.addWidget(self.btn_toggle)
         layout.addLayout(header)
 
-        self.table = TableWidget(self)
-        self.table.setAccessibleName("Bảng Test Data")
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(
+        self.stack = QStackedWidget(self)
+        self.table = self._build_data_table()
+        self.console = TextEdit(self)
+        self.console.setReadOnly(True)
+        self.console.setPlaceholderText("Console log…")
+        self.stack.addWidget(self.table)
+        self.stack.addWidget(self.console)
+        self.tabs.currentItemChanged.connect(
+            lambda key: self.stack.setCurrentIndex(0 if key == "data" else 1)
+        )
+        layout.addWidget(self.stack, 1)
+
+        self.setMinimumHeight(UI_DRAWER_EXPANDED_HEIGHT)
+        self._theme_slot = safe_theme_slot(self._apply_theme_style)
+        self._apply_theme_style()
+        bind_theme_changed(self._theme_slot)
+
+    def _build_data_table(self) -> TableWidget:
+        table = TableWidget(self)
+        table.setAccessibleName("Bảng Test Data")
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(
             ["Scenario / Case", "Parameters (Tóm tắt 1 dòng)", "Expected Outcome"]
         )
-        self.table.verticalHeader().setDefaultSectionSize(UI_TABLE_ROW_HEIGHT)
-        self.table.verticalHeader().setMinimumSectionSize(UI_TABLE_ROW_HEIGHT)
-        self.table.setWordWrap(False)
-        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.table.setEditTriggers(
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(UI_DATA_TABLE_ROW_HEIGHT)
+        table.verticalHeader().setMinimumSectionSize(UI_DATA_TABLE_ROW_HEIGHT)
+        table.setWordWrap(False)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        table.setEditTriggers(
             TableWidget.EditTrigger.DoubleClicked | TableWidget.EditTrigger.EditKeyPressed
         )
-
-        hdr = self.table.horizontalHeader()
+        hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(UI_DATA_HEADER_MIN_SECTION)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(0, UI_DATA_COL_SCENARIO_WIDTH)
-        self.table.setColumnWidth(2, UI_DATA_COL_EXPECTED_WIDTH)
-        self.table.itemChanged.connect(self._on_item_changed)
-        layout.addWidget(self.table)
-        self.setMinimumHeight(UI_DRAWER_EXPANDED_HEIGHT)
+        table.setColumnWidth(0, UI_DATA_COL_SCENARIO_WIDTH)
+        table.setColumnWidth(2, UI_DATA_COL_EXPECTED_WIDTH)
+        table.itemChanged.connect(self._on_item_changed)
+        return table
 
     @property
     def collapsed(self) -> bool:
@@ -116,6 +149,7 @@ class TestDataDrawer(QWidget):
         try:
             self._raw_rows = [dict(row) for row in rows]
             self.table.setRowCount(len(self._raw_rows))
+            self.tabs.setItemText("data", f"Test Data ({len(self._raw_rows)})")
             for r_idx, row in enumerate(self._raw_rows):
                 scenario, params, expected = self._split_row(row, r_idx)
                 self.table.setItem(r_idx, 0, QTableWidgetItem(scenario))
@@ -123,7 +157,7 @@ class TestDataDrawer(QWidget):
                 param_item.setToolTip(params.replace(" | ", "\n"))
                 self.table.setItem(r_idx, 1, param_item)
                 self.table.setItem(r_idx, 2, QTableWidgetItem(expected))
-                self.table.setRowHeight(r_idx, UI_TABLE_ROW_HEIGHT)
+                self.table.setRowHeight(r_idx, UI_DATA_TABLE_ROW_HEIGHT)
         finally:
             self._loading = False
 
@@ -146,24 +180,29 @@ class TestDataDrawer(QWidget):
             param_item.setToolTip(params_text.replace(" | ", "\n") if params_text else "")
             self.table.setItem(r_idx, 1, param_item)
             self.table.setItem(r_idx, 2, QTableWidgetItem(expected))
-            self.table.setRowHeight(r_idx, UI_TABLE_ROW_HEIGHT)
+            self.table.setRowHeight(r_idx, UI_DATA_TABLE_ROW_HEIGHT)
             self.table.selectRow(r_idx)
             self.table.scrollToBottom()
+            self.tabs.setItemText("data", f"Test Data ({len(self._raw_rows)})")
         finally:
             self._loading = False
         self.rows_changed.emit(self.rows())
 
     def toggle_collapse(self) -> None:
         self._collapsed = not self._collapsed
-        self.table.setVisible(not self._collapsed)
+        self.stack.setVisible(not self._collapsed)
         self.btn_add_row.setVisible(not self._collapsed)
-        self.btn_toggle.setIcon(FIF.UP if self._collapsed else FIF.CHEVRON_DOWN_MED)
+        self.btn_toggle.setIcon(FIF.CHEVRON_RIGHT_MED if self._collapsed else FIF.CHEVRON_DOWN_MED)
         if self._collapsed:
-            self.setFixedHeight(UI_DRAWER_COLLAPSED_HEIGHT)
+            self.setMinimumHeight(UI_DRAWER_COLLAPSED_HEIGHT)
+            self.setMaximumHeight(UI_DRAWER_COLLAPSED_HEIGHT)
         else:
-            self.setMinimumHeight(UI_DRAWER_EXPANDED_HEIGHT)
+            self.setMinimumHeight(UI_DRAWER_EXPAND_MIN_HEIGHT)
             self.setMaximumHeight(UI_WIDGET_SIZE_MAX)
-            self.setFixedHeight(UI_DRAWER_EXPANDED_HEIGHT)
+        self.toggled.emit(not self._collapsed)
+
+    def _apply_theme_style(self) -> None:
+        self.setStyleSheet(card_stylesheet("#TestDataDrawer"))
 
     def _template_parameters(self) -> dict[str, str]:
         for row in reversed(self._raw_rows):
