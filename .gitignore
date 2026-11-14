@@ -44,3 +44,11 @@ data/v4/
 data/copilot/**
 **/.studio/
 data/config/*.db
+
+.venv/
+venv/
+env/
+__pycache__/
+build/
+dist/
+.pytest_cache/
