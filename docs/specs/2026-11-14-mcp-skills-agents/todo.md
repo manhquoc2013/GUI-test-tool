@@ -1,9 +1,9 @@
 # Todo: MCP + Skills + Agents
 
-**Progress**: 1/10
+**Progress**: 2/10
 
 - [x] T0 Spec docs (CAPABILITY_MAP + SPEC + plan + this todo)
-- [ ] T1 Skill frontmatter + catalog inject + Dual-Loop skill context + `load_skill` wire
+- [x] T1 Skill frontmatter + catalog inject + Dual-Loop skill context + `load_skill` wire
 - [ ] T2 MCP JSON-RPC stdio client + ExternalMcpBridge tools/call
 - [ ] T3 Bundled `qa-ingest` (markitdown) + harden `qa-compress` headroom tools + ACL
 - [ ] T4 Bundled `qa-persistent-memory` (`.studio/agent_memory.db`) + ACL

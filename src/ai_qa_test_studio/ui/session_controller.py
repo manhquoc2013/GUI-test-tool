@@ -153,11 +153,13 @@ class SessionController:
         _ = emit_report  # callers suppress side-effects; return value always full
         try:
             await self.ensure_started(headless=False, log=emit)
-            if skill_name and skills_dir is not None:
-                loader = ProgressiveSkillLoader(skills_dir)
-                if skill_name in loader.registry:
-                    emit(f"[✓] Nạp skill: {skill_name}")
-                    _ = loader.load_skill_context(skill_name)
+            skill_context = ""
+            skill_loader: ProgressiveSkillLoader | None = None
+            if skills_dir is not None:
+                skill_loader = ProgressiveSkillLoader(skills_dir)
+            if skill_name and skill_loader is not None and skill_name in skill_loader.registry:
+                skill_context = skill_loader.load_skill_context(skill_name)
+                emit(f"[✓] Nạp skill: {skill_name} ({len(skill_context)} chars)")
             if case.start_url:
                 await self.engine.goto(case.start_url)
                 emit(f"Mở start_url={case.start_url}")
@@ -176,7 +178,13 @@ class SessionController:
                     self.engine.page, bundled_mcp, enabled=True
                 )
                 emit("Midscene vision locate: on (bundled qa-midscene)")
-            agent = DualLoopAgent(self.engine.page, repo, vision_locate=vision_locate)
+            agent = DualLoopAgent(
+                self.engine.page,
+                repo,
+                vision_locate=vision_locate,
+                skill_context=skill_context,
+                skill_loader=skill_loader,
+            )
             emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
             report = await agent.run_case(
                 case,

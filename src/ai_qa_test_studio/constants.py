@@ -284,15 +284,20 @@ ICON_COLOR_SUCCESS = THEME_STATUS_BOUND
 ICON_COLOR_WARN = THEME_STATUS_UNBOUND
 ICON_COLOR_DANGER = THEME_STATUS_ERROR
 ICON_COLOR_HEALED = THEME_STATUS_HEALED
+MICRO_TOOL_LOAD_SKILL = "load_skill"
 MICRO_TOOL_NAMES = (
     "navigate",
     "interact",
     "assert",
     "bind_step_element",
     "patch_element_locator",
-    "load_skill",
+    MICRO_TOOL_LOAD_SKILL,
     "finish_task",
 )
+SKILL_CONTEXT_MAX_CHARS = 4000
+CONTEXT_KEY_SKILL_CATALOG = "skill_catalog"
+CONTEXT_KEY_SKILL_BODY = "skill_body"
+CONTEXT_KEY_SKILL_NAME = "skill_name"
 ACTION_GOTO = "goto"
 ACTION_MAP_JAVA_TO_V4 = {
     "NAVIGATE": "goto",

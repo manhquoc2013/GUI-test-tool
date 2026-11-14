@@ -24,6 +24,9 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
+    CONTEXT_KEY_SKILL_BODY,
+    CONTEXT_KEY_SKILL_CATALOG,
+    CONTEXT_KEY_SKILL_NAME,
     COPILOT_AGENT_DEBATE_MAX_ROUNDS,
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
     COPILOT_CHAT_MAX_TOKENS,
@@ -49,6 +52,7 @@ from ai_qa_test_studio.constants import (
     ROLE_COMPOSER,
     ROLE_CRITIC,
     ROLE_PLANNER,
+    SKILL_CONTEXT_MAX_CHARS,
 )
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
@@ -608,6 +612,16 @@ class CopilotOrchestrator:
             parts.append(
                 "SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
             )
+        catalog = str(context.get(CONTEXT_KEY_SKILL_CATALOG) or "").strip()
+        if catalog:
+            parts.append("SKILLS:\n" + catalog)
+        skill_body = str(context.get(CONTEXT_KEY_SKILL_BODY) or "").strip()
+        if skill_body:
+            name = str(context.get(CONTEXT_KEY_SKILL_NAME) or "active")
+            clipped = skill_body
+            if len(clipped) > SKILL_CONTEXT_MAX_CHARS:
+                clipped = clipped[: SKILL_CONTEXT_MAX_CHARS - 1] + "…"
+            parts.append(f"ACTIVE_SKILL ({name}):\n{clipped}")
         return "\n\n".join(parts)
 
     async def _collect(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
@@ -12,10 +13,15 @@ from ai_qa_test_studio.agent.orchestrator import (
     ClarifyResponse,
     CopilotOrchestrator,
 )
+from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CONTEXT_KEY_SKILL_BODY,
+    CONTEXT_KEY_SKILL_CATALOG,
+    CONTEXT_KEY_SKILL_NAME,
     COPILOT_MODE_COMPOSE,
+    DEFAULT_SKILLS_DIRNAME,
     EVENT_AGENT_MESSAGE,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
@@ -195,6 +201,16 @@ class CopilotController:
                 ctx["dom"] = compact
             except Exception as exc:  # noqa: BLE001
                 ctx["dom"] = f"(DOM unavailable: {exc})"
+        skills = getattr(w, "_skills", None)
+        if skills is None:
+            skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
+        ctx[CONTEXT_KEY_SKILL_CATALOG] = skills.get_compact_catalog()
+        skill_name = ""
+        if hasattr(w, "skill_combo"):
+            skill_name = str(w.skill_combo.currentText() or "").strip()
+        if skill_name and skill_name in skills.registry:
+            ctx[CONTEXT_KEY_SKILL_NAME] = skill_name
+            ctx[CONTEXT_KEY_SKILL_BODY] = skills.load_skill_context(skill_name)
         return ctx
 
     def apply_payload(self, payload: dict[str, Any]) -> None:

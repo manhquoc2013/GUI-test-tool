@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+from typing import Any
 
+import yaml
 from pydantic import BaseModel
+
+from ai_qa_test_studio.constants import MICRO_TOOL_LOAD_SKILL, SKILL_CONTEXT_MAX_CHARS
+
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 
 class SkillMetadata(BaseModel):
@@ -28,17 +35,32 @@ class ProgressiveSkillLoader:
         for folder in sorted(self.skills_dir.iterdir()):
             skill_file = folder / "SKILL.md"
             if folder.is_dir() and skill_file.is_file():
-                first_lines = skill_file.read_text(encoding="utf-8").splitlines()[:5]
-                desc = next(
-                    (line.lstrip("# ").strip() for line in first_lines if line.strip()),
-                    folder.name,
-                )
+                raw = skill_file.read_text(encoding="utf-8")
+                desc = self._description_from_skill(raw, folder.name)
                 self.registry[folder.name] = SkillMetadata(
                     name=folder.name,
                     description=desc,
                     skill_path=skill_file,
                     usage_path=folder / ".usage.json",
                 )
+
+    @staticmethod
+    def _description_from_skill(raw: str, fallback: str) -> str:
+        match = _FRONTMATTER_RE.match(raw)
+        if match:
+            try:
+                meta = yaml.safe_load(match.group(1)) or {}
+            except yaml.YAMLError:
+                meta = {}
+            if isinstance(meta, dict):
+                desc = str(meta.get("description") or "").strip()
+                if desc:
+                    return desc
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                return stripped.lstrip("# ").strip() or fallback
+        return fallback
 
     def get_compact_catalog(self) -> str:
         lines = [
@@ -60,7 +82,17 @@ class ProgressiveSkillLoader:
                 content += "\n\n### Kinh nghiệm thực chiến trên domain này:\n" + "\n".join(
                     f"- {n}" for n in domain_notes
                 )
+        if len(content) > SKILL_CONTEXT_MAX_CHARS:
+            return content[: SKILL_CONTEXT_MAX_CHARS - 1] + "…"
         return content
+
+    def invoke_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> str:
+        payload = args or {}
+        if tool_name != MICRO_TOOL_LOAD_SKILL:
+            return f"Unsupported skill tool: {tool_name}"
+        skill_name = str(payload.get("skill_name") or payload.get("name") or "").strip()
+        domain = str(payload.get("domain") or "").strip()
+        return self.load_skill_context(skill_name, domain=domain)
 
     def record_usage_note(self, skill_name: str, domain: str, note: str) -> None:
         meta = self.registry.get(skill_name)

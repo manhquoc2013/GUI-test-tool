@@ -11,11 +11,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ai_qa_test_studio.agent.healer import Healer
+from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.locator_resolver import LocatorResolver
 from ai_qa_test_studio.constants import (
     CASE_STATUS_CANCELLED,
     CASE_STATUS_FAIL,
     CASE_STATUS_PASS,
+    MICRO_TOOL_LOAD_SKILL,
     TOKEN_MAX_ATOMIC_OUTPUT,
 )
 from ai_qa_test_studio.core.models import (
@@ -45,6 +47,8 @@ class DualLoopAgent:
         healer: Healer | None = None,
         max_tokens: int = TOKEN_MAX_ATOMIC_OUTPUT,
         vision_locate: VisionLocateFn | None = None,
+        skill_context: str = "",
+        skill_loader: ProgressiveSkillLoader | None = None,
     ) -> None:
         self.page = page
         self.element_repo = element_repo
@@ -52,6 +56,17 @@ class DualLoopAgent:
         self.healer = healer or Healer(resolver=self.resolver)
         self.max_tokens = max_tokens
         self.vision_locate = vision_locate
+        self.skill_context = skill_context
+        self.skill_loader = skill_loader
+
+    def invoke_micro_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> str:
+        if tool_name == MICRO_TOOL_LOAD_SKILL:
+            if self.skill_loader is None:
+                return "Skill loader unavailable."
+            body = self.skill_loader.invoke_tool(tool_name, args)
+            self.skill_context = body
+            return body
+        return f"Unsupported micro-tool: {tool_name}"
 
     async def run_case(
         self,

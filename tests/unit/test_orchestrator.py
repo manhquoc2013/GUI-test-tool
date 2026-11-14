@@ -17,6 +17,9 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_STOPPED,
+    CONTEXT_KEY_SKILL_BODY,
+    CONTEXT_KEY_SKILL_CATALOG,
+    CONTEXT_KEY_SKILL_NAME,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
     COPILOT_SUMMARY_MAX_CHARS,
@@ -280,6 +283,23 @@ async def test_collect_yields_chunk_events() -> None:
         if event.kind == "chunk":
             chunks.append(event.text)
     assert chunks
+
+
+def test_format_context_includes_skill_catalog_and_body() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    block = orch._format_context(
+        {
+            CONTEXT_KEY_SKILL_CATALOG: "- web-e2e-functional: E2E rules",
+            CONTEXT_KEY_SKILL_NAME: "web-e2e-functional",
+            CONTEXT_KEY_SKILL_BODY: "Prefer get_by_role",
+        }
+    )
+    assert "SKILLS:" in block
+    assert "web-e2e-functional" in block
+    assert "ACTIVE_SKILL" in block
+    assert "Prefer get_by_role" in block
 
 
 @pytest.mark.asyncio
