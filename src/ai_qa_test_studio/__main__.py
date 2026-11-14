@@ -36,7 +36,9 @@ def main() -> int:
     ensure_qt_api()
     install_platform_noise_filters()
 
+    from ai_qa_test_studio.constants import APP_DISPLAY_NAME
     from ai_qa_test_studio.core.env_manager import EnvManager
+    from ai_qa_test_studio.resources import load_app_icon
     from ai_qa_test_studio.ui.main_window import MainWindow
     from ai_qa_test_studio.ui.theme import apply_studio_theme
 
@@ -45,11 +47,15 @@ def main() -> int:
     env.load_settings()
 
     app = QApplication(sys.argv)
+    app.setApplicationName(APP_DISPLAY_NAME)
+    app_icon = load_app_icon()
+    app.setWindowIcon(app_icon)
     apply_studio_theme(app, preference=env.settings.theme)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
     window = MainWindow(data_root=data_root)
+    window.setWindowIcon(app_icon)
     window.show()
 
     with loop:

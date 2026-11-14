@@ -147,6 +147,14 @@ DEFAULT_COPILOT_MODELS = (
     COPILOT_MODEL_AUTO,
 )
 
+# App identity / branding
+APP_DISPLAY_NAME = "AI QA Test Studio"
+APP_WINDOW_TITLE = "AI QA Test Studio v4.2"
+APP_ICON_DIRNAME = "icons"
+APP_ICON_MASTER_FILENAME = "app_icon.png"
+APP_ICON_FILENAME_TEMPLATE = "app_icon_{size}.png"
+APP_ICON_SIZES: tuple[int, ...] = (16, 32, 48, 64, 128, 256, 512)
+
 # UI workspace (Fluent QMainWindow shell) — v4.2 three-column
 UI_WINDOW_MIN_WIDTH = 980
 UI_WINDOW_MIN_HEIGHT = 640
@@ -253,6 +261,53 @@ UI_WIZARD_STEP_COUNT = 3
 UI_PALETTE_MIN_WIDTH = 520
 UI_PALETTE_MAX_HEIGHT = 420
 UI_MARKDOWN_PREVIEW_CHARS = 4000
+UI_WIZARD_DOC_LIST_MIN_HEIGHT = 96
+WIZARD_DOC_KIND_SRS = "srs"
+WIZARD_DOC_KIND_TEST_SCENARIO = "test_scenario"
+WIZARD_DOC_KIND_TEST_CASE = "test_case"
+WIZARD_DOC_KIND_LABELS = {
+    WIZARD_DOC_KIND_SRS: "SRS",
+    WIZARD_DOC_KIND_TEST_SCENARIO: "Test Scenario",
+    WIZARD_DOC_KIND_TEST_CASE: "Test Case",
+}
+WIZARD_DOC_FILE_FILTER = (
+    "Documents (*.md *.txt *.csv *.xlsx *.xls *.docx *.pdf *.html *.htm);;All (*)"
+)
+WIZARD_DOC_MARKDOWN_SUFFIXES = (".md", ".markdown", ".txt")
+WIZARD_DOC_CSV_SUFFIXES = (".csv",)
+WIZARD_DOC_XLSX_SUFFIXES = (".xlsx", ".xlsm", ".xls")
+WIZARD_DOC_CLASSIFY_SRS_TOKENS = (
+    "srs",
+    "spec",
+    "requirement",
+    "prd",
+    "dac-ta",
+    "dacta",
+    "dac ta",
+)
+WIZARD_DOC_CLASSIFY_SCENARIO_TOKENS = (
+    "scenario",
+    "test-scenario",
+    "test_scenario",
+    "kich-ban",
+    "kichban",
+)
+WIZARD_DOC_CLASSIFY_CASE_TOKENS = (
+    "testcase",
+    "test-case",
+    "test_case",
+    "test case",
+    "truong-hop",
+    "truonghop",
+)
+WIZARD_DOC_HEADER_CASE_ID = "test case id"
+WIZARD_DOC_HEADER_SCENARIO_ID = "scenario id"
+WIZARD_DOC_HEADER_STEP_NO = "step no"
+WIZARD_DOC_HEADER_ACTION = "action"
+WIZARD_DOC_HEADER_TITLE = "title"
+WIZARD_DOC_SHEET_SCENARIOS = "test scenarios"
+WIZARD_DOC_SHEET_CASES = "test cases"
+WIZARD_DOC_CONTEXT_CAP_CHARS = 6000
 DEFAULT_TARGET_URL = "https://example.com"
 FALLBACK_BLANK_URL = "about:blank"
 DEFAULT_SKILLS_DIRNAME = "skills"

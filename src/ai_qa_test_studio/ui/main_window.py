@@ -34,6 +34,8 @@ from ai_qa_test_studio.agent.orchestrator import ClarifyRequest, ClarifyResponse
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.dom_distiller import DomDistiller
 from ai_qa_test_studio.constants import (
+    APP_DISPLAY_NAME,
+    APP_WINDOW_TITLE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
     THEME_PREF_DARK,
@@ -92,8 +94,8 @@ from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 class MainWindow(QMainWindow):
     def __init__(self, data_root: Path | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("AI QA Test Studio v4.2")
-        self.setAccessibleName("AI QA Test Studio")
+        self.setWindowTitle(APP_WINDOW_TITLE)
+        self.setAccessibleName(APP_DISPLAY_NAME)
         self.setMinimumSize(UI_WINDOW_MIN_WIDTH, UI_WINDOW_MIN_HEIGHT)
         self.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
         self.data_root = data_root or Path("data")
