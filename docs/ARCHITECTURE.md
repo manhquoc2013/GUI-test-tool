@@ -73,7 +73,7 @@ ai_qa_test_studio/
 │   ├── complexity_classifier.py
 │   ├── llm_gateway.py
 │   ├── bundled_mcp.py
-│   └── mcp_servers/            # qa-compress, qa-crew-memory, qa-project-context
+│   └── mcp_servers/            # qa-compress, qa-crew-memory, qa-project-context, qa-midscene, qa-playwright
 ├── browser/                    # engine, DOM, inspector, screencast helpers
 ├── core/                       # models, storage, env_manager, chat_*
 ├── ui/

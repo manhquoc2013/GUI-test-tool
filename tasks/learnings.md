@@ -1,21 +1,15 @@
-# Learnings — Review Remediation (2026-11-14)
+# Learnings — Bugbot P0 + Midscene MCP
 
 ## Decisions
-- Cooperative cancel beats hard `engine.stop()` mid-run (Hermes/Orca settle pattern).
-- Heal must not treat “locator resolves” as healthy after action failure.
-- Heuristic bind must fail closed (UNBOUND), never first-node default.
-- API keys belong in OS keyring; JSON refs only (`keyring:<slot>`).
-- ADR 0003 restored: push ≥960, overlay <960 (not always-overlay).
-- MainWindow logic lives in controllers; window keeps test-facing public attrs.
+- Bundled `qa-midscene` is the zero-install heal path; external `@midscene/mcp` is optional via npx+CDP.
+- Bundled `qa-playwright` exposes screenshot/cdp_info against the single BrowserContext.
+- `role=None` → ROLE_SYSTEM (compress/get/locate/screenshot only).
+- Esc: sync `request_cancel` + `create_task(stop)`; stop finally clears `_busy`.
 
-## Patterns established
-- `SessionController._active_run` Future + `should_cancel` callback into DualLoop.
-- Clarify×Stop via `asyncio.wait` + `ClarifyDialog.abort_stopped()`.
-- `LayoutController` push = workspace `setContentsMargins(0,0,drawer_w,0)`.
-- Gateway caches `AsyncOpenAI` per instance; resolve keys at ModelRouter boundary.
+## Patterns
+- Vision bridge: DomDistiller → mcp.invoke(qa-midscene.locate) → healer vision_locate.
+- ExternalMcpBridge never launches a second Chromium; CDP injected in-memory only.
 
 ## Gotchas
-- `uv.lock` is gitignored — still run `uv add` so local envs pick up `keyring`.
-- Async generators cannot `return value` — use out-lists for role results.
-- Keep `_require_case` / `DEFAULT_TARGET_URL` strings discoverable for inspect-based UI tests.
-- CI without keyring backend: tests monkeypatch `keyring.get/set_password`.
+- Playwright page.screenshot is async — sync MCP screenshot returns available=False with reason async_page; heal uses DomDistiller path.
+- Starting npx Midscene without network/cache will log and fall back to bundled.
