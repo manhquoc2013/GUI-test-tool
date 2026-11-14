@@ -1,3 +1,6 @@
-# Plan — Coordinator quality loop
+# Plan — Coverage review fixes
 
-See `docs/specs/2026-11-14-coordinator-quality-loop/plan.md`.
+1. TDD: multi-doc pair completeness (RED then GREEN).
+2. Refactor `doc_coverage` — `plan_coverage_windows`, `covered_chunk_keys`.
+3. Extract `run_coverage_pass(host, …)`; empty-path mark_compose.
+4. Gates + `tasks/learnings.md`.

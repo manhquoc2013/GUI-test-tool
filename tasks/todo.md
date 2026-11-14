@@ -1,6 +1,6 @@
-# Todo — Large-doc corpus (active)
+# Todo — Coverage polish (review #3)
 
-- [x] P1: constants + doc_corpus + tests
-- [x] P2: Copilot bg ingest + await + RETRIEVED
-- [x] P3: Wizard full Excel + batch apply
-- [x] P4: UX tooltips + gates
+- [x] Single load: gate inside `plan_coverage_windows`
+- [x] Stop mid-pass flush partial Apply (+ orchestrator wait for `stopped`)
+- [x] Nice: max_sections≥1, honest notes, plan.total_chunks status
+- [x] Tests + gates (235 passed)

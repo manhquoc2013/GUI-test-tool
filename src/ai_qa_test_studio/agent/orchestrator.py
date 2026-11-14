@@ -15,6 +15,7 @@ from typing import Any
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.complexity_classifier import ComplexityClassifier
+from ai_qa_test_studio.agent.coverage_pass import run_coverage_pass
 from ai_qa_test_studio.agent.crew_dispatch import dispatch_specialist
 from ai_qa_test_studio.agent.crew_exchange import (
     CrewBoard,
@@ -353,6 +354,21 @@ class CopilotOrchestrator:
             model=coord_route.model,
         )
 
+        async for ev in self._maybe_coverage_pass(
+            board=board,
+            context=context,
+            hist=hist,
+            stop=stop,
+            max_tokens=max_tokens,
+            mcp=mcp,
+            complexity=complexity,
+            complexity_vn=complexity_vn,
+        ):
+            yield ev
+            # Let coverage_pass finish partial flush before aborting the pipeline.
+            if ev.kind == "stopped":
+                return
+
         for _round in range(COPILOT_COORDINATOR_MAX_ROUNDS):
             if stop.is_set():
                 yield OrchestratorEvent(
@@ -475,6 +491,31 @@ class CopilotOrchestrator:
             ),
         )
         yield OrchestratorEvent(kind="pipeline_complete")
+
+    async def _maybe_coverage_pass(
+        self,
+        *,
+        board: CrewBoard,
+        context: dict[str, Any],
+        hist: list[ChatMessage],
+        stop: asyncio.Event,
+        max_tokens: int,
+        mcp: BundledMcpRegistry,
+        complexity: str,
+        complexity_vn: str,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        async for ev in run_coverage_pass(
+            self,
+            board=board,
+            context=context,
+            hist=hist,
+            stop=stop,
+            max_tokens=max_tokens,
+            mcp=mcp,
+            complexity=complexity,
+            complexity_vn=complexity_vn,
+        ):
+            yield ev
 
     async def _coordinator_decide(
         self,
@@ -838,8 +879,12 @@ class CopilotOrchestrator:
         )
 
     def _srs_from_context(self, ctx_block: str, user_text: str) -> str:
-        """Prefer attached / SRS document body over the short chat prompt."""
+        """Prefer section / SRS / attachment body over the short chat prompt."""
         block = ctx_block or ""
+        if "SECTION:" in block:
+            body = block.split("SECTION:", 1)[-1].strip()
+            if body:
+                return body
         if "SRS:" in block:
             body = block.split("SRS:", 1)[-1].strip()
             if body:
