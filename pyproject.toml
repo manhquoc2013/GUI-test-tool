@@ -23,6 +23,7 @@ dependencies = [
     "google-genai>=0.5.0",
     "pyside6-fluent-widgets[full]>=1.11.3",
     "keyring>=25.7.0",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]
