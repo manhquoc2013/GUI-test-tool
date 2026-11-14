@@ -111,6 +111,10 @@ LLM_PROVIDER_OFFLINE = "offline"
 LLM_PROVIDER_OPENAI_COMPAT = "openai_compatible"
 LLM_PROVIDER_GEMINI = "gemini"
 LLM_MODEL_LIST_TIMEOUT_S = 20.0
+LLM_JSON_LOG_PREVIEW_CHARS = 180
+LLM_JSON_ONLY_RULE = (
+    "Reply with JSON only — no markdown fences, no commentary before or after."
+)
 COPILOT_MODE_COMPOSE = "compose"
 COPILOT_MODE_CASE = "case_chat"
 APPLY_KIND_COMPOSE = "compose_scenarios"
@@ -466,6 +470,14 @@ CHAT_ROLE_BADGE_RADIUS = 8
 CHAT_ROLE_BADGE_FONT_PX = 11
 CHAT_BODY_FONT_PX = 13
 CHAT_TRANSCRIPT_SPACING = 10
+CHAT_TYPING_DOT_COUNT = 3
+CHAT_TYPING_DOT_DIAMETER = 7
+CHAT_TYPING_DOT_GAP = 6
+CHAT_TYPING_DOT_BOUNCE_PX = 3
+CHAT_TYPING_INTERVAL_MS = 160
+CHAT_TYPING_PHASES = 8
+CHAT_TYPING_LABEL = "Đang xử lý…"
+CHAT_TYPING_EMPTY_MARKERS: frozenset[str] = frozenset({"", "…", "...", "⋯"})
 CHAT_ROLE_LABELS: dict[str, str] = {
     "user": "Bạn",
     ROLE_COORDINATOR: "Điều phối viên",

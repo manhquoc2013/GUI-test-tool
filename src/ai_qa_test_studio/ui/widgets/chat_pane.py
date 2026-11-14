@@ -540,7 +540,7 @@ class CopilotChatPane(QWidget):
         """Update open bubble display only — session content stays for role_end."""
         del role
         if self._streaming_row is not None:
-            self._streaming_row.set_body(summary or "…")
+            self._streaming_row.set_body(summary)
             self._scroll_transcript()
 
     def append_stream_chunk(self, chunk: str) -> None:
@@ -560,7 +560,7 @@ class CopilotChatPane(QWidget):
             self._session.messages[-1].content = text
             self._session.messages[-1].summary = display
         if self._streaming_row is not None:
-            self._streaming_row.set_body(display or "…")
+            self._streaming_row.set_body(display)
         self._streaming_row = None
         self.session_changed.emit()
 

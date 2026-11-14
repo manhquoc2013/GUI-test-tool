@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import Any
 
+from ai_qa_test_studio.agent.llm_json import loads_llm_json, preview_llm_text
+from ai_qa_test_studio.constants import LLM_JSON_ONLY_RULE
 from ai_qa_test_studio.core.models import TestCase, TestScenario, TestStep
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
@@ -39,8 +41,8 @@ class SpecGenerator:
         if self.llm is None:
             return []
         prompt = (
-            "Parse the following test artefact table/prose into JSON with key "
-            "'scenarios': list of {code,title,requirement_ref,description,cases}. "
+            f"{LLM_JSON_ONLY_RULE} "
+            "Shape: {\"scenarios\":[{code,title,requirement_ref,description,cases}]}. "
             "Each case: {code,title,preconditions,steps}. "
             "Each step: {step_no,action,intent_hint,input_data,expected_result}. "
             "Actions must be one of: goto,click,fill,select,press_enter,hover,"
@@ -52,8 +54,10 @@ class SpecGenerator:
 
     async def generate_outline(self, markdown_spec: str) -> list[TestScenario]:
         prompt = (
-            "Return JSON list of scenarios with keys code,title,requirement_ref,description. "
-            "Happy/Negative/Edge only.\n\n"
+            f"{LLM_JSON_ONLY_RULE} "
+            "Shape: a JSON array of scenarios, or {\"scenarios\":[...]}. "
+            "Each item keys: code,title,requirement_ref,description. "
+            "Cover Happy / Negative / Edge only.\n\n"
             + self.compressor.budget.truncate_to_cap(markdown_spec, cap=3000)
         )
         if self.llm is None:
@@ -67,8 +71,11 @@ class SpecGenerator:
         if self.llm is None:
             return self._offline_cases(scenario, batch_size)
         prompt = (
+            f"{LLM_JSON_ONLY_RULE} "
             f"Generate up to {batch_size} IEEE-style test cases as JSON for scenario "
-            f"{scenario.code}: {scenario.title}. Keys: code,title,priority,preconditions,steps."
+            f"{scenario.code}: {scenario.title}. "
+            "Shape: a JSON array of cases, or {\"cases\":[...]}. "
+            "Each case keys: code,title,priority,preconditions,steps."
         )
         raw = await self.llm(prompt)
         return self._parse_cases(raw, scenario)
@@ -114,13 +121,40 @@ class SpecGenerator:
             )
         return cases
 
+    @staticmethod
+    def _scenario_items(data: Any) -> list[Any]:
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            items = data.get("scenarios")
+            if isinstance(items, list):
+                return items
+            # Single scenario object mistaken for a wrapper.
+            if any(key in data for key in ("code", "title", "description")):
+                return [data]
+        return []
+
+    @staticmethod
+    def _case_items(data: Any) -> list[Any]:
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            items = data.get("cases")
+            if isinstance(items, list):
+                return items
+            if any(key in data for key in ("code", "title", "steps")):
+                return [data]
+        return []
+
     def _parse_scenarios(self, raw: str) -> list[TestScenario]:
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("outline_json_failed")
+        data = loads_llm_json(raw)
+        if data is None:
+            logger.warning(
+                "outline_json_failed preview=%s",
+                preview_llm_text(raw),
+            )
             return self._offline_outline(raw)
-        items = data if isinstance(data, list) else data.get("scenarios", [])
+        items = self._scenario_items(data)
         scenarios: list[TestScenario] = []
         for item in items:
             if not isinstance(item, dict):
@@ -134,15 +168,23 @@ class SpecGenerator:
                     description=str(item.get("description") or ""),
                 )
             )
-        return scenarios or self._offline_outline(raw)
+        if not scenarios:
+            logger.warning(
+                "outline_json_empty_shape preview=%s",
+                preview_llm_text(raw),
+            )
+            return self._offline_outline(raw)
+        return scenarios
 
     def _parse_artifact_bundle(self, raw: str) -> list[TestScenario]:
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("artifact_json_failed")
+        data = loads_llm_json(raw)
+        if data is None:
+            logger.warning(
+                "artifact_json_failed preview=%s",
+                preview_llm_text(raw),
+            )
             return []
-        items = data if isinstance(data, list) else data.get("scenarios", [])
+        items = self._scenario_items(data)
         scenarios: list[TestScenario] = []
         for item in items:
             if not isinstance(item, dict):
@@ -213,11 +255,14 @@ class SpecGenerator:
         return scenarios
 
     def _parse_cases(self, raw: str, scenario: TestScenario) -> list[TestCase]:
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
+        data = loads_llm_json(raw)
+        if data is None:
+            logger.warning(
+                "cases_json_failed preview=%s",
+                preview_llm_text(raw),
+            )
             return self._offline_cases(scenario, 2)
-        items = data if isinstance(data, list) else data.get("cases", [])
+        items = self._case_items(data)
         cases: list[TestCase] = []
         for item in items:
             if not isinstance(item, dict):
@@ -227,16 +272,29 @@ class SpecGenerator:
             for idx, s in enumerate(steps_raw, start=1):
                 if not isinstance(s, dict):
                     continue
-                steps.append(
-                    TestStep(
-                        step_no=int(s.get("step_no") or idx),
-                        action=s.get("action") or "click",
-                        intent_hint=str(s.get("intent_hint") or s.get("description") or ""),
-                        input_data=s.get("input_data"),
-                        expected_result=str(s.get("expected_result") or ""),
-                        binding_status="UNBOUND",
+                try:
+                    steps.append(
+                        TestStep(
+                            step_no=int(s.get("step_no") or idx),
+                            action=s.get("action") or "click",
+                            intent_hint=str(s.get("intent_hint") or s.get("description") or ""),
+                            input_data=s.get("input_data"),
+                            expected_result=str(s.get("expected_result") or ""),
+                            binding_status="UNBOUND",
+                        )
                     )
-                )
+                except Exception:  # noqa: BLE001 — LLM may emit invalid action literals
+                    steps.append(
+                        TestStep(
+                            step_no=idx,
+                            action="click",
+                            intent_hint=str(
+                                s.get("intent_hint") or s.get("action") or s.get("description") or ""
+                            ),
+                            expected_result=str(s.get("expected_result") or ""),
+                            binding_status="UNBOUND",
+                        )
+                    )
             cases.append(
                 TestCase(
                     id=str(uuid.uuid4()),

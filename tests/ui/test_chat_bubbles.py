@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout
 from ai_qa_test_studio.constants import (
     CHAT_BUBBLE_MAX_WIDTH,
     CHAT_ROLE_LABELS,
+    CHAT_TYPING_LABEL,
     ROLE_COMPOSER,
     ROLE_PLANNER,
     ROLE_SYSTEM,
@@ -25,6 +26,7 @@ def test_user_bubble_aligns_right(qapp: QApplication) -> None:
     assert row.badge.text() == CHAT_ROLE_LABELS["user"]
     assert "ChatBubble" in row.bubble.styleSheet() or row.bubble.objectName() == "ChatBubble"
     assert "border-radius" in row.bubble.styleSheet()
+    assert not row.is_typing()
     row.close()
 
 
@@ -58,4 +60,27 @@ def test_composer_bubble_label(qapp: QApplication) -> None:
     assert row.badge.text() == CHAT_ROLE_LABELS[ROLE_COMPOSER]
     assert "kiểm thử" in row.badge.text().lower()
     assert row.meta is row.badge
+    row.close()
+
+
+def test_empty_agent_bubble_shows_typing_indicator(qapp: QApplication) -> None:
+    row = ChatMessageRow("m5", ROLE_COMPOSER, "")
+    row.show()
+    qapp.processEvents()
+    assert row.is_typing()
+    assert row.typing_label.text() == CHAT_TYPING_LABEL
+    assert row.typing.isVisible()
+    assert row.body.isHidden()
+    assert row.typing.is_running()
+
+    row.set_body("…")
+    qapp.processEvents()
+    assert row.is_typing()
+
+    row.set_body("Đã soạn xong")
+    qapp.processEvents()
+    assert not row.is_typing()
+    assert row.body.isVisible()
+    assert row.body.text() == "Đã soạn xong"
+    assert not row.typing.is_running()
     row.close()
