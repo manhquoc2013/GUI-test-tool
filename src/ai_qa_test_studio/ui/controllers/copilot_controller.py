@@ -18,12 +18,18 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
     CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_ATTACHMENTS,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
+    COPILOT_CHAT_REPLY_MAX_CHARS,
     COPILOT_MODE_COMPOSE,
+    COPILOT_STATUS_CLARIFY,
+    COPILOT_STATUS_CONNECTING,
+    COPILOT_STATUS_PREPARING,
+    COPILOT_STATUS_WORKING,
     DEFAULT_SKILLS_DIRNAME,
     EVENT_AGENT_MESSAGE,
     EVENT_CLARIFY_REQUEST,
@@ -40,6 +46,14 @@ from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 
 if TYPE_CHECKING:
     from ai_qa_test_studio.ui.main_window import MainWindow
+
+
+def clip_chat_reply(text: str, max_chars: int = COPILOT_CHAT_REPLY_MAX_CHARS) -> str:
+    """Short bubble for the transcript; full body stays in artifacts / Apply."""
+    compact = " ".join((text or "").split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 1].rstrip() + "…"
 
 
 class CopilotController:
@@ -99,6 +113,7 @@ class CopilotController:
                 "Trình duyệt đang bận — bỏ qua @DOM cho lượt này.",
             )
         w.copilot.set_busy(True)
+        w.copilot.set_status(COPILOT_STATUS_CONNECTING)
         w._copilot_cancel = asyncio.Event()
         w.copilot.set_apply_payload(None)
         try:
@@ -107,6 +122,7 @@ class CopilotController:
             if "srs" in text.lower() or "kịch bản" in text.lower():
                 mode = COPILOT_MODE_COMPOSE
                 w.copilot.session.mode = mode
+            w.copilot.set_status(COPILOT_STATUS_PREPARING)
             gateway = UnifiedLLMGateway.from_settings(w.env.settings.ai)
             router = ModelRouter(
                 w.env.settings.ai,
@@ -131,6 +147,11 @@ class CopilotController:
                 and (m.content or "").strip()
             ]
             current_role: str | None = None
+            reply_cap = max(
+                80,
+                int(getattr(w.env.settings.copilot, "summary_max_chars", 0) or COPILOT_CHAT_REPLY_MAX_CHARS),
+            )
+            w.copilot.set_status(COPILOT_STATUS_CONNECTING)
             async for event in orch.run(
                 user_text=text,
                 mode=mode,
@@ -140,30 +161,50 @@ class CopilotController:
             ):
                 if event.kind == "role_start" and event.role:
                     current_role = event.role
+                    w.copilot.set_status(
+                        COPILOT_STATUS_WORKING.format(role=event.role.capitalize())
+                    )
                     w.copilot.begin_role(event.role)
                 elif event.kind == "chunk":
-                    w.copilot.append_stream_chunk(event.text)
+                    # Skip raw token stream in transcript — bubbles stay short.
+                    continue
                 elif event.kind == "role_end" and event.role:
-                    w.copilot.end_role(event.role, event.text)
-                    current_role = None
-                elif event.kind == EVENT_STATUS_SUMMARY and event.role:
                     if current_role:
-                        w.copilot.end_role(event.role, event.text)
+                        w.copilot.end_role(
+                            event.role, clip_chat_reply(event.text, reply_cap)
+                        )
                         current_role = None
-                    else:
-                        w.copilot.append_status_summary(event.role, event.text)
+                elif event.kind == EVENT_STATUS_SUMMARY and event.role:
+                    summary = clip_chat_reply(event.text, reply_cap)
+                    if summary:
+                        w.copilot.set_status(summary)
+                    # Progress lines (no artifact) only update the status bar.
+                    # Final role summary carries artifact_ref — close the bubble short.
+                    if current_role and event.artifact_ref:
+                        w.copilot.end_role(event.role, summary)
+                        current_role = None
+                    elif current_role is None and event.artifact_ref:
+                        w.copilot.append_status_summary(event.role, summary)
                 elif event.kind == EVENT_AGENT_MESSAGE:
                     w.copilot.append_agent_message(
                         event.from_role or "critic",
                         event.to_role or "composer",
-                        event.text,
+                        clip_chat_reply(event.text, reply_cap),
                     )
                 elif event.kind == EVENT_CLARIFY_REQUEST:
-                    w.copilot.append_clarify_note(event.role or "crew", event.question or event.text)
+                    w.copilot.set_status(COPILOT_STATUS_CLARIFY)
+                    w.copilot.append_clarify_note(
+                        event.role or "crew",
+                        clip_chat_reply(event.question or event.text, reply_cap),
+                    )
                 elif event.kind == EVENT_CLARIFY_RESOLVED:
-                    w.copilot.append_clarify_note(event.role or "crew", event.text)
+                    w.copilot.append_clarify_note(
+                        event.role or "crew", clip_chat_reply(event.text, reply_cap)
+                    )
                 elif event.kind == EVENT_LOOP_HALTED:
-                    w.copilot.append_clarify_note(event.role or "crew", event.text)
+                    w.copilot.append_clarify_note(
+                        event.role or "crew", clip_chat_reply(event.text, reply_cap)
+                    )
                 elif event.kind == "apply_ready" and event.apply_payload:
                     w.copilot.set_apply_payload(event.apply_payload)
                 elif event.kind == "stopped":
@@ -192,6 +233,25 @@ class CopilotController:
             "include_dom": bool(flags.get("include_dom")),
             "include_last_error": bool(flags.get("include_last_error")),
         }
+        raw_attachments = flags.get("attachments")
+        if isinstance(raw_attachments, list) and raw_attachments:
+            cleaned: list[dict[str, str]] = []
+            for item in raw_attachments:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                markdown = str(item.get("markdown") or "").strip()
+                if not name or not markdown:
+                    continue
+                cleaned.append(
+                    {
+                        "name": name,
+                        "path": str(item.get("path") or ""),
+                        "markdown": markdown,
+                    }
+                )
+            if cleaned:
+                ctx[CONTEXT_KEY_ATTACHMENTS] = cleaned
         case = w.builder.peek_case() if hasattr(w.builder, "peek_case") else w.builder.current_case()
         if ctx["include_case"] and case is not None:
             ctx["case"] = case.model_dump_json()

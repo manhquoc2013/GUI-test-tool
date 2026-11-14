@@ -56,7 +56,9 @@ def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
 def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> None:
     """Translucent CardWidget/SpinBox + transparent viewport ghosts while scrolling."""
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QScrollArea
+    from PySide6.QtWidgets import QScrollArea, QSizePolicy
+
+    from ai_qa_test_studio.constants import UI_SETTINGS_SPIN_HEIGHT, UI_SETTINGS_SPIN_MIN_WIDTH
 
     host = QWidget()
     host.resize(1200, 800)
@@ -71,6 +73,10 @@ def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> N
     assert "transparent" not in page.styleSheet().lower()
     assert dialog.spin_summary.focusPolicy() == Qt.FocusPolicy.StrongFocus
     assert "transparent" not in dialog.spin_summary.styleSheet().lower()
+    assert dialog.spin_summary.property("transparent") is False
+    assert dialog.spin_summary.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert dialog.spin_summary.minimumWidth() >= UI_SETTINGS_SPIN_MIN_WIDTH
+    assert dialog.spin_summary.height() == UI_SETTINGS_SPIN_HEIGHT
     dialog.close()
     host.close()
 

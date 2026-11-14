@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
+    QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QScrollArea,
@@ -16,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    BodyLabel,
     ComboBox,
     FlowLayout,
     PillPushButton,
@@ -31,12 +36,30 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    COPILOT_APPLY_TOOLTIP,
+    COPILOT_ATTACH_BTN_LABEL,
+    COPILOT_ATTACH_CHIP_HEIGHT,
+    COPILOT_ATTACH_MAX_FILES,
+    COPILOT_ATTACH_NAME_MAX_CHARS,
+    COPILOT_ATTACH_PER_FILE_CHARS,
+    COPILOT_ATTACH_TOTAL_CHARS,
+    COPILOT_BTN_APPLY,
+    COPILOT_BTN_DOWNLOAD_EXCEL,
     COPILOT_BTN_SEND_SIZE,
+    COPILOT_BUSY_PLACEHOLDER,
     COPILOT_CHIP_CASE,
     COPILOT_CHIP_DOM,
     COPILOT_CHIP_ERROR,
     COPILOT_CHIP_HEIGHT,
+    COPILOT_COMPOSER_GAP,
+    COPILOT_COMPOSER_PADDING,
     COPILOT_CONTEXT_FLOW_SPACING,
+    COPILOT_DOWNLOAD_DIALOG_TITLE,
+    COPILOT_DOWNLOAD_DONE_TITLE,
+    COPILOT_DOWNLOAD_EMPTY,
+    COPILOT_DOWNLOAD_FAIL_TITLE,
+    COPILOT_DOWNLOAD_TOOLTIP,
+    COPILOT_IDLE_PLACEHOLDER,
     COPILOT_INPUT_HEIGHT,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
@@ -47,16 +70,33 @@ from ai_qa_test_studio.constants import (
     COPILOT_MODEL_HINT_AUTO,
     COPILOT_MODEL_LABEL_AUTO,
     COPILOT_STARTER_PROMPTS,
+    COPILOT_STATUS_CONNECTING,
+    COPILOT_STATUS_MIN_HEIGHT,
     ROLE_COMPOSER,
     ROLE_CREW,
     ROLE_SYSTEM,
+    THEME_CARD_RADIUS,
+    VN_TC_FILE_FILTER,
+    VN_TC_FILENAME_DEFAULT,
+    WIZARD_DOC_FILE_FILTER,
+    WIZARD_DOC_MARKDOWN_SUFFIXES,
+    WIZARD_DOC_MAX_FILE_BYTES,
 )
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
 from ai_qa_test_studio.core.models import TestScenario
+from ai_qa_test_studio.core.token_budget import ContextCompressor
+from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
+
+
+@dataclass(frozen=True)
+class ChatAttachment:
+    path: Path
+    name: str
+    markdown: str
 
 
 class CopilotChatPane(QWidget):
@@ -75,6 +115,8 @@ class CopilotChatPane(QWidget):
         self._streaming_row: ChatMessageRow | None = None
         self._pending_apply: dict[str, Any] | None = None
         self._rows: list[ChatMessageRow] = []
+        self._attachments: list[ChatAttachment] = []
+        self._attach_compressor = ContextCompressor()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -177,7 +219,6 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll.setWidgetResizable(True)
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.transcript_host = QWidget()
-        self._style_transcript()
         self.transcript_layout = QVBoxLayout(self.transcript_host)
         self.transcript_layout.setContentsMargins(6, 6, 6, 6)
         self.transcript_layout.setSpacing(4)
@@ -186,31 +227,85 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll.setAccessibleName("Lịch sử hội thoại Copilot")
         chat_layout.addWidget(self.transcript_scroll, stretch=1)
 
-        composer = QHBoxLayout()
-        composer.setSpacing(6)
-        self.input_box = PlainTextEdit(chat_body)
-        self.input_box.setPlaceholderText("Nhập yêu cầu…")
+        composer_wrap = QFrame(chat_body)
+        composer_wrap.setObjectName("CopilotComposer")
+        composer_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        composer_col = QVBoxLayout(composer_wrap)
+        composer_col.setContentsMargins(
+            COPILOT_COMPOSER_PADDING,
+            COPILOT_COMPOSER_PADDING,
+            COPILOT_COMPOSER_PADDING,
+            COPILOT_COMPOSER_PADDING,
+        )
+        composer_col.setSpacing(COPILOT_COMPOSER_GAP)
+        self._composer_wrap = composer_wrap
+
+        self.status_label = BodyLabel("", composer_wrap)
+        self.status_label.setWordWrap(True)
+        self.status_label.setMinimumHeight(COPILOT_STATUS_MIN_HEIGHT)
+        self.status_label.setVisible(False)
+        self.status_label.setAccessibleName("Trạng thái Copilot")
+        composer_col.addWidget(self.status_label)
+
+        self.attach_chips = QWidget(composer_wrap)
+        self.attach_chips.setObjectName("CopilotAttachList")
+        self.attach_chips.setVisible(False)
+        self.attach_chips.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self._attach_list = QVBoxLayout(self.attach_chips)
+        self._attach_list.setContentsMargins(0, 0, 0, 0)
+        self._attach_list.setSpacing(4)
+        composer_col.addWidget(self.attach_chips)
+
+        input_row = QHBoxLayout()
+        input_row.setSpacing(COPILOT_COMPOSER_GAP)
+        self.btn_attach = PushButton(COPILOT_ATTACH_BTN_LABEL, composer_wrap)
+        self.btn_attach.setIcon(FIF.DOCUMENT.icon())
+        self.btn_attach.setFixedHeight(COPILOT_BTN_SEND_SIZE)
+        self.btn_attach.setToolTip("Đính kèm tài liệu để phân tích (md/pdf/docx/xlsx…)")
+        self.btn_attach.setAccessibleName("Đính kèm file Copilot")
+        self.btn_attach.clicked.connect(self._pick_attachments)
+        self.input_box = PlainTextEdit(composer_wrap)
+        self.input_box.setObjectName("CopilotInput")
+        self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
         self.input_box.setFixedHeight(COPILOT_INPUT_HEIGHT)
+        self.input_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.input_box.setAccessibleName("Ô nhập Copilot")
         self.input_box.installEventFilter(self)
-        self.btn_apply = PrimaryPushButton("Apply", chat_body)
-        self.btn_apply.setEnabled(False)
-        self.btn_apply.setToolTip("Áp dụng artifact vào Editor / Test Data")
-        self.btn_apply.clicked.connect(self._emit_apply)
-        self.btn_send = PrimaryToolButton(FIF.SEND, chat_body)
+        self.btn_send = PrimaryToolButton(FIF.SEND, composer_wrap)
         self.btn_send.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
         self.btn_send.setToolTip("Gửi")
         self.btn_send.clicked.connect(self._emit_send)
-        self.btn_stop = ToolButton(FIF.CANCEL, chat_body)
+        self.btn_stop = ToolButton(FIF.CANCEL, composer_wrap)
         self.btn_stop.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
         self.btn_stop.setToolTip("Dừng LLM / orchestrator")
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(lambda: self.stop_requested.emit())
-        composer.addWidget(self.input_box, stretch=1)
-        composer.addWidget(self.btn_apply, alignment=Qt.AlignmentFlag.AlignBottom)
-        composer.addWidget(self.btn_send, alignment=Qt.AlignmentFlag.AlignBottom)
-        composer.addWidget(self.btn_stop, alignment=Qt.AlignmentFlag.AlignBottom)
-        chat_layout.addLayout(composer)
+        input_row.addWidget(self.btn_attach, 0, Qt.AlignmentFlag.AlignBottom)
+        input_row.addWidget(self.input_box, 1)
+        input_row.addWidget(self.btn_send, 0, Qt.AlignmentFlag.AlignBottom)
+        input_row.addWidget(self.btn_stop, 0, Qt.AlignmentFlag.AlignBottom)
+        composer_col.addLayout(input_row)
+
+        artifact_row = QHBoxLayout()
+        artifact_row.setContentsMargins(0, 0, 0, 0)
+        artifact_row.setSpacing(COPILOT_COMPOSER_GAP)
+        self.btn_download = PushButton(COPILOT_BTN_DOWNLOAD_EXCEL, composer_wrap)
+        self.btn_download.setEnabled(False)
+        self.btn_download.setVisible(False)
+        self.btn_download.setToolTip(COPILOT_DOWNLOAD_TOOLTIP)
+        self.btn_download.setAccessibleName(COPILOT_BTN_DOWNLOAD_EXCEL)
+        self.btn_download.clicked.connect(self._emit_download)
+        self.btn_apply = PrimaryPushButton(COPILOT_BTN_APPLY, composer_wrap)
+        self.btn_apply.setEnabled(False)
+        self.btn_apply.setVisible(False)
+        self.btn_apply.setToolTip(COPILOT_APPLY_TOOLTIP)
+        self.btn_apply.clicked.connect(self._emit_apply)
+        artifact_row.addWidget(self.btn_download)
+        artifact_row.addWidget(self.btn_apply, stretch=1)
+        composer_col.addLayout(artifact_row)
+        chat_layout.addWidget(composer_wrap)
 
         self.wizard = ComposeWizardPanel(self.body_stack)
         self.wizard.drafts_ready.connect(self._on_wizard_drafts)
@@ -224,15 +319,40 @@ class CopilotChatPane(QWidget):
         self.history = self.transcript_scroll
         self.btn_copy = self.btn_settings
         self.btn_undo = self.btn_clear
-        self._theme_slot = bind_widget_theme(self, self._style_transcript)
+        self._theme_slot = bind_widget_theme(self, self._style_chat_chrome)
+        self._style_chat_chrome()
 
-    def _style_transcript(self) -> None:
+    def _style_chat_chrome(self) -> None:
         t = get_theme_tokens()
         self.transcript_scroll.setStyleSheet(
             f"QScrollArea {{ background: {t.bg_card}; border: 1px solid {t.border_card};"
-            f" border-radius: 8px; }}"
+            f" border-radius: {THEME_CARD_RADIUS}px; }}"
         )
         self.transcript_host.setStyleSheet(f"background: {t.bg_card};")
+        composer = getattr(self, "_composer_wrap", None)
+        if composer is not None:
+            composer.setStyleSheet(
+                "#CopilotComposer {"
+                f"background-color: {t.bg_card_subtle};"
+                f"border: 1px solid {t.border_card};"
+                f"border-radius: {THEME_CARD_RADIUS}px;"
+                "}"
+            )
+        if getattr(self, "input_box", None) is not None:
+            self.input_box.setStyleSheet(
+                "#CopilotInput, PlainTextEdit {"
+                f"background-color: {t.bg_canvas};"
+                f"color: {t.text_primary};"
+                f"border: 1px solid {t.border_card};"
+                f"border-radius: {THEME_CARD_RADIUS}px;"
+                "padding: 8px;"
+                "}"
+            )
+        if getattr(self, "status_label", None) is not None:
+            self.status_label.setStyleSheet(
+                f"color: {t.warning_fg}; background-color: {t.warning_bg};"
+                f"border: 1px solid {t.warning_border}; border-radius: 6px; padding: 6px 8px;"
+            )
 
     @property
     def session(self) -> CopilotSession:
@@ -267,7 +387,27 @@ class CopilotChatPane(QWidget):
         self._busy = busy
         self.btn_send.setVisible(not busy)
         self.btn_stop.setVisible(busy)
+        self.btn_attach.setEnabled(not busy)
         self.input_box.setReadOnly(busy)
+        if busy:
+            self.input_box.setPlaceholderText(COPILOT_BUSY_PLACEHOLDER)
+            self.set_status(COPILOT_STATUS_CONNECTING)
+        else:
+            self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
+            self.set_status("")
+
+    def set_status(self, text: str) -> None:
+        message = (text or "").strip()
+        self.status_label.setText(message)
+        self.status_label.setVisible(bool(message))
+
+    def set_apply_payload(self, payload: dict[str, Any] | None) -> None:
+        self._pending_apply = payload
+        ready = bool(payload)
+        self.btn_apply.setEnabled(ready)
+        self.btn_apply.setVisible(ready)
+        self.btn_download.setEnabled(ready)
+        self.btn_download.setVisible(ready)
 
     def focus_compose(self) -> None:
         self._session.mode = COPILOT_MODE_COMPOSE
@@ -281,23 +421,24 @@ class CopilotChatPane(QWidget):
         self.chip_case.setChecked(True)
         self.mode_pivot.setCurrentItem("chat")
         self.body_stack.setCurrentIndex(0)
-        self.input_box.setPlaceholderText("Nhập yêu cầu…")
+        if not self._busy:
+            self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
         self.input_box.setFocus()
 
     def new_session(self) -> None:
         mode = self._session.mode
         self._session = CopilotSession(mode=mode)
         self._clear_transcript()
-        self._pending_apply = None
-        self.btn_apply.setEnabled(False)
+        self._clear_attachments()
+        self.set_apply_payload(None)
         self.starters.setVisible(True)
         self.session_changed.emit()
 
     def clear_messages(self) -> None:
         self._session.messages.clear()
         self._clear_transcript()
-        self._pending_apply = None
-        self.btn_apply.setEnabled(False)
+        self._clear_attachments()
+        self.set_apply_payload(None)
         self.starters.setVisible(True)
         self.session_changed.emit()
 
@@ -404,10 +545,6 @@ class CopilotChatPane(QWidget):
         self.set_busy(False)
         self.session_changed.emit()
 
-    def set_apply_payload(self, payload: dict[str, Any] | None) -> None:
-        self._pending_apply = payload
-        self.btn_apply.setEnabled(bool(payload))
-
     def copy_selected(self) -> None:
         if not self._rows:
             return
@@ -433,8 +570,7 @@ class CopilotChatPane(QWidget):
         self._rebuild_from_session()
         self.input_box.setPlainText(text)
         self.focus_case_chat()
-        self._pending_apply = None
-        self.btn_apply.setEnabled(False)
+        self.set_apply_payload(None)
         self.starters.setVisible(len(self._session.messages) == 0)
         self.session_changed.emit()
 
@@ -468,15 +604,167 @@ class CopilotChatPane(QWidget):
         if self._busy:
             return
         text = self.input_box.toPlainText().strip()
-        if not text:
+        if not text and not self._attachments:
             return
+        prompt = text or "Phân tích các tài liệu đã đính kèm."
+        flags = self.context_flags()
+        flags["attachments"] = [
+            {"name": item.name, "path": str(item.path), "markdown": item.markdown}
+            for item in self._attachments
+        ]
+        display = prompt
+        if self._attachments:
+            names = ", ".join(item.name for item in self._attachments)
+            display = f"{prompt}\n\n📎 {names}"
         self.input_box.clear()
-        self.append_user(text)
-        self.prompt_submitted.emit(text, self.context_flags())
+        self._clear_attachments()
+        self.append_user(display)
+        self.prompt_submitted.emit(prompt, flags)
 
     def _emit_apply(self) -> None:
         if self._pending_apply:
             self.apply_requested.emit(dict(self._pending_apply))
+
+    def _emit_download(self) -> None:
+        if not self._pending_apply:
+            self.info_message.emit(COPILOT_DOWNLOAD_FAIL_TITLE, COPILOT_DOWNLOAD_EMPTY)
+            return
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            COPILOT_DOWNLOAD_DIALOG_TITLE,
+            VN_TC_FILENAME_DEFAULT,
+            VN_TC_FILE_FILTER,
+        )
+        if not path_str:
+            return
+        target = Path(path_str).expanduser()
+        if target.suffix.lower() != ".xlsx":
+            target = target.with_suffix(".xlsx")
+        try:
+            CopilotArtifactExcelExporter().write(dict(self._pending_apply), target)
+        except Exception as exc:
+            self.info_message.emit(COPILOT_DOWNLOAD_FAIL_TITLE, str(exc))
+            return
+        self.info_message.emit(COPILOT_DOWNLOAD_DONE_TITLE, str(target))
+
+    def _pick_attachments(self) -> None:
+        if self._busy:
+            return
+        remaining = COPILOT_ATTACH_MAX_FILES - len(self._attachments)
+        if remaining <= 0:
+            self.info_message.emit(
+                "Đính kèm",
+                f"Tối đa {COPILOT_ATTACH_MAX_FILES} file mỗi lượt chat.",
+            )
+            return
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Đính kèm tài liệu để phân tích", "", WIZARD_DOC_FILE_FILTER
+        )
+        if not paths:
+            return
+        errors: list[str] = []
+        for raw in paths[:remaining]:
+            target = Path(raw).expanduser().resolve()
+            if any(item.path == target for item in self._attachments):
+                errors.append(f"{target.name}: đã đính kèm")
+                continue
+            try:
+                if target.suffix.lower() in WIZARD_DOC_MARKDOWN_SUFFIXES:
+                    markdown = target.read_text(encoding="utf-8")[:WIZARD_DOC_MAX_FILE_BYTES]
+                else:
+                    markdown = self._attach_compressor.document_to_markdown(target)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{target.name}: {exc}")
+                continue
+            clipped = markdown.strip()
+            if not clipped:
+                errors.append(f"{target.name}: trống / không đọc được")
+                continue
+            if len(clipped) > COPILOT_ATTACH_PER_FILE_CHARS:
+                clipped = clipped[: COPILOT_ATTACH_PER_FILE_CHARS - 1] + "…"
+            self._attachments.append(
+                ChatAttachment(path=target, name=target.name, markdown=clipped)
+            )
+        self._trim_attachment_budget()
+        self._rebuild_attach_chips()
+        if errors:
+            self.info_message.emit("Đính kèm", "\n".join(errors[:4]))
+
+    def _trim_attachment_budget(self) -> None:
+        total = 0
+        kept: list[ChatAttachment] = []
+        for item in self._attachments:
+            room = COPILOT_ATTACH_TOTAL_CHARS - total
+            if room <= 0:
+                break
+            body = item.markdown
+            if len(body) > room:
+                body = body[: max(0, room - 1)] + "…"
+            kept.append(ChatAttachment(path=item.path, name=item.name, markdown=body))
+            total += len(body)
+        self._attachments = kept
+
+    def _rebuild_attach_chips(self) -> None:
+        while self._attach_list.count():
+            item = self._attach_list.takeAt(0)
+            if item is None:
+                break
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        tokens = get_theme_tokens()
+        for attachment in self._attachments:
+            row = QWidget(self.attach_chips)
+            row.setFixedHeight(COPILOT_ATTACH_CHIP_HEIGHT)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            row_lay = QHBoxLayout(row)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+            row_lay.setSpacing(4)
+            label = BodyLabel(self._short_attach_name(attachment.name), row)
+            label.setToolTip(str(attachment.path))
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            label.setStyleSheet(f"color: {tokens.text_secondary};")
+            remove = TransparentToolButton(FIF.CLOSE, row)
+            remove.setFixedSize(COPILOT_ATTACH_CHIP_HEIGHT, COPILOT_ATTACH_CHIP_HEIGHT)
+            remove.setToolTip(f"Gỡ {attachment.name}")
+            remove.clicked.connect(
+                lambda _=False, path=attachment.path: self._remove_attachment(path)
+            )
+            row_lay.addWidget(label, 1)
+            row_lay.addWidget(remove, 0)
+            self._attach_list.addWidget(row)
+        has_files = bool(self._attachments)
+        self.attach_chips.setVisible(has_files)
+        if has_files:
+            height = (
+                len(self._attachments) * COPILOT_ATTACH_CHIP_HEIGHT
+                + max(0, len(self._attachments) - 1) * self._attach_list.spacing()
+            )
+            self.attach_chips.setMinimumHeight(height)
+            self.attach_chips.setMaximumHeight(height)
+        else:
+            self.attach_chips.setMinimumHeight(0)
+            self.attach_chips.setMaximumHeight(0)
+        self.attach_chips.updateGeometry()
+        self._composer_wrap.updateGeometry()
+
+    @staticmethod
+    def _short_attach_name(name: str) -> str:
+        text = name.strip() or "file"
+        if len(text) <= COPILOT_ATTACH_NAME_MAX_CHARS:
+            return f"📎 {text}"
+        keep = COPILOT_ATTACH_NAME_MAX_CHARS - 1
+        head = max(8, keep // 2)
+        tail = max(8, keep - head)
+        return f"📎 {text[:head]}…{text[-tail:]}"
+
+    def _remove_attachment(self, path: Path) -> None:
+        self._attachments = [item for item in self._attachments if item.path != path]
+        self._rebuild_attach_chips()
+
+    def _clear_attachments(self) -> None:
+        self._attachments.clear()
+        self._rebuild_attach_chips()
 
     def _clear_transcript(self) -> None:
         self._streaming_row = None

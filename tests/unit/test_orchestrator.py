@@ -18,6 +18,7 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_STOPPED,
     CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_ATTACHMENTS,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
@@ -326,6 +327,26 @@ def test_format_context_includes_skill_catalog_and_body() -> None:
     assert "web-e2e-functional" in block
     assert "ACTIVE_SKILL" in block
     assert "Prefer get_by_role" in block
+
+
+def test_format_context_includes_chat_attachments() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    block = orch._format_context(
+        {
+            CONTEXT_KEY_ATTACHMENTS: [
+                {
+                    "name": "login-srs.md",
+                    "path": "/tmp/login-srs.md",
+                    "markdown": "# Login\nUser can sign in.",
+                }
+            ]
+        }
+    )
+    assert "ATTACHMENTS:" in block
+    assert "login-srs.md" in block
+    assert "User can sign in." in block
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
     CONTEXT_KEY_ANALYZER_ENABLED,
+    CONTEXT_KEY_ATTACHMENTS,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
@@ -33,8 +34,10 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_NAME,
     COPILOT_AGENT_DEBATE_MAX_ROUNDS,
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
+    COPILOT_ATTACH_TOTAL_CHARS,
     COPILOT_CHAT_MAX_TOKENS,
     COPILOT_MODE_COMPOSE,
+    COPILOT_ROLE_REPLY_STYLE,
     COPILOT_SUMMARY_MAX_CHARS,
     DEFAULT_EXPECTED_OUTCOME,
     EVENT_AGENT_MESSAGE,
@@ -686,6 +689,25 @@ class CopilotOrchestrator:
             parts.append(
                 "SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
             )
+        attachments = context.get(CONTEXT_KEY_ATTACHMENTS) or []
+        if isinstance(attachments, list) and attachments:
+            chunks: list[str] = []
+            for item in attachments:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "file").strip() or "file"
+                markdown = str(item.get("markdown") or "").strip()
+                if not markdown:
+                    continue
+                chunks.append(f"### Attached: {name}\n{markdown}")
+            if chunks:
+                joined = "\n\n".join(chunks)
+                parts.append(
+                    "ATTACHMENTS:\n"
+                    + self.compressor.budget.truncate_to_cap(
+                        joined, cap=COPILOT_ATTACH_TOTAL_CHARS
+                    )
+                )
         catalog = str(context.get(CONTEXT_KEY_SKILL_CATALOG) or "").strip()
         if catalog:
             parts.append("SKILLS:\n" + catalog)
@@ -725,7 +747,8 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Planner role for AI QA Test Studio. "
-            "Output a short numbered plan (3-7 steps). Do not mutate test assets. "
+            "Output a short numbered plan (3-5 steps). Do not mutate test assets. "
+            f"{COPILOT_ROLE_REPLY_STYLE} "
             "If the request is ambiguous, include the word CLARIFY."
         )
         messages = [
@@ -769,8 +792,9 @@ class CopilotOrchestrator:
         )
         system = (
             "You are the Composer role. Produce the deliverable for the QA request. "
-            "If proposing test data, include a JSON block with key rows. "
-            "If proposing scenarios, describe them clearly for Apply. "
+            "If proposing test data, include a compact JSON block with key rows. "
+            "If proposing scenarios, list code + title only for Apply. "
+            f"{COPILOT_ROLE_REPLY_STYLE} "
             "If ambiguous, include the word CLARIFY."
         )
         messages = [
@@ -790,7 +814,7 @@ class CopilotOrchestrator:
             rows = self._offline_bva_rows()
             apply_payload = {"kind": APPLY_KIND_TEST_DATA, "rows": rows}
             if not text or gw.provider == LLM_PROVIDER_OFFLINE:
-                text = "Đề xuất Test Data (BVA):\n" + json.dumps(rows, ensure_ascii=False, indent=2)
+                text = f"Đề xuất {len(rows)} bộ Test Data BVA — bấm Apply để thêm."
         elif wants_compose:
             srs = ""
             if "SRS:" in ctx_block:
@@ -802,16 +826,13 @@ class CopilotOrchestrator:
             payload_scenarios = [s.model_dump(mode="json") for s in scenarios]
             apply_payload = {"kind": APPLY_KIND_COMPOSE, "scenarios": payload_scenarios}
             if not text or gw.provider == LLM_PROVIDER_OFFLINE:
-                body = (
-                    "Draft UNBOUND scenarios:\n"
-                    + "\n".join(f"- {s.code}: {s.title} ({len(s.cases)} cases)" for s in scenarios)
-                )
+                names = ", ".join(s.code for s in scenarios[:5])
+                body = f"Draft UNBOUND: {len(scenarios)} scenario ({names}) — Apply để thêm."
                 text = ("[Revised] " + body) if revise else body
         if not text:
             text = (
                 f"{'[Revised] ' if revise else ''}"
-                f"Phân tích yêu cầu «{user_text[:160]}».\n"
-                f"Plan ref:\n{plan_text[:400]}"
+                f"Đã xử lý yêu cầu «{user_text[:80]}» — xem Apply nếu có artifact."
             )
         needs = "CLARIFY" in text.upper()
         out.append(_RoleResult(text=text, apply_payload=apply_payload, needs_clarify=needs))
@@ -828,7 +849,8 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Analyzer for AI QA Test Studio. "
-            "Diagnose failure risks, root causes, and healing hints in under 180 words."
+            "Diagnose failure risks, root causes, and healing hints. "
+            f"{COPILOT_ROLE_REPLY_STYLE}"
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -862,7 +884,8 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Optimizer for AI QA Test Studio. "
-            "Suggest suite pruning, P0 prioritization, and coverage gaps in under 180 words."
+            "Suggest suite pruning, P0 prioritization, and coverage gaps. "
+            f"{COPILOT_ROLE_REPLY_STYLE}"
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -893,7 +916,9 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         system = (
             "You are the Critic. Reply with APPROVE or REVISE and short notes. "
-            "One review only. If ambiguous user intent, include CLARIFY."
+            "One review only. "
+            f"{COPILOT_ROLE_REPLY_STYLE} "
+            "If ambiguous user intent, include CLARIFY."
         )
         messages = [
             ChatMessage(role="system", content=system),

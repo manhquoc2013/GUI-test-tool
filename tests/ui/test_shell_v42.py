@@ -235,6 +235,73 @@ def test_chat_undo_from_message(qapp: QApplication, tmp_path: Path) -> None:
     window.close()
 
 
+def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path: Path) -> None:
+    from PySide6.QtWidgets import QSizePolicy
+
+    from ai_qa_test_studio.constants import (
+        COPILOT_ATTACH_BTN_LABEL,
+        COPILOT_ATTACH_CHIP_HEIGHT,
+        COPILOT_BUSY_PLACEHOLDER,
+        COPILOT_IDLE_PLACEHOLDER,
+        COPILOT_STATUS_CONNECTING,
+    )
+    from ai_qa_test_studio.ui.widgets.chat_pane import ChatAttachment, CopilotChatPane
+
+    pane = CopilotChatPane()
+    pane.show()
+    qapp.processEvents()
+    assert pane.btn_attach.isEnabled()
+    assert COPILOT_ATTACH_BTN_LABEL in pane.btn_attach.text()
+    assert pane.input_box.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert COPILOT_IDLE_PLACEHOLDER in pane.input_box.placeholderText()
+    assert not pane.status_label.isVisible()
+    assert not pane.btn_apply.isVisible()
+    assert not pane.btn_download.isVisible()
+
+    pane.set_busy(True)
+    assert pane.btn_stop.isVisible()
+    assert not pane.btn_send.isVisible()
+    assert not pane.btn_attach.isEnabled()
+    assert pane.status_label.isVisible()
+    assert COPILOT_STATUS_CONNECTING in pane.status_label.text()
+    assert pane.input_box.placeholderText() == COPILOT_BUSY_PLACEHOLDER
+
+    pane.set_status("Planner đang làm việc…")
+    assert "Planner" in pane.status_label.text()
+
+    sample = tmp_path / "note.md"
+    sample.write_text("# Spec\nBoundary cases", encoding="utf-8")
+    pane.set_busy(False)
+    assert not pane.status_label.isVisible()
+    pane._attachments = [
+        ChatAttachment(path=sample, name=sample.name, markdown=sample.read_text(encoding="utf-8"))
+    ]
+    pane._rebuild_attach_chips()
+    assert pane.attach_chips.isVisible()
+    assert pane._attach_list.count() == 1
+    assert pane.attach_chips.minimumHeight() >= COPILOT_ATTACH_CHIP_HEIGHT
+
+    pane.input_box.setPlainText("Phân tích file")
+    seen: list[tuple[str, dict]] = []
+    pane.prompt_submitted.connect(lambda text, flags: seen.append((text, flags)))
+    pane._emit_send()
+    assert seen
+    assert seen[0][0] == "Phân tích file"
+    assert seen[0][1]["attachments"][0]["name"] == "note.md"
+    assert "Boundary cases" in seen[0][1]["attachments"][0]["markdown"]
+    assert pane._attachments == []
+
+    pane.set_apply_payload({"kind": "test_data_rows", "rows": []})
+    assert pane.btn_apply.isVisible()
+    assert pane.btn_apply.isEnabled()
+    assert pane.btn_download.isVisible()
+    assert pane.btn_download.isEnabled()
+    pane.set_apply_payload(None)
+    assert not pane.btn_apply.isVisible()
+    assert not pane.btn_download.isVisible()
+    pane.close()
+
+
 def test_run_button_is_text_only_primary(qapp: QApplication, tmp_path: Path) -> None:
     _seed(tmp_path)
     window = MainWindow(data_root=tmp_path)

@@ -26,6 +26,200 @@
           "created_at": "2026-11-14T05:15:04.280000+00:00"
         }
       ]
+    },
+    {
+      "id": "ce126ee8-aa34-4ee2-8932-73a9e70d6fb5",
+      "title": "Sinh thêm 5 bộ Test Data biên (BVA)",
+      "mode": "case_chat",
+      "case_id": null,
+      "created_at": "2026-11-14T07:05:28.094951+00:00",
+      "updated_at": "2026-11-14T07:12:23.032823+00:00",
+      "messages": [
+        {
+          "id": "e8024a70-c642-4c8a-b82e-1d16af7a468a",
+          "role": "user",
+          "content": "Sinh thêm 5 bộ Test Data biên (BVA)",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:05:44.262519+00:00"
+        },
+        {
+          "id": "1d63df6b-c09c-410d-8561-9faa62d27426",
+          "role": "planner",
+          "content": "Phân loại độ phức tạp: complex",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:08:16.765778+00:00"
+        },
+        {
+          "id": "2b487189-28dc-471f-a97d-f3e8c9d703db",
+          "role": "planner",
+          "content": "Planner · complex · cinb/deepseek-v4.1-flash",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:08:16.794966+00:00"
+        },
+        {
+          "id": "7f48647b-9c1f-4874-bf33-3457a6c4d1b3",
+          "role": "composer",
+          "content": "**Kế hoạch sinh 5 bộ Test Data biên (BVA) cho TC01**\n\n1. **CLARIFY** – Xác nhận ràng buộc biên của từng trường trước khi sinh dữ liệu: `cccd` (độ dài/định dạng, có cho phép rỗng như row 3?), `hoTen` (min/max ký tự, ký tự đặc biệt/Unicode), `mucDoCapThiet` & `loaiHoSo` & `nhomDoiTuong` (danh sách enum hợp lệ), `diaBan`, và ngưỡng upload ảnh minh chứng. SRS hiện chỉ mô tả happy path, chưa có field spec → nếu không có, dùng giả định mặc định và ghi chú rõ trong output.\n\n2. **Nạp skill `boundary-value-analysis`** để lấy quy tắc BVA/EP, kích thước batch, và format bảng test data chuẩn (tránh tự phát minh định dạng).\n\n3. **Chọn trường & partition để đánh biên**: CCCD (0/1/11/12/13 ký tự; số vs chữ), họ tên (rỗng, 1, max-1, max, max+1), mô tả hoàn cảnh (rỗng / vượt max), ảnh minh chứng (0KB / đúng ngưỡng / vượt ngưỡng), `mucDoCapThiet` (giá trị ngoài enum).\n\n4. **Sinh 5 bộ test data biên** theo đúng cấu trúc `test_data_rows` (scenario, parameters, expectedOutcome) — chỉ đề xuất append, **không sửa/xóa 4 row hiện có** (giữ row 3 CCCD rỗng và row 4 rỗng toàn bộ làm mốc đối chiếu).\n\n5. **Gán kỳ vọng & phạm vi chạy**: mỗi bộ ghi rõ SUCCESS hay FAIL kèm thông điệp validate dự kiến; xác định các bộ này chỉ áp dụng cho nhánh \"Cá nhân\" (Luồng chính) trừ khi mở rộng loại hồ sơ.\n\n6. **Đóng gói output dạng bảng/JSON đề xuất + TEST-ID con** (TC01-BVA-01…05) kèm traceability về SRS, và nêu rõ đang ở chế độ đề xuất — chờ người dùng duyệt trước khi ghi vào case (Planner không mutate test asset).\n\n7. **Follow-up a11y** (theo skill đang active): với các bộ biên kỳ vọng FAIL, đề xuất kiểm tra thông báo lỗi có `role=\"alert\"`/`status`, label liên kết input, và focus trả về trường lỗi.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:08:27.791364+00:00"
+        },
+        {
+          "id": "1214a782-7148-4f6d-b0ba-1c81b79fa24e",
+          "role": "system",
+          "content": "Clarify (planner): Bạn có thể xác nhận ràng buộc biên cho trường CCCD và ngưỡng upload ảnh minh chứng không?",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:08:41.003639+00:00"
+        },
+        {
+          "id": "20fd4cc0-f9d6-496b-947b-afd211904cc4",
+          "role": "system",
+          "content": "Clarify (planner): (mặc định) CCCD đúng 12 chữ số (bắt buộc, không cho rỗng); mỗi ảnh ≤ 5MB, tối đa 5 ảnh",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:09:40.878854+00:00"
+        },
+        {
+          "id": "c9a9d14e-268f-4bd5-a4c0-632421a61806",
+          "role": "planner",
+          "content": "**Kế hoạch sinh 5 bộ Test Data biên (BVA) cho TC01**\n\n1. **CLARIFY** – Xác nhận ràng buộc biên của từng trường trước khi sinh dữ liệu: `cccd` (độ dài/định dạng, có cho phép rỗng như row 3?), `hoTen` (min/max ký tự, ký tự đặc biệt/Unicode), `mucDoCapThiet` & `loaiHoSo` & `nhomDoiTuong` (danh sách enum hợp lệ), `diaBan`, và ngưỡng upload ảnh minh chứng. SRS hiện chỉ mô tả happy path, chưa có field spec → nếu không có, dùng giả định mặc định và ghi chú rõ trong output.\n\n2. **Nạp skill `boundary-value-analysis`** để lấy quy tắc BVA/EP, kích thước batch, và format bảng test data chuẩn (tránh tự phát minh định dạng).\n\n3. **Chọn trường & partition để đánh biên**: CCCD (0/1/11/12/13 ký tự; số vs chữ), họ tên (rỗng, 1, max-1, max, max+1), mô tả hoàn cảnh (rỗng / vượt max), ảnh minh chứng (0KB / đúng ngưỡng / vượt ngưỡng), `mucDoCapThiet` (giá trị ngoài enum).\n\n4. **Sinh 5 bộ test data biên** theo đúng cấu trúc `test_data_rows` (scenario, parameters, expectedOutcome) — chỉ đề xuất append, **không sửa/xóa 4 row hiện có** (giữ row 3 CCCD rỗng và row 4 rỗng toàn bộ làm mốc đối chiếu).\n\n5. **Gán kỳ vọng & phạm vi chạy**: mỗi bộ ghi rõ SUCCESS hay FAIL kèm thông điệp validate dự kiến; xác định các bộ này chỉ áp dụng cho nhánh \"Cá nhân\" (Luồng chính) trừ khi mở rộng loại hồ sơ.\n\n6. **Đóng gói output dạng bảng/JSON đề xuất + TEST-ID con** (TC01-BVA-01…05) kèm traceability về SRS, và nêu rõ đang ở chế độ đề xuất — chờ người dùng duyệt trước khi ghi vào case (Planner không mutate test asset).\n\n7. **Follow-up a11y** (theo skill đang active): với các bộ biên kỳ vọng FAIL, đề xuất kiểm tra thông báo lỗi có `role=\"alert\"`/`status`, label liên kết input, và focus trả về trường lỗi.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:09:40.889082+00:00"
+        },
+        {
+          "id": "80dfad9a-6f3c-4c4c-9ec3-448df86fcda3",
+          "role": "composer",
+          "content": "Composer · complex · cinb/deepseek-v4-pro-0813",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:09:40.907906+00:00"
+        },
+        {
+          "id": "d5e76bb4-c30a-4704-969d-3df0cf01ced6",
+          "role": "composer",
+          "content": "## CLARIFY\n\nTrước khi sinh 5 bộ BVA, cần xác nhận các ràng buộc biên sau (SRS không nêu rõ field spec):\n\n| # | Trường | Giả định mặc định | Cần xác nhận |\n|---|--------|-------------------|--------------|\n| 1 | `cccd` | Bắt buộc, đúng 12 chữ số | Cho phép rỗng khi `loaiHoSo` = \"Cộng đồng – Mái ấm\"? (Row 3 hiện có CCCD rỗng → SUCCESS) |\n| 2 | `cccd` | Chỉ nhận số, không nhận chữ/ký tự đặc biệt | Độ dài 11/13 số có chặn client-side? |\n| 3 | `hoTen` | Min 1, max 100 ký tự (Unicode) | Max thực tế của DB/cột? |\n| 4 | `mucDoCapThiet` | Enum: `Cao`, `Trung bình`, `Thấp` | Có giá trị nào khác không? |\n| 5 | `loaiHoSo` | Enum: `Cá nhân`, `Hộ gia đình`, `Cộng đồng – Mái ấm` | Còn loại khác? |\n| 6 | `nhomDoiTuong` | Theo danh mục cấu hình sẵn | Danh sách đầy đủ? |\n| 7 | Ảnh minh chứng | Mỗi ảnh ≤ 5MB, tối đa 5 ảnh | Định dạng cho phép (jpg/png/webp)? |\n| 8 | `diaBan` | Bắt buộc với Cá nhân/Hộ gia đình | Có bắt buộc với Cộng đồng? |\n\n> **Ghi chú:** Sinh BVA dựa trên giả định mặc định ở trên. Nếu thực tế khác, cần điều chỉnh kỳ vọng.\n\n---\n\n## 5 Bộ Test Data Biên (BVA) — Đề xuất Append\n\nCác bộ này **không sửa/xóa** 4 row hiện có, chỉ bổ sung. Áp dụng cho nhánh **\"Cá nhân\"** (Luồng chính), trừ bộ 5 mở rộng `loaiHoSo`.\n\n```json\n{\n  \"test_data_rows_append\": [\n    {\n      \"test_id\": \"TC01-BVA-01\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - lower boundary (length = 11)\",\n      \"scenario\": \"CCCD 11 chữ số (dưới biên dưới 1 ký tự)\",\n      \"parameters\": {\n        \"cccd\": \"04008599999\",\n        \"hoTen\": \"Nguyễn Văn An\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD dưới biên 11 số\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD phải đúng 12 chữ số\",\n      \"note\": \"BVA under-boundary: length = L-1\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-02\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - upper boundary (length = 13)\",\n      \"scenario\": \"CCCD 13 chữ số (trên biên trên 1 ký tự)\",\n      \"parameters\": {\n        \"cccd\": \"0400859999999\",\n        \"hoTen\": \"Lê Thị Bích\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD trên biên 13 số\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD phải đúng 12 chữ số\",\n      \"note\": \"BVA over-boundary: length = L+1\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-03\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - format boundary (non-digit)\",\n      \"scenario\": \"CCCD 12 ký tự có chứa chữ cái (đúng độ dài, sai định dạng)\",\n      \"parameters\": {\n        \"cccd\": \"04008599999A\",\n        \"hoTen\": \"Trần Văn Cường\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD có ký tự alpha\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD chỉ được chứa chữ số\",\n      \"note\": \"BVA format boundary: numeric-only constraint\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-04\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"anhMinhChung - file size boundary (upper)\",\n      \"scenario\": \"Upload ảnh minh chứng vượt ngưỡng 5MB (1 ảnh = 5.1MB)\",\n      \"parameters\": {\n        \"cccd\": \"040085999998\",\n        \"hoTen\": \"Phạm Thị Dung\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"Ảnh minh chứng vượt dung lượng\",\n        \"anhMinhChung\": [\"minh_chung_5.1MB.jpg\"]\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"Kích thước ảnh không được vượt quá 5MB\",\n      \"note\": \"BVA upper boundary: size > max (5MB+0.1MB)\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-05\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"anhMinhChung - count boundary (upper) + loaiHoSo enum\",\n      \"scenario\": \"Upload 6 ảnh minh chứng (vượt tối đa 5 ảnh)\",\n      \"parameters\": {\n        \"cccd\": \"040085999997\",\n        \"hoTen\": \"Võ Văn Em\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Bị ảnh hưởng thiên tai / bão lũ\",\n        \"mucDoCapThiet\": \"Trung bình\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"Upload vượt số lượng tối đa\",\n        \"anhMinhChung\": [\n          \"anh_1.jpg\", \"anh_2.jpg\", \"anh_3.jpg\",\n          \"anh_4.jpg\", \"anh_5.jpg\", \"anh_6.jpg\"\n        ]\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"Tối đa chỉ được tải lên 5 ảnh minh chứng\",\n      \"note\": \"BVA upper boundary: count > max (5+1)\"\n    }\n  ]\n}\n```\n\n---\n\n## Tóm tắt 5 bộ BVA\n\n| TEST-ID con | Mục tiêu bi",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:09:46.278576+00:00"
+        },
+        {
+          "id": "fd5187f7-dd60-484e-8609-91211a5cbd91",
+          "role": "system",
+          "content": "Clarify (composer): Với trường `cccd` trong test data BVA: quy tắc bắt buộc áp dụng thế nào? (Row 3 hiện có CCCD rỗng nhưng vẫn SUCCESS)",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:10:05.311564+00:00"
+        },
+        {
+          "id": "a503d0ad-5c25-47c8-b5ee-6c0accb22993",
+          "role": "system",
+          "content": "Clarify (composer): (mặc định) Bắt buộc với mọi hồ sơ; Row 3 là lỗi test data, cần sửa và thêm case CCCD rỗng → FAIL",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:11:05.850445+00:00"
+        },
+        {
+          "id": "1efa0f81-2986-4335-8103-ca6416f21483",
+          "role": "composer",
+          "content": "## CLARIFY\n\nTrước khi sinh 5 bộ BVA, cần xác nhận các ràng buộc biên sau (SRS không nêu rõ field spec):\n\n| # | Trường | Giả định mặc định | Cần xác nhận |\n|---|--------|-------------------|--------------|\n| 1 | `cccd` | Bắt buộc, đúng 12 chữ số | Cho phép rỗng khi `loaiHoSo` = \"Cộng đồng – Mái ấm\"? (Row 3 hiện có CCCD rỗng → SUCCESS) |\n| 2 | `cccd` | Chỉ nhận số, không nhận chữ/ký tự đặc biệt | Độ dài 11/13 số có chặn client-side? |\n| 3 | `hoTen` | Min 1, max 100 ký tự (Unicode) | Max thực tế của DB/cột? |\n| 4 | `mucDoCapThiet` | Enum: `Cao`, `Trung bình`, `Thấp` | Có giá trị nào khác không? |\n| 5 | `loaiHoSo` | Enum: `Cá nhân`, `Hộ gia đình`, `Cộng đồng – Mái ấm` | Còn loại khác? |\n| 6 | `nhomDoiTuong` | Theo danh mục cấu hình sẵn | Danh sách đầy đủ? |\n| 7 | Ảnh minh chứng | Mỗi ảnh ≤ 5MB, tối đa 5 ảnh | Định dạng cho phép (jpg/png/webp)? |\n| 8 | `diaBan` | Bắt buộc với Cá nhân/Hộ gia đình | Có bắt buộc với Cộng đồng? |\n\n> **Ghi chú:** Sinh BVA dựa trên giả định mặc định ở trên. Nếu thực tế khác, cần điều chỉnh kỳ vọng.\n\n---\n\n## 5 Bộ Test Data Biên (BVA) — Đề xuất Append\n\nCác bộ này **không sửa/xóa** 4 row hiện có, chỉ bổ sung. Áp dụng cho nhánh **\"Cá nhân\"** (Luồng chính), trừ bộ 5 mở rộng `loaiHoSo`.\n\n```json\n{\n  \"test_data_rows_append\": [\n    {\n      \"test_id\": \"TC01-BVA-01\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - lower boundary (length = 11)\",\n      \"scenario\": \"CCCD 11 chữ số (dưới biên dưới 1 ký tự)\",\n      \"parameters\": {\n        \"cccd\": \"04008599999\",\n        \"hoTen\": \"Nguyễn Văn An\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD dưới biên 11 số\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD phải đúng 12 chữ số\",\n      \"note\": \"BVA under-boundary: length = L-1\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-02\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - upper boundary (length = 13)\",\n      \"scenario\": \"CCCD 13 chữ số (trên biên trên 1 ký tự)\",\n      \"parameters\": {\n        \"cccd\": \"0400859999999\",\n        \"hoTen\": \"Lê Thị Bích\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD trên biên 13 số\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD phải đúng 12 chữ số\",\n      \"note\": \"BVA over-boundary: length = L+1\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-03\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"cccd - format boundary (non-digit)\",\n      \"scenario\": \"CCCD 12 ký tự có chứa chữ cái (đúng độ dài, sai định dạng)\",\n      \"parameters\": {\n        \"cccd\": \"04008599999A\",\n        \"hoTen\": \"Trần Văn Cường\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"CCCD có ký tự alpha\",\n        \"anhMinhChung\": []\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"CCCD chỉ được chứa chữ số\",\n      \"note\": \"BVA format boundary: numeric-only constraint\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-04\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"anhMinhChung - file size boundary (upper)\",\n      \"scenario\": \"Upload ảnh minh chứng vượt ngưỡng 5MB (1 ảnh = 5.1MB)\",\n      \"parameters\": {\n        \"cccd\": \"040085999998\",\n        \"hoTen\": \"Phạm Thị Dung\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Hộ nghèo\",\n        \"mucDoCapThiet\": \"Cao\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"Ảnh minh chứng vượt dung lượng\",\n        \"anhMinhChung\": [\"minh_chung_5.1MB.jpg\"]\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"Kích thước ảnh không được vượt quá 5MB\",\n      \"note\": \"BVA upper boundary: size > max (5MB+0.1MB)\"\n    },\n    {\n      \"test_id\": \"TC01-BVA-05\",\n      \"traceability\": \"TC01_ChucNangTaoHoSoNguoiYeuThe_LuongChinh_HappyPath / SRS mục tạo hồ sơ\",\n      \"boundary_target\": \"anhMinhChung - count boundary (upper) + loaiHoSo enum\",\n      \"scenario\": \"Upload 6 ảnh minh chứng (vượt tối đa 5 ảnh)\",\n      \"parameters\": {\n        \"cccd\": \"040085999997\",\n        \"hoTen\": \"Võ Văn Em\",\n        \"loaiHoSo\": \"Cá nhân\",\n        \"nhomDoiTuong\": \"Bị ảnh hưởng thiên tai / bão lũ\",\n        \"mucDoCapThiet\": \"Trung bình\",\n        \"diaBan\": \"Cam Lộ - Quảng Trị\",\n        \"moTaHoanCanh\": \"Upload vượt số lượng tối đa\",\n        \"anhMinhChung\": [\n          \"anh_1.jpg\", \"anh_2.jpg\", \"anh_3.jpg\",\n          \"anh_4.jpg\", \"anh_5.jpg\", \"anh_6.jpg\"\n        ]\n      },\n      \"expectedOutcome\": \"FAIL\",\n      \"expectedMessage\": \"Tối đa chỉ được tải lên 5 ảnh minh chứng\",\n      \"note\": \"BVA upper boundary: count > max (5+1)\"\n    }\n  ]\n}\n```\n\n---\n\n## Tóm tắt 5 bộ BVA\n\n| TEST-ID con | Mục tiêu bi",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:11:05.859675+00:00"
+        },
+        {
+          "id": "786283b1-f322-4243-bbd9-15ef5c0a7ff1",
+          "role": "critic",
+          "content": "Critic · complex · cinb/deepseek-v4-pro-0813",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:11:05.873051+00:00"
+        },
+        {
+          "id": "a3e70479-7fb3-4c10-b207-71ffb5e47c24",
+          "role": "composer",
+          "content": "APPROVE - Đề xuất BVA rõ ràng, bám sát ràng buộc CCCD 12 số, giới hạn ảnh 5MB/5 ảnh; đã tách CLARIFY để xác nhận giả định trước khi sinh. Lưu ý nhỏ: BVA-04 (5.1MB) và BVA-05 (6 ảnh) là biên trên hợp lệ, không cần sửa.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:11:10.686450+00:00"
+        },
+        {
+          "id": "04af6945-cdcb-4763-aa1f-4e16cd4b02b4",
+          "role": "system",
+          "content": "Clarify (critic): Với ảnh đính kèm, biên nào cần kiểm thử thêm ngoài kích thước tệp (≤5MB) và số lượng (≤5 ảnh)?",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:11:23.245269+00:00"
+        },
+        {
+          "id": "55f75e20-eb04-4b50-abe7-8128625a915e",
+          "role": "system",
+          "content": "Clarify (critic): Chỉ giữ 2 biên hiện có: 5MB và 5 ảnh, không thêm biên khác",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:09.133906+00:00"
+        },
+        {
+          "id": "d38da91a-bb9c-4001-b5d2-f5293aab8fb2",
+          "role": "critic",
+          "content": "APPROVE - Đề xuất BVA rõ ràng, bám sát ràng buộc CCCD 12 số, giới hạn ảnh 5MB/5 ảnh; đã tách CLARIFY để xác nhận giả định trước khi sinh. Lưu ý nhỏ: BVA-04 (5.1MB) và BVA-05 (6 ảnh) là biên trên hợp lệ, không cần sửa.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:09.135126+00:00"
+        },
+        {
+          "id": "9972574c-e0ab-4bb6-a5cf-0e1dedb85ac6",
+          "role": "analyzer",
+          "content": "Analyzer · cinb/deepseek-v4.1-flash",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:09.139473+00:00"
+        },
+        {
+          "id": "45033dfe-9388-43cc-87d9-4abcb71daa34",
+          "role": "composer",
+          "content": "**Risks**\n1. Composer response is truncated—no actual 5 BVA datasets appended.\n2. Critic mislabels BVA-04 (5.1MB) and BVA-05 (6 ảnh) as “biên trên hợp lệ”; per spec these must be **FAIL** (max 5MB/5 ảnh).\n3. Clarify contradicts locked defaults: CCCD empty must FAIL, but Composer reopens as assumption.\n4. Row 3 known bad test data remains uncorrected.\n\n**Root causes**\n- Incomplete generation handoff.\n- Boundary direction ambiguity: “≤5” vs “>5”.\n- Clarification loop overrides confirmed constraints.\n\n**Healing hints**\n- Append explicit table with expected result per case:\n  - CCCD rỗng → FAIL\n  - CCCD 11 số → FAIL\n  - CCCD 12 số → PASS\n  - Ảnh 5.0MB + 5 ảnh → PASS\n  - Ảnh 5.1MB hoặc 6 ảnh → FAIL\n- Fix Row 3 to CCCD rỗng → FAIL.\n- Reject Critic note on BVA-04/05; they are negative upper-bound tests.\n- Remove unnecessary CLARIFY for already confirmed defaults.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:12.409755+00:00"
+        },
+        {
+          "id": "4c39a521-d3a3-4102-9ffe-186e18ae10ea",
+          "role": "analyzer",
+          "content": "**Risks**\n1. Composer response is truncated—no actual 5 BVA datasets appended.\n2. Critic mislabels BVA-04 (5.1MB) and BVA-05 (6 ảnh) as “biên trên hợp lệ”; per spec these must be **FAIL** (max 5MB/5 ảnh).\n3. Clarify contradicts locked defaults: CCCD empty must FAIL, but Composer reopens as assumption.\n4. Row 3 known bad test data remains uncorrected.\n\n**Root causes**\n- Incomplete generation handoff.\n- Boundary direction ambiguity: “≤5” vs “>5”.\n- Clarification loop overrides confirmed constraints.\n\n**Healing hints**\n- Append explicit table with expected result per case:\n  - CCCD rỗng → FAIL\n  - CCCD 11 số → FAIL\n  - CCCD 12 số → PASS\n  - Ảnh 5.0MB + 5 ảnh → PASS\n  - Ảnh 5.1MB hoặc 6 ảnh → FAIL\n- Fix Row 3 to CCCD rỗng → FAIL.\n- Reject Critic note on BVA-04/05; they are negative upper-bound tests.\n- Remove unnecessary CLARIFY for already confirmed defaults.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:12.964145+00:00"
+        },
+        {
+          "id": "6fa3bd0d-288f-46f7-8198-af6c2dd256bf",
+          "role": "optimizer",
+          "content": "Optimizer · cinb/deepseek-v4.1-flash",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:12.966717+00:00"
+        },
+        {
+          "id": "96dc63bc-ed29-4905-880b-444ee0f940fe",
+          "role": "composer",
+          "content": "**Prune** – Bỏ clarify #3–#6, #8 (không chạm biên CCCD/ảnh). Giữ #1, #2, #7. Sửa thẳng Row 3 (CCCD rỗng → FAIL), không thêm row trùng.\n\n**5 BVA (P0 in đậm)** – không sửa 4 row cũ:\n1. `cccd=\"\"` → FAIL **(P0)**\n2. `cccd` 11 số → FAIL\n3. `cccd` 12 số → PASS\n4. 5 ảnh, mỗi ảnh đúng 5MB → PASS **(P0)**\n5. 5 ảnh, 1 ảnh 5MB+1B → FAIL **(P0)**\n\n**Coverage gap (bổ sung sau):**\n- 6 ảnh (vượt max) – biên trên của \"5 ảnh\" hiện thiếu.\n- Ảnh 0 byte / sai định dạng (jpg giả .png).\n- 0 ảnh: có bắt buộc min 1 ảnh không? Chưa rõ → cần chốt.\n\n**Cảnh báo:** \"chỉ giữ 2 biên\" mâu thuẫn BVA (cần cả cận trên 5MB+1B và 6 ảnh). Đề xuất cho phép 2 case vượt biên này, nếu không suite sẽ không bắt được lỗi validate max.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:21.393300+00:00"
+        },
+        {
+          "id": "8c9e88ec-c4e7-42a8-abcc-5562d32eb33f",
+          "role": "optimizer",
+          "content": "**Prune** – Bỏ clarify #3–#6, #8 (không chạm biên CCCD/ảnh). Giữ #1, #2, #7. Sửa thẳng Row 3 (CCCD rỗng → FAIL), không thêm row trùng.\n\n**5 BVA (P0 in đậm)** – không sửa 4 row cũ:\n1. `cccd=\"\"` → FAIL **(P0)**\n2. `cccd` 11 số → FAIL\n3. `cccd` 12 số → PASS\n4. 5 ảnh, mỗi ảnh đúng 5MB → PASS **(P0)**\n5. 5 ảnh, 1 ảnh 5MB+1B → FAIL **(P0)**\n\n**Coverage gap (bổ sung sau):**\n- 6 ảnh (vượt max) – biên trên của \"5 ảnh\" hiện thiếu.\n- Ảnh 0 byte / sai định dạng (jpg giả .png).\n- 0 ảnh: có bắt buộc min 1 ảnh không? Chưa rõ → cần chốt.\n\n**Cảnh báo:** \"chỉ giữ 2 biên\" mâu thuẫn BVA (cần cả cận trên 5MB+1B và 6 ảnh). Đề xuất cho phép 2 case vượt biên này, nếu không suite sẽ không bắt được lỗi validate max.",
+          "status": "complete",
+          "apply_payload": null,
+          "created_at": "2026-11-14T07:12:23.031588+00:00"
+        }
+      ]
     }
   ]
 }

@@ -63,8 +63,8 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_MODEL_UNSET_LABEL,
     UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
-    UI_SETTINGS_SPIN_WIDTH,
-    UI_SETTINGS_SPIN_WIDTH_WIDE,
+    UI_SETTINGS_SPIN_HEIGHT,
+    UI_SETTINGS_SPIN_MIN_WIDTH,
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
 from ai_qa_test_studio.core.models import (
@@ -270,7 +270,7 @@ class SystemSettingsDialog(MessageBoxBase):
         tokens = get_theme_tokens()
         card = QFrame(parent)
         card.setObjectName("SystemSettingsCard")
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         card.setAutoFillBackground(True)
         card.setStyleSheet(
             "#SystemSettingsCard {"
@@ -300,17 +300,17 @@ class SystemSettingsDialog(MessageBoxBase):
         block.setSpacing(4)
         block.setContentsMargins(0, 0, 0, 0)
         block.addWidget(CaptionLabel(label, parent))
-        if not isinstance(widget, SpinBox):
-            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         block.addWidget(widget)
         layout.addLayout(block)
 
-    def _style_spin(self, spin: SpinBox, *, wide: bool = False) -> None:
-        """Fluent SpinBox needs fixed width + opaque fill; StrongFocus so wheel scrolls the page."""
-        width = UI_SETTINGS_SPIN_WIDTH_WIDE if wide else UI_SETTINGS_SPIN_WIDTH
+    def _style_spin(self, spin: SpinBox) -> None:
+        """Full-width opaque SpinBox; StrongFocus so wheel scrolls the page."""
         tokens = get_theme_tokens()
-        spin.setFixedWidth(width)
-        spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        spin.setProperty("transparent", False)
+        spin.setMinimumWidth(UI_SETTINGS_SPIN_MIN_WIDTH)
+        spin.setFixedHeight(UI_SETTINGS_SPIN_HEIGHT)
+        spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         spin.setAutoFillBackground(True)
@@ -330,16 +330,15 @@ class SystemSettingsDialog(MessageBoxBase):
         label: str,
         hint: str,
         spin: SpinBox,
-        *,
-        wide: bool = False,
     ) -> None:
-        self._style_spin(spin, wide=wide)
+        self._style_spin(spin)
         block = QVBoxLayout()
         block.setSpacing(4)
         block.setContentsMargins(0, 0, 0, 0)
         block.addWidget(CaptionLabel(label, parent))
         tip = BodyLabel(hint, parent)
         tip.setWordWrap(True)
+        tip.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         tip.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         block.addWidget(tip)
         block.addWidget(spin)
@@ -603,7 +602,6 @@ class SystemSettingsDialog(MessageBoxBase):
             "Timeout hỏi làm rõ",
             "60000 ms = 60 giây. Hết giờ → dùng câu trả lời mặc định.",
             self.spin_clarify,
-            wide=True,
         )
         self._add_spin_field(
             body,
@@ -611,7 +609,6 @@ class SystemSettingsDialog(MessageBoxBase):
             "Lean tail tokens",
             "Token dành cho phần ngữ cảnh gần nhất gửi model.",
             self.spin_lean,
-            wide=True,
         )
         roles_card, roles_body = self._card(root, "Optional crew roles")
         self.chk_analyzer = CheckBox("Analyzer (fail triage) — mặc định bật", roles_card)
