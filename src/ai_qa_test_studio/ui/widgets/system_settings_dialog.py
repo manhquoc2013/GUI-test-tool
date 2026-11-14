@@ -8,6 +8,7 @@ import uuid
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCompleter,
     QFrame,
     QHBoxLayout,
     QListWidgetItem,
@@ -56,6 +57,10 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_LIST_HEIGHT,
     UI_SETTINGS_MIN_HEIGHT,
     UI_SETTINGS_MIN_WIDTH,
+    UI_SETTINGS_MODEL_COMBO_PLACEHOLDER,
+    UI_SETTINGS_MODEL_COMBO_TOOLTIP,
+    UI_SETTINGS_MODEL_COMPLETER_MAX_VISIBLE,
+    UI_SETTINGS_MODEL_UNSET_LABEL,
     UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
     UI_SETTINGS_SPIN_WIDTH,
@@ -465,8 +470,11 @@ class SystemSettingsDialog(MessageBoxBase):
 
         form_card, form_body = self._card(root, "Chi tiết model")
         self.model_id = EditableComboBox(form_card)
-        self.model_id.setPlaceholderText("Chọn hoặc gõ model id…")
-        self.model_id.setToolTip("Danh sách lấy từ API (OpenAI-compatible / Gemini). Có thể gõ tay nếu thiếu.")
+        self.model_id.setPlaceholderText(UI_SETTINGS_MODEL_COMBO_PLACEHOLDER)
+        self.model_id.setToolTip(UI_SETTINGS_MODEL_COMBO_TOOLTIP)
+        # Fluent EditableComboBox adds free-typed text on Enter — keep catalog API-only.
+        self.model_id.returnPressed.disconnect(self.model_id._onReturnPressed)
+        self.model_id.returnPressed.connect(self._on_model_id_commit)
         self.btn_fetch_models = PushButton("Tải danh sách từ API", form_card)
         self.btn_fetch_models.setFixedHeight(28)
         self.model_fetch_status = CaptionLabel("", form_card)
@@ -801,6 +809,8 @@ class SystemSettingsDialog(MessageBoxBase):
         self._reload_default_conn()
 
     def _on_model_api_changed(self) -> None:
+        self._remote_model_ids = []
+        self._fill_model_id_combo([])
         self._reload_model_list()
         self._fetch_remote_models()
 
@@ -811,7 +821,8 @@ class SystemSettingsDialog(MessageBoxBase):
             return
         for model in conn.models:
             mark = " *" if model.is_default else ""
-            self.model_list.addItem(QListWidgetItem(f"{model.id} [{model.tier}]{mark}"))
+            label = model.id.strip() or UI_SETTINGS_MODEL_UNSET_LABEL
+            self.model_list.addItem(QListWidgetItem(f"{label} [{model.tier}]{mark}"))
         if conn.models:
             self.model_list.setCurrentRow(0)
 
@@ -830,11 +841,15 @@ class SystemSettingsDialog(MessageBoxBase):
         if conn is None:
             return
         preferred = self.model_id.currentText().strip()
-        if not preferred and self._remote_model_ids:
-            preferred = self._remote_model_ids[0]
-        mid = preferred or f"model-{len(conn.models) + 1}"
-        if any(m.id == mid for m in conn.models):
-            mid = f"{mid}-{len(conn.models) + 1}"
+        configured = {m.id for m in conn.models}
+        mid = ""
+        if preferred and preferred in self._remote_model_ids and preferred not in configured:
+            mid = preferred
+        else:
+            for candidate in self._remote_model_ids:
+                if candidate not in configured:
+                    mid = candidate
+                    break
         conn.models.append(
             AiModelEntry(id=mid, label=mid, tier=LLM_TIER_MID, is_default=not conn.models)
         )
@@ -872,29 +887,54 @@ class SystemSettingsDialog(MessageBoxBase):
         if not value:
             return
         current_label = self.model_label.text().strip()
-        if not current_label or current_label.startswith("model-"):
+        if (
+            not current_label
+            or current_label.startswith("model-")
+            or current_label == UI_SETTINGS_MODEL_UNSET_LABEL
+        ):
             self.model_label.setText(value)
+
+    def _on_model_id_commit(self) -> None:
+        """Select matching API model on Enter — never invent dropdown items."""
+        text = self.model_id.currentText().strip()
+        if not text:
+            return
+        index = self.model_id.findText(text)
+        if index >= 0:
+            self.model_id.setCurrentIndex(index)
 
     def _set_model_id_text(self, model_id: str) -> None:
         self.model_id.blockSignals(True)
-        if model_id and self.model_id.findText(model_id) < 0:
-            self.model_id.addItem(model_id)
-        self.model_id.setCurrentText(model_id)
+        index = self.model_id.findText(model_id) if model_id else -1
+        if index >= 0:
+            self.model_id.setCurrentIndex(index)
+        else:
+            # Show saved id without polluting the API-only catalog.
+            self.model_id.setText(model_id)
         self.model_id.blockSignals(False)
+
+    def _sync_model_id_completer(self, ids: list[str]) -> None:
+        completer = QCompleter(ids, self.model_id)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setMaxVisibleItems(UI_SETTINGS_MODEL_COMPLETER_MAX_VISIBLE)
+        self.model_id.setCompleter(completer)
 
     def _fill_model_id_combo(self, ids: list[str], *, keep: str = "") -> None:
         current = keep or self.model_id.currentText().strip()
         self.model_id.blockSignals(True)
         self.model_id.clear()
-        for mid in ids:
-            self.model_id.addItem(mid)
-        if current and self.model_id.findText(current) < 0:
-            self.model_id.addItem(current)
-        if current:
+        self.model_id.addItems(ids)
+        if current and self.model_id.findText(current) >= 0:
             self.model_id.setCurrentText(current)
+        elif current:
+            # Keep edit text for already-configured id; do not add to dropdown.
+            self.model_id.setText(current)
         elif ids:
             self.model_id.setCurrentIndex(0)
         self.model_id.blockSignals(False)
+        self._sync_model_id_completer(ids)
 
     def _fetch_remote_models(self) -> None:
         conn = self._models_conn()
@@ -930,11 +970,13 @@ class SystemSettingsDialog(MessageBoxBase):
 
     def _on_remote_models_ok(self, ids: list[str]) -> None:
         self._remote_model_ids = list(ids)
+        self._fill_model_id_combo(ids)
         if not ids:
             self.model_fetch_status.setText("API không trả về model nào.")
             return
-        self._fill_model_id_combo(ids)
-        self.model_fetch_status.setText(f"Đã tải {len(ids)} model — chọn trong danh sách.")
+        self.model_fetch_status.setText(
+            f"Đã tải {len(ids)} model — gõ để tìm hoặc chọn trong danh sách."
+        )
 
     def _on_remote_models_err(self, message: str) -> None:
         self.model_fetch_status.setText(f"Lỗi tải model: {message}")
