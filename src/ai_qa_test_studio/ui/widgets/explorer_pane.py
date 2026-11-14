@@ -16,7 +16,6 @@ from ai_qa_test_studio.constants import (
     ICON_COLOR_SUCCESS,
     ICON_COLOR_WARN,
     STATUS_DOT,
-    THEME_BG_PANEL,
     UI_EXPLORER_CONTENT_H_MARGIN,
     UI_EXPLORER_DENSITY_WIDE,
     UI_EXPLORER_MIN_WIDTH,
@@ -25,6 +24,8 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.models import Project, SharedElement, TestCase
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 _SEARCH_PLACEHOLDER_WIDE = "Tìm test case, element…"
 _SEARCH_PLACEHOLDER_NARROW = "Tìm…"
@@ -38,9 +39,10 @@ class ExplorerPane(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("ExplorerDock")
         self.setAccessibleName("Test Explorer")
         self.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
-        self.setStyleSheet(f"background-color: {THEME_BG_PANEL};")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._project: Project | None = None
         self._filter = ""
         self._element_count = 0
@@ -82,6 +84,17 @@ class ExplorerPane(QWidget):
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
         self.suite_tree.itemSelectionChanged.connect(self._on_case_selection)
         self.element_tree.itemSelectionChanged.connect(self._on_element_selection)
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
+        self.setStyleSheet(
+            f"#ExplorerDock {{"
+            f"background-color: {t.bg_dock};"
+            f"border-right: 1px solid {t.border_hairline};"
+            f"}}"
+        )
 
     def _make_tree(self, accessible_name: str) -> TreeWidget:
         tree = TreeWidget(self)

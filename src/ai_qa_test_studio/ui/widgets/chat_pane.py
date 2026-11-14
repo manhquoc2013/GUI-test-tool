@@ -50,11 +50,11 @@ from ai_qa_test_studio.constants import (
     ROLE_COMPOSER,
     ROLE_CREW,
     ROLE_SYSTEM,
-    THEME_BG_SURFACE,
-    THEME_BORDER_SUBTLE,
 )
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
 from ai_qa_test_studio.core.models import TestScenario
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
 
@@ -176,12 +176,8 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll = QScrollArea(chat_body)
         self.transcript_scroll.setWidgetResizable(True)
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.transcript_scroll.setStyleSheet(
-            f"QScrollArea {{ background: {THEME_BG_SURFACE}; border: 1px solid {THEME_BORDER_SUBTLE};"
-            f" border-radius: 8px; }}"
-        )
         self.transcript_host = QWidget()
-        self.transcript_host.setStyleSheet(f"background: {THEME_BG_SURFACE};")
+        self._style_transcript()
         self.transcript_layout = QVBoxLayout(self.transcript_host)
         self.transcript_layout.setContentsMargins(6, 6, 6, 6)
         self.transcript_layout.setSpacing(4)
@@ -228,6 +224,15 @@ class CopilotChatPane(QWidget):
         self.history = self.transcript_scroll
         self.btn_copy = self.btn_settings
         self.btn_undo = self.btn_clear
+        self._theme_slot = bind_widget_theme(self, self._style_transcript)
+
+    def _style_transcript(self) -> None:
+        t = get_theme_tokens()
+        self.transcript_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {t.bg_card}; border: 1px solid {t.border_card};"
+            f" border-radius: 8px; }}"
+        )
+        self.transcript_host.setStyleSheet(f"background: {t.bg_card};")
 
     @property
     def session(self) -> CopilotSession:

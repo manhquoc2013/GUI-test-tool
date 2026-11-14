@@ -37,8 +37,6 @@ from qfluentwidgets import (
 
 from ai_qa_test_studio.constants import (
     BINDING_UNBOUND,
-    THEME_BG_CANVAS,
-    THEME_STATUS_UNBOUND,
     UI_BREAKPOINT_MEDIUM,
     UI_BREAKPOINT_WIDE,
     UI_CANVAS_MARGIN_H,
@@ -56,7 +54,8 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.models import TestCase, TestStep
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
-from ai_qa_test_studio.ui.theme import card_stylesheet
+from ai_qa_test_studio.ui.theme import card_stylesheet, get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.badges import ActionBadge, ElidedTitleLabel, UnboundAlertBanner
 from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 
@@ -74,8 +73,9 @@ class EditorPane(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("EditorPane")
         self.setAccessibleName("Workspace Editor")
-        self.setStyleSheet(f"background-color: {THEME_BG_CANVAS};")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumWidth(UI_EDITOR_MIN_WIDTH)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._case: TestCase | None = None
@@ -156,6 +156,13 @@ class EditorPane(QWidget):
         self.title_input.textChanged.connect(lambda _t: self._capture_spec_fields())
         self.priority_combo.currentIndexChanged.connect(lambda _i: self._capture_spec_fields())
         self.type_combo.currentIndexChanged.connect(lambda _i: self._capture_spec_fields())
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
+        self.setStyleSheet(f"#EditorPane {{ background-color: {t.bg_canvas}; }}")
+        self.steps_card.setStyleSheet(card_stylesheet("CardWidget#StepsCard"))
 
     def _on_drawer_toggled(self, expanded: bool) -> None:
         total = max(self.v_splitter.height(), 1)
@@ -446,7 +453,7 @@ class EditorPane(QWidget):
             bind_btn.setFixedHeight(26)
             if (step.binding_status or "").upper() == BINDING_UNBOUND:
                 bind_btn.setStyleSheet(
-                    f"color: {THEME_STATUS_UNBOUND}; font-size: 11px; font-weight: 600;"
+                    f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
                 )
             bwl.addWidget(bind_btn)
             self.table.setCellWidget(row, 4, bind_wrap)

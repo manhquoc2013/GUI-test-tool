@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import CaptionLabel, CardWidget, PrimaryPushButton, TogglePushButton
 from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     AGENT_FEED_MAX_LINES,
-    THEME_BG_SURFACE,
     UI_BTN_INSPECT_MIN_WIDTH,
     UI_BTN_LAUNCH_MIN_WIDTH,
     UI_LABEL_BROWSER,
@@ -19,6 +18,8 @@ from ai_qa_test_studio.constants import (
     UI_VIEWPORT_MIN_HEIGHT,
     UI_VIEWPORT_WIDTH,
 )
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.agent_feed import AgentFeed
 from ai_qa_test_studio.ui.widgets.embedded_browser import ScreencastViewport
 
@@ -30,8 +31,9 @@ class BrowserAgentPane(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("BrowserAgentPane")
         self.setAccessibleName("Tab Trình duyệt")
-        self.setStyleSheet(f"background-color: {THEME_BG_SURFACE};")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -77,6 +79,12 @@ class BrowserAgentPane(QWidget):
         self.agent_feed.set_title_visible(True)
         self.agent_feed.setMaximumHeight(140)
         layout.addWidget(self.agent_feed)
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
+        self.setStyleSheet(f"#BrowserAgentPane {{ background-color: {t.bg_card}; }}")
 
     @property
     def inspect_mode(self) -> bool:

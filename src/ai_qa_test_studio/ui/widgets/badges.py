@@ -15,13 +15,6 @@ from qfluentwidgets import (
 )
 
 from ai_qa_test_studio.constants import (
-    THEME_ACTION_ASSERT_FG,
-    THEME_ACTION_CLICK_FG,
-    THEME_ACTION_FALLBACK_FG,
-    THEME_ACTION_FILL_FG,
-    THEME_ACTION_SELECT_FG,
-    THEME_STATUS_UNBOUND,
-    THEME_TEXT_ON_LIGHT,
     UI_ACTION_BADGE_HEIGHT,
     UI_ACTION_BADGE_WIDTH,
     UI_TITLE_FONT_SIZE_PX,
@@ -29,13 +22,10 @@ from ai_qa_test_studio.constants import (
     UI_UNBOUND_BANNER_BODY,
     UI_UNBOUND_BANNER_TITLE,
 )
-from ai_qa_test_studio.ui.theme import (
-    action_badge_bg_css,
-    text_primary_css,
-    unbound_banner_bg_css,
-    unbound_banner_border_css,
-)
+from ai_qa_test_studio.ui.theme import action_badge_colors, get_theme_tokens, text_primary_css
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
+
+_ASSERT_KEYS = frozenset({"assert", "assert_visible", "assert_text", "assert_url"})
 
 
 class ElidedTitleLabel(QLabel):
@@ -78,24 +68,19 @@ class ElidedTitleLabel(QLabel):
 
 
 class ActionBadge(QLabel):
-    """Colored action chip for Steps table cells."""
-
-    _STYLES: dict[str, str] = {
-        "click": THEME_ACTION_CLICK_FG,
-        "fill": THEME_ACTION_FILL_FG,
-        "select": THEME_ACTION_SELECT_FG,
-        "assert": THEME_ACTION_ASSERT_FG,
-        "assert_visible": THEME_ACTION_ASSERT_FG,
-        "assert_text": THEME_ACTION_ASSERT_FG,
-        "assert_url": THEME_ACTION_ASSERT_FG,
-    }
+    """Colored action chip for Steps table cells (contrast-aware Dark/Light)."""
 
     def __init__(self, action: str, parent: QWidget | None = None) -> None:
         super().__init__(action, parent)
+        key = action.lower()
+        self._action_key = "assert" if key in _ASSERT_KEYS else key
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedSize(UI_ACTION_BADGE_WIDTH, UI_ACTION_BADGE_HEIGHT)
-        fg = self._STYLES.get(action.lower(), THEME_ACTION_FALLBACK_FG)
-        bg = action_badge_bg_css(fg)
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        bg, fg = action_badge_colors(self._action_key)
         self.setStyleSheet(
             f"background-color: {bg}; color: {fg}; border-radius: 6px;"
             "font-size: 12px; font-weight: 600;"
@@ -165,23 +150,24 @@ class UnboundAlertBanner(CardWidget):
         self.dismissed.emit()
 
     def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
         self.setStyleSheet(
             "#UnboundAlertBanner {"
-            f"background-color: {unbound_banner_bg_css()};"
-            f"border: 1px solid {unbound_banner_border_css()};"
+            f"background-color: {t.warning_bg};"
+            f"border: 1px solid {t.warning_border};"
             "border-radius: 10px;"
             "}"
             "#UnboundIcon {"
-            f"background-color: {THEME_STATUS_UNBOUND};"
-            f"color: {THEME_TEXT_ON_LIGHT};"
+            f"background-color: {t.warning_fg};"
+            "color: #FFFFFF;"
             "border: none; border-radius: 11px; font-weight: 700;"
             "}"
             "#UnboundTitle {"
             "background-color: transparent; border: none;"
-            f"color: {THEME_STATUS_UNBOUND}; font-weight: 600; font-size: 13px;"
+            f"color: {t.warning_fg}; font-weight: 600; font-size: 13px;"
             "}"
             "#UnboundDesc {"
             "background-color: transparent; border: none;"
-            f"color: {text_primary_css()}; font-size: 12px;"
+            f"color: {t.warning_desc}; font-size: 12px;"
             "}"
         )

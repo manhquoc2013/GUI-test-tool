@@ -48,7 +48,6 @@ from ai_qa_test_studio.constants import (
     LLM_TIER_STRONG,
     ROUTING_MODE_AUTO,
     ROUTING_MODE_MANUAL,
-    THEME_TEXT_SECONDARY,
     UI_SETTINGS_BTN_MAX_WIDTH,
     UI_SETTINGS_BTN_MIN_WIDTH,
     UI_SETTINGS_CONTENT_HEIGHT,
@@ -73,7 +72,7 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
-from ai_qa_test_studio.ui.theme import text_primary_css
+from ai_qa_test_studio.ui.theme import get_theme_tokens, text_primary_css
 
 _TAB_DEFS: tuple[tuple[str, str], ...] = (
     ("general", "Chung"),
@@ -130,7 +129,7 @@ class SystemSettingsDialog(MessageBoxBase):
             "API, model, routing, Copilot và MCP — lưu vào settings.json",
             self.widget,
         )
-        hint.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        hint.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         self.viewLayout.addWidget(hint)
 
         # Pivot kept for API compatibility; nav UI is Master-Detail TreeWidget.
@@ -304,7 +303,7 @@ class SystemSettingsDialog(MessageBoxBase):
         block.addWidget(CaptionLabel(label, parent))
         tip = BodyLabel(hint, parent)
         tip.setWordWrap(True)
-        tip.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        tip.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         block.addWidget(tip)
         block.addWidget(spin)
         layout.addLayout(block)
@@ -350,7 +349,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self._add_field(body, card, "Browser engine", self.browser_combo)
         note = BodyLabel("Viewport runtime cố định 1280×720 (constants).", card)
         note.setWordWrap(True)
-        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        note.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         body.addWidget(note)
         layout.addWidget(card)
         layout.addStretch(1)
@@ -436,7 +435,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self.btn_fetch_models.setFixedHeight(28)
         self.model_fetch_status = CaptionLabel("", form_card)
         self.model_fetch_status.setWordWrap(True)
-        self.model_fetch_status.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        self.model_fetch_status.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         self.model_label = LineEdit(form_card)
         self.model_tier = ComboBox(form_card)
         self.model_tier.addItems([LLM_TIER_FAST, LLM_TIER_MID, LLM_TIER_STRONG])
@@ -481,7 +480,7 @@ class SystemSettingsDialog(MessageBoxBase):
             card,
         )
         note.setWordWrap(True)
-        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        note.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         body.addWidget(note)
         layout.addWidget(card)
         layout.addStretch(1)
@@ -496,7 +495,7 @@ class SystemSettingsDialog(MessageBoxBase):
             card,
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        intro.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         body.addWidget(intro)
 
         c = self._draft.copilot
@@ -582,7 +581,7 @@ class SystemSettingsDialog(MessageBoxBase):
             card,
         )
         note.setWordWrap(True)
-        note.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        note.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         body.addWidget(note)
         self.mcp_pw = CheckBox("External Playwright MCP", card)
         self.mcp_pw.setChecked(self._draft.mcp.external.playwright)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
-from qfluentwidgets import TransparentToolButton
+from qfluentwidgets import TransparentToolButton, isDarkTheme
 
 from ai_qa_test_studio.constants import (
     ICON_COLOR_PRIMARY,
@@ -14,11 +14,10 @@ from ai_qa_test_studio.constants import (
     ROLE_CRITIC,
     ROLE_PLANNER,
     ROLE_SYSTEM,
-    THEME_TEXT_MUTED,
-    THEME_TEXT_PRIMARY,
-    THEME_TEXT_SECONDARY,
     UI_MSG_ACTION_BTN_SIZE,
 )
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 _ROLE_LABEL = {
     "user": "Bạn",
@@ -28,15 +27,6 @@ _ROLE_LABEL = {
     ROLE_CREW: "Crew",
     ROLE_SYSTEM: "Hệ thống",
     "assistant": "AI",
-}
-
-_ROLE_COLOR = {
-    "user": "#22D3EE",
-    ROLE_PLANNER: "#FACC15",
-    ROLE_COMPOSER: ICON_COLOR_PRIMARY,
-    ROLE_CRITIC: "#E879F9",
-    ROLE_CREW: THEME_TEXT_MUTED,
-    ROLE_SYSTEM: THEME_TEXT_MUTED,
 }
 
 
@@ -64,12 +54,9 @@ class ChatMessageRow(QWidget):
         body.setSpacing(2)
         label = _ROLE_LABEL.get(role, role)
         self.meta = QLabel(f"[{label}]", self)
-        color = _ROLE_COLOR.get(role, THEME_TEXT_SECONDARY)
-        self.meta.setStyleSheet(f"color: {color}; font-size: 11px;")
         self.body = QLabel(text or "…", self)
         self.body.setWordWrap(True)
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.body.setStyleSheet(f"color: {THEME_TEXT_PRIMARY}; font-size: 13px;")
         body.addWidget(self.meta)
         body.addWidget(self.body)
         layout.addLayout(body, stretch=1)
@@ -90,6 +77,23 @@ class ChatMessageRow(QWidget):
         actions.addWidget(self.btn_undo)
         actions.addStretch(1)
         layout.addLayout(actions)
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
+        dark = isDarkTheme()
+        role_colors = {
+            "user": "#22D3EE" if dark else "#0891B2",
+            ROLE_PLANNER: "#FACC15" if dark else "#A16207",
+            ROLE_COMPOSER: ICON_COLOR_PRIMARY,
+            ROLE_CRITIC: "#E879F9" if dark else "#A21CAF",
+            ROLE_CREW: t.text_muted,
+            ROLE_SYSTEM: t.text_muted,
+        }
+        color = role_colors.get(self.role, t.text_secondary)
+        self.meta.setStyleSheet(f"color: {color}; font-size: 11px;")
+        self.body.setStyleSheet(f"color: {t.text_primary}; font-size: 13px;")
 
     def set_body(self, text: str) -> None:
         self._text = text
