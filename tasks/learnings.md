@@ -1,8 +1,7 @@
-# Learnings — Coverage completeness
+# Learnings — s-review remediation (2026-11-14)
 
-- Completeness keys `(doc_id, chunk_index)`; never merge sections across docs.
-- When `n_docs > max_sections`, keep ≥1 section/doc (may exceed budget) — never drop a doc.
-- One `load_chunks` for gate+windows; status uses non-empty chunk count.
-- Stop flush: orchestrator returns only on `ev.kind == "stopped"`.
-- Ingest: missing scenario `id` → UUID; do not silent-drop.
-- Removed unused `should_run_coverage` / `sum_document_chunks` (gate lives in `plan_coverage_windows`).
+- Dock open/close `on_done` must be cancelled via `stop_channel` before snap-close; flipping `_dock_animating` alone is not enough.
+- Sparse `list[doc_id]` + `zip(attachments, …)` mis-labels peers; return `dict[path, doc_id]`.
+- Chip clear must keep ingest cache for the in-flight send; `new_session` / `clear_messages` must reset it.
+- Agent must not import UI: put shared bubble/crew synthesis in `agent/result_snippet.py`.
+- Never stage `data/copilot/sessions.json`.
