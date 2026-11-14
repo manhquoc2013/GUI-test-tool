@@ -1118,12 +1118,40 @@ class CopilotChatPane(QWidget):
         target = Path(path_str).expanduser()
         if target.suffix.lower() != ".xlsx":
             target = target.with_suffix(".xlsx")
-        try:
-            CopilotArtifactExcelExporter().write(dict(self._pending_apply), target)
-        except Exception as exc:
-            self.info_message.emit(COPILOT_DOWNLOAD_FAIL_TITLE, str(exc))
-            return
-        self.info_message.emit(COPILOT_DOWNLOAD_DONE_TITLE, str(target))
+        pending = dict(self._pending_apply)
+        project_root = self._project_root
+
+        async def _job() -> None:
+            from ai_qa_test_studio.agent.batch_compose import load_session_compose_payload
+            from ai_qa_test_studio.constants import APPLY_PAYLOAD_DRAFT_SESSION_KEY
+            from ai_qa_test_studio.core.async_task_supervisor import (
+                get_async_task_supervisor,
+            )
+
+            payload = pending
+            draft_id = str(payload.get(APPLY_PAYLOAD_DRAFT_SESSION_KEY) or "").strip()
+            if draft_id and project_root is not None:
+                merged = await load_session_compose_payload(project_root, draft_id)
+                if merged.get("scenarios"):
+                    payload = {**payload, **merged}
+            try:
+                await asyncio.to_thread(
+                    CopilotArtifactExcelExporter().write, payload, target
+                )
+            except Exception as exc:  # noqa: BLE001
+                get_async_task_supervisor().emit_if_alive(
+                    self, self.info_message, COPILOT_DOWNLOAD_FAIL_TITLE, str(exc)
+                )
+                return
+            get_async_task_supervisor().emit_if_alive(
+                self, self.info_message, COPILOT_DOWNLOAD_DONE_TITLE, str(target)
+            )
+
+        from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
+
+        get_async_task_supervisor().register(
+            _job(), key=f"compose_excel:{id(self)}", replace=True
+        )
 
     def set_project_root(self, root: Path | str | None) -> None:
         self._project_root = Path(root).resolve() if root else None

@@ -68,6 +68,7 @@ COPILOT_HISTORY_ROW_DELETE_SIZE = 26
 COPILOT_SLIDING_TURNS = 8
 COPILOT_CHAT_MAX_TOKENS = 2048
 COPILOT_GEN_MAX_TOKENS = 8192
+COPILOT_GEN_MAX_TOKENS_CAP = 16384
 COPILOT_INPUT_HEIGHT = 64
 COPILOT_BTN_SEND_SIZE = 36
 COPILOT_STOP_MARKER = "— Đã dừng —"
@@ -78,8 +79,13 @@ COPILOT_STREAM_LENGTH_NOTICE = (
     "Nhập 'tiếp tục' để sinh nốt phần còn lại."
 )
 # Auto-continue when finish_reason=length before surfacing the notice above.
-LLM_STREAM_MAX_CONTINUATIONS = 2
+LLM_STREAM_MAX_CONTINUATIONS = 3
 LLM_STREAM_CONTINUE_PRIOR_CHARS = 6000
+LLM_STREAM_PROGRESS_GUARD_RATIO = 0.80
+LLM_STREAM_STALL_NOTICE = (
+    "\n\n⚠️ Dừng nối tiếp tự động: đoạn mới rỗng hoặc trùng lặp >80% "
+    "với phần cuối lượt trước. Nhập 'tiếp tục' nếu vẫn cần sinh thêm."
+)
 LLM_STREAM_CONTINUE_PROMPT = (
     "Phản hồi trước bị cắt giữa chừng vì giới hạn độ dài. "
     "Hãy viết tiếp CHÍNH XÁC từ điểm ngắt — không lặp lại tiêu đề, "
@@ -88,6 +94,21 @@ LLM_STREAM_CONTINUE_PROMPT = (
     "Nội dung đã sinh (neo ngữ cảnh):\n{prior}"
 )
 COPILOT_STREAM_ERROR_PREFIX = "⚠️ Lỗi khi đọc phản hồi model:\n"
+# Map-Reduce batch compose for large suites (300–500+ cases).
+STUDIO_DRAFTS_DIRNAME = "drafts"
+COPILOT_BATCH_SCENARIO_SIZE = 5
+COPILOT_BATCH_SEMAPHORE = 2
+COPILOT_BATCH_SCENARIO_THRESHOLD = 5
+COPILOT_BATCH_CASE_THRESHOLD = 25
+COPILOT_LARGE_SUITE_UI_CASE_THRESHOLD = 25
+COPILOT_BATCH_PROGRESS = (
+    "Đang sinh bộ Test Case: {done}/{total} cases (Lô {batch}/{batches})…"
+)
+COPILOT_BATCH_RESUME_HINT = (
+    "\n\n⏸ Đã lưu checkpoint các lô hoàn tất. Nhập 'tiếp tục' để chạy nốt các lô còn lại."
+)
+COPILOT_LARGE_SUITE_SAMPLES = 5
+APPLY_PAYLOAD_DRAFT_SESSION_KEY = "draft_session_id"
 COPILOT_URL_BROWSER_OFF_NOTE = (
     "ℹ️ Browser/MCP chưa bật — scenario dựa trên prompt (chưa đọc cấu trúc trang)."
 )

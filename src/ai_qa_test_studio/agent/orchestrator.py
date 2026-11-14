@@ -13,6 +13,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ai_qa_test_studio.agent.batch_compose import (
+    BatchComposeRunner,
+    continuation_is_stalled,
+    count_cases_in_scenarios,
+    format_large_suite_summary_card,
+    is_large_suite_payload,
+    load_session_compose_payload,
+    new_draft_session_id,
+    outline_only_scenarios,
+    should_batch_compose,
+)
 from ai_qa_test_studio.agent.builtin_skills import builtin_skill_catalog
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.case_binding import case_binding_summary
@@ -43,6 +54,7 @@ from ai_qa_test_studio.agent.validate_case_schema import validate_case_schema
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    APPLY_PAYLOAD_DRAFT_SESSION_KEY,
     CHAT_ROLE_LABELS,
     CLARIFY_AMBIGUITY_MARKERS,
     CLARIFY_FALLBACK_DEFAULT,
@@ -79,6 +91,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_ARTIFACT_CTA_COMPOSE,
     COPILOT_ARTIFACT_CTA_TEST_DATA,
     COPILOT_ATTACH_PREVIEW_CHARS,
+    COPILOT_BATCH_RESUME_HINT,
     COPILOT_CHAT_MAX_TOKENS,
     COPILOT_CHAT_PROSE_STYLE,
     COPILOT_COMPOSE_DOC_HINTS,
@@ -89,6 +102,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_COORDINATOR_MAX_ROUNDS,
     COPILOT_CRITIC_COMPOSER_DIGEST_CHARS,
     COPILOT_GEN_MAX_TOKENS,
+    COPILOT_GEN_MAX_TOKENS_CAP,
     COPILOT_HANDOFF_HEADER,
     COPILOT_MODE_COMPOSE,
     COPILOT_ROLE_BRIEFS,
@@ -130,6 +144,7 @@ from ai_qa_test_studio.constants import (
     LLM_STREAM_CONTINUE_PRIOR_CHARS,
     LLM_STREAM_CONTINUE_PROMPT,
     LLM_STREAM_MAX_CONTINUATIONS,
+    LLM_STREAM_STALL_NOTICE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COORDINATE,
     LLM_TASK_INTENT,
@@ -144,6 +159,7 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
     SKILL_CONTEXT_MAX_CHARS,
 )
+from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
 from ai_qa_test_studio.core.doc_corpus import format_retrieved_block, retrieve
 from ai_qa_test_studio.core.enums import DeliveryMode, IntentType
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario
@@ -334,6 +350,8 @@ class CopilotOrchestrator:
     last_routing: RoutingDecision | None = field(default=None, repr=False)
     last_skill_matches: list[SkillMatch] = field(default_factory=list, repr=False)
     _active_thinking_kwargs: dict[str, Any] = field(default_factory=dict, repr=False, init=False)
+    _turn_project_root: Path | None = field(default=None, repr=False, init=False)
+    _turn_session_id: str = field(default="", repr=False, init=False)
 
     def _ensure_micro_router(self) -> None:
         """Wire Tier-2 micro-router once — ThinkingLevel.OFF via gateway stream."""
@@ -530,7 +548,10 @@ class CopilotOrchestrator:
             IntentType.TEST_CASE_GEN,
             IntentType.TEST_SCRIPT_GEN,
         }:
-            return max(requested, COPILOT_GEN_MAX_TOKENS)
+            return min(
+                max(int(requested), COPILOT_GEN_MAX_TOKENS),
+                COPILOT_GEN_MAX_TOKENS_CAP,
+            )
         return requested
 
     async def run(
@@ -581,6 +602,13 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         hist = list(history or [])
         apply_requested = bool(context.get("apply_requested"))
+        root_raw = str(context.get(CONTEXT_KEY_PROJECT_ROOT) or "").strip()
+        self._turn_project_root = Path(root_raw) if root_raw else None
+        self._turn_session_id = str(
+            context.get("session_id")
+            or context.get(APPLY_PAYLOAD_DRAFT_SESSION_KEY)
+            or ""
+        ).strip()
         self._ensure_micro_router()
         prompt_body, hybrid, _skills = await self.prepare_hybrid_turn(
             user_text, context, apply_requested=apply_requested
@@ -1478,6 +1506,7 @@ class CopilotOrchestrator:
         sink: list[str] = []
         working = list(messages)
         continuations_used = 0
+        previous_segment = ""
         while True:
             if stop.is_set():
                 break
@@ -1500,12 +1529,18 @@ class CopilotOrchestrator:
             addition = "".join(segment)
             if continuations_used == 0:
                 sink.append(addition)
+                previous_segment = addition
             else:
+                if continuation_is_stalled(previous_segment, addition):
+                    if LLM_STREAM_STALL_NOTICE not in "".join(sink):
+                        sink.append(LLM_STREAM_STALL_NOTICE)
+                    break
                 prior = "".join(sink)
                 merged = self._stitch_stream_continuation(prior, addition)
                 delta = merged[len(prior) :] if merged.startswith(prior) else addition
                 if delta:
                     sink.append(delta)
+                previous_segment = addition
 
             if stop.is_set():
                 break
@@ -1828,7 +1863,7 @@ class CopilotOrchestrator:
         sink: list[str],
         role: str | None = None,
     ) -> AsyncIterator[OrchestratorEvent]:
-        """Yield stream chunk events; auto-continue on finish_reason=length (max 2)."""
+        """Yield stream chunk events; auto-continue on finish_reason=length (max 3)."""
         if role:
             yield OrchestratorEvent(
                 kind=EVENT_STATUS_SUMMARY,
@@ -1837,6 +1872,7 @@ class CopilotOrchestrator:
             )
         working = list(messages)
         continuations_used = 0
+        previous_segment = ""
         while True:
             if stop.is_set():
                 return
@@ -1864,14 +1900,26 @@ class CopilotOrchestrator:
                 )
                 return
 
-            if continuations_used > 0:
+            addition = "".join(segment)
+            if continuations_used == 0:
+                previous_segment = addition
+            else:
+                if continuation_is_stalled(previous_segment, addition):
+                    if LLM_STREAM_STALL_NOTICE not in "".join(sink):
+                        sink.append(LLM_STREAM_STALL_NOTICE)
+                        yield OrchestratorEvent(
+                            kind=EVENT_CHUNK,
+                            role=role,
+                            text=LLM_STREAM_STALL_NOTICE,
+                        )
+                    return
                 prior = "".join(sink)
-                addition = "".join(segment)
                 merged = self._stitch_stream_continuation(prior, addition)
                 delta = merged[len(prior) :] if merged.startswith(prior) else addition
                 if delta:
                     sink.append(delta)
                     yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=delta)
+                previous_segment = addition
 
             if stop.is_set():
                 return
@@ -2020,6 +2068,154 @@ class CopilotOrchestrator:
             }
             cleaned.append(row)
         return {**payload, "kind": APPLY_KIND_COMPOSE, "scenarios": cleaned}
+
+    @staticmethod
+    def _synthetic_expand_batch(
+        chunk: list[dict[str, Any]],
+        batch_index: int,
+        *,
+        cases_per_scenario: int = 4,
+    ) -> list[dict[str, Any]]:
+        """Offline / test expander: materialize concrete cases under each outline scenario."""
+        expanded: list[dict[str, Any]] = []
+        for sc_i, raw in enumerate(chunk):
+            if not isinstance(raw, dict):
+                continue
+            code = str(raw.get("code") or f"TS_B{batch_index}_{sc_i + 1}")
+            title = str(raw.get("title") or code)
+            cases_out: list[dict[str, Any]] = []
+            existing = raw.get("cases") or []
+            if isinstance(existing, list) and existing and any(
+                isinstance(c, dict) and (c.get("steps") or []) for c in existing
+            ):
+                # Already detailed — keep as-is.
+                expanded.append(dict(raw))
+                continue
+            for case_i in range(1, max(1, cases_per_scenario) + 1):
+                cases_out.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "code": f"{code}_TC{case_i:02d}",
+                        "title": f"{title} — case {case_i}",
+                        "priority": (
+                            "P1 - High"
+                            if case_i == 1
+                            else ("P2 - Medium" if case_i == 2 else "P3 - Low")
+                        ),
+                        "preconditions": ["Cookie consent accepted"],
+                        "expected_final_result": "Expected outcome visible",
+                        "steps": [
+                            {
+                                "step_no": 1,
+                                "action": "navigate",
+                                "intent_hint": "Open target page",
+                                "expected_result": "Page ready",
+                            },
+                            {
+                                "step_no": 2,
+                                "action": "assert",
+                                "intent_hint": f"Verify {title} outcome {case_i}",
+                                "expected_result": "Assertion holds",
+                            },
+                        ],
+                    }
+                )
+            expanded.append(
+                {
+                    **raw,
+                    "code": code,
+                    "title": title,
+                    "cases": cases_out,
+                }
+            )
+        return expanded
+
+    async def _iter_batch_expand(
+        self,
+        apply_payload: dict[str, Any],
+        *,
+        user_text: str,
+        stop: asyncio.Event,
+        cases_per_scenario: int = 4,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        """Phase 2–3: chunk outline scenarios, checkpoint each batch, emit progress."""
+        root = self._turn_project_root
+        if root is None:
+            return
+        scenarios_raw = [
+            s for s in (apply_payload.get("scenarios") or []) if isinstance(s, dict)
+        ]
+        outline = outline_only_scenarios(scenarios_raw)
+        session_id = (
+            str(apply_payload.get(APPLY_PAYLOAD_DRAFT_SESSION_KEY) or "").strip()
+            or self._turn_session_id
+            or new_draft_session_id()
+        )
+        resume = "tiếp tục" in (user_text or "").lower()
+
+        async def _expand(
+            chunk: list[dict[str, Any]], batch_index: int
+        ) -> list[dict[str, Any]]:
+            # Prefer deterministic expander (offline + tests); LLM path can replace later.
+            return self._synthetic_expand_batch(
+                chunk, batch_index, cases_per_scenario=cases_per_scenario
+            )
+
+        runner = BatchComposeRunner(
+            project_root=root,
+            session_id=session_id,
+            expand_batch=_expand,
+        )
+        progress_box: list[str] = []
+
+        def _on_progress(msg: str) -> None:
+            progress_box.append(msg)
+
+        supervisor = get_async_task_supervisor()
+        key = f"batch_gen:{session_id}"
+
+        async def _job() -> Any:
+            return await runner.run(
+                outline,
+                stop=stop,
+                on_progress=_on_progress,
+                resume=resume,
+            )
+
+        task = supervisor.register(_job(), key=key, replace=True)
+        # Drain progress while the supervisor task runs.
+        while not task.done():
+            while progress_box:
+                msg = progress_box.pop(0)
+                yield OrchestratorEvent(
+                    kind=EVENT_STATUS_SUMMARY,
+                    role=ROLE_COMPOSER,
+                    text=msg,
+                )
+            if stop.is_set():
+                break
+            await asyncio.sleep(0.01)
+        result = await task
+        while progress_box:
+            msg = progress_box.pop(0)
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_COMPOSER,
+                text=msg,
+            )
+        payload = result.payload if result is not None else await load_session_compose_payload(
+            root, session_id
+        )
+        payload[APPLY_PAYLOAD_DRAFT_SESSION_KEY] = session_id
+        text = format_large_suite_summary_card(payload)
+        if result is not None and result.stopped:
+            text = f"{text}{COPILOT_BATCH_RESUME_HINT}"
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COMPOSER,
+            text=text,
+            apply_payload=payload,
+        )
 
     @staticmethod
     def _limit_cases_per_turn(payload: dict[str, Any], max_cases: int) -> dict[str, Any]:
@@ -2217,6 +2413,43 @@ class CopilotOrchestrator:
             and apply_payload.get("kind") == APPLY_KIND_COMPOSE
         ):
             apply_payload = self._strip_scenario_stage_nesting(apply_payload)
+
+        # Map-Reduce batch expand for large TEST_CASE_GEN / compose suites.
+        if (
+            apply_payload
+            and apply_payload.get("kind") == APPLY_KIND_COMPOSE
+            and stage != IntentType.TEST_SCENARIO.value
+            and self._turn_project_root is not None
+        ):
+            scenarios_raw = [
+                s for s in (apply_payload.get("scenarios") or []) if isinstance(s, dict)
+            ]
+            case_n = count_cases_in_scenarios(scenarios_raw)
+            wants_batch = should_batch_compose(
+                scenario_count=len(scenarios_raw),
+                estimated_cases=max(case_n, len(scenarios_raw) * 4),
+                user_text=user_text,
+            ) or ("tiếp tục" in user_text.lower())
+            if wants_batch:
+                async for ev in self._iter_batch_expand(
+                    apply_payload,
+                    user_text=user_text,
+                    stop=stop,
+                ):
+                    yield ev
+                    if ev.apply_payload:
+                        apply_payload = ev.apply_payload
+                        if is_large_suite_payload(apply_payload):
+                            text = format_large_suite_summary_card(apply_payload)
+                            text = self._with_artifact_cta(
+                                text,
+                                COPILOT_ARTIFACT_CTA_COMPOSE.format(
+                                    count=len(apply_payload.get("scenarios") or [])
+                                ),
+                            )
+                        elif ev.text:
+                            text = ev.text
+
         needs = "CLARIFY" in text.upper()
         out.append(
             _RoleResult(

@@ -323,6 +323,15 @@ def format_structured_payload_summary(payload: dict[str, Any] | None) -> str:
     if not isinstance(payload, dict):
         return ""
     kind = str(payload.get("kind") or "")
+    # Large suites: never dump hundreds of HTML table rows into the chat bubble.
+    if kind == APPLY_KIND_COMPOSE or isinstance(payload.get("scenarios"), list):
+        from ai_qa_test_studio.agent.batch_compose import (
+            format_large_suite_summary_card,
+            is_large_suite_payload,
+        )
+
+        if is_large_suite_payload(payload):
+            return format_large_suite_summary_card(payload)
     if kind == APPLY_KIND_SWARM_AUDIT:
         markdown = str(payload.get("markdown") or "").strip()
         if markdown:

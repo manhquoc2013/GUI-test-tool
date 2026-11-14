@@ -47,7 +47,14 @@ class _AlwaysLengthGateway(UnifiedLLMGateway):
         del messages, max_tokens, cancel, _kwargs
         self.calls += 1
         self.last_finish_reason = None
-        yield f"SEG{self.calls}."
+        # Distinct bodies so Progress Guard does not fire between continuations.
+        catalog = (
+            "Alpha login happy-path narrative with unique tokens A1.",
+            "Bravo payment decline path with unique tokens B2 entirely different.",
+            "Charlie admin ACL matrix with unique tokens C3 unrelated prose.",
+            "Delta report export pipeline with unique tokens D4 fresh content.",
+        )
+        yield catalog[(self.calls - 1) % len(catalog)]
         self.last_finish_reason = LLM_FINISH_REASON_LENGTH
 
 
@@ -110,9 +117,10 @@ async def test_collect_auto_continues_then_appends_length_notice() -> None:
         )
     ]
     body = "".join(sink)
-    # initial + max_continuations streams
+    # initial + max_continuations streams (default max_continuations = 3 → 4 calls)
+    assert LLM_STREAM_MAX_CONTINUATIONS == 3
     assert gw.calls == LLM_STREAM_MAX_CONTINUATIONS + 1
-    assert "SEG1." in body
+    assert "Alpha login" in body
     assert COPILOT_STREAM_LENGTH_NOTICE in body
     assert any(
         ev.kind == EVENT_CHUNK and COPILOT_STREAM_LENGTH_NOTICE in (ev.text or "")

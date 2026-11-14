@@ -603,6 +603,7 @@ class CopilotController:
         ctx[CONTEXT_KEY_ANALYZER_ENABLED] = bool(copilot_cfg.analyzer_enabled)
         ctx[CONTEXT_KEY_OPTIMIZER_ENABLED] = bool(copilot_cfg.optimizer_enabled)
         ctx[CONTEXT_KEY_PROJECT_ROOT] = str(getattr(w.storage, "root", "") or "")
+        ctx["session_id"] = str(getattr(w.copilot.session, "id", "") or "")
         if w.project is not None:
             ctx["project"] = w.project
         if getattr(w, "_last_report", None) is not None:
@@ -620,6 +621,22 @@ class CopilotController:
         # Apply button ⇒ DeliveryMode.APPLY (RealityChecker gate on cases)
         payload = {**payload, "delivery_mode": "apply", "apply_requested": True}
         if kind == APPLY_KIND_COMPOSE:
+            from ai_qa_test_studio.constants import APPLY_PAYLOAD_DRAFT_SESSION_KEY
+
+            draft_id = str(payload.get(APPLY_PAYLOAD_DRAFT_SESSION_KEY) or "").strip()
+            root = Path(str(getattr(w.storage, "root", "") or ""))
+            if draft_id and root.is_dir():
+                from ai_qa_test_studio.agent.batch_compose import (
+                    load_session_compose_payload_sync,
+                )
+
+                merged = load_session_compose_payload_sync(root, draft_id)
+                if merged.get("scenarios"):
+                    payload = {
+                        **payload,
+                        **merged,
+                        APPLY_PAYLOAD_DRAFT_SESSION_KEY: draft_id,
+                    }
             scenarios_raw = payload.get("scenarios") or []
             scenarios = normalize_compose_scenarios(list(scenarios_raw))
             if not scenarios:
