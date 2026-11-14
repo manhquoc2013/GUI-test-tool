@@ -38,6 +38,7 @@ from ai_qa_test_studio.constants import (
     THEME_CARD_RADIUS,
 )
 from ai_qa_test_studio.core.chat_models import CopilotSession
+from ai_qa_test_studio.ui.qt_compat import graphics_effects_supported
 from ai_qa_test_studio.ui.theme import elevation_channel, get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
@@ -147,10 +148,13 @@ class ChatHistoryRail(QWidget):
         self.list.currentItemChanged.connect(self._on_current_item_changed)
         root.addWidget(self.list, stretch=0)
 
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setBlurRadius(COPILOT_HISTORY_SHADOW_BLUR)
-        self._shadow.setOffset(0, COPILOT_HISTORY_SHADOW_OFFSET_Y)
-        self.setGraphicsEffect(self._shadow)
+        self._shadow: QGraphicsDropShadowEffect | None = None
+        if graphics_effects_supported():
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(COPILOT_HISTORY_SHADOW_BLUR)
+            shadow.setOffset(0, COPILOT_HISTORY_SHADOW_OFFSET_Y)
+            self.setGraphicsEffect(shadow)
+            self._shadow = shadow
 
         self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
         self._apply_theme_style()
@@ -192,8 +196,11 @@ class ChatHistoryRail(QWidget):
             f" border-radius: {THEME_CARD_RADIUS}px; }}"
         )
         self.setAutoFillBackground(True)
-        channel = elevation_channel()
-        self._shadow.setColor(QColor(channel, channel, channel, COPILOT_HISTORY_SHADOW_ALPHA))
+        if self._shadow is not None:
+            channel = elevation_channel()
+            self._shadow.setColor(
+                QColor(channel, channel, channel, COPILOT_HISTORY_SHADOW_ALPHA)
+            )
         self.list.setStyleSheet(
             f"QListWidget {{ background-color: {t.bg_card}; border: none; outline: none; }}"
             f"QListWidget::item {{ margin: 0; padding: 0; border: none; background: transparent; }}"

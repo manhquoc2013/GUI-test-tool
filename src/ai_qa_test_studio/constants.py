@@ -49,6 +49,8 @@ COPILOT_HISTORY_TITLE_MAX_CHARS = 42
 COPILOT_HISTORY_SHADOW_BLUR = 28
 COPILOT_HISTORY_SHADOW_OFFSET_Y = 8
 COPILOT_HISTORY_SHADOW_ALPHA = 70
+# QPA platforms where QGraphicsDropShadowEffect / widget.grab() often SIGABRT.
+QT_QPA_HEADLESS_PLATFORMS = frozenset({"offscreen", "minimal", "null"})
 COPILOT_HISTORY_TITLE = "Lịch sử"
 COPILOT_HISTORY_TOGGLE_TIP = "Hiện/ẩn lịch sử chat"
 COPILOT_HISTORY_EMPTY = "Chưa có cuộc trò chuyện"

@@ -67,6 +67,14 @@ def ensure_qt_api() -> None:
         PySide6.__version__ = qt_version
 
 
+def graphics_effects_supported() -> bool:
+    """False on headless QPA plugins where DropShadow/grab often abort (exit 134)."""
+    from ai_qa_test_studio.constants import QT_QPA_HEADLESS_PLATFORMS
+
+    platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
+    return platform not in QT_QPA_HEADLESS_PLATFORMS
+
+
 def install_platform_noise_filters() -> None:
     """Silence macOS Cocoa AX spam from Fluent/Qt temporary widgets.
 
