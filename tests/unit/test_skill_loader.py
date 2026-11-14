@@ -42,3 +42,20 @@ def test_invoke_load_skill_tool_returns_body(tmp_path: Path) -> None:
     assert "Do the thing" in body
     missing = loader.invoke_tool(MICRO_TOOL_LOAD_SKILL, {"skill_name": "nope"})
     assert "không tồn tại" in missing.lower() or "không tồn tại" in missing
+
+
+def test_load_skill_soft_fails_corrupt_usage_json(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "demo-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: Demo\n---\n\n# Demo\n\nBody.\n",
+        encoding="utf-8",
+    )
+    (skill_dir / ".usage.json").write_text("{not-json", encoding="utf-8")
+    loader = ProgressiveSkillLoader(tmp_path)
+    body = loader.load_skill_context("demo-skill", domain="login")
+    assert "Body" in body
+    assert "Kinh nghiệm thực chiến" not in body
+    loader.record_usage_note("demo-skill", "login", "prefer role locator")
+    reloaded = loader.load_skill_context("demo-skill", domain="login")
+    assert "prefer role locator" in reloaded

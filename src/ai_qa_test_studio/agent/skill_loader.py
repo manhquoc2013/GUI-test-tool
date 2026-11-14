@@ -76,12 +76,16 @@ class ProgressiveSkillLoader:
             return f"Skill '{skill_name}' không tồn tại."
         content = meta.skill_path.read_text(encoding="utf-8")
         if domain and meta.usage_path.exists():
-            usage_data = json.loads(meta.usage_path.read_text(encoding="utf-8"))
-            domain_notes = usage_data.get("domains", {}).get(domain, [])
-            if domain_notes:
-                content += "\n\n### Kinh nghiệm thực chiến trên domain này:\n" + "\n".join(
-                    f"- {n}" for n in domain_notes
-                )
+            try:
+                usage_data = json.loads(meta.usage_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                usage_data = {}
+            if isinstance(usage_data, dict):
+                domain_notes = usage_data.get("domains", {}).get(domain, [])
+                if isinstance(domain_notes, list) and domain_notes:
+                    content += "\n\n### Kinh nghiệm thực chiến trên domain này:\n" + "\n".join(
+                        f"- {n}" for n in domain_notes
+                    )
         if len(content) > SKILL_CONTEXT_MAX_CHARS:
             return content[: SKILL_CONTEXT_MAX_CHARS - 1] + "…"
         return content
@@ -100,7 +104,10 @@ class ProgressiveSkillLoader:
             return
         data: dict[str, object] = {"domains": {}}
         if meta.usage_path.exists():
-            loaded = json.loads(meta.usage_path.read_text(encoding="utf-8"))
+            try:
+                loaded = json.loads(meta.usage_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                loaded = {}
             if isinstance(loaded, dict):
                 data = loaded
         domains_obj = data.setdefault("domains", {})
