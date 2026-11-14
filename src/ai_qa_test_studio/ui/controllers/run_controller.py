@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai_qa_test_studio.browser.visual_inspector import element_from_point
 from ai_qa_test_studio.constants import (
+    BATCH_CANCELLED_MESSAGE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
     FALLBACK_BLANK_URL,
@@ -14,15 +17,30 @@ from ai_qa_test_studio.constants import (
     SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
 )
+from ai_qa_test_studio.core.models import (
+    CaseRunResult,
+    CaseStatus,
+    RunReport,
+    StepAuditEntry,
+    TestCase,
+)
 from ai_qa_test_studio.reporting.html_reporter import HtmlReporter
 
 if TYPE_CHECKING:
     from ai_qa_test_studio.ui.main_window import MainWindow
 
+_CANCELLED: CaseStatus = "CANCELLED"
+
 
 class RunController:
     def __init__(self, window: MainWindow) -> None:
         self._w = window
+
+    def _set_run_mutation_lock(self, locked: bool) -> None:
+        w = self._w
+        w.explorer.set_mutation_enabled(not locked)
+        if hasattr(w.top_bar, "set_batch_actions_enabled"):
+            w.top_bar.set_batch_actions_enabled(not locked)
 
     async def launch_browser(self) -> None:
         w = self._w
@@ -95,6 +113,7 @@ class RunController:
         w.top_bar.set_copilot_checked(True)
         w._sync_drawer_geometry()
         w._busy = True
+        self._set_run_mutation_lock(True)
         w._set_busy_chrome(True)
         w._status_caption.setText("Đang chạy…")
         w._run_logs.clear()
@@ -109,17 +128,21 @@ class RunController:
                 skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
                 midscene_enabled=w.env.settings.mcp.external.midscene,
                 bundled_mcp=w._bundled_mcp,
+                reset_cancel=True,
+                emit_report=True,
             )
             w._last_report = report
             w.builder.load_case(case)
             w._merge_case(case)
             w.storage.save(w.project)
-            w.explorer.load_project(w.project)
+            state = w.explorer.snapshot_tree_state()
+            w.explorer.load_project(w.project, restore_state=state)
             await self.refresh_viewport()
             out = w.data_root / "exports" / f"{report.run_id}.html"
             HtmlReporter().write(report, out)
             w._append_log(f"Báo cáo HTML: {out}")
-            w._set_pill(w._pill_mcp, f"MCP: Playwright ({report.cases[0].status})")
+            status = report.cases[0].status if report.cases else "?"
+            w._set_pill(w._pill_mcp, f"MCP: Playwright ({status})")
             used = w._token_budget.count(w._run_logs.to_plain_text())
             w._set_pill(
                 w._pill_tokens,
@@ -130,8 +153,100 @@ class RunController:
             w._toast_error("Run", str(exc))
         finally:
             w._busy = False
+            self._set_run_mutation_lock(False)
             w._set_busy_chrome(False)
             w._status_caption.setText("Sẵn sàng")
+
+    async def run_cases(self, cases: list[TestCase]) -> None:
+        w = self._w
+        if w._busy or w.project is None:
+            return
+        if not cases:
+            return
+        w.right_drawer.show_browser()
+        w.top_bar.set_copilot_checked(True)
+        w._sync_drawer_geometry()
+        w._busy = True
+        self._set_run_mutation_lock(True)
+        w._set_busy_chrome(True)
+        w._status_caption.setText(f"Đang chạy batch ({len(cases)})…")
+        w._run_logs.clear()
+        w.session.cancel_requested = False
+        started = datetime.now(UTC).isoformat()
+        run_id = str(uuid.uuid4())
+        collected: list[CaseRunResult] = []
+        healing: list[StepAuditEntry] = []
+        skill = w.skill_combo.currentText()
+        try:
+            for index, case in enumerate(cases):
+                if w.session.cancel_requested:
+                    for pending in cases[index:]:
+                        collected.append(self._cancelled_stub(pending))
+                        pending.last_status = _CANCELLED
+                    break
+                w._status_caption.setText(f"Đang chạy {case.code} ({index + 1}/{len(cases)})…")
+                sub_report = await w.session.run_case(
+                    w.project,
+                    case,
+                    log=w._append_log,
+                    on_step=w._run_logs.append_step,
+                    skill_name=skill,
+                    skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
+                    midscene_enabled=w.env.settings.mcp.external.midscene,
+                    bundled_mcp=w._bundled_mcp,
+                    reset_cancel=False,
+                    emit_report=False,
+                )
+                collected.extend(sub_report.cases)
+                healing.extend(sub_report.healing_audit)
+                w._merge_case(case)
+                w.explorer.refresh_case_status_labels()
+                if w.session.cancel_requested:
+                    for pending in cases[index + 1 :]:
+                        collected.append(self._cancelled_stub(pending))
+                        pending.last_status = _CANCELLED
+                    break
+            finished = datetime.now(UTC).isoformat()
+            report = RunReport(
+                run_id=run_id,
+                project_name=w.project.name,
+                started_at=started,
+                finished_at=finished,
+                cases=collected,
+                healing_audit=healing,
+            )
+            w._last_report = report
+            w.storage.save(w.project)
+            state = w.explorer.snapshot_tree_state()
+            w.explorer.load_project(w.project, restore_state=state)
+            await self.refresh_viewport()
+            out = w.data_root / "exports" / f"batch_{run_id}.html"
+            HtmlReporter().write(report, out)
+            w._append_log(f"Báo cáo batch HTML: {out} ({len(collected)} kết quả)")
+            used = w._token_budget.count(w._run_logs.to_plain_text())
+            w._set_pill(
+                w._pill_tokens,
+                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
+            )
+        except Exception as exc:  # noqa: BLE001
+            w._append_log(f"Batch thất bại: {exc}")
+            w._toast_error("Run batch", str(exc))
+        finally:
+            w._busy = False
+            self._set_run_mutation_lock(False)
+            w._set_busy_chrome(False)
+            w._status_caption.setText("Sẵn sàng")
+
+    @staticmethod
+    def _cancelled_stub(case: TestCase) -> CaseRunResult:
+        return CaseRunResult(
+            case_id=case.id,
+            case_code=case.code,
+            title=case.title,
+            status=_CANCELLED,
+            steps=[],
+            skip_reason=BATCH_CANCELLED_MESSAGE,
+        )
 
     async def stop_browser(self) -> None:
         w = self._w
@@ -143,6 +258,7 @@ class RunController:
             w._append_log(f"Stop thất bại: {exc}")
         finally:
             w._busy = False
+            self._set_run_mutation_lock(False)
             w._set_busy_chrome(False)
             w._status_caption.setText("Sẵn sàng")
 

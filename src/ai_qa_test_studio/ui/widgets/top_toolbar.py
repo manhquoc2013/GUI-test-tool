@@ -48,6 +48,8 @@ class UnifiedTopBar(QWidget):
     sync_url_clicked = Signal(str)
     run_clicked = Signal()
     stop_clicked = Signal()
+    batch_run_clicked = Signal()
+    batch_delete_clicked = Signal()
     copilot_toggled = Signal(bool)
     export_requested = Signal(str)
     settings_requested = Signal()
@@ -62,6 +64,9 @@ class UnifiedTopBar(QWidget):
         self._copilot_on = False
         self._unbound_count = 0
         self._density = "wide"
+        self._batch_actions_enabled = True
+        self._batch_can_run = False
+        self._batch_can_delete = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
@@ -114,6 +119,20 @@ class UnifiedTopBar(QWidget):
         self.btn_run.setAccessibleName("Chạy hoặc Dừng")
         self.btn_run.clicked.connect(self._on_run_primary)
         layout.addWidget(self.btn_run)
+
+        self.btn_batch_run = PushButton(FIF.PLAY, "Chạy nhóm", self)
+        self.btn_batch_run.setToolTip("Chạy tất cả case trong scenario / suite / nhóm đang chọn")
+        self.btn_batch_run.setAccessibleName("Chạy suite hoặc nhóm")
+        self.btn_batch_run.clicked.connect(lambda: self.batch_run_clicked.emit())
+        self.btn_batch_run.setVisible(False)
+        layout.addWidget(self.btn_batch_run)
+
+        self.btn_batch_delete = PushButton(FIF.DELETE, "Xóa", self)
+        self.btn_batch_delete.setToolTip("Xóa scenario / suite / nhóm đang chọn")
+        self.btn_batch_delete.setAccessibleName("Xóa node Explorer")
+        self.btn_batch_delete.clicked.connect(lambda: self.batch_delete_clicked.emit())
+        self.btn_batch_delete.setVisible(False)
+        layout.addWidget(self.btn_batch_delete)
 
         self.btn_copilot = PushButton(FIF.CHAT, UI_LABEL_COPILOT, self)
         self.btn_copilot.setCheckable(True)
@@ -229,6 +248,27 @@ class UnifiedTopBar(QWidget):
     def set_running(self, running: bool) -> None:
         self._running = running
         self.btn_run.setText(UI_LABEL_STOP if running else UI_LABEL_RUN)
+
+    def set_batch_actions_enabled(self, enabled: bool) -> None:
+        self._batch_actions_enabled = enabled
+        self._refresh_batch_buttons()
+
+    def set_batch_selection(
+        self,
+        *,
+        visible: bool,
+        can_run: bool,
+        can_delete: bool,
+    ) -> None:
+        self._batch_can_run = can_run
+        self._batch_can_delete = can_delete
+        self.btn_batch_run.setVisible(visible)
+        self.btn_batch_delete.setVisible(visible and can_delete)
+        self._refresh_batch_buttons()
+
+    def _refresh_batch_buttons(self) -> None:
+        self.btn_batch_run.setEnabled(self._batch_actions_enabled and self._batch_can_run)
+        self.btn_batch_delete.setEnabled(self._batch_actions_enabled and self._batch_can_delete)
 
     def set_copilot_checked(self, checked: bool) -> None:
         self.btn_copilot.blockSignals(True)

@@ -256,7 +256,7 @@ class TestDataDrawer(QWidget):
         if not scenario:
             scenario = f"Bộ dữ liệu {index + 1}"
 
-        expected = DEFAULT_EXPECTED_OUTCOME
+        expected = str(DEFAULT_EXPECTED_OUTCOME)
         for key in _EXPECTED_KEYS:
             value = row.get(key)
             if value is not None and str(value).strip():

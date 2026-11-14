@@ -97,7 +97,7 @@ class SessionController:
             await self.engine.stop()
             self._started = False
             emit("Đã dừng trình duyệt")
-        self.cancel_requested = False
+        # Leave cancel_requested sticky until the next run resets it (batch Stop-safe).
 
     async def capture_png(self) -> tuple[bytes, int, int]:
         page = self.engine.page
@@ -140,12 +140,17 @@ class SessionController:
         skills_dir: Path | None = None,
         midscene_enabled: bool = False,
         bundled_mcp: BundledMcpRegistry | None = None,
+        *,
+        reset_cancel: bool = True,
+        emit_report: bool = True,
     ) -> RunReport:
         emit = log or (lambda _m: None)
-        self.cancel_requested = False
+        if reset_cancel:
+            self.cancel_requested = False
         loop = asyncio.get_running_loop()
         done: asyncio.Future[None] = loop.create_future()
         self._active_run = done
+        _ = emit_report  # callers suppress side-effects; return value always full
         try:
             await self.ensure_started(headless=False, log=emit)
             if skill_name and skills_dir is not None:

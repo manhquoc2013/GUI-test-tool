@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 from jinja2 import Template
@@ -15,17 +16,26 @@ _TEMPLATE = Template(
 <style>
 body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}
 .card{border:1px solid #333;padding:12px;margin:8px 0;border-radius:8px}
-.pass{color:#3ddc97}.fail{color:#ff6b6b}.healed{color:#ffd166}
+.pass{color:#3ddc97}.fail{color:#ff6b6b}.healed{color:#ffd166}.cancelled{color:#aaa}
 .shot{position:relative;display:inline-block;max-width:100%}
 .marker{position:absolute;width:12px;height:12px;border:2px solid #ff6b6b;border-radius:50%}
+.summary{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0}
+.summary span{padding:6px 10px;border:1px solid #333;border-radius:6px}
 </style></head><body>
 <h1>AI QA Test Studio Report</h1>
 <p>Project: {{ report.project_name }} · Run: {{ report.run_id }}</p>
 <p>{{ report.started_at }} → {{ report.finished_at }}</p>
+<div class="summary">
+{% for status, count in summary_counts.items() %}
+<span class="{{ status|lower }}">{{ status }}: {{ count }}</span>
+{% endfor %}
+<span>Total: {{ report.cases|length }}</span>
+</div>
 {% for case in report.cases %}
-<section class="card">
+<section class="card" id="case-{{ case.case_id }}">
 <h2>{{ case.case_code }} — {{ case.title }}
 <span class="{{ case.status|lower }}">{{ case.status }}</span></h2>
+{% if case.skip_reason %}<p>{{ case.skip_reason }}</p>{% endif %}
 {% for step in case.steps %}
 <div class="card">
 <strong>#{{ step.step_no }} {{ step.action }}</strong>
@@ -57,6 +67,7 @@ body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}
 class HtmlReporter:
     def write(self, report: RunReport, output: Path) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
-        html = _TEMPLATE.render(report=report)
+        counts = Counter(case.status for case in report.cases)
+        html = _TEMPLATE.render(report=report, summary_counts=dict(counts))
         output.write_text(html, encoding="utf-8")
         return output

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -52,7 +53,21 @@ from ai_qa_test_studio.core.chat_history import ChatHistoryStore
 from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.index_sync import ProjectIndexSync
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
-from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario, TestStep
+from ai_qa_test_studio.core.models import (
+    Project,
+    RunReport,
+    TestCase,
+    TestGroup,
+    TestScenario,
+    TestStep,
+    TestSuite,
+)
+from ai_qa_test_studio.core.project_tree_ops import (
+    collect_cases,
+    delete_node,
+    node_display_name,
+    rename_node,
+)
 from ai_qa_test_studio.core.storage import ProjectStorage
 from ai_qa_test_studio.core.token_budget import TokenBudget
 from ai_qa_test_studio.ui.controllers import (
@@ -137,6 +152,8 @@ class MainWindow(QMainWindow):
         self.top_bar.sync_url_clicked.connect(lambda _url: self._sync_url())
         self.top_bar.run_clicked.connect(self._run_current)
         self.top_bar.stop_clicked.connect(self._stop_browser)
+        self.top_bar.batch_run_clicked.connect(self._run_selected_node)
+        self.top_bar.batch_delete_clicked.connect(self._delete_selected_node)
         self.top_bar.copilot_toggled.connect(self._on_copilot_toggle)
         self.top_bar.export_requested.connect(self._export)
         self.top_bar.settings_requested.connect(self._open_system_settings)
@@ -163,6 +180,10 @@ class MainWindow(QMainWindow):
         self.explorer.set_index_sync(self._index_sync)
         self.explorer.installEventFilter(self)
         self.explorer.case_selected.connect(self._on_case_selected)
+        self.explorer.node_selected.connect(self._on_explorer_node_selected)
+        self.explorer.rename_requested.connect(self._rename_tree_node)
+        self.explorer.delete_requested.connect(self._delete_tree_node)
+        self.explorer.run_requested.connect(self._run_tree_node)
         self.builder = EditorPane(self.h_splitter)
         self.builder.case_changed.connect(self._on_case_fields_changed)
         self.builder.sync_requested.connect(self._sync_url)
@@ -295,18 +316,129 @@ class MainWindow(QMainWindow):
             return importer.import_project(name="Imported Legacy Project")
         return self.storage.new_empty("New Project")
 
-    def _reload_ui(self) -> None:
+    def _reload_ui(self, *, restore_state: dict[str, Any] | None = None) -> None:
         if self.project is None:
             return
-        self.explorer.load_project(self.project)
+        self.explorer.load_project(self.project, restore_state=restore_state)
         self._refresh_project_index()
         case = self._first_case(self.project)
         if case:
             self._load_case(case)
+        else:
+            self.builder.clear_case()
+            self.data_drawer.load_rows([])
         self._status_caption.setText(
             f"{self.project.name} · {len(self.project.shared_elements)} shared elements"
         )
         self._refresh_status_pills()
+        self._sync_batch_toolbar()
+
+    def _persist_tree_mutation(self) -> None:
+        if self.project is None:
+            return
+        state = self.explorer.snapshot_tree_state()
+        self.storage.save(self.project)
+        self.explorer.load_project(self.project, restore_state=state)
+        self._refresh_project_index()
+        self._sync_batch_toolbar()
+
+    def _sync_batch_toolbar(self) -> None:
+        payload = self.explorer.current_payload()
+        is_batch = isinstance(payload, (TestScenario, TestSuite, TestGroup))
+        can_run = is_batch and self.explorer.selection_case_count() > 0
+        can_delete = is_batch and not self.explorer.is_root_group_selected()
+        self.top_bar.set_batch_selection(
+            visible=is_batch,
+            can_run=can_run,
+            can_delete=can_delete,
+        )
+
+    def _on_explorer_node_selected(self, _node: object) -> None:
+        self._sync_batch_toolbar()
+
+    def _rename_tree_node(self, node: object) -> None:
+        if self.project is None or self._busy:
+            return
+        if not isinstance(node, (TestCase, TestScenario, TestSuite, TestGroup)):
+            return
+        current = node_display_name(node)
+        text, ok = QInputDialog.getText(self, "Sửa tên", "Tên mới:", text=current)
+        if not ok:
+            return
+        name = text.strip()
+        if not name or name == current:
+            if not name:
+                self._toast_warn("Sửa tên", "Tên không được để trống.")
+            return
+        if not rename_node(self.project, node.id, name):
+            self._toast_warn("Sửa tên", "Không đổi được tên node.")
+            return
+        self._persist_tree_mutation()
+        active = self.builder.peek_case()
+        if isinstance(node, TestCase) and active is not None and active.id == node.id:
+            self._load_case(node)
+        self._append_log(f"Đã đổi tên → {name}")
+
+    def _delete_tree_node(self, node: object) -> None:
+        if self.project is None or self._busy:
+            return
+        if not isinstance(node, (TestCase, TestScenario, TestSuite, TestGroup)):
+            return
+        if isinstance(node, TestGroup) and node.id == self.project.root_group.id:
+            self._toast_warn("Xóa", "Không thể xóa nhóm gốc dự án.")
+            return
+        label = node_display_name(node)
+        reply = QMessageBox.question(
+            self,
+            "Xóa",
+            f"Xóa «{label}» và toàn bộ phần tử con?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        active = self.builder.peek_case()
+        active_id = active.id if active else ""
+        result = delete_node(self.project, node.id, protect_root=True)
+        if not result.deleted:
+            self._toast_warn("Xóa", "Không xóa được node.")
+            return
+        if active_id and active_id in result.removed_case_ids:
+            self.builder.clear_case()
+            self.data_drawer.load_rows([])
+        self._persist_tree_mutation()
+        if self.builder.peek_case() is None:
+            nxt = self._first_case(self.project)
+            if nxt:
+                self._load_case(nxt)
+        self._append_log(f"Đã xóa «{label}»")
+
+    def _delete_selected_node(self) -> None:
+        payload = self.explorer.current_payload()
+        if payload is not None:
+            self._delete_tree_node(payload)
+
+    @asyncSlot()
+    async def _run_selected_node(self) -> None:
+        payload = self.explorer.current_payload()
+        if payload is not None:
+            await self._run_tree_node(payload)
+
+    @asyncSlot(object)
+    async def _run_tree_node(self, node: object) -> None:
+        if self.project is None or self._busy:
+            return
+        if not isinstance(node, (TestCase, TestScenario, TestSuite, TestGroup)):
+            return
+        cases = collect_cases(node)
+        if not cases:
+            self._toast_warn("Chạy", "Node không có test case nào.")
+            return
+        if isinstance(node, TestCase):
+            self._load_case(node)
+            await self._run.run_current()
+            return
+        await self._run.run_cases(cases)
 
     def _first_case(self, project: Project) -> TestCase | None:
         for group in [project.root_group, *project.root_group.children]:
@@ -570,6 +702,10 @@ class MainWindow(QMainWindow):
 
     @asyncSlot()
     async def _stop_browser(self) -> None:
+        if self._busy:
+            self.session.request_cancel()
+            self._append_log("Đã yêu cầu dừng batch / dual-loop…")
+            return
         await self._run.stop_browser()
 
     @asyncSlot()

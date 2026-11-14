@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
+    ComboBox,
     LineEdit,
     MessageBoxBase,
     PushButton,
@@ -19,9 +20,11 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     DEFAULT_EXPECTED_OUTCOME,
+    EXPECTED_OUTCOME_VALUES,
     TEST_DATA_NEW_ROW_LABEL,
     UI_TEST_DATA_DIALOG_MIN_WIDTH,
     UI_TEST_DATA_PARAM_ROW_SPACING,
+    ExpectedOutcome,
 )
 
 
@@ -39,6 +42,8 @@ class TestDataRowDialog(MessageBoxBase):
         super().__init__(parent)
         self._editing = editing
         self._deleted = False
+        self._outcome_touched = False
+        self._legacy_outcome: str | None = None
         title = "Sửa bộ dữ liệu" if editing else "Thêm bộ dữ liệu"
         self.setWindowTitle(title)
         self.widget.setMinimumWidth(UI_TEST_DATA_DIALOG_MIN_WIDTH)
@@ -76,11 +81,26 @@ class TestDataRowDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.btn_add_param, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.viewLayout.addWidget(StrongBodyLabel("Expected Outcome", self.widget))
-        self.expected_edit = LineEdit(self.widget)
-        self.expected_edit.setPlaceholderText(DEFAULT_EXPECTED_OUTCOME)
-        self.expected_edit.setText(expected or DEFAULT_EXPECTED_OUTCOME)
-        self.expected_edit.setClearButtonEnabled(True)
-        self.viewLayout.addWidget(self.expected_edit)
+        self.expected_combo = ComboBox(self.widget)
+        for value in EXPECTED_OUTCOME_VALUES:
+            self.expected_combo.addItem(value)
+        raw = (expected or "").strip() or str(DEFAULT_EXPECTED_OUTCOME)
+        if raw in EXPECTED_OUTCOME_VALUES:
+            self.expected_combo.setCurrentText(raw)
+        else:
+            self._legacy_outcome = raw
+            self.expected_combo.addItem(raw)
+            self.expected_combo.setCurrentText(raw)
+            self.viewLayout.addWidget(
+                BodyLabel(
+                    f"Giá trị cũ «{raw}» — chọn giá trị hệ thống để chuẩn hóa khi lưu.",
+                    self.widget,
+                )
+            )
+        self.expected_combo.currentTextChanged.connect(self._on_outcome_changed)
+        self.viewLayout.addWidget(self.expected_combo)
+        # Back-compat alias for tests that still touch expected_edit
+        self.expected_edit = self.expected_combo
 
         self.yesButton.setText("Lưu")
         self.cancelButton.setText("Hủy")
@@ -88,6 +108,10 @@ class TestDataRowDialog(MessageBoxBase):
             self.btn_delete = PushButton(FIF.DELETE, "Xóa bộ này", self.widget)
             self.btn_delete.clicked.connect(self._on_delete)
             self.viewLayout.addWidget(self.btn_delete, alignment=Qt.AlignmentFlag.AlignLeft)
+
+    def _on_outcome_changed(self, text: str) -> None:
+        if text in EXPECTED_OUTCOME_VALUES:
+            self._outcome_touched = True
 
     def _add_param_row(self, key: str, value: str) -> None:
         row = QWidget(self._params_host)
@@ -143,9 +167,28 @@ class TestDataRowDialog(MessageBoxBase):
             if not key:
                 continue
             params[key] = value_edit.text().strip()
-        expected = self.expected_edit.text().strip() or DEFAULT_EXPECTED_OUTCOME
+        selected = self.expected_combo.currentText().strip()
+        if self._outcome_touched and selected in EXPECTED_OUTCOME_VALUES:
+            expected = selected
+        elif self._legacy_outcome is not None and not self._outcome_touched:
+            expected = self._legacy_outcome
+        elif selected in EXPECTED_OUTCOME_VALUES:
+            expected = selected
+        else:
+            expected = str(DEFAULT_EXPECTED_OUTCOME)
         return {
             "scenario": scenario,
             "parameters": params,
             "ExpectedOutcome": expected,
         }
+
+
+def normalize_expected_outcome(raw: str | None) -> str:
+    """Map known enum values; leave unknown strings unchanged (no silent overwrite)."""
+    text = (raw or "").strip()
+    if not text:
+        return str(DEFAULT_EXPECTED_OUTCOME)
+    try:
+        return ExpectedOutcome(text).value
+    except ValueError:
+        return text

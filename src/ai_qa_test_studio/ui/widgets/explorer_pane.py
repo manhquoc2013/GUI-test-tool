@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence
+from PySide6.QtWidgets import QMenu, QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import SearchLineEdit, SegmentedWidget, TreeWidget
 
@@ -24,7 +26,15 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.async_bridge import run_sync
 from ai_qa_test_studio.core.index_sync import ProjectIndexSync
-from ai_qa_test_studio.core.models import Project, SharedElement, TestCase
+from ai_qa_test_studio.core.models import (
+    Project,
+    SharedElement,
+    TestCase,
+    TestGroup,
+    TestScenario,
+    TestSuite,
+)
+from ai_qa_test_studio.core.project_tree_ops import collect_cases
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
@@ -33,11 +43,18 @@ _SEARCH_PLACEHOLDER_WIDE = "Tìm test case, element…"
 _SEARCH_PLACEHOLDER_NARROW = "Tìm…"
 # Search blob for filter-without-rebuild (avoids TreeWidget.clear AX churn on macOS)
 _SEARCH_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+_NODE_ID_ROLE = int(Qt.ItemDataRole.UserRole) + 2
+
+TreePayload = TestCase | TestScenario | TestSuite | TestGroup
 
 
 class ExplorerPane(QWidget):
     case_selected = Signal(object)
     element_selected = Signal(object)
+    node_selected = Signal(object)
+    rename_requested = Signal(object)
+    delete_requested = Signal(object)
+    run_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -51,6 +68,8 @@ class ExplorerPane(QWidget):
         self._index_sync: ProjectIndexSync | None = None
         self._element_count = 0
         self._density = "wide"
+        self._mutation_enabled = True
+        self._selected_payload: TreePayload | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -88,6 +107,20 @@ class ExplorerPane(QWidget):
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
         self.suite_tree.itemSelectionChanged.connect(self._on_case_selection)
         self.element_tree.itemSelectionChanged.connect(self._on_element_selection)
+        self.suite_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.suite_tree.customContextMenuRequested.connect(self._on_suite_context_menu)
+
+        self._act_rename = QAction("Sửa tên", self)
+        self._act_rename.setShortcut(QKeySequence(Qt.Key.Key_F2))
+        self._act_rename.triggered.connect(self._emit_rename)
+        self._act_delete = QAction("Xóa", self)
+        self._act_delete.setShortcut(QKeySequence(Qt.Key.Key_Delete))
+        self._act_delete.triggered.connect(self._emit_delete)
+        self._act_run = QAction("Chạy", self)
+        self._act_run.triggered.connect(self._emit_run)
+        self.addAction(self._act_rename)
+        self.addAction(self._act_delete)
+
         self._apply_theme_style()
         self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
 
@@ -127,7 +160,6 @@ class ExplorerPane(QWidget):
             density = "wide"
             search_ph = _SEARCH_PLACEHOLDER_WIDE
         else:
-            # Icon-only — 3 labeled SegmentedItems overflow ~230–280px sidebars.
             labels = ("", "", "")
             tips = ("Cases", count_tip, "Reports")
             density = "compact"
@@ -153,7 +185,30 @@ class ExplorerPane(QWidget):
     def set_index_sync(self, index_sync: ProjectIndexSync | None) -> None:
         self._index_sync = index_sync
 
-    def load_project(self, project: Project) -> None:
+    def set_mutation_enabled(self, enabled: bool) -> None:
+        self._mutation_enabled = enabled
+        self._act_rename.setEnabled(enabled)
+        self._act_delete.setEnabled(enabled and self._can_delete_selection())
+        self._act_run.setEnabled(True)
+
+    def current_payload(self) -> TreePayload | None:
+        return self._selected_payload
+
+    def selection_case_count(self) -> int:
+        payload = self._selected_payload
+        if payload is None:
+            return 0
+        return len(collect_cases(payload))
+
+    def is_root_group_selected(self) -> bool:
+        if self._project is None or self._selected_payload is None:
+            return False
+        return (
+            isinstance(self._selected_payload, TestGroup)
+            and self._selected_payload.id == self._project.root_group.id
+        )
+
+    def load_project(self, project: Project, *, restore_state: dict[str, Any] | None = None) -> None:
         self._project = project
         self.set_element_count(len(project.shared_elements))
         self._rebuild()
@@ -161,6 +216,64 @@ class ExplorerPane(QWidget):
         tip = QTreeWidgetItem(["Chưa có báo cáo — chạy test rồi Export HTML"])
         tip.setFlags(Qt.ItemFlag.NoItemFlags)
         self.reports_tree.addTopLevelItem(tip)
+        if restore_state:
+            self.restore_tree_state(restore_state)
+
+    def snapshot_tree_state(self) -> dict[str, Any]:
+        expanded: list[str] = []
+        root = self.suite_tree.invisibleRootItem()
+        self._collect_expanded(root, expanded)
+        selected_id = ""
+        items = self.suite_tree.selectedItems()
+        if items:
+            sid = items[0].data(0, _NODE_ID_ROLE)
+            if sid:
+                selected_id = str(sid)
+        return {"expanded_ids": expanded, "selected_id": selected_id}
+
+    def restore_tree_state(self, state: dict[str, Any]) -> None:
+        expanded = {str(x) for x in state.get("expanded_ids") or []}
+        selected_id = str(state.get("selected_id") or "")
+        root = self.suite_tree.invisibleRootItem()
+        self._restore_expanded(root, expanded)
+        if selected_id:
+            target = self._find_by_node_id(root, selected_id)
+            if target is not None:
+                self.suite_tree.setCurrentItem(target)
+                self.suite_tree.scrollToItem(target)
+
+    def _collect_expanded(self, item: QTreeWidgetItem, out: list[str]) -> None:
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child is None:
+                continue
+            nid = child.data(0, _NODE_ID_ROLE)
+            if child.isExpanded() and nid:
+                out.append(str(nid))
+            self._collect_expanded(child, out)
+
+    def _restore_expanded(self, item: QTreeWidgetItem, expanded: set[str]) -> None:
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child is None:
+                continue
+            nid = child.data(0, _NODE_ID_ROLE)
+            if nid and str(nid) in expanded:
+                child.setExpanded(True)
+            self._restore_expanded(child, expanded)
+
+    def _find_by_node_id(self, parent: QTreeWidgetItem, node_id: str) -> QTreeWidgetItem | None:
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child is None:
+                continue
+            nid = child.data(0, _NODE_ID_ROLE)
+            if nid and str(nid) == node_id:
+                return child
+            nested = self._find_by_node_id(child, node_id)
+            if nested is not None:
+                return nested
+        return None
 
     def _on_filter(self, text: str) -> None:
         self._filter = text.strip().lower()
@@ -171,7 +284,6 @@ class ExplorerPane(QWidget):
                 self._fts_ids = {hit.entity_id for hit in hits}
             except (OSError, RuntimeError, ValueError):
                 self._fts_ids = None
-        # Hide/show only — never clear() on each keystroke (macOS AX invalid-object spam)
         self._apply_filter(self.suite_tree)
         self._apply_filter(self.element_tree)
 
@@ -242,17 +354,22 @@ class ExplorerPane(QWidget):
         role = el.role or "Element"
         return f"[{el.element_id}] {role}: {el.friendly_name}"
 
-    def _add_group(self, parent: QTreeWidgetItem, group) -> None:  # type: ignore[no-untyped-def]
+    def _bind_payload(self, item: QTreeWidgetItem, payload: TreePayload, search: str) -> None:
+        item.setData(0, Qt.ItemDataRole.UserRole, payload)
+        item.setData(0, _NODE_ID_ROLE, payload.id)
+        item.setData(0, _SEARCH_ROLE, search)
+
+    def _add_group(self, parent: QTreeWidgetItem, group: TestGroup) -> None:
         node = QTreeWidgetItem([group.name])
         node.setIcon(0, FIF.FOLDER.icon())
-        node.setData(0, _SEARCH_ROLE, group.name)
+        self._bind_payload(node, group, group.name)
         node.setToolTip(0, group.name)
         parent.addChild(node)
         for scenario in group.scenarios:
             label = f"{scenario.code}: {scenario.title}"
             sc = QTreeWidgetItem([label])
             sc.setIcon(0, FIF.DOCUMENT.icon())
-            sc.setData(0, _SEARCH_ROLE, f"{scenario.code} {scenario.title}")
+            self._bind_payload(sc, scenario, f"{scenario.code} {scenario.title}")
             sc.setToolTip(0, label)
             for case in scenario.cases:
                 sc.addChild(self._case_item(case))
@@ -262,7 +379,7 @@ class ExplorerPane(QWidget):
             label = f"Suite: {suite.name}"
             su = QTreeWidgetItem([label])
             su.setIcon(0, FIF.FOLDER.icon())
-            su.setData(0, _SEARCH_ROLE, suite.name)
+            self._bind_payload(su, suite, suite.name)
             su.setToolTip(0, label)
             for case in suite.cases:
                 su.addChild(self._case_item(case))
@@ -277,8 +394,7 @@ class ExplorerPane(QWidget):
         label = f"{STATUS_DOT} {case.code}: {case.title}"
         item = QTreeWidgetItem([label])
         item.setIcon(0, FIF.DOCUMENT.icon())
-        item.setData(0, Qt.ItemDataRole.UserRole, case)
-        item.setData(0, _SEARCH_ROLE, f"{case.code} {case.title}")
+        self._bind_payload(item, case, f"{case.code} {case.title}")
         item.setToolTip(0, f"{case.code}: {case.title}\n{rollup}")
         color = {
             "FAILED": ICON_COLOR_DANGER,
@@ -323,10 +439,22 @@ class ExplorerPane(QWidget):
     def _on_case_selection(self) -> None:
         items = self.suite_tree.selectedItems()
         if not items:
+            self._selected_payload = None
             return
         data = items[0].data(0, Qt.ItemDataRole.UserRole)
-        if isinstance(data, TestCase):
-            self.case_selected.emit(data)
+        if isinstance(data, (TestCase, TestScenario, TestSuite, TestGroup)):
+            self._selected_payload = data
+            self.node_selected.emit(data)
+            self._act_delete.setEnabled(self._mutation_enabled and self._can_delete_selection())
+            if isinstance(data, TestCase):
+                self.case_selected.emit(data)
+
+    def _can_delete_selection(self) -> bool:
+        if self._selected_payload is None:
+            return False
+        if self.is_root_group_selected():
+            return False
+        return True
 
     def _on_element_selection(self) -> None:
         items = self.element_tree.selectedItems()
@@ -335,3 +463,51 @@ class ExplorerPane(QWidget):
         data = items[0].data(0, Qt.ItemDataRole.UserRole)
         if isinstance(data, SharedElement):
             self.element_selected.emit(data)
+
+    def _on_suite_context_menu(self, pos: Any) -> None:
+        item = self.suite_tree.itemAt(pos)
+        if item is None:
+            return
+        self.suite_tree.setCurrentItem(item)
+        payload = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, (TestCase, TestScenario, TestSuite, TestGroup)):
+            return
+        self._selected_payload = payload
+        menu = QMenu(self)
+        if self._mutation_enabled:
+            menu.addAction(self._act_rename)
+            if self._can_delete_selection():
+                menu.addAction(self._act_delete)
+        cases = collect_cases(payload)
+        run_act = menu.addAction(f"Chạy ({len(cases)})")
+        run_act.setEnabled(len(cases) > 0)
+        chosen = menu.exec(self.suite_tree.viewport().mapToGlobal(pos))
+        if chosen is run_act and len(cases) > 0:
+            self.run_requested.emit(payload)
+
+    def _emit_rename(self) -> None:
+        if not self._mutation_enabled or self._selected_payload is None:
+            return
+        self.rename_requested.emit(self._selected_payload)
+
+    def _emit_delete(self) -> None:
+        if not self._mutation_enabled or not self._can_delete_selection():
+            return
+        if self._selected_payload is None:
+            return
+        self.delete_requested.emit(self._selected_payload)
+
+    def _emit_run(self) -> None:
+        if self._selected_payload is None:
+            return
+        if not collect_cases(self._selected_payload):
+            return
+        self.run_requested.emit(self._selected_payload)
+
+    def refresh_case_status_labels(self) -> None:
+        """Rebuild labels after last_status changes without full project reload."""
+        if self._project is None:
+            return
+        state = self.snapshot_tree_state()
+        self._rebuild()
+        self.restore_tree_state(state)

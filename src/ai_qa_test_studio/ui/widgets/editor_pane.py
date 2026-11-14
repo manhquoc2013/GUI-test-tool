@@ -366,6 +366,20 @@ class EditorPane(QWidget):
         finally:
             self._loading = False
 
+    def clear_case(self) -> None:
+        """Drop active case without prompting to save (e.g. after cascade delete)."""
+        self._loading = True
+        try:
+            self._case = None
+            self.title_label.setText("")
+            self.set_breadcrumb("", "")
+            self.table.setRowCount(0)
+            self.precond_edit.setPlainText("")
+            self.expected_edit.setPlainText("")
+            self.unbound_banner.hide()
+        finally:
+            self._loading = False
+
     def peek_case(self) -> TestCase | None:
         return self._case
 

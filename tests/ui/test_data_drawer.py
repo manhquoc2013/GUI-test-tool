@@ -62,12 +62,32 @@ def test_row_dialog_builds_result(qapp: QApplication) -> None:
     dialog.scenario_edit.setText("Case A")
     dialog._param_rows[0][1].setText("001060012345")
     dialog._param_rows[1][1].setText("Nguyen Van A")
-    dialog.expected_edit.setText("SUCCESS")
+    dialog.expected_combo.setCurrentText("SUCCESS")
     row = dialog.result_row()
     assert row["scenario"] == "Case A"
     assert row["parameters"]["cccd"] == "001060012345"
     assert row["parameters"]["hoTen"] == "Nguyen Van A"
-    assert row["ExpectedOutcome"] == DEFAULT_EXPECTED_OUTCOME
+    assert row["ExpectedOutcome"] == str(DEFAULT_EXPECTED_OUTCOME)
+    dialog.close()
+
+
+def test_row_dialog_preserves_legacy_outcome(qapp: QApplication) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    host = QWidget()
+    dialog = TestDataRowDialog(
+        host,
+        scenario="Legacy",
+        parameters={},
+        expected="200 OK",
+        editing=True,
+        index=0,
+    )
+    row = dialog.result_row()
+    assert row["ExpectedOutcome"] == "200 OK"
+    dialog.expected_combo.setCurrentText("VALIDATION_ERROR")
+    touched = dialog.result_row()
+    assert touched["ExpectedOutcome"] == "VALIDATION_ERROR"
     dialog.close()
 
 

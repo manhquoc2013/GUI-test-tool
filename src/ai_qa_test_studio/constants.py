@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 DEFAULT_PROJECT_DIRNAME = "project"
 DEFAULT_V4_PROJECT_FILENAME = "project.v4.json"
 GROUP_JSON = "group.json"
@@ -208,7 +210,17 @@ UI_FLUENT_ICON_LEFT_PAD = 12
 UI_LABEL_INSPECT = "Inspect"
 UI_LABEL_INSPECT_ON = "Inspect ON"
 UI_LABEL_BROWSER = "Browser"
-DEFAULT_EXPECTED_OUTCOME = "SUCCESS"
+class ExpectedOutcome(StrEnum):
+    SUCCESS = "SUCCESS"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    ERROR = "ERROR"
+    EXCEPTION = "EXCEPTION"
+    REDIRECT = "REDIRECT"
+
+
+DEFAULT_EXPECTED_OUTCOME = ExpectedOutcome.SUCCESS
+EXPECTED_OUTCOME_VALUES: tuple[str, ...] = tuple(member.value for member in ExpectedOutcome)
+BATCH_CANCELLED_MESSAGE = "Cancelled by user"
 TEST_DATA_NEW_ROW_LABEL = "Bộ dữ liệu mới"
 UI_TEST_DATA_DIALOG_MIN_WIDTH = 480
 UI_TEST_DATA_PARAM_ROW_SPACING = 6
