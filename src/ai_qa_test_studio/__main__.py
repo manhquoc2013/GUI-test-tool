@@ -36,15 +36,20 @@ def main() -> int:
     ensure_qt_api()
     install_platform_noise_filters()
 
+    from ai_qa_test_studio.core.env_manager import EnvManager
     from ai_qa_test_studio.ui.main_window import MainWindow
     from ai_qa_test_studio.ui.theme import apply_studio_theme
 
+    data_root = Path("data")
+    env = EnvManager(data_root / "config")
+    env.load_settings()
+
     app = QApplication(sys.argv)
-    apply_studio_theme(app)
+    apply_studio_theme(app, preference=env.settings.theme)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    window = MainWindow(data_root=Path("data"))
+    window = MainWindow(data_root=data_root)
     window.show()
 
     with loop:

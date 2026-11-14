@@ -18,7 +18,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qasync import asyncSlot
-from qfluentwidgets import CaptionLabel, IndeterminateProgressBar, InfoBadge, InfoBar, InfoBarPosition
+from qfluentwidgets import (
+    CaptionLabel,
+    IndeterminateProgressBar,
+    InfoBadge,
+    InfoBar,
+    InfoBarPosition,
+    Theme,
+    isDarkTheme,
+)
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
 from ai_qa_test_studio.agent.orchestrator import ClarifyRequest, ClarifyResponse
@@ -27,6 +35,8 @@ from ai_qa_test_studio.browser.dom_distiller import DomDistiller
 from ai_qa_test_studio.constants import (
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
+    THEME_PREF_DARK,
+    THEME_PREF_LIGHT,
     TOKEN_CONTEXT_BUDGET,
     UI_BREAKPOINT_WIDE,
     UI_DRAWER_WIDTH,
@@ -52,6 +62,7 @@ from ai_qa_test_studio.ui.controllers import (
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
+from ai_qa_test_studio.ui.theme import apply_studio_theme, studio_shell_qss, toggle_resolved_theme
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
@@ -126,6 +137,7 @@ class MainWindow(QMainWindow):
         self.top_bar.copilot_toggled.connect(self._on_copilot_toggle)
         self.top_bar.export_requested.connect(self._export)
         self.top_bar.settings_requested.connect(self._open_system_settings)
+        self.top_bar.theme_toggle_requested.connect(self._toggle_theme)
         root_layout.addWidget(self.top_bar)
 
         self.busy_bar = IndeterminateProgressBar(central)
@@ -391,9 +403,33 @@ class MainWindow(QMainWindow):
             if result is not None:
                 self.env._settings = result
                 self.env.save_settings()
+                self._apply_theme_preference(result.theme)
                 self._refresh_model_catalog()
                 self._refresh_status_pills()
                 self._toast_info("Settings", "Đã lưu cấu hình hệ thống.")
+
+    def _toggle_theme(self) -> None:
+        next_theme = toggle_resolved_theme()
+        preference = THEME_PREF_LIGHT if next_theme == Theme.LIGHT else THEME_PREF_DARK
+        self.env.settings.theme = preference
+        self.env.save_settings()
+        self._refresh_app_stylesheet()
+        tip = "Light" if not isDarkTheme() else "Dark"
+        self._toast_info("Theme", f"Đã chuyển sang giao diện {tip}.")
+
+    def _apply_theme_preference(self, preference: str) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        qapp = QApplication.instance()
+        if isinstance(qapp, QApplication):
+            apply_studio_theme(qapp, preference=preference)
+
+    def _refresh_app_stylesheet(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        qapp = QApplication.instance()
+        if isinstance(qapp, QApplication):
+            qapp.setStyleSheet(studio_shell_qss())
 
     @asyncSlot(str, dict)
     async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:

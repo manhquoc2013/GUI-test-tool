@@ -19,8 +19,6 @@ from qfluentwidgets import FluentIcon as FIF
 
 from ai_qa_test_studio.constants import (
     DEFAULT_TARGET_URL,
-    THEME_BG_CANVAS,
-    THEME_BORDER_SUBTLE,
     UI_BREAKPOINT_MEDIUM,
     UI_BREAKPOINT_WIDE,
     UI_BTN_COPILOT_MIN_WIDTH,
@@ -37,6 +35,8 @@ from ai_qa_test_studio.constants import (
     UI_URL_INPUT_MIN_WIDTH_NARROW,
     UI_WIDGET_SIZE_MAX,
 )
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 _URL_PLACEHOLDER = "Target URL…"
 
@@ -51,14 +51,13 @@ class UnifiedTopBar(QWidget):
     copilot_toggled = Signal(bool)
     export_requested = Signal(str)
     settings_requested = Signal()
+    theme_toggle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("TopBar")
         self.setAccessibleName("Thanh hành động trên cùng")
         self.setFixedHeight(UI_TOP_BAR_HEIGHT)
-        self.setStyleSheet(
-            f"background-color: {THEME_BG_CANVAS}; border-bottom: 1px solid {THEME_BORDER_SUBTLE};"
-        )
         self._running = False
         self._copilot_on = False
         self._unbound_count = 0
@@ -124,6 +123,12 @@ class UnifiedTopBar(QWidget):
         self.btn_copilot.toggled.connect(self._on_copilot_toggled)
         layout.addWidget(self.btn_copilot)
 
+        self.btn_theme = TransparentToolButton(FIF.CONSTRACT, self)
+        self.btn_theme.setToolTip("Chuyển đổi giao diện Sáng / Tối (Dark / Light)")
+        self.btn_theme.setAccessibleName("Chuyển Dark Light Theme")
+        self.btn_theme.clicked.connect(lambda: self.theme_toggle_requested.emit())
+        layout.addWidget(self.btn_theme)
+
         self.btn_more = ToolButton(FIF.MORE, self)
         self.btn_more.setAccessibleName("Menu thêm")
         more_menu = RoundMenu(parent=self.btn_more)
@@ -170,6 +175,18 @@ class UnifiedTopBar(QWidget):
         self.btn_stop = self.btn_run
         self.btn_export = self.btn_more
         self.btn_new_case = self.btn_more
+
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        t = get_theme_tokens()
+        self.setStyleSheet(
+            f"#TopBar {{"
+            f"background-color: {t.bg_topbar};"
+            f"border-bottom: 1px solid {t.border_hairline};"
+            f"}}"
+        )
 
     def apply_density(self, width: int) -> None:
         if width >= UI_BREAKPOINT_WIDE:

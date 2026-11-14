@@ -322,8 +322,9 @@ class SystemSettingsDialog(MessageBoxBase):
         root, layout = self._page_root()
         card, body = self._card(root, "Giao diện & môi trường")
         self.theme_combo = ComboBox(card)
-        self.theme_combo.addItems(["dark", "light"])
-        self.theme_combo.setCurrentText(self._draft.theme)
+        self.theme_combo.addItems(["auto", "dark", "light"])
+        theme_value = self._draft.theme if self._draft.theme in {"auto", "dark", "light"} else "auto"
+        self.theme_combo.setCurrentText(theme_value)
         self.env_edit = LineEdit(card)
         self.env_edit.setText(self._draft.active_environment)
         self.env_edit.setPlaceholderText("DEV / STAGING / PROD")
