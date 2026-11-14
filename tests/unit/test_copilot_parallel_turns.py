@@ -34,7 +34,15 @@ class _FakePane:
         self.roles.append(role)
         self.session.messages.append(CopilotMessage(role=role, content=""))
 
-    def end_role(self, role: str, text: str, *, summary: str = "") -> None:
+    def end_role(
+        self,
+        role: str,
+        text: str,
+        *,
+        summary: str = "",
+        structured_payload: dict | None = None,
+    ) -> None:
+        del structured_payload
         self.ended.append((role, text))
         if self.session.messages and self.session.messages[-1].role == role:
             self.session.messages[-1].content = text
@@ -66,6 +74,9 @@ class _FakePane:
     def mark_stopped(self, role: str | None = None) -> None:
         del role
         self._busy = False
+
+    def on_turn_finished(self) -> None:
+        return
 
 
 class _FakeWindow:

@@ -129,6 +129,7 @@ async def dispatch_specialist(
             out,
             revise=revising,
             intent_hint=board.intent,
+            hybrid_intent=board.hybrid_intent,
         ):
             yield ev
         if not out:

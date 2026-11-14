@@ -5,10 +5,11 @@ from __future__ import annotations
 import copy
 import uuid
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QRect, Qt, QThread, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCompleter,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QListWidgetItem,
@@ -54,6 +55,10 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_BTN_MIN_WIDTH,
     UI_SETTINGS_CONTENT_HEIGHT,
     UI_SETTINGS_FIELD_SPACING,
+    UI_SETTINGS_FOOTER_MIN_HEIGHT,
+    UI_SETTINGS_HEADER_MARGIN_BOTTOM,
+    UI_SETTINGS_HEADER_MARGIN_H,
+    UI_SETTINGS_HEADER_MARGIN_TOP,
     UI_SETTINGS_LIST_HEIGHT,
     UI_SETTINGS_MIN_HEIGHT,
     UI_SETTINGS_MIN_WIDTH,
@@ -63,7 +68,10 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_MODEL_UNSET_LABEL,
     UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
+    UI_SETTINGS_SPIN_BUTTONS_RESERVE,
     UI_SETTINGS_SPIN_HEIGHT,
+    UI_SETTINGS_SPIN_LINE_LEFT,
+    UI_SETTINGS_SPIN_LINE_MIN_WIDTH,
     UI_SETTINGS_SPIN_MIN_WIDTH,
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
@@ -78,8 +86,43 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
-from ai_qa_test_studio.ui.motion import animate_dialog_show
-from ai_qa_test_studio.ui.theme import get_theme_tokens, text_primary_css
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
+from ai_qa_test_studio.ui.theme import get_theme_tokens
+
+
+class SettingsSpinBox(SpinBox):
+    """Fluent SpinBox with editable lineEdit geometry + wheel ignored when unfocused.
+
+    qfluentwidgets keeps the inner QLineEdit at ~1px (style paints the value). That
+    blocks mouse/keyboard hit-testing; we sync geometry without overriding QSS.
+    """
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 — Qt override
+        super().showEvent(event)
+        self._sync_line_edit_geometry()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 — Qt override
+        super().resizeEvent(event)
+        self._sync_line_edit_geometry()
+
+    def _sync_line_edit_geometry(self) -> None:
+        line = self.lineEdit()
+        if line is None or self.width() <= 0 or self.height() <= 0:
+            return
+        left = UI_SETTINGS_SPIN_LINE_LEFT
+        reserve = UI_SETTINGS_SPIN_BUTTONS_RESERVE
+        width = max(self.width() - left - reserve, UI_SETTINGS_SPIN_LINE_MIN_WIDTH + 1)
+        height = max(self.height() - 2, UI_SETTINGS_SPIN_HEIGHT - 2)
+        y = max(0, (self.height() - height) // 2)
+        line.setGeometry(QRect(left, y, width, height))
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 — Qt override
+        if not self.hasFocus():
+            event.ignore()
+            return
+        # Qt maps trackpad pixelDelta when present; do not rewrite as angleDelta/120.
+        super().wheelEvent(event)
+
 
 _TAB_DEFS: tuple[tuple[str, str], ...] = (
     ("general", "Chung"),
@@ -124,19 +167,34 @@ class SystemSettingsDialog(MessageBoxBase):
         self._model_worker: _ModelListWorker | None = None
         self._remote_model_ids: list[str] = []
 
+        # Size on both dialog + center widget so MaskDialogBase does not clip the header.
+        self.setMinimumWidth(UI_SETTINGS_MIN_WIDTH)
+        self.setMinimumHeight(UI_SETTINGS_MIN_HEIGHT)
         self.widget.setMinimumWidth(UI_SETTINGS_MIN_WIDTH)
         self.widget.setMinimumHeight(UI_SETTINGS_MIN_HEIGHT)
-        self.viewLayout.setContentsMargins(28, 20, 28, 12)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.viewLayout.setContentsMargins(
+            UI_SETTINGS_HEADER_MARGIN_H,
+            UI_SETTINGS_HEADER_MARGIN_TOP,
+            UI_SETTINGS_HEADER_MARGIN_H,
+            UI_SETTINGS_HEADER_MARGIN_BOTTOM,
+        )
         self.viewLayout.setSpacing(10)
 
         title = SubtitleLabel("Cấu hình hệ thống", self.widget)
         title.setAccessibleName("Tiêu đề cấu hình hệ thống")
+        title.setWordWrap(True)
         self.viewLayout.addWidget(title)
         hint = CaptionLabel(
             "API, model, routing, Copilot và MCP — lưu vào settings.json",
             self.widget,
         )
+        hint.setWordWrap(True)
+        hint.setMinimumWidth(0)
+        hint.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         hint.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
+        self._header_hint = hint
         self.viewLayout.addWidget(hint)
 
         # Pivot kept for API compatibility; nav UI is Master-Detail TreeWidget.
@@ -162,6 +220,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self.nav_tree.setHeaderHidden(True)
         self.nav_tree.setFixedWidth(UI_SETTINGS_NAV_WIDTH)
         self.nav_tree.setAccessibleName("Danh mục cấu hình")
+        apply_pixel_scroll(self.nav_tree)
         for index, (key, title_text) in enumerate(_TAB_DEFS):
             page = self._wrap_scroll(builders[key]())
             self.pages[key] = page
@@ -186,7 +245,8 @@ class SystemSettingsDialog(MessageBoxBase):
         self.yesButton.setText("Lưu")
         self.cancelButton.setText("Hủy")
         self._layout_footer_buttons()
-        animate_dialog_show(self)
+        # Do NOT call animate_dialog_show here: MaskDialogBase already fades via
+        # QGraphicsOpacityEffect. Stacking windowOpacity + effect blocks input on macOS.
 
     def _ensure_ai_defaults(self) -> None:
         if not self._draft.ai.connections:
@@ -211,11 +271,16 @@ class SystemSettingsDialog(MessageBoxBase):
             self._draft.ai.routing.task_complexity_models = default_task_complexity_matrix()
 
     def _layout_footer_buttons(self) -> None:
+        """Footer (Lưu/Hủy) stays fixed outside content ScrollArea — never clipped."""
         while self.buttonLayout.count():
             item = self.buttonLayout.takeAt(0)
             if item is None:
                 break
-        self.buttonLayout.setContentsMargins(28, 16, 28, 20)
+        self.buttonGroup.setMinimumHeight(UI_SETTINGS_FOOTER_MIN_HEIGHT)
+        self.buttonGroup.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.buttonLayout.setContentsMargins(28, 12, 28, 16)
         self.buttonLayout.setSpacing(10)
         self.buttonLayout.addStretch(1)
         for btn in (self.yesButton, self.cancelButton):
@@ -224,29 +289,64 @@ class SystemSettingsDialog(MessageBoxBase):
             self.buttonLayout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def _wrap_scroll(self, inner: QWidget) -> QScrollArea:
-        # Native QScrollArea — SmoothScrollArea animation fights nested ListWidget wheels.
-        # Opaque fill is required: translucent CardWidget/SpinBox + transparent viewport
-        # makes Qt scroll-blit leave overlapping paint ghosts.
+        # Native QScrollArea only — never attach SmoothScrollDelegate here (its
+        # viewport eventFilter can interfere with child LineEdit/SpinBox clicks).
+        # Opaque fill is required: translucent CardWidget/SpinBox + transparent
+        # viewport makes Qt scroll-blit leave overlapping paint ghosts.
         bg = get_theme_tokens().bg_canvas
         scroll = QScrollArea(self.widget)
         scroll.setObjectName("SystemSettingsScroll")
         scroll.setWidgetResizable(True)
+        scroll.setEnabled(True)
+        scroll.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         viewport = scroll.viewport()
         viewport.setObjectName("SystemSettingsScrollViewport")
         viewport.setAutoFillBackground(True)
+        viewport.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         scroll.setStyleSheet(
             "#SystemSettingsScroll, #SystemSettingsScrollViewport {"
             f"background-color: {bg}; border: none;"
             "}"
         )
+        inner.setEnabled(True)
+        inner.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         scroll.setWidget(inner)
         bar = scroll.verticalScrollBar()
         bar.setSingleStep(24)
         bar.setPageStep(120)
         return scroll
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 — Qt override
+        # Bypass MaskDialogBase.showEvent: its QGraphicsOpacityEffect on `self`
+        # blocks mouse/keyboard on macOS until finished (often sticks if interrupted).
+        QDialog.showEvent(self, event)
+        self.setGraphicsEffect(None)
+        self.setWindowOpacity(1.0)
+        self._ensure_interactive()
+        self.raise_()
+        self.activateWindow()
+
+    def _ensure_interactive(self) -> None:
+        """Clear dialog-level opacity effects / mouse-transparent flags (keep widget shadow)."""
+        self.setWindowOpacity(1.0)
+        self.setGraphicsEffect(None)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setEnabled(True)
+        self.widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.widget.setEnabled(True)
+        for scroll in self.findChildren(QScrollArea):
+            scroll.setWidgetResizable(True)
+            scroll.setEnabled(True)
+            scroll.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+            viewport = scroll.viewport()
+            viewport.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+            child = scroll.widget()
+            if child is not None:
+                child.setEnabled(True)
+                child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
 
     def _on_nav_changed(
         self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
@@ -292,10 +392,17 @@ class SystemSettingsDialog(MessageBoxBase):
         """Keep rows glued to the top — do not let the list viewport expand and float items."""
         widget.setFixedHeight(UI_SETTINGS_LIST_HEIGHT)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        widget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        apply_pixel_scroll(widget)
         widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         widget.setSpacing(2)
+
+    def _prep_line_edit(self, edit: LineEdit | PasswordLineEdit) -> None:
+        edit.setEnabled(True)
+        edit.setReadOnly(False)
+        edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        edit.setMinimumHeight(UI_SETTINGS_SPIN_HEIGHT)
+        edit.setGraphicsEffect(None)
 
     def _add_field(self, layout: QVBoxLayout, parent: QWidget, label: str, widget: QWidget) -> None:
         block = QVBoxLayout()
@@ -303,27 +410,30 @@ class SystemSettingsDialog(MessageBoxBase):
         block.setContentsMargins(0, 0, 0, 0)
         block.addWidget(CaptionLabel(label, parent))
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        if isinstance(widget, (LineEdit, PasswordLineEdit)):
+            self._prep_line_edit(widget)
         block.addWidget(widget)
         layout.addLayout(block)
 
-    def _style_spin(self, spin: SpinBox) -> None:
-        """Full-width opaque SpinBox; StrongFocus so wheel scrolls the page."""
-        tokens = get_theme_tokens()
+    def _style_spin(self, spin: SettingsSpinBox) -> None:
+        """Keep qfluentwidgets.SpinBox defaults — no padding/border/bg QSS (shifts lineEdit)."""
         spin.setProperty("transparent", False)
         spin.setMinimumWidth(UI_SETTINGS_SPIN_MIN_WIDTH)
+        # Fluent SpinBoxBase uses setFixedHeight(33); raise to our touch target.
         spin.setFixedHeight(UI_SETTINGS_SPIN_HEIGHT)
         spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        spin.setAutoFillBackground(True)
-        spin.setStyleSheet(
-            "SpinBox {"
-            f"color: {text_primary_css()};"
-            f"background-color: {tokens.bg_canvas};"
-            "padding-left: 12px;"
-            "padding-right: 72px;"
-            "}"
-        )
+        spin.setEnabled(True)
+        spin.setGraphicsEffect(None)
+        # Do not setStyleSheet on SpinBox / inner QLineEdit — Fluent QSS owns chrome.
+        line = spin.lineEdit()
+        if line is not None:
+            line.setEnabled(True)
+            line.setReadOnly(False)
+            line.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            line.setGraphicsEffect(None)
+        spin._sync_line_edit_geometry()
 
     def _add_spin_field(
         self,
@@ -331,7 +441,7 @@ class SystemSettingsDialog(MessageBoxBase):
         parent: QWidget,
         label: str,
         hint: str,
-        spin: SpinBox,
+        spin: SettingsSpinBox,
     ) -> None:
         self._style_spin(spin)
         block = QVBoxLayout()
@@ -552,13 +662,14 @@ class SystemSettingsDialog(MessageBoxBase):
         body.addWidget(intro)
 
         c = self._draft.copilot
-        self.spin_summary = SpinBox(card)
+        # Always setRange before setValue so the lineEdit text paints on open.
+        self.spin_summary = SettingsSpinBox(card)
         self.spin_summary.setRange(40, 400)
         self.spin_summary.setValue(c.summary_max_chars)
         self.spin_summary.setSuffix(" ký tự")
         self.spin_summary.setToolTip("Độ dài tối đa khi rút gọn tin nhắn cũ trong ngữ cảnh chat.")
 
-        self.spin_debate = SpinBox(card)
+        self.spin_debate = SettingsSpinBox(card)
         self.spin_debate.setRange(0, 8)
         self.spin_debate.setValue(c.debate_max_rounds)
         self.spin_debate.setSuffix(" vòng")
@@ -566,13 +677,13 @@ class SystemSettingsDialog(MessageBoxBase):
             "Số lần Critic được gọi (gồm re-critique sau REVISE). 0 = bỏ qua Critic."
         )
 
-        self.spin_loop = SpinBox(card)
+        self.spin_loop = SettingsSpinBox(card)
         self.spin_loop.setRange(1, 5)
         self.spin_loop.setValue(c.loop_repeat_limit)
         self.spin_loop.setSuffix(" lần")
         self.spin_loop.setToolTip("Dừng agent nếu cùng một bước lặp lại quá số lần này.")
 
-        self.spin_clarify = SpinBox(card)
+        self.spin_clarify = SettingsSpinBox(card)
         self.spin_clarify.setRange(5_000, 300_000)
         self.spin_clarify.setSingleStep(1000)
         self.spin_clarify.setValue(c.clarify_timeout_ms)
@@ -581,7 +692,7 @@ class SystemSettingsDialog(MessageBoxBase):
             "Thời gian chờ người dùng trả lời hộp thoại làm rõ; hết giờ dùng đáp án mặc định."
         )
 
-        self.spin_lean = SpinBox(card)
+        self.spin_lean = SettingsSpinBox(card)
         self.spin_lean.setRange(500, 16_000)
         self.spin_lean.setValue(c.lean_tail_max_tokens)
         self.spin_lean.setSuffix(" token")

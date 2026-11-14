@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
-from qfluentwidgets import SegmentedWidget
+from qfluentwidgets import PopUpAniStackedWidget, SegmentedWidget
 
-from ai_qa_test_studio.constants import UI_DOCK_MAX_WIDTH, UI_DOCK_MIN_WIDTH
+from ai_qa_test_studio.constants import UI_DOCK_MAX_WIDTH, UI_DOCK_MIN_WIDTH, UI_MOTION_NORMAL_MS
 from ai_qa_test_studio.ui.theme import panel_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
@@ -41,7 +41,7 @@ class RightDrawer(QWidget):
         self.pivot.setCurrentItem(TAB_COPILOT)
         layout.addWidget(self.pivot)
 
-        self.stack = QStackedWidget(self)
+        self.stack = PopUpAniStackedWidget(self)
         self.copilot = CopilotChatPane(self.stack)
         self.browser = BrowserAgentPane(self.stack)
         self.stack.addWidget(self.copilot)
@@ -60,7 +60,10 @@ class RightDrawer(QWidget):
         return self._open
 
     def _on_pivot_changed(self, key: str) -> None:
-        self.stack.setCurrentIndex(0 if key == TAB_COPILOT else 1)
+        self.stack.setCurrentIndex(
+            0 if key == TAB_COPILOT else 1,
+            duration=UI_MOTION_NORMAL_MS,
+        )
 
     def open_drawer(self, tab: str = TAB_COPILOT, *, compose: bool = False) -> None:
         was_open = self._open

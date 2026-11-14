@@ -58,6 +58,16 @@ async def test_external_mcp_session_call_tool() -> None:
 
 
 @pytest.mark.asyncio
+async def test_call_tool_passes_raw_password_args() -> None:
+    fake = _FakeSession()
+    session = ExternalMcpSession(name="playwright", session=fake, stack=None)
+    raw = {"text": "RealSecretPass", "password": "RealSecretPass"}
+    await session.call_tool("browser_type", raw)
+    assert fake.calls[0][1] == raw
+    assert fake.calls[0][1]["password"] == "RealSecretPass"
+
+
+@pytest.mark.asyncio
 async def test_connect_reuses_session_until_cdp_changes() -> None:
     manager = MagicMock()
     manager.build_stdio_params.return_value = StdioServerParameters(

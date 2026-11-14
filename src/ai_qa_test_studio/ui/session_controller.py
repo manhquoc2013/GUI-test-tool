@@ -17,6 +17,7 @@ from ai_qa_test_studio.browser.engine import BrowserEngine
 from ai_qa_test_studio.constants import (
     DEFAULT_TARGET_URL,
     FALLBACK_BLANK_URL,
+    MCP_ACTIONS_ENABLED,
     RUN_CANCEL_WAIT_TIMEOUT_S,
     UI_VIEWPORT_HEIGHT,
     UI_VIEWPORT_WIDTH,
@@ -191,6 +192,13 @@ class SessionController:
                 skill_context=skill_context,
                 skill_loader=skill_loader,
             )
+            if MCP_ACTIONS_ENABLED:
+                cdp_http = self.engine.cdp_http_for_mcp() if self._started else ""
+                if cdp_http:
+                    await self._external_mcp.ensure_playwright(cdp_http, log=emit)
+                agent.mcp_actions_enabled = True
+                agent.mcp_executor = self._external_mcp.client.smart_executor()
+                emit("DualLoop MCP-first: SmartMCPToolExecutor attached")
             emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
             report = await agent.run_case(
                 case,
@@ -216,6 +224,8 @@ class SessionController:
                     )
             return report
         finally:
+            # Always release the run latch so Stop / UI busy state cannot stick
+            # (normal end, cancel, or exception).
             if not done.done():
                 done.set_result(None)
             self._active_run = None

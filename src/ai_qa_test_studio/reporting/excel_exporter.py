@@ -6,6 +6,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from ai_qa_test_studio.core.compose_mapping import format_preconditions_cell
 from ai_qa_test_studio.core.models import Project, RunReport
 
 
@@ -64,6 +65,7 @@ class ExcelExporter:
                                 exec_status = cr.status
                                 for sr in cr.steps:
                                     actuals[sr.step_no] = sr.message
+                    preconditions = format_preconditions_cell(case.preconditions)
                     if not case.steps:
                         cases_sheet.append(
                             [
@@ -72,7 +74,7 @@ class ExcelExporter:
                                 case.title,
                                 case.priority,
                                 case.test_type,
-                                "; ".join(case.preconditions),
+                                preconditions,
                                 "",
                                 "",
                                 "",
@@ -90,7 +92,7 @@ class ExcelExporter:
                                 case.title,
                                 case.priority,
                                 case.test_type,
-                                "; ".join(case.preconditions),
+                                preconditions,
                                 step.step_no,
                                 step.action,
                                 step.input_data or "",
@@ -102,7 +104,7 @@ class ExcelExporter:
                         )
 
         defects = wb.create_sheet("Defects & AI Insights")
-        defects.append(["Case", "Step", "Message", "Healing"])
+        defects.append(["Case", "Step", "Message", "Healing", "Screenshot Path"])
         if report:
             for case_result in report.cases:
                 for step_result in case_result.steps:
@@ -113,6 +115,7 @@ class ExcelExporter:
                                 step_result.step_no,
                                 step_result.message,
                                 step_result.status,
+                                step_result.screenshot_path or "",
                             ]
                         )
             for audit in report.healing_audit:

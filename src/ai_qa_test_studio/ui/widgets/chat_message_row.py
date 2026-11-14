@@ -42,6 +42,7 @@ from ai_qa_test_studio.constants import (
     ROLE_SYSTEM,
     UI_MSG_ACTION_BTN_SIZE,
 )
+from ai_qa_test_studio.ui.chat_markdown import looks_like_markdown_table, markdown_to_bubble_html
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
@@ -132,6 +133,7 @@ class ChatMessageRow(QWidget):
         self.role = role
         self._text = text
         self._typing_active = False
+        self._status_card = False
         self._is_user = role == "user"
         self._is_system = role == ROLE_SYSTEM
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -191,14 +193,20 @@ class ChatMessageRow(QWidget):
         self.typing = TypingDots(self.bubble)
         self.typing_label = QLabel(CHAT_TYPING_LABEL, self.bubble)
         self.typing_label.setObjectName("ChatTypingLabel")
+        self.typing_label.setWordWrap(True)
+        self.typing_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         typing_row = QHBoxLayout()
         typing_row.setContentsMargins(0, 2, 0, 0)
         typing_row.setSpacing(8)
-        typing_row.addWidget(self.typing, 0, Qt.AlignmentFlag.AlignVCenter)
-        typing_row.addWidget(self.typing_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        typing_row.addStretch(1)
+        typing_row.addWidget(self.typing, 0, Qt.AlignmentFlag.AlignTop)
+        typing_row.addWidget(self.typing_label, 1, Qt.AlignmentFlag.AlignVCenter)
         self._typing_wrap = QWidget(self.bubble)
         self._typing_wrap.setObjectName("ChatTypingWrap")
+        self._typing_wrap.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         self._typing_wrap.setLayout(typing_row)
         bubble_col.addWidget(self._typing_wrap)
 
@@ -206,7 +214,7 @@ class ChatMessageRow(QWidget):
         self.body.setObjectName("ChatBubbleBody")
         self.body.setWordWrap(True)
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         bubble_col.addWidget(self.body)
 
         if self._is_user:
@@ -239,6 +247,23 @@ class ChatMessageRow(QWidget):
         self.bubble.setMaximumWidth(max_w)
         body_max = max(CHAT_BUBBLE_MIN_WIDTH // 2, max_w - (CHAT_BUBBLE_PADDING_H * 2))
         self.body.setMaximumWidth(body_max)
+        self.typing_label.setMaximumWidth(body_max)
+        self.body.updateGeometry()
+        self.typing_label.updateGeometry()
+        self.bubble.updateGeometry()
+        self.updateGeometry()
+
+    def _refresh_geometry(self) -> None:
+        """Relayout after status/body text changes without shrinking the row width."""
+        self.typing_label.adjustSize()
+        self.body.adjustSize()
+        self.typing_label.updateGeometry()
+        self.body.updateGeometry()
+        self.bubble.updateGeometry()
+        self.updateGeometry()
+
+    def _set_copy_visible(self, visible: bool) -> None:
+        self.btn_copy.setVisible(visible)
 
     def _apply_theme_style(self) -> None:
         t = get_theme_tokens()
@@ -313,10 +338,15 @@ class ChatMessageRow(QWidget):
         # Flag — not isVisible(); headless/offscreen parents report hidden children.
         return self._typing_active
 
+    def is_status_card(self) -> bool:
+        return self._status_card or self._typing_active
+
     def set_typing_status(self, label: str) -> None:
         """Update the in-bubble progress label while keeping the typing dots."""
         text = (label or "").strip() or CHAT_TYPING_LABEL
         self.typing_label.setText(text)
+        self._status_card = True
+        self._set_copy_visible(False)
         if not self._typing_active:
             self._text = ""
             self.body.clear()
@@ -324,6 +354,32 @@ class ChatMessageRow(QWidget):
             self._typing_wrap.show()
             self.typing.start()
             self._typing_active = True
+        self._refresh_geometry()
+
+    def finish_loading(self, text: str) -> None:
+        """Stop typing animation and settle as a static status card (no Copy)."""
+        settled = (text or "").strip() or CHAT_TYPING_LABEL
+        self._text = settled
+        self.typing.stop()
+        self._typing_wrap.hide()
+        self._typing_active = False
+        self._status_card = True
+        self._set_copy_visible(False)
+        self._paint_body(settled)
+        self.body.show()
+        self._refresh_geometry()
+
+    def _paint_body(self, text: str) -> None:
+        """Plain text by default; render Markdown tables as HTML for specialist bubbles."""
+        if (
+            not self._is_user
+            and looks_like_markdown_table(text)
+        ):
+            self.body.setTextFormat(Qt.TextFormat.RichText)
+            self.body.setText(markdown_to_bubble_html(text))
+            return
+        self.body.setTextFormat(Qt.TextFormat.PlainText)
+        self.body.setText(text)
 
     def set_body(self, text: str) -> None:
         if self._is_pending_body(text):
@@ -333,10 +389,16 @@ class ChatMessageRow(QWidget):
             self._typing_wrap.show()
             self.typing.start()
             self._typing_active = True
+            self._status_card = True
+            self._set_copy_visible(False)
+            self._refresh_geometry()
             return
         self._text = text
         self.typing.stop()
         self._typing_wrap.hide()
         self._typing_active = False
-        self.body.setText(text)
+        self._status_card = False
+        self._set_copy_visible(True)
+        self._paint_body(text)
         self.body.show()
+        self._refresh_geometry()

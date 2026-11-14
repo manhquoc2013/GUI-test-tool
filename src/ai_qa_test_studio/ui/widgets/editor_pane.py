@@ -8,9 +8,9 @@ from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
-    QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -20,12 +20,13 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     ComboBox,
+    IndeterminateProgressRing,
     LineEdit,
     PillPushButton,
     PlainTextEdit,
+    PopUpAniStackedWidget,
     PushButton,
     SegmentedWidget,
-    SmoothScrollArea,
     StrongBodyLabel,
     TableWidget,
     TextEdit,
@@ -45,15 +46,26 @@ from ai_qa_test_studio.constants import (
     UI_CANVAS_MARGIN_V_COMPACT,
     UI_DRAWER_COLLAPSED_HEIGHT,
     UI_EDITOR_MIN_WIDTH,
+    UI_MOTION_NORMAL_MS,
     UI_SPLIT_SIZES_V,
+    UI_STEP_SPINNER_SIZE,
     UI_STEPS_COL_ACTION_WIDTH,
     UI_STEPS_COL_BINDING_WIDTH,
+    UI_STEPS_COL_COUNT,
+    UI_STEPS_COL_EXPECTED_WIDTH,
     UI_STEPS_COL_INDEX_WIDTH,
     UI_STEPS_HEADER_MIN_SECTION,
     UI_TABLE_ROW_HEIGHT,
 )
+from ai_qa_test_studio.core.enums import StepStatus
 from ai_qa_test_studio.core.models import TestCase, TestStep
+from ai_qa_test_studio.core.step_actions import step_target_label
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
+from ai_qa_test_studio.ui.smooth_scroll import (
+    apply_pixel_scroll,
+    apply_scroll_area_smooth,
+    create_scroll_area,
+)
 from ai_qa_test_studio.ui.theme import card_stylesheet, get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.badges import ActionBadge, ElidedTitleLabel, UnboundAlertBanner
@@ -130,17 +142,20 @@ class EditorPane(QWidget):
         steps_layout = QVBoxLayout(self.steps_card)
         steps_layout.setContentsMargins(8, 8, 8, 8)
 
-        self.stack = QStackedWidget(self.steps_card)
+        self.stack = PopUpAniStackedWidget(self.steps_card)
         self.stack.addWidget(self._build_spec_view())
         self.table = self._build_nocode_table()
         self.stack.addWidget(self.table)
         self.yaml_edit = PlainTextEdit(self.steps_card)
         self.yaml_edit.setStyleSheet("font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 13px;")
+        apply_scroll_area_smooth(self.yaml_edit)
         self.stack.addWidget(self.yaml_edit)
         self.code_edit = PlainTextEdit(self.steps_card)
         self.code_edit.setStyleSheet("font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 13px;")
+        apply_scroll_area_smooth(self.code_edit)
         self.stack.addWidget(self.code_edit)
         self.stack.setCurrentIndex(1)
+        self._running_step_no: int | None = None
         steps_layout.addWidget(self.stack)
 
         self.data_drawer = TestDataDrawer(self.v_splitter)
@@ -209,8 +224,8 @@ class EditorPane(QWidget):
         self._render_all()
         self.case_changed.emit()
 
-    def _build_spec_view(self) -> SmoothScrollArea:
-        scroll = SmoothScrollArea(self)
+    def _build_spec_view(self) -> QScrollArea:
+        scroll = create_scroll_area(self)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("background: transparent; border: none;")
 
@@ -301,16 +316,26 @@ class EditorPane(QWidget):
 
     def _build_nocode_table(self) -> TableWidget:
         table = TableWidget(self)
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["#", "Action", "Intent (Mô tả hành động)", "Data / Input", "Binding"])
+        table.setColumnCount(UI_STEPS_COL_COUNT)
+        table.setHorizontalHeaderLabels(
+            [
+                "#",
+                "Action",
+                "Target / Intent (Mô tả hành động)",
+                "Data / Input",
+                "Expected Result (Kết quả mong đợi)",
+                "Binding",
+            ]
+        )
         table.setAccessibleName("Bảng bước No-Code")
         table.setWordWrap(False)
         table.setTextElideMode(Qt.TextElideMode.ElideRight)
         table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         table.verticalHeader().setVisible(False)
         table.verticalHeader().setDefaultSectionSize(UI_TABLE_ROW_HEIGHT)
-        table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        apply_pixel_scroll(table)
+        table.itemChanged.connect(self._on_step_item_changed)
         self._apply_steps_header(table)
         return table
 
@@ -322,10 +347,12 @@ class EditorPane(QWidget):
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         table.setColumnWidth(0, UI_STEPS_COL_INDEX_WIDTH)
         table.setColumnWidth(1, UI_STEPS_COL_ACTION_WIDTH)
-        table.setColumnWidth(4, UI_STEPS_COL_BINDING_WIDTH)
+        table.setColumnWidth(4, UI_STEPS_COL_EXPECTED_WIDTH)
+        table.setColumnWidth(5, UI_STEPS_COL_BINDING_WIDTH)
 
     def apply_density(self, width: int) -> None:
         if width >= UI_BREAKPOINT_WIDE:
@@ -415,8 +442,87 @@ class EditorPane(QWidget):
 
     def _on_mode_changed(self, key: str) -> None:
         self._capture_active()
-        self.stack.setCurrentIndex(_MODE_KEYS.index(key) if key in _MODE_KEYS else 0)
+        index = _MODE_KEYS.index(key) if key in _MODE_KEYS else 0
+        self.stack.setCurrentIndex(index, duration=UI_MOTION_NORMAL_MS)
         self._render_all()
+
+    def clear_step_run_status(self) -> None:
+        self._running_step_no = None
+        self._refresh_binding_cells()
+
+    def set_step_run_status(self, step_no: int, status: str) -> None:
+        """Pulse the binding cell for the live step (Running → Passed/Healed/Failed)."""
+        normalized = (status or "").strip()
+        running_tokens = {
+            StepStatus.RUNNING.value,
+            "Running",
+            "RUNNING",
+            "…",
+            "...",
+        }
+        terminal = {
+            StepStatus.PASSED.value,
+            StepStatus.HEALED.value,
+            StepStatus.FAILED.value,
+            StepStatus.BLOCKED.value,
+            StepStatus.SKIPPED.value,
+            "PASS",
+            "PASSED",
+            "HEALED",
+            "FAIL",
+            "FAILED",
+            "BOUND",
+        }
+        if normalized in running_tokens or normalized.upper() in {"RUNNING", "QUEUED"}:
+            self._running_step_no = step_no
+        elif normalized in terminal or normalized.upper() in terminal:
+            if self._running_step_no == step_no:
+                self._running_step_no = None
+        self._refresh_binding_cells()
+
+    def _refresh_binding_cells(self) -> None:
+        if self._case is None:
+            return
+        for row, step in enumerate(self._case.steps):
+            if row >= self.table.rowCount():
+                break
+            wrap = QWidget()
+            layout = QHBoxLayout(wrap)
+            layout.setContentsMargins(4, 0, 4, 0)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if self._running_step_no is not None and step.step_no == self._running_step_no:
+                ring = IndeterminateProgressRing(wrap, start=True)
+                ring.setFixedSize(UI_STEP_SPINNER_SIZE, UI_STEP_SPINNER_SIZE)
+                ring.setToolTip(StepStatus.RUNNING.value)
+                layout.addWidget(ring)
+            else:
+                bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
+                bind_btn.setFixedHeight(26)
+                if (step.binding_status or "").upper() == BINDING_UNBOUND:
+                    bind_btn.setStyleSheet(
+                        f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
+                    )
+                layout.addWidget(bind_btn)
+            self.table.setCellWidget(row, 5, wrap)
+
+    def _on_step_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._loading or self._case is None or item is None:
+            return
+        row = item.row()
+        col = item.column()
+        if row < 0 or row >= len(self._case.steps):
+            return
+        step = self._case.steps[row]
+        text = item.text().strip()
+        if col == 2:
+            step.intent_hint = text
+        elif col == 3:
+            step.input_data = text or None
+        elif col == 4:
+            step.expected_result = text
+        else:
+            return
+        self.case_changed.emit()
 
     def _render_all(self) -> None:
         if self._case is None:
@@ -436,41 +542,56 @@ class EditorPane(QWidget):
         self.precond_edit.setPlainText("\n".join(self._case.preconditions or []))
         self.expected_edit.setPlainText(self._case.expected_final_result or "")
 
-        self.table.setRowCount(0)
-        for step in self._case.steps:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setRowHeight(row, UI_TABLE_ROW_HEIGHT)
-            num = QTableWidgetItem(str(step.step_no))
-            num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 0, num)
+        was_loading = self._loading
+        self._loading = True
+        try:
+            self.table.setRowCount(0)
+            for step in self._case.steps:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setRowHeight(row, UI_TABLE_ROW_HEIGHT)
+                num = QTableWidgetItem(str(step.step_no))
+                num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                num.setFlags(num.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table.setItem(row, 0, num)
 
-            badge_wrap = QWidget()
-            bl = QHBoxLayout(badge_wrap)
-            bl.setContentsMargins(0, 0, 0, 0)
-            bl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            bl.addWidget(ActionBadge(step.action))
-            self.table.setCellWidget(row, 1, badge_wrap)
+                badge_wrap = QWidget()
+                bl = QHBoxLayout(badge_wrap)
+                bl.setContentsMargins(0, 0, 0, 0)
+                bl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                bl.addWidget(ActionBadge(step.action))
+                self.table.setCellWidget(row, 1, badge_wrap)
 
-            intent = QTableWidgetItem(step.intent_hint)
-            intent.setToolTip(step.intent_hint)
-            self.table.setItem(row, 2, intent)
-            data = QTableWidgetItem(step.input_data or "")
-            data.setToolTip(step.input_data or "")
-            self.table.setItem(row, 3, data)
+                target_text = step_target_label(step) or step.intent_hint
+                target_item = QTableWidgetItem(target_text)
+                tip_parts = [
+                    part
+                    for part in (step.element_ref or "", step.intent_hint)
+                    if part
+                ]
+                target_item.setToolTip("\n".join(tip_parts) if tip_parts else target_text)
+                self.table.setItem(row, 2, target_item)
+                data = QTableWidgetItem(step.input_data or "")
+                data.setToolTip(step.input_data or "")
+                self.table.setItem(row, 3, data)
+                expected = QTableWidgetItem(step.expected_result or "")
+                expected.setToolTip(step.expected_result or "")
+                self.table.setItem(row, 4, expected)
 
-            bind_wrap = QWidget()
-            bwl = QHBoxLayout(bind_wrap)
-            bwl.setContentsMargins(4, 0, 4, 0)
-            bwl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
-            bind_btn.setFixedHeight(26)
-            if (step.binding_status or "").upper() == BINDING_UNBOUND:
-                bind_btn.setStyleSheet(
-                    f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
-                )
-            bwl.addWidget(bind_btn)
-            self.table.setCellWidget(row, 4, bind_wrap)
+                bind_wrap = QWidget()
+                bwl = QHBoxLayout(bind_wrap)
+                bwl.setContentsMargins(4, 0, 4, 0)
+                bwl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
+                bind_btn.setFixedHeight(26)
+                if (step.binding_status or "").upper() == BINDING_UNBOUND:
+                    bind_btn.setStyleSheet(
+                        f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
+                    )
+                bwl.addWidget(bind_btn)
+                self.table.setCellWidget(row, 5, bind_wrap)
+        finally:
+            self._loading = was_loading
 
         self._apply_steps_header(self.table)
 
@@ -483,7 +604,7 @@ class EditorPane(QWidget):
         lines = [f"# {self._case.code}", "def test_case(page):"]
         for step in self._case.steps:
             lines.append(f"    # {step.step_no}: {step.action} {step.intent_hint}")
-            if step.action == "goto":
+            if step.action in {"goto", "navigate"}:
                 lines.append(f"    page.goto({(step.input_data or '/')!r})")
         self.code_edit.setPlainText("\n".join(lines))
 

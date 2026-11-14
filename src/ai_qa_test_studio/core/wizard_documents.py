@@ -22,10 +22,12 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_HEADER_COMPACT_ALIASES,
     WIZARD_DOC_HEADER_DESCRIPTION,
     WIZARD_DOC_HEADER_EXPECTED,
+    WIZARD_DOC_HEADER_INTENT,
     WIZARD_DOC_HEADER_PRECONDITIONS,
     WIZARD_DOC_HEADER_REQUIREMENT,
     WIZARD_DOC_HEADER_SCENARIO_ID,
     WIZARD_DOC_HEADER_STEP_NO,
+    WIZARD_DOC_HEADER_TARGET,
     WIZARD_DOC_HEADER_TEST_DATA,
     WIZARD_DOC_HEADER_TITLE,
     WIZARD_DOC_KIND_LABELS,
@@ -40,28 +42,20 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_SHEET_SCENARIOS,
     WIZARD_DOC_XLSX_SUFFIXES,
 )
+from ai_qa_test_studio.core.compose_mapping import (
+    coerce_preconditions,
+    enrich_step_input_data,
+    ensure_case_test_data_rows,
+    resolve_step_input_data,
+)
 from ai_qa_test_studio.core.models import StepAction, TestCase, TestScenario, TestStep
+from ai_qa_test_studio.core.step_actions import coerce_step_action
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
 logger = logging.getLogger(__name__)
 
 WizardDocKind = Literal["srs", "test_scenario", "test_case"]
 LlmTableParser = Callable[[str], list[TestScenario]]
-
-_STEP_ACTIONS: frozenset[str] = frozenset(
-    {
-        "goto",
-        "click",
-        "fill",
-        "select",
-        "press_enter",
-        "hover",
-        "assert_visible",
-        "assert_text",
-        "assert_url",
-        "verify_db",
-    }
-)
 _MD_SCENARIO_RE = re.compile(
     r"^#{1,3}\s*(?:scenario|test\s*scenario|ts)[:\s#-]*([^\n]+)",
     re.IGNORECASE | re.MULTILINE,
@@ -175,11 +169,8 @@ def _is_standard_scenario_table(headers: list[str]) -> bool:
     return WIZARD_DOC_HEADER_SCENARIO_ID in header_set and WIZARD_DOC_HEADER_CASE_ID not in header_set
 
 
-def _coerce_action(raw: object) -> StepAction:
-    text = str(raw or "click").strip().lower().replace(" ", "_")
-    if text in _STEP_ACTIONS:
-        return text  # type: ignore[return-value]
-    return "click"
+def _coerce_action(raw: object, *, intent_hint: str = "") -> StepAction:
+    return coerce_step_action(raw, intent_hint=intent_hint)
 
 
 def _new_scenario(
@@ -277,44 +268,53 @@ def _import_case_rows(rows: list[dict[str, str]]) -> list[TestScenario]:
         key = (scenario_code, case_code)
         case = cases_by_key.get(key)
         if case is None:
-            preconditions = [
-                part.strip()
-                for part in str(row.get(WIZARD_DOC_HEADER_PRECONDITIONS) or "").split(";")
-                if part.strip()
-            ]
             case = _new_case(
                 case_code,
                 title,
                 scenario_code=scenario_code,
-                preconditions=preconditions,
+                preconditions=coerce_preconditions(row.get(WIZARD_DOC_HEADER_PRECONDITIONS)),
                 requirement_ref=row.get(WIZARD_DOC_HEADER_REQUIREMENT) or "",
             )
+            case.description = row.get(WIZARD_DOC_HEADER_DESCRIPTION) or ""
             cases_by_key[key] = case
             by_scenario[scenario_code].cases.append(case)
         step_raw = row.get(WIZARD_DOC_HEADER_STEP_NO) or ""
         action_raw = row.get(WIZARD_DOC_HEADER_ACTION) or ""
         intent = (
-            row.get("intent")
+            row.get(WIZARD_DOC_HEADER_INTENT)
+            or row.get("intent")
             or row.get(WIZARD_DOC_HEADER_DESCRIPTION)
             or row.get(WIZARD_DOC_HEADER_TITLE)
             or ""
         )
-        if not step_raw and not action_raw and not intent:
+        target = row.get(WIZARD_DOC_HEADER_TARGET) or row.get("element") or ""
+        if not step_raw and not action_raw and not intent and not target:
             continue
         try:
             step_no = int(float(step_raw)) if step_raw else len(case.steps) + 1
         except ValueError:
             step_no = len(case.steps) + 1
-        case.steps.append(
-            TestStep(
-                step_no=step_no,
-                action=_coerce_action(action_raw or "click"),
-                intent_hint=str(intent),
-                input_data=row.get(WIZARD_DOC_HEADER_TEST_DATA) or None,
-                expected_result=row.get(WIZARD_DOC_HEADER_EXPECTED) or "",
-                binding_status="UNBOUND",
-            )
+        intent_text = str(intent or target or "")
+        raw_step = {
+            "action": action_raw,
+            "intent_hint": intent_text,
+            "target": target,
+            "input_data": row.get(WIZARD_DOC_HEADER_TEST_DATA) or "",
+            "data_input": row.get(WIZARD_DOC_HEADER_TEST_DATA) or "",
+            "expected_result": row.get(WIZARD_DOC_HEADER_EXPECTED) or "",
+        }
+        step = TestStep(
+            step_no=step_no,
+            action=_coerce_action(action_raw, intent_hint=intent_text),
+            element_ref=str(target).strip() or None,
+            intent_hint=intent_text,
+            input_data=resolve_step_input_data(raw_step, intent_hint=intent_text),
+            expected_result=str(raw_step["expected_result"]),
+            binding_status="UNBOUND",
         )
+        case.steps.append(enrich_step_input_data(step))
+    for case in cases_by_key.values():
+        ensure_case_test_data_rows(case)
     return _dedupe_scenarios(list(by_scenario.values()))
 
 

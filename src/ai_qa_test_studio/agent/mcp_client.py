@@ -12,11 +12,13 @@ from mcp.client.stdio import StdioServerParameters as McpStdioParams
 from mcp.client.stdio import stdio_client
 
 from ai_qa_test_studio.agent.mcp_manager import McpManager, StdioServerParameters
+from ai_qa_test_studio.agent.mcp_tool_executor import SmartMCPToolExecutor
+from ai_qa_test_studio.core.secret_masker import get_secret_masker
 
 logger = logging.getLogger(__name__)
 
 
-def serialize_tool_result(result: Any) -> dict[str, Any]:
+def serialize_tool_result(result: Any, *, mask_outbound: bool = True) -> dict[str, Any]:
     is_error = bool(getattr(result, "isError", False) or getattr(result, "is_error", False))
     chunks: list[str] = []
     content = getattr(result, "content", None) or []
@@ -27,6 +29,8 @@ def serialize_tool_result(result: Any) -> dict[str, Any]:
         else:
             chunks.append(str(item))
     body = "\n".join(chunks).strip()
+    if mask_outbound:
+        body = get_secret_masker().mask_text(body)
     return {"ok": not is_error, "content": body, "is_error": is_error}
 
 
@@ -43,8 +47,12 @@ class ExternalMcpSession:
         return [str(getattr(tool, "name", "")) for tool in tools if getattr(tool, "name", "")]
 
     async def call_tool(self, tool: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        result = await self.session.call_tool(tool, arguments or {})
-        return serialize_tool_result(result)
+        # Raw args go to Playwright; only log a masked copy (outbound).
+        raw_args = arguments or {}
+        masked_for_log = get_secret_masker().mask_mapping(raw_args)
+        logger.debug("mcp_call_tool server=%s tool=%s args=%s", self.name, tool, masked_for_log)
+        result = await self.session.call_tool(tool, raw_args)
+        return serialize_tool_result(result, mask_outbound=True)
 
     async def close(self) -> None:
         if self.stack is not None:
@@ -58,9 +66,23 @@ class McpClientFactory:
 
     manager: McpManager
     _sessions: dict[str, ExternalMcpSession] = field(default_factory=dict)
+    _executor: SmartMCPToolExecutor | None = field(default=None, init=False, repr=False)
 
     def get(self, name: str) -> ExternalMcpSession | None:
         return self._sessions.get(name)
+
+    def smart_executor(self) -> SmartMCPToolExecutor:
+        if self._executor is None:
+            self._executor = SmartMCPToolExecutor(self._raw_call)
+        return self._executor
+
+    async def _raw_call(
+        self, server: str, tool: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = self.get(server)
+        if session is None:
+            raise RuntimeError(f"MCP session not connected: {server}")
+        return await session.call_tool(tool, arguments)
 
     async def connect(self, name: str, cdp_endpoint: str | None = None) -> ExternalMcpSession:
         existing = self._sessions.get(name)
@@ -98,8 +120,13 @@ class McpClientFactory:
         arguments: dict[str, Any] | None = None,
         *,
         cdp_endpoint: str | None = None,
+        use_smart_executor: bool = False,
     ) -> dict[str, Any]:
-        session = await self.connect(server, cdp_endpoint=cdp_endpoint)
+        await self.connect(server, cdp_endpoint=cdp_endpoint)
+        if use_smart_executor:
+            return await self.smart_executor().execute(server, tool, arguments)
+        session = self.get(server)
+        assert session is not None
         return await session.call_tool(tool, arguments)
 
     async def close_all(self) -> None:

@@ -17,7 +17,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
-from pydantic import ValidationError
 
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
@@ -71,7 +70,14 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_HEADER_TEST_DATA,
     WIZARD_DOC_HEADER_TITLE,
 )
+from ai_qa_test_studio.core.compose_mapping import (
+    format_preconditions_cell,
+    normalize_compose_scenarios,
+    normalize_raw_step,
+)
 from ai_qa_test_studio.core.models import TestCase, TestScenario, TestStep
+from ai_qa_test_studio.core.step_actions import step_target_label, step_test_data
+from ai_qa_test_studio.core.text_normalize import normalize_text_list
 
 _CASES_WIDTHS = (7, 18, 30, 18, 22, 14, 16, 14, 28, 36, 24, 36, 22)
 _STEPS_WIDTHS = (7, 18, 28, 10, 18, 28, 24, 36, 34)
@@ -84,6 +90,11 @@ def safe_cell_text(value: Any) -> str:
     if len(text) > VN_TC_EXCEL_MAX_CELL_CHARS:
         return text[:VN_TC_EXCEL_MAX_CELL_CHARS] + "\n... [TRUNCATED]"
     return text
+
+
+def format_preconditions(value: str | list[str] | tuple[str, ...] | None) -> str:
+    """Export-safe preconditions: never character-split a bare string."""
+    return format_preconditions_cell(value)
 
 
 class CopilotArtifactExcelExporter:
@@ -177,26 +188,8 @@ class CopilotArtifactExcelExporter:
     ) -> Path:
         parsed_steps: list[TestStep] = []
         for idx, item in enumerate(steps, start=1):
-            if not isinstance(item, dict):
-                continue
-            raw_action = str(item.get("action") or "click")
-            try:
-                step = TestStep(
-                    step_no=int(item.get("step_no") or idx),
-                    action=raw_action,  # type: ignore[arg-type]
-                    element_ref=str(item.get("element_ref") or "") or None,
-                    intent_hint=str(item.get("intent_hint") or item.get("description") or ""),
-                    input_data=str(item.get("input_data") or "") or None,
-                    expected_result=str(item.get("expected_result") or ""),
-                )
-            except (ValidationError, TypeError, ValueError):
-                step = TestStep(
-                    step_no=idx,
-                    action="click",
-                    intent_hint=raw_action,
-                    expected_result=str(item.get("expected_result") or ""),
-                )
-            parsed_steps.append(step)
+            if isinstance(item, dict):
+                parsed_steps.append(normalize_raw_step(item, index=idx))
         fake_case = TestCase(
             id="steps_patch",
             code="TC_STEPS",
@@ -212,13 +205,7 @@ class CopilotArtifactExcelExporter:
         return self.write_scenarios([scenario], output, summary=summary or "Steps patch từ Copilot.")
 
     def _parse_scenarios(self, raw: list[Any]) -> list[TestScenario]:
-        out: list[TestScenario] = []
-        for item in raw:
-            if isinstance(item, TestScenario):
-                out.append(item)
-            elif isinstance(item, dict):
-                out.append(TestScenario.model_validate(item))
-        return out
+        return normalize_compose_scenarios(list(raw or []))
 
     def _flatten_cases(
         self, scenarios: list[TestScenario]
@@ -371,7 +358,7 @@ class CopilotArtifactExcelExporter:
         self._write_header_row(sheet, headers)
         for idx, (scenario, case) in enumerate(cases_flat, start=1):
             row = idx + 1
-            preconditions = "; ".join(case.preconditions) or VN_TC_DEFAULT_PRECONDITION
+            preconditions = format_preconditions(case.preconditions) or VN_TC_DEFAULT_PRECONDITION
             if case.start_url:
                 preconditions = f"URL khởi đầu: {case.start_url}; {preconditions}"
             steps_summary = self._steps_summary(case)
@@ -452,8 +439,8 @@ class CopilotArtifactExcelExporter:
                     case.title,
                     step.step_no,
                     step.action,
-                    step.element_ref or "",
-                    step.input_data or "",
+                    step_target_label(step),
+                    step_test_data(step),
                     step.intent_hint or "",
                     step.expected_result,
                 ]
@@ -490,8 +477,10 @@ class CopilotArtifactExcelExporter:
         self._write_header_row(sheet, display)
         row_idx = 1
         for scenario, case in cases_flat:
-            preconditions = "; ".join(case.preconditions)
-            requirement = case.requirement_ref or scenario.requirement_ref
+            preconditions = format_preconditions(case.preconditions)
+            requirement = normalize_text_list(
+                case.requirement_ref or scenario.requirement_ref or None
+            )
             if not case.steps:
                 row_idx += 1
                 values = [
@@ -518,7 +507,7 @@ class CopilotArtifactExcelExporter:
                     step.step_no,
                     step.action,
                     case.title,
-                    step.input_data or "",
+                    step_test_data(step),
                     step.expected_result or case.expected_final_result,
                     preconditions,
                     requirement,

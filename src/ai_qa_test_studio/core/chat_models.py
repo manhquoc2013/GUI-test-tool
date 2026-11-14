@@ -9,11 +9,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ai_qa_test_studio.constants import (
+    COMPACTOR_CREW_DRAFT_ROLES,
+    COMPACTOR_CREW_FINAL_ROLES,
     COPILOT_INCOMPLETE_MARKER,
     COPILOT_MODE_CASE,
     COPILOT_SLIDING_TURNS,
     MSG_STATUS_COMPLETE,
     MSG_STATUS_STOPPED,
+    ROLE_COMPOSER,
 )
 
 
@@ -31,6 +34,15 @@ class CopilotMessage(BaseModel):
     status: str = MSG_STATUS_COMPLETE
     apply_payload: dict[str, Any] | None = None
     created_at: str = Field(default_factory=_now_iso)
+
+    @property
+    def structured_payload(self) -> dict[str, Any] | None:
+        """Hidden Apply-ready JSON (alias of apply_payload)."""
+        return self.apply_payload
+
+    @structured_payload.setter
+    def structured_payload(self, value: dict[str, Any] | None) -> None:
+        self.apply_payload = value
 
     def bubble_text(self) -> str:
         """Prefer short summary for display; fall back to full content."""
@@ -114,3 +126,37 @@ class CopilotSession(BaseModel):
         while len(window) > 1 and sum(len(m.content) for m in window) > max_chars:
             window = window[1:]
         return window
+
+    def prune_intermediate_crew_drafts(self) -> bool:
+        """Drop Planner/Critic/mid-Composer drafts; keep user + final result."""
+        if not self.messages:
+            return False
+        last_final_idx: int | None = None
+        for idx in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[idx]
+            if msg.apply_payload is not None:
+                last_final_idx = idx
+                break
+            if msg.role == ROLE_COMPOSER:
+                last_final_idx = idx
+                break
+        if last_final_idx is None:
+            for idx in range(len(self.messages) - 1, -1, -1):
+                if self.messages[idx].role in COMPACTOR_CREW_FINAL_ROLES:
+                    last_final_idx = idx
+                    break
+        if last_final_idx is None:
+            return False
+        kept: list[CopilotMessage] = []
+        for idx, msg in enumerate(self.messages):
+            if msg.role == "user" or msg.role == "system":
+                kept.append(msg)
+                continue
+            if msg.role in COMPACTOR_CREW_DRAFT_ROLES and idx != last_final_idx:
+                continue
+            kept.append(msg)
+        if len(kept) == len(self.messages):
+            return False
+        self.messages = kept
+        self.touch()
+        return True

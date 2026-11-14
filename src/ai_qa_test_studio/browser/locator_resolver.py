@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai_qa_test_studio.core.models import SharedElement, TestStep
+from ai_qa_test_studio.constants import STEP_SCROLL_DEFAULT_DELTA_Y, STEP_WAIT_DEFAULT_MS
+from ai_qa_test_studio.core.models import ElementFingerprint, SharedElement, TestStep
 
 
 class LocatorResolver:
@@ -18,6 +19,18 @@ class LocatorResolver:
             candidates.append(f"[data-testid=\"{element.test_id}\"]")
         if element.xpath:
             candidates.append(f"xpath={element.xpath}")
+        if element.fingerprint is not None:
+            fp = element.fingerprint
+            if fp.css and fp.css not in candidates:
+                candidates.append(fp.css)
+            if fp.test_id:
+                tid = f"[data-testid=\"{fp.test_id}\"]"
+                if tid not in candidates:
+                    candidates.append(tid)
+            if fp.xpath:
+                xp = fp.xpath if fp.xpath.startswith("xpath=") else f"xpath={fp.xpath}"
+                if xp not in candidates:
+                    candidates.append(xp)
 
         for candidate in candidates:
             locator = self._to_locator(page, candidate)
@@ -45,6 +58,9 @@ class LocatorResolver:
                   id: el.id || '',
                   testId: el.getAttribute('data-testid') || '',
                   tag: el.tagName.toLowerCase(),
+                  role: el.getAttribute('role') || '',
+                  name: (el.innerText || el.getAttribute('aria-label')
+                    || el.getAttribute('name') || '').trim().slice(0, 80),
                 })"""
             )
         except Exception:
@@ -53,11 +69,39 @@ class LocatorResolver:
             element.css = f"#{info['id']}"
         if info.get("testId"):
             element.test_id = info["testId"]
+        if info.get("role"):
+            element.role = str(info["role"])
+        if info.get("name"):
+            element.name = str(info["name"])
+        element.fingerprint = ElementFingerprint(
+            tag=str(info.get("tag") or ""),
+            role=element.role,
+            accessible_name=element.name,
+            text_sample=element.name,
+            test_id=element.test_id,
+            css=element.css,
+            xpath=element.xpath,
+        )
 
     async def execute_step(self, page: Any, step: TestStep, element: SharedElement | None) -> None:
-        if step.action == "goto":
+        if step.action in {"goto", "navigate"}:
             url = step.input_data or step.intent_hint
             await page.goto(url, wait_until="domcontentloaded")
+            return
+        if step.action == "wait":
+            raw = step.input_data or str(STEP_WAIT_DEFAULT_MS)
+            await page.wait_for_timeout(int(float(raw)))
+            return
+        if step.action == "scroll":
+            raw = step.input_data or str(STEP_SCROLL_DEFAULT_DELTA_Y)
+            await page.mouse.wheel(0, int(float(raw)))
+            return
+        if step.action == "api_request":
+            return
+        if step.action == "assert_url":
+            expected = step.expected_result or step.input_data or ""
+            if expected and expected not in page.url:
+                raise AssertionError(f"URL {page.url!r} missing {expected!r}")
             return
         if element is None:
             raise RuntimeError(f"Missing element for step {step.step_no}")
@@ -74,7 +118,7 @@ class LocatorResolver:
             await locator.hover()
         elif step.action == "press_enter":
             await locator.press("Enter")
-        elif step.action == "assert_visible":
+        elif step.action in {"assert", "assert_visible"}:
             await locator.wait_for(state="visible")
         elif step.action == "assert_text":
             await locator.wait_for(state="visible")
@@ -82,7 +126,3 @@ class LocatorResolver:
             expected = step.expected_result or step.input_data or ""
             if expected and expected not in content:
                 raise AssertionError(f"Expected text {expected!r} not in {content!r}")
-        elif step.action == "assert_url":
-            expected = step.expected_result or step.input_data or ""
-            if expected and expected not in page.url:
-                raise AssertionError(f"URL {page.url!r} missing {expected!r}")

@@ -42,7 +42,14 @@ body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}
 <span class="{{ step.status|lower }}">{{ step.status }}</span>
 <em>{{ step.duration_ms }} ms</em>
 <p>{{ step.message }}</p>
-{% if step.screenshot_b64 %}
+{% if step.screenshot_path %}
+<div class="shot">
+<img src="{{ step.screenshot_path }}" alt="step"/>
+{% if step.click_x is not none and step.click_y is not none %}
+<span class="marker" style="left:{{ step.click_x }}px;top:{{ step.click_y }}px"></span>
+{% endif %}
+</div>
+{% elif step.screenshot_b64 %}
 <div class="shot">
 <img src="data:image/png;base64,{{ step.screenshot_b64 }}" alt="step"/>
 {% if step.click_x is not none and step.click_y is not none %}

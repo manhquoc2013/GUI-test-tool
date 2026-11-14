@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from PySide6.QtGui import QImage
 
 from ai_qa_test_studio.browser.visual_inspector import element_from_point
 from ai_qa_test_studio.constants import (
@@ -16,7 +19,9 @@ from ai_qa_test_studio.constants import (
     SCREENCAST_STATUS_NAV_FAILED,
     SCREENCAST_STATUS_WAITING,
     TOKEN_CONTEXT_BUDGET,
+    UI_EVIDENCE_LOADING,
 )
+from ai_qa_test_studio.core.enums import StepStatus
 from ai_qa_test_studio.core.models import (
     CaseRunResult,
     CaseStatus,
@@ -24,7 +29,7 @@ from ai_qa_test_studio.core.models import (
     StepAuditEntry,
     TestCase,
 )
-from ai_qa_test_studio.reporting.html_reporter import HtmlReporter
+from ai_qa_test_studio.reporting.report_service import ReportService
 
 if TYPE_CHECKING:
     from ai_qa_test_studio.ui.main_window import MainWindow
@@ -117,13 +122,15 @@ class RunController:
         w._set_busy_chrome(True)
         w._status_caption.setText("Đang chạy…")
         w._run_logs.clear()
+        if hasattr(w.builder, "clear_step_run_status"):
+            w.builder.clear_step_run_status()
         try:
             skill = w.skill_combo.currentText()
             report = await w.session.run_case(
                 w.project,
                 case,
                 log=w._append_log,
-                on_step=w._run_logs.append_step,
+                on_step=self._on_step_progress,
                 skill_name=skill,
                 skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
                 midscene_enabled=w.env.settings.mcp.external.midscene,
@@ -138,9 +145,11 @@ class RunController:
             state = w.explorer.snapshot_tree_state()
             w.explorer.load_project(w.project, restore_state=state)
             await self.refresh_viewport()
-            out = w.data_root / "exports" / f"{report.run_id}.html"
-            HtmlReporter().write(report, out)
-            w._append_log(f"Báo cáo HTML: {out}")
+            bundle = await ReportService(w.storage.root).export_all(
+                w.project, report, write_excel=False
+            )
+            out = bundle.html_path or (bundle.evidence_dir / "report.html")
+            w._append_log(f"Báo cáo HTML: {out} · evidence={bundle.evidence_dir}")
             status = report.cases[0].status if report.cases else "?"
             w._set_pill(w._pill_mcp, f"MCP: Playwright ({status})")
             used = w._token_budget.count(w._run_logs.to_plain_text())
@@ -155,7 +164,26 @@ class RunController:
             w._busy = False
             self._set_run_mutation_lock(False)
             w._set_busy_chrome(False)
+            if hasattr(w.builder, "clear_step_run_status"):
+                w.builder.clear_step_run_status()
             w._status_caption.setText("Sẵn sàng")
+
+    def _on_step_progress(
+        self,
+        step_no: int,
+        action: str,
+        status: str,
+        duration_ms: float,
+        message: str = "",
+    ) -> None:
+        w = self._w
+        w._run_logs.append_step(step_no, action, status, duration_ms, message)
+        if hasattr(w.builder, "set_step_run_status"):
+            # Mark running briefly when a step starts without a terminal mark.
+            live = status if status else StepStatus.RUNNING.value
+            if status in {"…", "...", ""}:
+                live = StepStatus.RUNNING.value
+            w.builder.set_step_run_status(step_no, live)
 
     async def run_cases(self, cases: list[TestCase]) -> None:
         w = self._w
@@ -189,7 +217,7 @@ class RunController:
                     w.project,
                     case,
                     log=w._append_log,
-                    on_step=w._run_logs.append_step,
+                    on_step=self._on_step_progress,
                     skill_name=skill,
                     skills_dir=Path(DEFAULT_SKILLS_DIRNAME),
                     midscene_enabled=w.env.settings.mcp.external.midscene,
@@ -220,9 +248,14 @@ class RunController:
             state = w.explorer.snapshot_tree_state()
             w.explorer.load_project(w.project, restore_state=state)
             await self.refresh_viewport()
-            out = w.data_root / "exports" / f"batch_{run_id}.html"
-            HtmlReporter().write(report, out)
-            w._append_log(f"Báo cáo batch HTML: {out} ({len(collected)} kết quả)")
+            bundle = await ReportService(w.storage.root).export_all(
+                w.project, report, write_excel=False
+            )
+            out = bundle.html_path or (bundle.evidence_dir / "report.html")
+            w._append_log(
+                f"Báo cáo batch HTML: {out} ({len(collected)} kết quả) · "
+                f"evidence={bundle.evidence_dir}"
+            )
             used = w._token_budget.count(w._run_logs.to_plain_text())
             w._set_pill(
                 w._pill_tokens,
@@ -294,5 +327,15 @@ class RunController:
         w = self._w
         if not w.session.started:
             return
+        w.viewport.set_placeholder(UI_EVIDENCE_LOADING)
         png, width, height = await w.session.capture_png()
+
+        def _decode() -> QImage:
+            return QImage.fromData(png)
+
+        image = await asyncio.to_thread(_decode)
+        if image.isNull():
+            w.viewport.set_placeholder("Không đọc được khung hình")
+            return
+        # Reuse existing path — decode already off-thread; set_frame_png still validates.
         w.viewport.set_frame_png(png, width, height)

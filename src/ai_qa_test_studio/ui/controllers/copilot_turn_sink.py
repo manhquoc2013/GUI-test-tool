@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ai_qa_test_studio.constants import (
+    COPILOT_COORD_COMPLETE_FALLBACK,
     COPILOT_STOP_MARKER,
     COPILOT_STOP_SUFFIX,
     ROLE_COMPOSER,
@@ -60,18 +61,34 @@ class CopilotTurnSink:
         if self.viewing():
             self._w.copilot.preview_role(role, summary)
 
-    def end_role(self, role: str, text: str, *, summary: str = "") -> None:
+    def end_role(
+        self,
+        role: str,
+        text: str,
+        *,
+        summary: str = "",
+        structured_payload: dict[str, Any] | None = None,
+    ) -> None:
         if self.viewing():
-            self._w.copilot.end_role(role, text, summary=summary)
+            self._w.copilot.end_role(
+                role,
+                text,
+                summary=summary,
+                structured_payload=structured_payload,
+            )
             return
         display = summary or text
         if self.session.messages and self.session.messages[-1].role == role:
-            self.session.messages[-1].content = text
-            self.session.messages[-1].summary = display
+            target = self.session.messages[-1]
+            target.content = text
+            target.summary = display
+            if structured_payload is not None:
+                target.structured_payload = dict(structured_payload)
         else:
-            self.session.messages.append(
-                CopilotMessage(role=role, content=text, summary=display)
-            )
+            msg = CopilotMessage(role=role, content=text, summary=display)
+            if structured_payload is not None:
+                msg.structured_payload = dict(structured_payload)
+            self.session.messages.append(msg)
 
     def append_status_summary(self, role: str, text: str, *, summary: str = "") -> None:
         if self.viewing():
@@ -106,6 +123,24 @@ class CopilotTurnSink:
             CopilotMessage(role=ROLE_SYSTEM, content=body, summary=body)
         )
 
+    def append_error_to_active_bubble(self, text: str, *, role: str | None = None) -> None:
+        if self.viewing():
+            self._w.copilot.append_error_to_active_bubble(text, role=role)
+            return
+        notice = (text or "").strip()
+        if not notice:
+            return
+        target_role = role or ROLE_COMPOSER
+        if self.session.messages and self.session.messages[-1].role != "user":
+            last = self.session.messages[-1]
+            merged = f"{(last.content or '').rstrip()}\n\n{notice}" if (last.content or "").strip() else notice
+            last.content = merged
+            last.summary = merged
+            return
+        self.session.messages.append(
+            CopilotMessage(role=target_role, content=notice, summary=notice)
+        )
+
     def mark_stopped(self, role: str | None = None) -> None:
         if self.viewing():
             self._w.copilot.mark_stopped(role)
@@ -128,9 +163,23 @@ class CopilotTurnSink:
                     last.summary = (last.summary or "") + COPILOT_STOP_SUFFIX
                 last.status = "stopped"
 
+    def on_turn_finished(self) -> None:
+        if self.viewing():
+            self._w.copilot.on_turn_finished()
+            return
+        for msg in self.session.messages:
+            if msg.role == "user":
+                continue
+            if (msg.content or "").strip():
+                continue
+            msg.content = COPILOT_COORD_COMPLETE_FALLBACK
+            msg.summary = COPILOT_COORD_COMPLETE_FALLBACK
+
     def attach_apply_to_latest_crew(self, payload: dict[str, Any]) -> None:
         crew_roles = {ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, ROLE_COORDINATOR}
         for msg in reversed(self.session.messages):
             if msg.role in crew_roles:
-                msg.apply_payload = dict(payload)
+                msg.structured_payload = dict(payload)
                 break
+        if self.viewing():
+            self._w.copilot.attach_apply_to_latest_crew(payload)

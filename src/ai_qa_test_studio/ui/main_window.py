@@ -22,6 +22,7 @@ from qasync import asyncSlot
 from qfluentwidgets import (
     CaptionLabel,
     IndeterminateProgressBar,
+    IndeterminateProgressRing,
     InfoBadge,
     InfoBar,
     InfoBarPosition,
@@ -44,6 +45,8 @@ from ai_qa_test_studio.constants import (
     UI_BREAKPOINT_WIDE,
     UI_DRAWER_WIDTH,
     UI_INFOBAR_DURATION_MS,
+    UI_MCP_WARMUP_LABEL,
+    UI_PROGRESS_RING_SIZE,
     UI_SPLIT_SIZES_H,
     UI_WINDOW_DEFAULT_HEIGHT,
     UI_WINDOW_DEFAULT_WIDTH,
@@ -220,7 +223,9 @@ class MainWindow(QMainWindow):
         self.h_splitter.addWidget(self.explorer)
         self.h_splitter.addWidget(self.builder)
         self.h_splitter.addWidget(self.right_drawer)
-        self.h_splitter.setChildrenCollapsible(False)
+        # True so dock/sidebar can animate width through 0; open panes stay
+        # protected by minimumWidth (explorer/dock mins), not by this flag.
+        self.h_splitter.setChildrenCollapsible(True)
         self.h_splitter.setOpaqueResize(True)
         self.h_splitter.setStretchFactor(0, 0)
         self.h_splitter.setStretchFactor(1, 1)
@@ -274,15 +279,32 @@ class MainWindow(QMainWindow):
         status.setAccessibleName("Thanh trạng thái")
         self._status_caption = CaptionLabel("Sẵn sàng", self)
         status.addWidget(self._status_caption, stretch=1)
+        self._mcp_warmup_ring = IndeterminateProgressRing(self, start=False)
+        self._mcp_warmup_ring.setFixedSize(UI_PROGRESS_RING_SIZE, UI_PROGRESS_RING_SIZE)
+        self._mcp_warmup_ring.setVisible(False)
+        self._mcp_warmup_ring.setAccessibleName(UI_MCP_WARMUP_LABEL)
         self._pill_mcp = InfoBadge.success("MCP: bundled ready", self)
         self._pill_mcp.setAccessibleName("Trạng thái MCP")
         self._pill_skills = InfoBadge.info("Skills: 0 Active", self)
         self._pill_skills.setAccessibleName("Số Skills đang active")
         self._pill_tokens = InfoBadge.attension(f"Tokens: 0 / {TOKEN_CONTEXT_BUDGET:,}", self)
         self._pill_tokens.setAccessibleName("Token budget")
+        status.addPermanentWidget(self._mcp_warmup_ring)
         for pill in (self._pill_mcp, self._pill_skills, self._pill_tokens):
             status.addPermanentWidget(pill)
         self._status = status
+
+    def set_mcp_warmup(self, active: bool) -> None:
+        """Show lightweight MCP warm-up indicator on the status bar."""
+        ring = getattr(self, "_mcp_warmup_ring", None)
+        if ring is None:
+            return
+        ring.setVisible(active)
+        if active:
+            ring.start()
+            self._set_pill(self._pill_mcp, UI_MCP_WARMUP_LABEL)
+        else:
+            ring.stop()
 
     @property
     def _drawer_collapsed(self) -> bool:
@@ -315,7 +337,7 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        self.apply_layout_breakpoint(self.width())
+        self._layout.schedule_resize_breakpoint(self.width())
 
     def _import_or_empty(self) -> Project:
         legacy = Path("data/project")

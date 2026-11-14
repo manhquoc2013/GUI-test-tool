@@ -188,6 +188,38 @@ def test_animate_splitter_size_reduce_motion(qapp: QApplication) -> None:
     host.close()
 
 
+def test_animate_splitter_size_keeps_side_pane_clamped(qapp: QApplication) -> None:
+    """Dock width changes must not inflate a max-capped side pane (dead gap)."""
+    bind_motion_enabled(lambda: False)
+    host = QWidget()
+    layout = QHBoxLayout(host)
+    splitter = QSplitter(host)
+    explorer = QWidget()
+    editor = QWidget()
+    dock = QWidget()
+    explorer.setMinimumWidth(100)
+    explorer.setMaximumWidth(200)
+    editor.setMinimumWidth(200)
+    dock.setMinimumWidth(0)
+    dock.setMaximumWidth(300)
+    splitter.addWidget(explorer)
+    splitter.addWidget(editor)
+    splitter.addWidget(dock)
+    layout.addWidget(splitter)
+    host.resize(900, 200)
+    host.show()
+    qapp.processEvents()
+    splitter.setSizes([180, 720, 0])
+    qapp.processEvents()
+    animate_splitter_size(splitter, 2, 0, 250, host=dock, duration_ms=200)
+    qapp.processEvents()
+    sizes = splitter.sizes()
+    assert sizes[0] <= 200
+    assert sizes[2] >= 200
+    assert sizes[1] >= 200
+    host.close()
+
+
 def test_stop_channel_prevents_splitter_on_done(qapp: QApplication) -> None:
     """Sidebar snap-close must cancel dock open on_done (no resurrect)."""
     host = QWidget()

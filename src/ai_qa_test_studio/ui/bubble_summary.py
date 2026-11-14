@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from typing import Any
 
 from ai_qa_test_studio.agent.crew_exchange import looks_like_coord_protocol
 from ai_qa_test_studio.agent.result_snippet import (
@@ -10,6 +12,8 @@ from ai_qa_test_studio.agent.result_snippet import (
     coverage_headline,
 )
 from ai_qa_test_studio.constants import (
+    APPLY_KIND_COMPOSE,
+    APPLY_KIND_TEST_DATA,
     CHAT_ROLE_LABELS,
     COPILOT_CHAT_PROSE_MAX_CHARS,
     COPILOT_CHAT_REPLY_MAX_CHARS,
@@ -18,8 +22,14 @@ from ai_qa_test_studio.constants import (
     COPILOT_EXPLAIN_META_MARKERS,
     COPILOT_FINAL_REPORT_MAX_CHARS,
     COPILOT_HANDOFF_HEADER,
+    COPILOT_JSON_STREAM_PROGRESS,
+    COPILOT_STRUCTURED_DRAFT_BANNER,
     ROLE_COORDINATOR,
 )
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+_RAW_JSON_OBJ_RE = re.compile(r"\{[\s\S]*\}")
+_CODE_FIELD_RE = re.compile(r'"code"\s*:')
 
 _MD_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+")
 _MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
@@ -274,18 +284,134 @@ def _handoff_bubble(
     return _clip(frm or "Đã chuyển việc", max_chars)
 
 
+def extract_structured_payload(text: str) -> dict[str, Any] | None:
+    """Parse compose/test-data JSON from assistant text when present."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    candidates: list[str] = []
+    for match in _JSON_FENCE_RE.finditer(raw):
+        candidates.append(match.group(1).strip())
+    if raw.startswith("{") and raw.endswith("}"):
+        candidates.append(raw)
+    else:
+        obj_match = _RAW_JSON_OBJ_RE.search(raw)
+        if obj_match:
+            candidates.append(obj_match.group(0))
+    for blob in candidates:
+        try:
+            parsed = json.loads(blob)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        kind = str(parsed.get("kind") or "")
+        if kind == APPLY_KIND_TEST_DATA and isinstance(parsed.get("rows"), list):
+            return parsed
+        if isinstance(parsed.get("scenarios"), list) or isinstance(parsed.get("cases"), list):
+            if not kind:
+                parsed = {**parsed, "kind": APPLY_KIND_COMPOSE}
+            return parsed
+        if kind in {APPLY_KIND_COMPOSE, "scenarios", "compose"}:
+            return parsed
+    return None
+
+
+def format_structured_payload_summary(payload: dict[str, Any] | None) -> str:
+    """Render Apply-ready payload as a compact Markdown summary card (no raw JSON)."""
+    if not isinstance(payload, dict):
+        return ""
+    kind = str(payload.get("kind") or "")
+    lines = [COPILOT_STRUCTURED_DRAFT_BANNER, ""]
+    if kind == APPLY_KIND_TEST_DATA:
+        rows = payload.get("rows") or []
+        count = len(rows) if isinstance(rows, list) else 0
+        lines.append(f"**Test Data:** {count} bộ sẵn sàng Apply.")
+        return "\n".join(lines).strip()
+
+    scenarios = payload.get("scenarios")
+    if not isinstance(scenarios, list):
+        cases = payload.get("cases")
+        if isinstance(cases, list):
+            scenarios = [{"code": "TS", "title": "Suite", "cases": cases}]
+        else:
+            return ""
+
+    lines.extend(
+        [
+            "| Mã | Tên kịch bản | Số Test Case | Case con |",
+            "| --- | --- | ---: | --- |",
+        ]
+    )
+    for item in scenarios:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "—").strip() or "—"
+        title = str(item.get("title") or item.get("name") or "—").strip() or "—"
+        cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+        case_names: list[str] = []
+        for case in cases:
+            if isinstance(case, dict):
+                name = str(case.get("title") or case.get("code") or "").strip()
+                if name:
+                    case_names.append(name)
+        case_list = ", ".join(case_names) if case_names else "—"
+        lines.append(
+            f"| `{code}` | {title} | {len(cases)} | {case_list} |"
+        )
+    if len(lines) <= 4:
+        return ""
+    return "\n".join(lines).strip()
+
+
+def structured_stream_progress(partial_text: str) -> str | None:
+    """Compact progress label while a large JSON artifact is streaming."""
+    raw = partial_text or ""
+    if "{" not in raw:
+        return None
+    if '"scenarios"' not in raw and '"cases"' not in raw and '"rows"' not in raw:
+        return None
+    count = len(_CODE_FIELD_RE.findall(raw))
+    if count <= 0:
+        return COPILOT_JSON_STREAM_PROGRESS.format(count=0)
+    return COPILOT_JSON_STREAM_PROGRESS.format(count=count)
+
+
+def strip_raw_json_for_bubble(text: str) -> str:
+    """Remove fenced/raw JSON blobs from visible bubble prose."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    without_fences = _JSON_FENCE_RE.sub("", raw).strip()
+    if without_fences.startswith("{") and '"code"' in without_fences:
+        return ""
+    cleaned = _RAW_JSON_OBJ_RE.sub("", without_fences).strip()
+    return cleaned
+
+
 def summarize_for_bubble(
     text: str,
     *,
     max_chars: int = COPILOT_CHAT_REPLY_MAX_CHARS,
     from_role: str | None = None,
     to_role: str | None = None,
+    structured_payload: dict[str, Any] | None = None,
 ) -> str:
     """Turn agent/full content into a user-facing bubble."""
     raw = (text or "").strip()
-    if not raw:
+    if not raw and not structured_payload:
         return ""
     cap = max(40, int(max_chars))
+    payload = structured_payload or extract_structured_payload(raw)
+    if payload:
+        card = format_structured_payload_summary(payload)
+        prose = strip_raw_json_for_bubble(raw)
+        if card and prose:
+            return f"{prose}\n\n{card}"
+        if card:
+            return card
+    if not raw:
+        return ""
     if looks_like_coord_protocol(raw):
         return COPILOT_COORD_JSON_HIDDEN
 

@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QScrollArea,
     QSizePolicy,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,8 +24,10 @@ from qfluentwidgets import (
     BodyLabel,
     ComboBox,
     FlowLayout,
+    IndeterminateProgressRing,
     PillPushButton,
     PlainTextEdit,
+    PopUpAniStackedWidget,
     PrimaryPushButton,
     PrimaryToolButton,
     PushButton,
@@ -44,6 +45,7 @@ from ai_qa_test_studio.constants import (
     CHAT_TYPING_LABEL,
     COPILOT_APPLY_TOOLTIP,
     COPILOT_ATTACH_BTN_LABEL,
+    COPILOT_ATTACH_BTN_MIN_WIDTH,
     COPILOT_ATTACH_CHIP_HEIGHT,
     COPILOT_ATTACH_MAX_FILES,
     COPILOT_ATTACH_NAME_MAX_CHARS,
@@ -55,10 +57,15 @@ from ai_qa_test_studio.constants import (
     COPILOT_CHIP_CASE,
     COPILOT_CHIP_DOM,
     COPILOT_CHIP_ERROR,
+    COPILOT_CHIP_ERROR_MIN_WIDTH,
     COPILOT_CHIP_HEIGHT,
+    COPILOT_CHIP_MIN_WIDTH,
     COPILOT_COMPOSER_GAP,
+    COPILOT_COMPOSER_INPUT_MIN_WIDTH,
     COPILOT_COMPOSER_PADDING,
     COPILOT_CONTEXT_FLOW_SPACING,
+    COPILOT_CONTEXT_ROW_MIN_HEIGHT,
+    COPILOT_COORD_COMPLETE_FALLBACK,
     COPILOT_DOWNLOAD_DIALOG_TITLE,
     COPILOT_DOWNLOAD_DONE_TITLE,
     COPILOT_DOWNLOAD_EMPTY,
@@ -82,18 +89,24 @@ from ai_qa_test_studio.constants import (
     COPILOT_MODEL_HINT_AUTO,
     COPILOT_MODEL_LABEL_AUTO,
     COPILOT_STARTER_PROMPTS,
-    COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_MIN_HEIGHT,
-    COPILOT_STATUS_ROLE_HANDOFF,
+    COPILOT_STATUS_ROLE_ROUTED,
+    COPILOT_STATUS_THINKING,
+    COPILOT_STATUS_WAITING_FRAGMENT,
     COPILOT_STATUS_WORKING,
     COPILOT_STOP_MARKER,
     COPILOT_STOP_SUFFIX,
     COPILOT_STOP_TOOLTIP,
     ROLE_COMPOSER,
+    ROLE_COORDINATOR,
     ROLE_CREW,
+    ROLE_CRITIC,
+    ROLE_PLANNER,
     ROLE_SYSTEM,
     THEME_CARD_RADIUS,
     UI_MOTION_CHAT_MS,
+    UI_MOTION_NORMAL_MS,
+    UI_PROGRESS_RING_SIZE,
     VN_TC_FILE_FILTER,
     VN_TC_FILENAME_DEFAULT,
     WIZARD_DOC_FILE_FILTER,
@@ -105,9 +118,17 @@ from ai_qa_test_studio.core.doc_corpus import IngestResult, ingest_path
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
-from ai_qa_test_studio.ui.bubble_summary import summarize_for_bubble
+from ai_qa_test_studio.ui.bubble_summary import (
+    format_structured_payload_summary,
+    summarize_for_bubble,
+)
 from ai_qa_test_studio.ui.icons import make_stop_icon
-from ai_qa_test_studio.ui.motion import fade_in
+from ai_qa_test_studio.ui.motion import fade_in_slide
+from ai_qa_test_studio.ui.smooth_scroll import (
+    make_jump_button,
+    style_jump_button,
+    wire_scroll_area_auto_scroll,
+)
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.chat_history_rail import ChatHistoryRail
@@ -166,8 +187,9 @@ class CopilotChatPane(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(COPILOT_CONTEXT_FLOW_SPACING)
 
+        context_row.setMinimumHeight(COPILOT_CONTEXT_ROW_MIN_HEIGHT)
         pill_box = QWidget(context_row)
-        pill_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        pill_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
         self._context_flow = FlowLayout(pill_box, needAni=False)
         self._context_flow.setContentsMargins(0, 0, 0, 0)
         self._context_flow.setHorizontalSpacing(COPILOT_CONTEXT_FLOW_SPACING)
@@ -186,18 +208,22 @@ class CopilotChatPane(QWidget):
         self.chip_case.setCheckable(True)
         self.chip_case.setChecked(True)
         self.chip_case.setFixedHeight(COPILOT_CHIP_HEIGHT)
+        self.chip_case.setMinimumWidth(COPILOT_CHIP_MIN_WIDTH)
         self.chip_case.setToolTip(COPILOT_CHIP_CASE)
         self.chip_dom = PillPushButton(COPILOT_CHIP_DOM, pill_box)
         self.chip_dom.setCheckable(True)
         self.chip_dom.setChecked(False)
         self.chip_dom.setFixedHeight(COPILOT_CHIP_HEIGHT)
+        self.chip_dom.setMinimumWidth(COPILOT_CHIP_MIN_WIDTH)
         self.chip_dom.setToolTip(COPILOT_CHIP_DOM)
         self.chip_error = PillPushButton(COPILOT_CHIP_ERROR, pill_box)
         self.chip_error.setCheckable(True)
         self.chip_error.setChecked(False)
         self.chip_error.setFixedHeight(COPILOT_CHIP_HEIGHT)
+        self.chip_error.setMinimumWidth(COPILOT_CHIP_ERROR_MIN_WIDTH)
         self.chip_error.setToolTip(COPILOT_CHIP_ERROR)
         for chip in (self.chip_case, self.chip_dom, self.chip_error):
+            chip.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             self._context_flow.addWidget(chip)
 
         tools_wrap = QWidget(context_row)
@@ -239,7 +265,7 @@ class CopilotChatPane(QWidget):
         self.mode_pivot.currentItemChanged.connect(self._on_mode_pivot)
         layout.addWidget(self.mode_pivot)
 
-        self.body_stack = QStackedWidget(self)
+        self.body_stack = PopUpAniStackedWidget(self)
 
         chat_body = QWidget(self.body_stack)
         self._chat_body = chat_body
@@ -266,7 +292,11 @@ class CopilotChatPane(QWidget):
             starters_grid.addWidget(btn, idx // 2, idx % 2)
         chat_layout.addWidget(self.starters)
 
-        self.transcript_scroll = QScrollArea(chat_main)
+        transcript_wrap = QWidget(chat_main)
+        transcript_col = QVBoxLayout(transcript_wrap)
+        transcript_col.setContentsMargins(0, 0, 0, 0)
+        transcript_col.setSpacing(4)
+        self.transcript_scroll = QScrollArea(transcript_wrap)
         self.transcript_scroll.setWidgetResizable(True)
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.transcript_host = QWidget()
@@ -281,7 +311,13 @@ class CopilotChatPane(QWidget):
         self.transcript_layout.addStretch(1)
         self.transcript_scroll.setWidget(self.transcript_host)
         self.transcript_scroll.setAccessibleName("Lịch sử hội thoại Copilot")
-        chat_layout.addWidget(self.transcript_scroll, stretch=1)
+        self.jump_latest = make_jump_button(transcript_wrap)
+        self._auto_scroll = wire_scroll_area_auto_scroll(
+            self.transcript_scroll, jump_button=self.jump_latest
+        )
+        transcript_col.addWidget(self.transcript_scroll, stretch=1)
+        transcript_col.addWidget(self.jump_latest, 0, Qt.AlignmentFlag.AlignHCenter)
+        chat_layout.addWidget(transcript_wrap, stretch=1)
 
         composer_wrap = QFrame(chat_main)
         composer_wrap.setObjectName("CopilotComposer")
@@ -296,12 +332,24 @@ class CopilotChatPane(QWidget):
         composer_col.setSpacing(COPILOT_COMPOSER_GAP)
         self._composer_wrap = composer_wrap
 
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
+        self.thinking_ring = IndeterminateProgressRing(composer_wrap, start=False)
+        self.thinking_ring.setFixedSize(UI_PROGRESS_RING_SIZE, UI_PROGRESS_RING_SIZE)
+        self.thinking_ring.setVisible(False)
+        self.thinking_ring.setAccessibleName(COPILOT_STATUS_THINKING)
         self.status_label = BodyLabel("", composer_wrap)
         self.status_label.setWordWrap(True)
+        self.status_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         self.status_label.setMinimumHeight(COPILOT_STATUS_MIN_HEIGHT)
         self.status_label.setVisible(False)
         self.status_label.setAccessibleName("Trạng thái Copilot")
-        composer_col.addWidget(self.status_label)
+        status_row.addWidget(self.thinking_ring, 0, Qt.AlignmentFlag.AlignTop)
+        status_row.addWidget(self.status_label, stretch=1)
+        composer_col.addLayout(status_row)
 
         self.attach_chips = QWidget(composer_wrap)
         self.attach_chips.setObjectName("CopilotAttachList")
@@ -316,12 +364,13 @@ class CopilotChatPane(QWidget):
 
         input_row = QHBoxLayout()
         input_row.setSpacing(COPILOT_COMPOSER_GAP)
-        self.btn_attach = PushButton(COPILOT_ATTACH_BTN_LABEL, composer_wrap)
+        self.btn_attach = ToolButton(composer_wrap)
         self.btn_attach.setIcon(FIF.DOCUMENT.icon())
-        self.btn_attach.setFixedHeight(COPILOT_BTN_SEND_SIZE)
+        self.btn_attach.setFixedSize(COPILOT_BTN_SEND_SIZE, COPILOT_BTN_SEND_SIZE)
+        self.btn_attach.setMinimumWidth(COPILOT_ATTACH_BTN_MIN_WIDTH)
         self.btn_attach.setToolTip(
-            "Đính kèm tài liệu lớn (md/pdf/docx/xlsx). Index full vào corpus; "
-            "prompt chỉ nhận Top-K đoạn liên quan."
+            f"{COPILOT_ATTACH_BTN_LABEL} — đính kèm tài liệu lớn (md/pdf/docx/xlsx). "
+            "Index full vào corpus; prompt chỉ nhận Top-K đoạn liên quan."
         )
         self.btn_attach.setAccessibleName("Đính kèm file Copilot")
         self.btn_attach.clicked.connect(self._pick_attachments)
@@ -329,6 +378,7 @@ class CopilotChatPane(QWidget):
         self.input_box.setObjectName("CopilotInput")
         self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
         self.input_box.setFixedHeight(COPILOT_INPUT_HEIGHT)
+        self.input_box.setMinimumWidth(COPILOT_COMPOSER_INPUT_MIN_WIDTH)
         self.input_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.input_box.setAccessibleName("Ô nhập Copilot")
         self.input_box.installEventFilter(self)
@@ -342,6 +392,7 @@ class CopilotChatPane(QWidget):
         self.btn_stop.setAccessibleName(COPILOT_STOP_TOOLTIP)
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(lambda: self.stop_requested.emit())
+        input_row.setContentsMargins(0, 0, 0, 0)
         input_row.addWidget(self.btn_attach, 0, Qt.AlignmentFlag.AlignBottom)
         input_row.addWidget(self.input_box, 1)
         input_row.addWidget(self.btn_send, 0, Qt.AlignmentFlag.AlignBottom)
@@ -423,6 +474,8 @@ class CopilotChatPane(QWidget):
             )
         if getattr(self, "btn_stop", None) is not None:
             self.btn_stop.setIcon(make_stop_icon(color=t.text_primary))
+        if getattr(self, "jump_latest", None) is not None:
+            style_jump_button(self.jump_latest)
 
     @property
     def session(self) -> CopilotSession:
@@ -469,6 +522,10 @@ class CopilotChatPane(QWidget):
         # Keep chip labels visible; FlowLayout wraps. Invalidate so heightForWidth updates.
         self._context_flow.invalidate()
         self._pill_box.updateGeometry()
+        # Grow the pill strip when chips wrap so @Error is never clipped vertically.
+        flow_h = self._context_flow.heightForWidth(max(1, self._pill_box.width()))
+        if flow_h > 0:
+            self._pill_box.setMinimumHeight(flow_h)
         self._sync_bubble_widths()
 
     def _sync_bubble_widths(self) -> None:
@@ -489,15 +546,33 @@ class CopilotChatPane(QWidget):
         self.input_box.setReadOnly(busy)
         if busy:
             self.input_box.setPlaceholderText(COPILOT_BUSY_PLACEHOLDER)
-            self.set_status(COPILOT_STATUS_CONNECTING)
+            self.set_status(COPILOT_STATUS_THINKING)
+            self._set_thinking_visible(True)
         else:
             self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
             self.set_status("")
+            self._set_thinking_visible(False)
 
     def set_status(self, text: str) -> None:
         message = (text or "").strip()
         self.status_label.setText(message)
         self.status_label.setVisible(bool(message))
+        self.status_label.adjustSize()
+        self.status_label.updateGeometry()
+        if self._busy and message:
+            self._set_thinking_visible(True)
+        elif not self._busy:
+            self._set_thinking_visible(False)
+
+    def _set_thinking_visible(self, visible: bool) -> None:
+        ring = getattr(self, "thinking_ring", None)
+        if ring is None:
+            return
+        ring.setVisible(visible)
+        if visible:
+            ring.start()
+        else:
+            ring.stop()
 
     def set_streaming_status(self, text: str, *, role: str | None = None) -> None:
         """Push live progress into an open typing bubble (and the footer status)."""
@@ -520,18 +595,39 @@ class CopilotChatPane(QWidget):
         self.btn_download.setEnabled(ready)
         self.btn_download.setVisible(ready)
 
+    def attach_apply_to_latest_crew(self, payload: dict[str, Any]) -> None:
+        """Bind Apply payload onto the latest crew bubble and refresh its summary card."""
+        crew_roles = {ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, ROLE_COORDINATOR}
+        target: CopilotMessage | None = None
+        for msg in reversed(self._session.messages):
+            if msg.role in crew_roles:
+                msg.structured_payload = dict(payload)
+                card = format_structured_payload_summary(payload)
+                if card:
+                    msg.summary = card
+                target = msg
+                break
+        if target is None:
+            return
+        display = target.bubble_text()
+        for row in reversed(self._rows):
+            if row.message_id == target.id:
+                row.set_body(display)
+                self._scroll_transcript()
+                break
+
     def focus_compose(self) -> None:
         self._session.mode = COPILOT_MODE_COMPOSE
         self.chip_case.setChecked(False)
         self.mode_pivot.setCurrentItem("wizard")
-        self.body_stack.setCurrentWidget(self.wizard)
+        self.body_stack.setCurrentWidget(self.wizard, duration=UI_MOTION_NORMAL_MS)
         self.wizard.reset()
 
     def focus_case_chat(self) -> None:
         self._session.mode = COPILOT_MODE_CASE
         self.chip_case.setChecked(True)
         self.mode_pivot.setCurrentItem("chat")
-        self.body_stack.setCurrentIndex(0)
+        self.body_stack.setCurrentIndex(0, duration=UI_MOTION_NORMAL_MS)
         if not self._busy:
             self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
         self.input_box.setFocus()
@@ -712,6 +808,24 @@ class CopilotChatPane(QWidget):
         self._append_row(msg.id, ROLE_SYSTEM, body)
         self.session_changed.emit()
 
+    def append_error_to_active_bubble(self, text: str, *, role: str | None = None) -> None:
+        """Append a masked error into the live assistant bubble (never top-corner toast)."""
+        notice = (text or "").strip()
+        if not notice:
+            return
+        if self._streaming_row is not None:
+            current = self._streaming_row._text or ""
+            merged = f"{current.rstrip()}\n\n{notice}" if current.strip() else notice
+            self._streaming_row.set_body(merged)
+            if self._session.messages:
+                self._session.messages[-1].content = merged
+                self._session.messages[-1].summary = merged
+            self._scroll_transcript()
+            self.session_changed.emit()
+            return
+        target_role = role or ROLE_COMPOSER
+        self.append_status_summary(target_role, notice, summary=notice)
+
     def append_user(self, text: str) -> None:
         msg = CopilotMessage(role="user", content=text, summary=text)
         self._session.messages.append(msg)
@@ -723,13 +837,12 @@ class CopilotChatPane(QWidget):
 
     def begin_role(self, role: str) -> None:
         if self._streaming_row is not None and self._streaming_row.is_typing():
-            prev = self._streaming_row.role
-            self._streaming_row.set_typing_status(
-                COPILOT_STATUS_ROLE_HANDOFF.format(
-                    role=CHAT_ROLE_LABELS.get(prev, prev),
-                    next_role=CHAT_ROLE_LABELS.get(role, role),
-                )
+            prev_row = self._streaming_row
+            routed = COPILOT_STATUS_ROLE_ROUTED.format(
+                next_role=CHAT_ROLE_LABELS.get(role, role),
             )
+            prev_row.finish_loading(routed)
+            self._persist_row_body(prev_row.message_id, routed)
         msg = CopilotMessage(role=role, content="")
         self._session.messages.append(msg)
         self._streaming_row = self._append_row(msg.id, role, "")
@@ -739,6 +852,35 @@ class CopilotChatPane(QWidget):
         self._streaming_row.set_typing_status(working)
         self.set_status(working)
         self.session_changed.emit()
+
+    def _persist_row_body(self, message_id: str, text: str) -> None:
+        for msg in reversed(self._session.messages):
+            if msg.id == message_id:
+                msg.content = text
+                msg.summary = text
+                return
+
+    def on_turn_finished(self) -> None:
+        """Central cleanup: settle every loading/status card left open after a turn."""
+        for row in self._rows:
+            if not row.is_typing():
+                continue
+            label = (row.typing_label.text() or "").strip()
+            if COPILOT_STATUS_WAITING_FRAGMENT in label.casefold():
+                settled = COPILOT_STATUS_ROLE_ROUTED.format(
+                    next_role=CHAT_ROLE_LABELS.get(
+                        self._streaming_row.role if self._streaming_row else ROLE_COMPOSER,
+                        ROLE_COMPOSER,
+                    )
+                )
+            elif label and label != CHAT_TYPING_LABEL:
+                settled = label if label.startswith("✓") else f"✓ {label}"
+            else:
+                settled = COPILOT_COORD_COMPLETE_FALLBACK
+            row.finish_loading(settled)
+            self._persist_row_body(row.message_id, settled)
+        self._streaming_row = None
+        self._set_thinking_visible(False)
 
     def preview_role(self, role: str, summary: str) -> None:
         """Update open bubble display only — session content stays for role_end."""
@@ -758,13 +900,23 @@ class CopilotChatPane(QWidget):
         if self._streaming_row is None:
             self.begin_role(ROLE_COMPOSER)
         assert self._streaming_row is not None
+        # First token arrived — drop the thinking ring, keep status text.
+        if not (self._streaming_row._text or "").strip() and (chunk or "").strip():
+            self._set_thinking_visible(False)
         current = self._streaming_row._text + chunk
         self._streaming_row.set_body(current)
         if self._session.messages:
             self._session.messages[-1].content = current
         self._scroll_transcript()
 
-    def end_role(self, role: str, text: str, *, summary: str = "") -> None:
+    def end_role(
+        self,
+        role: str,
+        text: str,
+        *,
+        summary: str = "",
+        structured_payload: dict[str, Any] | None = None,
+    ) -> None:
         """Persist full `text` for agents; show `summary` (or text) in the bubble."""
         display = summary or text
         target = self._open_message_for_role(role)
@@ -772,6 +924,8 @@ class CopilotChatPane(QWidget):
         if target is not None:
             target.content = text
             target.summary = display
+            if structured_payload is not None:
+                target.structured_payload = dict(structured_payload)
             message_id = target.id
         self._paint_role_body(display, message_id=message_id)
         if (
@@ -1219,10 +1373,14 @@ class CopilotChatPane(QWidget):
         self._rows.append(row)
         row.sync_bubble_width()
         if animate:
-            fade_in(row, duration_ms=UI_MOTION_CHAT_MS)
+            fade_in_slide(row, duration_ms=UI_MOTION_CHAT_MS)
         self._scroll_transcript()
         return row
 
     def _scroll_transcript(self) -> None:
+        scroller = getattr(self, "_auto_scroll", None)
+        if scroller is not None:
+            scroller.on_content_appended()
+            return
         bar = self.transcript_scroll.verticalScrollBar()
         bar.setValue(bar.maximum())

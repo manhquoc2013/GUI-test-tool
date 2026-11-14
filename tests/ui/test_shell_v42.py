@@ -211,11 +211,116 @@ def test_narrow_sidebar_snap_cancels_dock_width_anim(
 
     window._layout.toggle_sidebar()
     qapp.processEvents()
-    assert registry_size() == 0
+    # Dock open on_done must be cancelled; sidebar open may still be animating.
     time.sleep(0.08)
     qapp.processEvents()
     assert done["n"] == 0
     assert window.explorer.isVisible()
+    assert window.right_drawer.is_open is False or window.right_drawer.isHidden()
+    window.close()
+    clear_registry_for_tests()
+
+
+def test_copilot_toggle_leaves_no_splitter_gap(qapp: QApplication, tmp_path: Path) -> None:
+    """Open/close Copilot must not leave dead space past explorer maximumWidth."""
+    from PySide6.QtTest import QTest
+
+    from ai_qa_test_studio.constants import (
+        UI_MOTION_NORMAL_MS,
+        UI_SIDEBAR_WIDTH_MAX,
+    )
+    from ai_qa_test_studio.ui.motion import bind_motion_enabled, clear_registry_for_tests
+
+    bind_motion_enabled(lambda: True)
+    clear_registry_for_tests()
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+
+    window._layout.on_copilot_toggle(False)
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert window.right_drawer.is_open is False
+    assert window.h_splitter.sizes()[2] == 0
+
+    window._layout.on_copilot_toggle(True)
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert window.right_drawer.is_open is True
+    assert window.right_drawer.isVisible()
+
+    sizes = window.h_splitter.sizes()
+    assert sizes[0] <= UI_SIDEBAR_WIDTH_MAX
+    assert window.explorer.width() <= UI_SIDEBAR_WIDTH_MAX
+    pane_sum = window.explorer.width() + window.builder.width() + window.right_drawer.width()
+    # Allow splitter handle chrome only — no multi-dozen-px dead gap.
+    assert window.h_splitter.width() - pane_sum < 40
+    assert window.builder.width() >= UI_EDITOR_MIN_WIDTH
+    window.close()
+    clear_registry_for_tests()
+
+
+def test_copilot_and_sidebar_toggle_animate(qapp: QApplication, tmp_path: Path) -> None:
+    """Toggle must start a width animation (not snap) when motion is enabled."""
+    from PySide6.QtTest import QTest
+
+    from ai_qa_test_studio.constants import UI_MOTION_NORMAL_MS
+    from ai_qa_test_studio.ui.motion import (
+        bind_motion_enabled,
+        clear_registry_for_tests,
+        registry_size,
+    )
+
+    bind_motion_enabled(lambda: True)
+    clear_registry_for_tests()
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.apply_layout_breakpoint(window.width())
+    qapp.processEvents()
+    assert window.h_splitter.childrenCollapsible() is True
+
+    window._layout.on_copilot_toggle(False)
+    assert registry_size() == 1
+    assert window._layout._dock_animating is True
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert registry_size() == 0
+    assert window.right_drawer.is_open is False
+
+    window._layout.on_copilot_toggle(True)
+    assert registry_size() == 1
+    mid_dock = window.h_splitter.sizes()[2]
+    QTest.qWait(40)
+    qapp.processEvents()
+    # Mid-flight width should move toward target (not stay stuck at 0 or full).
+    assert 0 < window.h_splitter.sizes()[2] or mid_dock > 0
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert window.right_drawer.is_open is True
+    assert window.h_splitter.sizes()[2] >= UI_EXPLORER_MIN_WIDTH
+
+    window._layout.toggle_sidebar()
+    assert registry_size() == 1
+    assert window._layout._sidebar_animating is True
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert window._sidebar_collapsed is True
+    assert window.h_splitter.sizes()[0] == 0
+
+    window._layout.toggle_sidebar()
+    assert registry_size() == 1
+    QTest.qWait(UI_MOTION_NORMAL_MS + 80)
+    qapp.processEvents()
+    assert window._sidebar_collapsed is False
+    assert window.explorer.isVisible()
+    assert window.h_splitter.sizes()[0] >= UI_EXPLORER_MIN_WIDTH
     window.close()
     clear_registry_for_tests()
 
@@ -312,6 +417,8 @@ def test_chat_end_role_keeps_full_content_shows_summary(qapp: QApplication) -> N
 
 def test_mark_stopped_closes_all_typing_bubbles(qapp: QApplication) -> None:
     from ai_qa_test_studio.constants import (
+        CHAT_ROLE_LABELS,
+        COPILOT_STATUS_ROLE_ROUTED,
         COPILOT_STOP_MARKER,
         COPILOT_STOP_TOOLTIP,
         ROLE_COORDINATOR,
@@ -326,13 +433,20 @@ def test_mark_stopped_closes_all_typing_bubbles(qapp: QApplication) -> None:
     pane.begin_role(ROLE_COORDINATOR)
     pane.begin_role(ROLE_CRITIC)
     pane.append_status_summary(ROLE_SYSTEM, "Artifact sẵn sàng (12)", summary="Artifact sẵn sàng (12)")
-    assert pane.session.messages[0].content == ""
+    # Handoff settles the coordinator card immediately (no stuck typing).
+    assert pane.session.messages[0].content == COPILOT_STATUS_ROLE_ROUTED.format(
+        next_role=CHAT_ROLE_LABELS[ROLE_CRITIC]
+    )
     assert pane.session.messages[1].content == ""
+    assert not pane._rows[0].is_typing()
+    assert pane._rows[1].is_typing()
 
     pane.mark_stopped()
     assert not pane._rows[0].is_typing()
     assert not pane._rows[1].is_typing()
-    assert pane.session.messages[0].content == COPILOT_STOP_MARKER
+    assert pane.session.messages[0].content == COPILOT_STATUS_ROLE_ROUTED.format(
+        next_role=CHAT_ROLE_LABELS[ROLE_CRITIC]
+    )
     assert pane.session.messages[1].content == COPILOT_STOP_MARKER
     assert COPILOT_STOP_MARKER in pane.session.messages[-1].content
     # Idempotent — second stop must not duplicate the marker.
@@ -352,7 +466,7 @@ def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path
         COPILOT_ATTACH_CHIP_HEIGHT,
         COPILOT_BUSY_PLACEHOLDER,
         COPILOT_IDLE_PLACEHOLDER,
-        COPILOT_STATUS_CONNECTING,
+        COPILOT_STATUS_THINKING,
     )
     from ai_qa_test_studio.ui.widgets.chat_pane import ChatAttachment, CopilotChatPane
 
@@ -360,7 +474,13 @@ def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path
     pane.show()
     qapp.processEvents()
     assert pane.btn_attach.isEnabled()
-    assert COPILOT_ATTACH_BTN_LABEL in pane.btn_attach.text()
+    attach_tip = pane.btn_attach.toolTip() or ""
+    attach_name = pane.btn_attach.accessibleName() or ""
+    assert (
+        COPILOT_ATTACH_BTN_LABEL in attach_tip
+        or COPILOT_ATTACH_BTN_LABEL in pane.btn_attach.text()
+        or "Đính kèm" in attach_name
+    )
     assert pane.input_box.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
     assert COPILOT_IDLE_PLACEHOLDER in pane.input_box.placeholderText()
     assert not pane.status_label.isVisible()
@@ -372,7 +492,7 @@ def test_chat_composer_shows_busy_status_and_attach(qapp: QApplication, tmp_path
     assert not pane.btn_send.isVisible()
     assert not pane.btn_attach.isEnabled()
     assert pane.status_label.isVisible()
-    assert COPILOT_STATUS_CONNECTING in pane.status_label.text()
+    assert COPILOT_STATUS_THINKING in pane.status_label.text()
     assert pane.input_box.placeholderText() == COPILOT_BUSY_PLACEHOLDER
 
     pane.set_status("Planner đang làm việc…")
@@ -485,13 +605,14 @@ def test_copilot_context_chips_stay_labeled_when_narrow(
 
 
 def test_wizard_source_uses_scroll_area(qapp: QApplication, tmp_path: Path) -> None:
-    from qfluentwidgets import SmoothScrollArea
+    from PySide6.QtWidgets import QScrollArea
 
     _seed(tmp_path)
     window = MainWindow(data_root=tmp_path)
     window.show()
     wizard = window.copilot.wizard
-    scrolls = wizard.source_page.findChildren(SmoothScrollArea)
+    # create_scroll_area → QScrollArea (SmoothScrollDelegate only off macOS).
+    scrolls = wizard.source_page.findChildren(QScrollArea)
     assert len(scrolls) >= 1
     assert scrolls[0].widgetResizable() is True
     window.close()

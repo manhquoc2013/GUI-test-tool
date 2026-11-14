@@ -6,9 +6,9 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence
-from PySide6.QtWidgets import QMenu, QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMenu, QTreeWidgetItem, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
-from qfluentwidgets import SearchLineEdit, SegmentedWidget, TreeWidget
+from qfluentwidgets import PopUpAniStackedWidget, SearchLineEdit, SegmentedWidget, TreeWidget
 
 from ai_qa_test_studio.constants import (
     BINDING_BOUND,
@@ -36,6 +36,7 @@ from ai_qa_test_studio.core.models import (
 )
 from ai_qa_test_studio.core.project_tree_ops import collect_cases
 from ai_qa_test_studio.ui.formatting import case_binding_rollups
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
@@ -95,7 +96,7 @@ class ExplorerPane(QWidget):
             self.pivot.widget(key).setToolTip(tip)
         layout.addWidget(self.pivot)
 
-        self.stack = QStackedWidget(self)
+        self.stack = PopUpAniStackedWidget(self)
         self.suite_tree = self._make_tree("Cây Test Suites và Cases")
         self.element_tree = self._make_tree("Kho Shared Elements")
         self.reports_tree = self._make_tree("Danh sách báo cáo")
@@ -166,6 +167,7 @@ class ExplorerPane(QWidget):
         tree.setAccessibleName(accessible_name)
         tree.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
         tree.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        apply_pixel_scroll(tree)
         return tree
 
     def _on_pivot_changed(self, key: str) -> None:

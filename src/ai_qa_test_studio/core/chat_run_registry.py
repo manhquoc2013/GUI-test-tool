@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from ai_qa_test_studio.constants import SUPERVISOR_KEY_COPILOT_PREFIX
 from ai_qa_test_studio.core.chat_models import CopilotSession
 
 
@@ -15,6 +16,10 @@ class ChatRun:
     session: CopilotSession
     status: str = ""
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
+
+    @property
+    def supervisor_key(self) -> str:
+        return f"{SUPERVISOR_KEY_COPILOT_PREFIX}{self.session.id}"
 
 
 class ChatRunRegistry:
@@ -29,6 +34,10 @@ class ChatRunRegistry:
         self._runs: dict[str, ChatRun] = {}
         self._unread: set[str] = set()
         self._cancel_requested: set[str] = set()
+
+    @staticmethod
+    def supervisor_key_for(session_id: str) -> str:
+        return f"{SUPERVISOR_KEY_COPILOT_PREFIX}{session_id}"
 
     def start_run(self, session: CopilotSession, initial_status: str = "") -> ChatRun:
         session_id = session.id

@@ -21,6 +21,7 @@ from qfluentwidgets import (
 
 from ai_qa_test_studio.constants import UI_PALETTE_MAX_HEIGHT, UI_PALETTE_MIN_WIDTH
 from ai_qa_test_studio.ui.motion import animate_dialog_show
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,7 @@ class CommandPalette(MessageBoxBase):
 
         self.list = ListWidget(self.widget)
         self.list.setMinimumHeight(220)
+        apply_pixel_scroll(self.list)
         self.list.itemActivated.connect(self._on_item_activated)
         self.list.itemDoubleClicked.connect(self._on_item_activated)
 

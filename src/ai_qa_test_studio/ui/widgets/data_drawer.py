@@ -37,6 +37,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.ui.formatting import format_param_cell, humanize_header
 from ai_qa_test_studio.ui.motion import slide_height, unlock_height
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
 from ai_qa_test_studio.ui.theme import card_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.test_data_row_dialog import TestDataRowDialog
@@ -122,19 +123,21 @@ class TestDataDrawer(QWidget):
         table.verticalHeader().setMinimumSectionSize(UI_DATA_TABLE_ROW_HEIGHT)
         table.setWordWrap(False)
         table.setTextElideMode(Qt.TextElideMode.ElideRight)
-        table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        apply_pixel_scroll(table)
         table.setEditTriggers(TableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(TableWidget.SelectionMode.SingleSelection)
         table.setToolTip("Nhấp đúp để sửa bộ dữ liệu")
         hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(UI_DATA_HEADER_MIN_SECTION)
+        hdr.setStretchLastSection(False)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         table.setColumnWidth(0, UI_DATA_COL_SCENARIO_WIDTH)
         table.setColumnWidth(2, UI_DATA_COL_EXPECTED_WIDTH)
+        hdr.resizeSection(2, UI_DATA_COL_EXPECTED_WIDTH)
         table.doubleClicked.connect(self._on_row_double_clicked)
         return table
 

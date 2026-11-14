@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ai_qa_test_studio.agent.builtin_skills import builtin_skill_catalog
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
+from ai_qa_test_studio.agent.case_binding import case_binding_summary
 from ai_qa_test_studio.agent.complexity_classifier import ComplexityClassifier
 from ai_qa_test_studio.agent.coverage_pass import run_coverage_pass
 from ai_qa_test_studio.agent.crew_dispatch import dispatch_specialist
@@ -24,9 +26,15 @@ from ai_qa_test_studio.agent.crew_exchange import (
     looks_like_coord_protocol,
     parse_coord_decision,
 )
+from ai_qa_test_studio.agent.intent_router import HybridIntentRouter, RoutingDecision
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
 from ai_qa_test_studio.agent.model_router import ModelRouter
+from ai_qa_test_studio.agent.reality_checker import RealityChecker
+from ai_qa_test_studio.agent.skill_auto_matcher import SkillAutoMatcher, SkillMatch
 from ai_qa_test_studio.agent.spec_generator import SpecGenerator
+from ai_qa_test_studio.agent.swarm_audit import SwarmAuditor, swarm_audit_context
+from ai_qa_test_studio.agent.url_context import enrich_user_text_with_urls
+from ai_qa_test_studio.agent.validate_case_schema import validate_case_schema
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
@@ -74,6 +82,8 @@ from ai_qa_test_studio.constants import (
     COPILOT_COORD_EXPLAIN_ACCEPTANCE,
     COPILOT_COORD_EXPLAIN_GOAL,
     COPILOT_COORDINATOR_MAX_ROUNDS,
+    COPILOT_CRITIC_COMPOSER_DIGEST_CHARS,
+    COPILOT_GEN_MAX_TOKENS,
     COPILOT_HANDOFF_HEADER,
     COPILOT_MODE_COMPOSE,
     COPILOT_ROLE_BRIEFS,
@@ -82,7 +92,10 @@ from ai_qa_test_studio.constants import (
     COPILOT_STATUS_COORD_DECIDE,
     COPILOT_STATUS_INFERRING_INTENT,
     COPILOT_STATUS_WAITING_LLM,
+    COPILOT_STREAM_ERROR_PREFIX,
+    COPILOT_STREAM_LENGTH_NOTICE,
     COPILOT_SUMMARY_MAX_CHARS,
+    COPILOT_TEST_CASE_GEN_MAX_CASES,
     CTX_MARKER_ACTIVE_SKILL,
     CTX_MARKER_ATTACHMENTS,
     CTX_MARKER_CASE,
@@ -97,13 +110,16 @@ from ai_qa_test_studio.constants import (
     EVENT_CHUNK,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
+    EVENT_ERROR,
     EVENT_FINAL_REPORT,
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
+    EVENT_TURN_END,
     INTENT_COMPOSE,
     INTENT_EXPLAIN,
     INTENT_TEST_DATA,
     INTENT_VALUES,
+    LLM_FINISH_REASON_LENGTH,
     LLM_OUTLINE_MAX_TOKENS,
     LLM_PROVIDER_OFFLINE,
     LLM_TASK_CLARIFY_DRAFT,
@@ -121,8 +137,10 @@ from ai_qa_test_studio.constants import (
     SKILL_CONTEXT_MAX_CHARS,
 )
 from ai_qa_test_studio.core.doc_corpus import format_retrieved_block, retrieve
-from ai_qa_test_studio.core.models import TestScenario
-from ai_qa_test_studio.core.token_budget import ContextCompressor
+from ai_qa_test_studio.core.enums import DeliveryMode, IntentType
+from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario
+from ai_qa_test_studio.core.secret_masker import get_secret_masker
+from ai_qa_test_studio.core.token_budget import ContextCompactor, ContextCompressor
 from ai_qa_test_studio.ui.bubble_summary import sanitize_user_reply, usable_explain_answer
 
 logger = logging.getLogger(__name__)
@@ -189,6 +207,56 @@ class CrewRoster:
     roles: tuple[str, ...]
 
 
+def _ui_intent_from_context(context: dict[str, Any]) -> IntentType | None:
+    raw = context.get("ui_intent") or context.get("hybrid_intent_hint")
+    if not raw:
+        return None
+    try:
+        return IntentType(str(raw))
+    except ValueError:
+        return None
+
+
+def _case_from_context(context: dict[str, Any]) -> TestCase | None:
+    raw = context.get("case")
+    if isinstance(raw, TestCase):
+        return raw
+    if isinstance(raw, dict):
+        try:
+            return TestCase.model_validate(raw)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _legacy_intent_from_hybrid(intent: IntentType) -> str:
+    if intent == IntentType.CHAT_FAST:
+        return INTENT_EXPLAIN
+    if intent in {
+        IntentType.TEST_SCENARIO,
+        IntentType.TEST_CASE_GEN,
+        IntentType.TEST_SCRIPT_GEN,
+        IntentType.EXEC_AND_BIND,
+    }:
+        return INTENT_COMPOSE
+    if intent == IntentType.RESEARCH:
+        return INTENT_EXPLAIN
+    if intent == IntentType.SWARM_AUDIT:
+        return INTENT_EXPLAIN
+    return INTENT_EXPLAIN
+
+
+def _escalate_reason(context: dict[str, Any]) -> str | None:
+    if context.get("apply_schema_ok") is False:
+        return "reality_checker_failed"
+    if context.get("heal_weak") or context.get("heal_below_run"):
+        return "heal_weak"
+    err_class = str(context.get("mcp_error_class") or "").upper()
+    if context.get("dom_changed") is True or err_class == "DOM_CHANGED":
+        return "DOM_CHANGED"
+    return None
+
+
 @dataclass
 class CopilotOrchestrator:
     gateway: UnifiedLLMGateway
@@ -201,6 +269,154 @@ class CopilotOrchestrator:
     debate_max_rounds: int = COPILOT_AGENT_DEBATE_MAX_ROUNDS
     loop_repeat_limit: int = COPILOT_AGENT_LOOP_REPEAT_LIMIT
     summary_max_chars: int = COPILOT_SUMMARY_MAX_CHARS
+    intent_router: HybridIntentRouter = field(default_factory=HybridIntentRouter)
+    skill_matcher: SkillAutoMatcher = field(
+        default_factory=lambda: SkillAutoMatcher(builtin_skill_catalog())
+    )
+    context_compactor: ContextCompactor = field(default_factory=ContextCompactor)
+    reality_checker: RealityChecker = field(default_factory=RealityChecker)
+    swarm_auditor: SwarmAuditor = field(default_factory=SwarmAuditor)
+    last_routing: RoutingDecision | None = field(default=None, repr=False)
+    last_skill_matches: list[SkillMatch] = field(default_factory=list, repr=False)
+
+    async def prepare_hybrid_turn(
+        self,
+        user_text: str,
+        context: dict[str, Any],
+        *,
+        apply_requested: bool = False,
+    ) -> tuple[str, RoutingDecision, list[SkillMatch]]:
+        """route → (optional case_binding) → match skills. Router never calls matcher."""
+        decision = await self.intent_router.route(
+            user_text,
+            ui_intent=_ui_intent_from_context(context),
+            apply_requested=apply_requested,
+            context=context,
+        )
+        prompt_body = decision.prompt_body
+        if decision.intent == IntentType.TEST_SCRIPT_GEN:
+            case = _case_from_context(context)
+            if case is not None:
+                binding = case_binding_summary(case)
+                context = {
+                    **context,
+                    "case_binding": binding,
+                    "script_fully_bound": binding.is_fully_bound,
+                }
+                decision = RoutingDecision(
+                    intent=decision.intent,
+                    delivery_mode=decision.delivery_mode,
+                    thinking=self.intent_router.policy.for_intent(
+                        decision.intent,
+                        fully_bound_script=binding.is_fully_bound,
+                    ),
+                    confidence=decision.confidence,
+                    source=decision.source,
+                    prompt_body=prompt_body,
+                )
+        workspace = [
+            str(context.get(CONTEXT_KEY_PROJECT_ROOT) or ""),
+            str(context.get(CONTEXT_KEY_SKILL_NAME) or ""),
+            str(context.get("language") or ""),
+        ]
+        matches = self.skill_matcher.match(
+            prompt_body,
+            decision.intent,
+            workspace_signals=workspace,
+        )
+        if matches:
+            prompt_body = self.skill_matcher.overlay_prompt(prompt_body, matches)
+            context[CONTEXT_KEY_SKILL_BODY] = "\n\n".join(
+                m.skill.prompt_body for m in matches
+            )
+            context[CONTEXT_KEY_SKILL_NAME] = ",".join(m.skill.skill_id for m in matches)
+        if decision.delivery_mode == DeliveryMode.APPLY:
+            case = _case_from_context(context)
+            if case is not None:
+                # S4: RealityChecker supersedes bare schema gate (still uses schema inside)
+                reality = self.reality_checker.check_case(case)
+                context["apply_schema_ok"] = reality.ok
+                context["apply_schema_message"] = reality.message
+                context["apply_reality_findings"] = [
+                    {"code": f.code, "message": f.message, "severity": f.severity}
+                    for f in reality.findings
+                ]
+                if not reality.ok:
+                    # Keep schema helper available for callers that still expect the tuple API
+                    _ok, _msg, _ = validate_case_schema(case)
+        self.last_routing = decision
+        self.last_skill_matches = matches
+        return prompt_body, decision, matches
+
+    async def _run_swarm_audit(
+        self,
+        context: dict[str, Any],
+        stop: asyncio.Event,
+    ) -> AsyncIterator[OrchestratorEvent]:
+        """SWARM_AUDIT: Evidence + RealityChecker + traceability over last RunReport."""
+        yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COORDINATOR,
+            text=self._clip("SWARM_AUDIT · Thinking HIGH · Evidence/Traceability"),
+        )
+        if stop.is_set():
+            yield OrchestratorEvent(kind=EVENT_STATUS_SUMMARY, role=ROLE_COORDINATOR, text=MSG_STATUS_STOPPED)
+            return
+        report_raw = context.get("run_report") or context.get("report")
+        report: RunReport | None = None
+        if isinstance(report_raw, RunReport):
+            report = report_raw
+        elif isinstance(report_raw, dict):
+            try:
+                report = RunReport.model_validate(report_raw)
+            except Exception:  # noqa: BLE001
+                report = None
+        if report is None:
+            yield OrchestratorEvent(
+                kind=EVENT_AGENT_MESSAGE,
+                role=ROLE_COORDINATOR,
+                text=self._clip(
+                    "SWARM_AUDIT cần `run_report` trong context (chạy case trước)."
+                ),
+            )
+            yield OrchestratorEvent(
+                kind=EVENT_FINAL_REPORT,
+                role=ROLE_COORDINATOR,
+                text="SWARM_AUDIT blocked: missing run_report",
+            )
+            return
+        project: Project | None = context.get("project") if isinstance(context.get("project"), Project) else None
+        root_raw = context.get(CONTEXT_KEY_PROJECT_ROOT) or context.get("project_root")
+        project_root = Path(str(root_raw)) if root_raw else None
+        audit = await asyncio.to_thread(
+            self.swarm_auditor.run,
+            report,
+            project,
+            project_root=project_root,
+        )
+        context["swarm_audit"] = swarm_audit_context(audit)
+        lines = [
+            f"SWARM_AUDIT ok={audit.ok}",
+            f"findings={len(audit.findings)} gaps={len(audit.coverage_gaps)}",
+        ]
+        if audit.evidence_dir is not None:
+            lines.append(f"evidence={audit.evidence_dir}")
+        for finding in audit.findings[:12]:
+            lines.append(f"- [{finding.severity}] {finding.code}: {finding.message}")
+        body = "\n".join(lines)
+        yield OrchestratorEvent(kind=EVENT_AGENT_MESSAGE, role=ROLE_ANALYZER, text=self._clip(body))
+        yield OrchestratorEvent(kind=EVENT_FINAL_REPORT, role=ROLE_COORDINATOR, text=self._clip(body))
+
+    @staticmethod
+    def _max_tokens_for_intent(intent: IntentType, requested: int) -> int:
+        if intent in {
+            IntentType.TEST_SCENARIO,
+            IntentType.TEST_CASE_GEN,
+            IntentType.TEST_SCRIPT_GEN,
+        }:
+            return max(requested, COPILOT_GEN_MAX_TOKENS)
+        return requested
 
     async def run(
         self,
@@ -213,15 +429,108 @@ class CopilotOrchestrator:
     ) -> AsyncIterator[OrchestratorEvent]:
         """Coordinator-led multi-agent exchange (hierarchical, not linear-only)."""
         stop = cancel or asyncio.Event()
+        emitted_terminal = False
+        try:
+            async for event in self._run_turn(
+                user_text=user_text,
+                mode=mode,
+                context=context,
+                history=history,
+                stop=stop,
+                max_tokens=max_tokens,
+            ):
+                if event.kind in {"stopped", "pipeline_complete", EVENT_TURN_END, EVENT_ERROR}:
+                    emitted_terminal = True
+                yield event
+        except Exception as exc:  # noqa: BLE001
+            masked = get_secret_masker().mask_text(str(exc))
+            yield OrchestratorEvent(
+                kind=EVENT_ERROR,
+                role=ROLE_COMPOSER,
+                text=f"{COPILOT_STREAM_ERROR_PREFIX}{masked}",
+            )
+            emitted_terminal = True
+        finally:
+            if not emitted_terminal:
+                yield OrchestratorEvent(kind=EVENT_TURN_END, role=ROLE_COORDINATOR)
+
+    async def _run_turn(
+        self,
+        *,
+        user_text: str,
+        mode: str,
+        context: dict[str, Any],
+        history: list[ChatMessage] | None,
+        stop: asyncio.Event,
+        max_tokens: int,
+    ) -> AsyncIterator[OrchestratorEvent]:
         hist = list(history or [])
+        apply_requested = bool(context.get("apply_requested"))
+        prompt_body, hybrid, _skills = await self.prepare_hybrid_turn(
+            user_text, context, apply_requested=apply_requested
+        )
+        max_tokens = self._max_tokens_for_intent(hybrid.intent, max_tokens)
+        # Compact history with pin rules before crew exchange
+        if hist:
+            raw_hist = [{"role": m.role, "content": m.content} for m in hist]
+            pruned = self.context_compactor.drop_intermediate_crew_drafts(raw_hist)
+            compacted = self.context_compactor.compact_messages(pruned)
+            hist = [ChatMessage(role=m["role"], content=str(m["content"])) for m in compacted]
+        escalate_reason = _escalate_reason(context)
+        thinking = hybrid.thinking
+        if escalate_reason:
+            thinking = self.intent_router.policy.escalate(thinking, reason=escalate_reason)
+            hybrid = RoutingDecision(
+                intent=hybrid.intent,
+                delivery_mode=hybrid.delivery_mode,
+                thinking=thinking,
+                confidence=hybrid.confidence,
+                source=hybrid.source,
+                prompt_body=hybrid.prompt_body,
+            )
+        # CHAT_FAST: keep explain path; skip Playwright/MCP warm
+        if hybrid.intent == IntentType.CHAT_FAST:
+            mode = mode or COPILOT_MODE_COMPOSE
+            context = {**context, "hybrid_intent": hybrid.intent.value, "skip_mcp_warm": True}
+            user_text = prompt_body
+        else:
+            context = {
+                **context,
+                "hybrid_intent": hybrid.intent.value,
+                "skip_mcp_warm": False,
+                "thinking_level": hybrid.thinking.level.value,
+            }
+            user_text = prompt_body
+        if hybrid.intent == IntentType.SWARM_AUDIT:
+            async for event in self._run_swarm_audit(context, stop):
+                yield event
+            return
         mcp = self.mcp or BundledMcpRegistry(compressor=self.compressor)
         if not mcp.ready:
             mcp.start()
         mcp.crew_memory.clear()
         self._bind_project_context(mcp, context)
+        if hybrid.intent in {IntentType.TEST_SCENARIO, IntentType.RESEARCH}:
+            user_text, url_note = await enrich_user_text_with_urls(user_text, mcp=mcp)
+            if url_note:
+                yield OrchestratorEvent(
+                    kind=EVENT_STATUS_SUMMARY,
+                    role=ROLE_COORDINATOR,
+                    text=url_note,
+                )
         ctx_block = self._format_context(context, query=user_text)
-        # Open coordinator bubble early so classify/intent status is visible in-chat.
-        yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
+        chat_fast = hybrid.intent == IntentType.CHAT_FAST
+        # CHAT_FAST: footer status chip only — skip a separate coordinator bubble.
+        if not chat_fast:
+            yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
+        yield OrchestratorEvent(
+            kind=EVENT_STATUS_SUMMARY,
+            role=ROLE_COORDINATOR,
+            text=self._clip(
+                f"Hybrid: {hybrid.intent.value} ({hybrid.source}) · "
+                f"delivery={hybrid.delivery_mode.value} · thinking={hybrid.thinking.level.value}"
+            ),
+        )
         retrieved_n = ctx_block.count("### doc=")
         if retrieved_n:
             yield OrchestratorEvent(
@@ -250,14 +559,19 @@ class CopilotOrchestrator:
             role=ROLE_COORDINATOR,
             text=COPILOT_STATUS_INFERRING_INTENT,
         )
-        intent = await self._infer_intent(
-            user_text,
-            mode,
-            ctx_block,
-            plan_text="",
-            gw=self._gw(LLM_TASK_INTENT, "simple"),
-            stop=stop,
-        )
+        # Explicit slash/UI pins legacy crew intent; keyword/micro still LLM-infer
+        # so existing compose/BVA paths stay intact.
+        if hybrid.source in {"slash", "ui"}:
+            intent = _legacy_intent_from_hybrid(hybrid.intent)
+        else:
+            intent = await self._infer_intent(
+                user_text,
+                mode,
+                ctx_block,
+                plan_text="",
+                gw=self._gw(LLM_TASK_INTENT, "simple"),
+                stop=stop,
+            )
         roster = self._crew_roster(intent, complexity, context)
         yield OrchestratorEvent(
             kind=EVENT_STATUS_SUMMARY,
@@ -378,6 +692,7 @@ class CopilotOrchestrator:
             ctx_block=ctx_block,
             intent=intent,
             complexity=complexity,
+            hybrid_intent=str(context.get("hybrid_intent") or ""),
         )
         seen: dict[str, int] = {}
         coord_route = self._route(LLM_TASK_COORDINATE, complexity)
@@ -876,9 +1191,22 @@ class CopilotOrchestrator:
 
     def _heuristic_intent(self, user_text: str, mode: str, ctx_block: str) -> str:
         lowered = (user_text or "").lower()
-        if mode == COPILOT_MODE_COMPOSE or self._wants_compose(user_text, mode, ctx_block):
+        test_data_cues = any(
+            k in lowered for k in ("bva", "test data", "bộ dữ liệu", "bo du lieu")
+        ) or ("biên" in lowered and "data" in lowered)
+        compose_cues = mode == COPILOT_MODE_COMPOSE or self._wants_compose(
+            user_text, mode, ctx_block
+        )
+        # Explicit test-data phrasing without suite/scenario language → test_data.
+        # If both appear (e.g. "kịch bản … BVA"), prefer compose.
+        suite_cues = any(
+            k in lowered for k in ("kịch bản", "scenario", "srs", "test case", "test scen")
+        )
+        if test_data_cues and not suite_cues:
+            return INTENT_TEST_DATA
+        if compose_cues:
             return INTENT_COMPOSE
-        if any(k in lowered for k in ("bva", "test data", "biên", "bộ dữ liệu")):
+        if test_data_cues:
             return INTENT_TEST_DATA
         if any(k in lowered for k in ("giải thích", "explain", "vì sao", "why")):
             return INTENT_EXPLAIN
@@ -950,11 +1278,20 @@ class CopilotOrchestrator:
         max_tokens: int,
     ) -> str:
         sink: list[str] = []
-        async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            sink.append(piece)
-            if stop.is_set():
-                break
-        return "".join(sink).strip()
+        try:
+            async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+                sink.append(piece)
+                if stop.is_set():
+                    break
+        except Exception as exc:  # noqa: BLE001
+            masked = get_secret_masker().mask_text(str(exc))
+            sink.append(f"{COPILOT_STREAM_ERROR_PREFIX}{masked}")
+            return "".join(sink).strip()
+        text = "".join(sink).strip()
+        if gw.last_finish_reason == LLM_FINISH_REASON_LENGTH:
+            if COPILOT_STREAM_LENGTH_NOTICE not in text:
+                text = f"{text}{COPILOT_STREAM_LENGTH_NOTICE}"
+        return text
 
     async def _generate_scenarios_llm(
         self,
@@ -1258,9 +1595,24 @@ class CopilotOrchestrator:
                 role=role,
                 text=COPILOT_STATUS_WAITING_LLM,
             )
-        async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
-            sink.append(piece)
-            yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
+        try:
+            async for piece in gw.stream_chat(messages, max_tokens=max_tokens, cancel=stop):
+                sink.append(piece)
+                yield OrchestratorEvent(kind=EVENT_CHUNK, role=role, text=piece)
+        except Exception as exc:  # noqa: BLE001
+            masked = get_secret_masker().mask_text(str(exc))
+            notice = f"{COPILOT_STREAM_ERROR_PREFIX}{masked}"
+            sink.append(notice)
+            yield OrchestratorEvent(kind=EVENT_ERROR, role=role or ROLE_COMPOSER, text=notice)
+            return
+        if gw.last_finish_reason == LLM_FINISH_REASON_LENGTH:
+            if COPILOT_STREAM_LENGTH_NOTICE not in "".join(sink):
+                sink.append(COPILOT_STREAM_LENGTH_NOTICE)
+                yield OrchestratorEvent(
+                    kind=EVENT_CHUNK,
+                    role=role,
+                    text=COPILOT_STREAM_LENGTH_NOTICE,
+                )
 
     async def _plan(
         self,
@@ -1319,6 +1671,90 @@ class CopilotOrchestrator:
         needs = "CLARIFY" in text.upper() or self._looks_ambiguous(user_text)
         out.append(_RoleResult(text=text, needs_clarify=needs, intent=intent))
 
+    @staticmethod
+    def _composer_schema_for_stage(hybrid_intent: str) -> str:
+        stage = (hybrid_intent or "").strip().lower()
+        if stage == IntentType.TEST_SCENARIO.value:
+            return (
+                "STAGE=test_scenario: emit ONLY high-level scenarios — fields "
+                "code, title, category, requirement_ref, expected_outcome, description. "
+                "Do NOT nest cases or steps. JSON shape: "
+                '{"kind":"compose_scenarios","scenarios":[{"code","title","category",'
+                '"requirement_ref","expected_outcome","description"}]}.'
+            )
+        if stage == IntentType.TEST_CASE_GEN.value:
+            return (
+                f"STAGE=test_case_gen: emit TestCase + steps ONLY for the named scenarios. "
+                f"Cap at {COPILOT_TEST_CASE_GEN_MAX_CASES} cases this turn. JSON shape: "
+                '{"kind":"compose_scenarios","scenarios":[{"code","title","cases":'
+                '[{"code","title","priority","test_type","preconditions","steps":'
+                '[{"step_no","action","intent_hint","target","input_data",'
+                '"expected_result"}]}]}]}. '
+                "Rules: (1) Vietnamese user request ⇒ Vietnamese title/preconditions/"
+                "intent_hint/target/expected_result (keep model names/UTC/OCR). "
+                "(2) Priority mix P1/P2/P3 — not all P1. (3) Website URL ⇒ UI cases; "
+                "API/backend ⇒ test_type=API. (4) Each case ≥2–3 steps: "
+                "navigate→interact→assert. (5) action∈navigate|click|fill|select|"
+                "hover|scroll|wait|assert|api_request; fill input_data with every "
+                "value/threshold; target=semantic UI label while UNBOUND. "
+                "(6) preconditions is string or string[]. "
+                "Do not invent new scenarios beyond those specified."
+            )
+        return (
+            "When creating scenarios/cases, ALSO append a JSON object "
+            '{"kind":"compose_scenarios","scenarios":[{"code","title","requirement_ref",'
+            '"description","cases":[{"code","title","priority","test_type",'
+            '"preconditions","steps":[{"step_no","action","intent_hint","target",'
+            '"input_data","expected_result"}]}]}]}. '
+            "Mirror user language; tier priority P1/P2/P3; action∈navigate|click|fill|"
+            "select|hover|scroll|wait|assert|api_request; put values in input_data. "
+            "When creating test data only, append "
+            '{"kind":"test_data_rows","rows":[...]} .'
+        )
+
+    @staticmethod
+    def _strip_scenario_stage_nesting(payload: dict[str, Any]) -> dict[str, Any]:
+        """Defense: TEST_SCENARIO payloads must not carry nested cases/steps."""
+        scenarios = payload.get("scenarios")
+        if not isinstance(scenarios, list):
+            return payload
+        cleaned: list[dict[str, Any]] = []
+        for item in scenarios:
+            if not isinstance(item, dict):
+                continue
+            row = {
+                "id": str(item.get("id") or uuid.uuid4()),
+                "code": item.get("code"),
+                "title": item.get("title"),
+                "category": item.get("category") or item.get("test_type") or "",
+                "requirement_ref": item.get("requirement_ref") or "",
+                "expected_outcome": item.get("expected_outcome")
+                or item.get("description")
+                or "",
+                "description": item.get("description") or "",
+                "cases": [],
+            }
+            cleaned.append(row)
+        return {**payload, "kind": APPLY_KIND_COMPOSE, "scenarios": cleaned}
+
+    @staticmethod
+    def _limit_cases_per_turn(payload: dict[str, Any], max_cases: int) -> dict[str, Any]:
+        scenarios = payload.get("scenarios")
+        if not isinstance(scenarios, list) or max_cases <= 0:
+            return payload
+        remaining = max_cases
+        limited: list[Any] = []
+        for item in scenarios:
+            if not isinstance(item, dict):
+                continue
+            cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+            if remaining <= 0:
+                break
+            take = cases[:remaining]
+            remaining -= len(take)
+            limited.append({**item, "cases": take})
+        return {**payload, "scenarios": limited}
+
     async def _compose(
         self,
         user_text: str,
@@ -1332,6 +1768,7 @@ class CopilotOrchestrator:
         out: list[_RoleResult],
         revise: bool = False,
         intent_hint: str = "",
+        hybrid_intent: str = "",
     ) -> AsyncIterator[OrchestratorEvent]:
         if intent_hint in INTENT_VALUES:
             intent = intent_hint
@@ -1344,6 +1781,7 @@ class CopilotOrchestrator:
                 self._gw(LLM_TASK_INTENT, "simple"),
                 stop,
             )
+        stage = (hybrid_intent or "").strip().lower()
         if intent == INTENT_EXPLAIN:
             system = (
                 "You are a helpful Vietnamese assistant in AI QA Test Studio. "
@@ -1356,12 +1794,7 @@ class CopilotOrchestrator:
             system = (
                 f"You are the Composer ({ROLE_COMPOSER}). "
                 f"{COPILOT_ROLE_BRIEFS[ROLE_COMPOSER]} "
-                "When creating scenarios/cases, ALSO append a JSON object "
-                '{"kind":"compose_scenarios","scenarios":[{"code","title","requirement_ref",'
-                '"description","cases":[{"code","title","preconditions","steps":'
-                '[{"step_no","action","intent_hint","input_data","expected_result"}]}]}]}. '
-                "When creating test data only, append "
-                '{"kind":"test_data_rows","rows":[...]} . '
+                f"{self._composer_schema_for_stage(stage)} "
                 f"{COPILOT_ROLE_REPLY_STYLE} "
                 "Only include CLARIFY when blocked by missing required input."
             )
@@ -1393,10 +1826,33 @@ class CopilotOrchestrator:
         scenarios = self._scenarios_from_composer_json(text)
         if scenarios:
             intent = INTENT_COMPOSE
-            apply_payload = {
-                "kind": APPLY_KIND_COMPOSE,
-                "scenarios": [s.model_dump(mode="json") for s in scenarios],
-            }
+            if stage == IntentType.TEST_SCENARIO.value:
+                apply_payload = self._strip_scenario_stage_nesting(
+                    {
+                        "kind": APPLY_KIND_COMPOSE,
+                        "scenarios": [
+                            {
+                                "id": s.id,
+                                "code": s.code,
+                                "title": s.title,
+                                "requirement_ref": s.requirement_ref,
+                                "description": s.description,
+                                "expected_outcome": s.description,
+                                "cases": [],
+                            }
+                            for s in scenarios
+                        ],
+                    }
+                )
+            else:
+                apply_payload = {
+                    "kind": APPLY_KIND_COMPOSE,
+                    "scenarios": [s.model_dump(mode="json") for s in scenarios],
+                }
+                if stage == IntentType.TEST_CASE_GEN.value:
+                    apply_payload = self._limit_cases_per_turn(
+                        apply_payload, COPILOT_TEST_CASE_GEN_MAX_CASES
+                    )
 
         if apply_payload is None and intent == INTENT_TEST_DATA:
             rows = self._offline_bva_rows()
@@ -1409,11 +1865,39 @@ class CopilotOrchestrator:
         elif apply_payload is None and intent == INTENT_COMPOSE:
             srs = self._srs_from_context(ctx_block, user_text)
             scenarios = await self._generate_scenarios_llm(srs, gw, stop, max_tokens)
-            apply_payload = {
-                "kind": APPLY_KIND_COMPOSE,
-                "scenarios": [s.model_dump(mode="json") for s in scenarios],
-            }
-            case_count = sum(len(s.cases) for s in scenarios)
+            if stage == IntentType.TEST_SCENARIO.value:
+                apply_payload = self._strip_scenario_stage_nesting(
+                    {
+                        "kind": APPLY_KIND_COMPOSE,
+                        "scenarios": [
+                            {
+                                "id": s.id,
+                                "code": s.code,
+                                "title": s.title,
+                                "requirement_ref": s.requirement_ref,
+                                "description": s.description,
+                                "expected_outcome": s.description,
+                                "cases": [],
+                            }
+                            for s in scenarios
+                        ],
+                    }
+                )
+                case_count = 0
+            else:
+                apply_payload = {
+                    "kind": APPLY_KIND_COMPOSE,
+                    "scenarios": [s.model_dump(mode="json") for s in scenarios],
+                }
+                if stage == IntentType.TEST_CASE_GEN.value:
+                    apply_payload = self._limit_cases_per_turn(
+                        apply_payload, COPILOT_TEST_CASE_GEN_MAX_CASES
+                    )
+                case_count = 0
+                for row in apply_payload.get("scenarios") or []:
+                    if isinstance(row, dict):
+                        cases = row.get("cases") or []
+                        case_count += len(cases) if isinstance(cases, list) else 0
             if not text or gw.provider == LLM_PROVIDER_OFFLINE:
                 names = ", ".join(s.code for s in scenarios[:5])
                 body = (
@@ -1442,6 +1926,12 @@ class CopilotOrchestrator:
             )
         if intent == INTENT_EXPLAIN:
             text = sanitize_user_reply(text) or text
+        if (
+            apply_payload
+            and stage == IntentType.TEST_SCENARIO.value
+            and apply_payload.get("kind") == APPLY_KIND_COMPOSE
+        ):
+            apply_payload = self._strip_scenario_stage_nesting(apply_payload)
         needs = "CLARIFY" in text.upper()
         out.append(
             _RoleResult(
@@ -1530,6 +2020,37 @@ class CopilotOrchestrator:
             )
         out.append(_RoleResult(text=text))
 
+    @staticmethod
+    def _composer_digest_for_critic(composer_text: str) -> str:
+        """Short code-keyed digest — Critic must not receive full Composer JSON."""
+        raw = (composer_text or "").strip()
+        if not raw:
+            return "(empty)"
+        try:
+            from ai_qa_test_studio.ui.bubble_summary import extract_structured_payload
+
+            payload = extract_structured_payload(raw)
+        except Exception:  # noqa: BLE001
+            payload = None
+        if payload and isinstance(payload.get("scenarios"), list):
+            bullets: list[str] = []
+            for item in payload["scenarios"]:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get("code") or "?").strip()
+                title = str(item.get("title") or "").strip()
+                cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+                bullets.append(f"- {code}: {title} ({len(cases)} case)")
+            if bullets:
+                digest = "\n".join(bullets)
+                if len(digest) > COPILOT_CRITIC_COMPOSER_DIGEST_CHARS:
+                    return digest[: COPILOT_CRITIC_COMPOSER_DIGEST_CHARS - 1] + "…"
+                return digest
+        compact = " ".join(raw.split())
+        if len(compact) > COPILOT_CRITIC_COMPOSER_DIGEST_CHARS:
+            return compact[: COPILOT_CRITIC_COMPOSER_DIGEST_CHARS - 1] + "…"
+        return compact
+
     async def _critique(
         self,
         user_text: str,
@@ -1545,8 +2066,11 @@ class CopilotOrchestrator:
             f"You are the Critic ({ROLE_CRITIC}). "
             f"{COPILOT_ROLE_BRIEFS[ROLE_CRITIC]} "
             f"{COPILOT_ROLE_REPLY_STYLE} "
+            "Return ONLY APPROVE or REVISE on line 1, then short bullets keyed by "
+            "scenario/case code (diff-style). Never repeat Composer JSON. "
             "Do not include CLARIFY unless the user request itself is empty or contradictory."
         )
+        digest = self._composer_digest_for_critic(composer_text)
         messages = [
             ChatMessage(role="system", content=system),
             ChatMessage(
@@ -1555,8 +2079,8 @@ class CopilotOrchestrator:
                     ROLE_COMPOSER,
                     ROLE_CRITIC,
                     goal=f"Quality gate cho intent={intent}",
-                    acceptance="Dòng đầu: APPROVE hoặc REVISE; sau đó ghi chú cụ thể",
-                    body=f"Request:\n{user_text}\n\nComposer output:\n{composer_text}",
+                    acceptance="Dòng đầu: APPROVE hoặc REVISE; bullet ngắn theo code",
+                    body=f"Request:\n{user_text}\n\nComposer digest:\n{digest}",
                 ),
             ),
         ]

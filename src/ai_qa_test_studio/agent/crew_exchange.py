@@ -50,6 +50,7 @@ class CrewBoard:
     ctx_block: str
     intent: str
     complexity: str
+    hybrid_intent: str = ""
     plan_text: str = ""
     compose_text: str = ""
     critique_text: str = ""

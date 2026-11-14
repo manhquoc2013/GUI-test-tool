@@ -4,24 +4,56 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ai_qa_test_studio.core.enums import StepStatus
+from ai_qa_test_studio.core.text_normalize import coerce_str_list
 
 Priority = Literal["P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low"]
-TestType = Literal["Functional", "Negative", "Boundary", "UI/UX", "Security"]
+TestType = Literal["Functional", "Negative", "Boundary", "UI/UX", "Security", "API"]
 BindingStatus = Literal["UNBOUND", "BOUND", "HEALED"]
-CaseStatus = Literal["NOT_RUN", "PASS", "FAIL", "HEALED", "SKIPPED", "CANCELLED"]
+CaseStatus = Literal["NOT_RUN", "PASS", "FAIL", "HEALED", "SKIPPED", "CANCELLED", "BLOCKED"]
 StepAction = Literal[
     "goto",
+    "navigate",
     "click",
     "fill",
     "select",
     "press_enter",
     "hover",
+    "scroll",
+    "wait",
+    "assert",
     "assert_visible",
     "assert_text",
     "assert_url",
     "verify_db",
+    "api_request",
 ]
+
+
+class ElementFingerprint(BaseModel):
+    """Persistent locator identity — safe for YAML / SharedElement / Git."""
+
+    tag: str = ""
+    role: str | None = None
+    accessible_name: str | None = None
+    text_sample: str | None = None
+    test_id: str | None = None
+    css: str | None = None
+    xpath: str | None = None
+    frame_path: str | None = None
+    attrs_subset: dict[str, str] = Field(default_factory=dict)
+
+
+class DistilledNode(BaseModel):
+    """Ephemeral snapshot node — never persist short_id to YAML."""
+
+    short_id: str
+    parent_short_id: str | None = None
+    sibling_index: int = 0
+    bbox_norm: tuple[float, float, float, float] | None = None
+    fingerprint: ElementFingerprint = Field(default_factory=ElementFingerprint)
 
 
 class SharedElement(BaseModel):
@@ -39,6 +71,7 @@ class SharedElement(BaseModel):
     xpath: str | None = None
     vision_prompt: str | None = None
     thumbnail_b64: str | None = None
+    fingerprint: ElementFingerprint | None = None
 
 
 class TestStep(BaseModel):
@@ -69,6 +102,11 @@ class TestCase(BaseModel):
     script_artifact: str | None = None
     test_data_profile_id: str | None = None
     description: str = ""
+
+    @field_validator("preconditions", mode="before")
+    @classmethod
+    def _coerce_preconditions(cls, value: Any) -> list[str]:
+        return coerce_str_list(value)
 
 
 class TestScenario(BaseModel):
@@ -205,18 +243,32 @@ class StepAuditEntry(BaseModel):
     new_locator: str | None = None
     reason: str = ""
     binding_status: BindingStatus = "HEALED"
+    confidence_score: float | None = None
+    previous_selector: str | None = None
+    persisted: bool = False
 
 
 class RunStepResult(BaseModel):
+    """Step outcome; `StepResult` is the preferred alias via contracts."""
+
     step_no: int
     action: StepAction
     status: CaseStatus
+    step_status: StepStatus | None = None
     duration_ms: int = 0
     message: str = ""
+    previous_selector: str | None = None
+    confidence_score: float | None = None
+    fingerprint: ElementFingerprint | None = None
+    screenshot_path: str | None = None
     screenshot_b64: str | None = None
     click_x: float | None = None
     click_y: float | None = None
     audit: StepAuditEntry | None = None
+
+
+# Preferred name for callers / contracts re-export.
+StepResult = RunStepResult
 
 
 class CaseRunResult(BaseModel):

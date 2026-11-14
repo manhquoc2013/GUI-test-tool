@@ -35,13 +35,17 @@ from ai_qa_test_studio.constants import (
     COPILOT_STATUS_PREPARING,
     COPILOT_STATUS_STREAMING,
     COPILOT_STATUS_WORKING,
+    COPILOT_STREAM_ERROR_PREFIX,
+    COPILOT_STREAM_LENGTH_NOTICE,
     DEFAULT_SKILLS_DIRNAME,
     EVENT_AGENT_MESSAGE,
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
+    EVENT_ERROR,
     EVENT_FINAL_REPORT,
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
+    EVENT_TURN_END,
     ROLE_COMPOSER,
     ROLE_COORDINATOR,
     ROLE_CRITIC,
@@ -50,9 +54,23 @@ from ai_qa_test_studio.constants import (
     TOKEN_CONTEXT_BUDGET,
     WIZARD_IMPORT_BATCH_SIZE,
 )
+from ai_qa_test_studio.core.compose_mapping import (
+    apply_start_url_to_cases,
+    extract_start_url,
+    normalize_compose_scenarios,
+    should_rename_project,
+    suggest_project_name,
+)
 from ai_qa_test_studio.core.doc_corpus import ingest_path
-from ai_qa_test_studio.core.models import TestScenario
-from ai_qa_test_studio.ui.bubble_summary import format_final_report_bubble, summarize_for_bubble
+from ai_qa_test_studio.core.secret_masker import get_secret_masker
+from ai_qa_test_studio.ui.bubble_summary import (
+    extract_structured_payload,
+    format_final_report_bubble,
+    format_structured_payload_summary,
+    structured_stream_progress,
+    summarize_for_bubble,
+)
+from ai_qa_test_studio.ui.chat_markdown import looks_like_markdown_table
 from ai_qa_test_studio.ui.controllers.copilot_turn_sink import CopilotTurnSink
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 
@@ -66,13 +84,34 @@ def clip_chat_reply(
     *,
     from_role: str | None = None,
     to_role: str | None = None,
+    structured_payload: dict[str, Any] | None = None,
 ) -> str:
     """Short user-facing bubble; full body stays in artifacts / Apply / history."""
+    raw = text or ""
+    payload = structured_payload or extract_structured_payload(raw)
+    if payload:
+        card = format_structured_payload_summary(payload)
+        if card:
+            return summarize_for_bubble(
+                raw,
+                max_chars=max_chars,
+                from_role=from_role,
+                to_role=to_role,
+                structured_payload=payload,
+            )
+    # Keep tables + length/error notices intact so the bubble never goes silent mid-sentence.
+    if (
+        looks_like_markdown_table(raw)
+        or COPILOT_STREAM_LENGTH_NOTICE in raw
+        or COPILOT_STREAM_ERROR_PREFIX in raw
+    ):
+        return raw
     return summarize_for_bubble(
         text,
         max_chars=max_chars,
         from_role=from_role,
         to_role=to_role,
+        structured_payload=payload,
     )
 
 
@@ -235,6 +274,7 @@ class CopilotController:
         sink.set_status(COPILOT_STATUS_CONNECTING)
         sink.set_apply_payload(None)
         self.refresh_history_rail()
+        current_role: str | None = None
         try:
             attach_paths = [
                 str(p) for p in (flags.get("attach_paths") or []) if str(p).strip()
@@ -291,8 +331,8 @@ class CopilotController:
                 }
                 and (m.content or "").strip()
             ]
-            current_role: str | None = None
             stream_hinted = False
+            stream_buf = ""
             reply_cap = max(
                 80,
                 int(getattr(w.env.settings.copilot, "summary_max_chars", 0) or COPILOT_CHAT_REPLY_MAX_CHARS),
@@ -311,6 +351,7 @@ class CopilotController:
                 if event.kind == "role_start" and event.role:
                     current_role = event.role
                     stream_hinted = False
+                    stream_buf = ""
                     sink.begin_role(event.role)
                     sink.set_streaming_status(
                         COPILOT_STATUS_WORKING.format(
@@ -319,21 +360,36 @@ class CopilotController:
                         role=event.role,
                     )
                 elif event.kind == "chunk":
-                    # Skip raw tokens in transcript; surface that the model is streaming.
-                    if current_role and not stream_hinted:
-                        stream_hinted = True
-                        sink.set_streaming_status(
-                            COPILOT_STATUS_STREAMING, role=current_role
-                        )
+                    # Skip raw tokens in transcript; show JSON progress or streaming cue.
+                    if current_role:
+                        stream_buf += event.text or ""
+                        progress = structured_stream_progress(stream_buf)
+                        if progress:
+                            sink.set_streaming_status(progress, role=current_role)
+                            stream_hinted = True
+                        elif not stream_hinted:
+                            stream_hinted = True
+                            sink.set_streaming_status(
+                                COPILOT_STATUS_STREAMING, role=current_role
+                            )
                     continue
                 elif event.kind == "role_end" and event.role:
                     # Persist FULL body for next-turn / agent history; bubble stays short.
                     full = event.text or ""
-                    display = clip_chat_reply(full, reply_cap)
-                    sink.end_role(event.role, full, summary=display)
+                    payload = extract_structured_payload(full)
+                    display = clip_chat_reply(
+                        full, reply_cap, structured_payload=payload
+                    )
+                    sink.end_role(
+                        event.role,
+                        full,
+                        summary=display,
+                        structured_payload=payload,
+                    )
                     if current_role == event.role:
                         current_role = None
                     stream_hinted = False
+                    stream_buf = ""
                 elif event.kind == EVENT_STATUS_SUMMARY and event.role:
                     summary = clip_chat_reply(event.text, reply_cap)
                     # Preview only — do not overwrite session with the short summary.
@@ -389,6 +445,15 @@ class CopilotController:
                     sink.append_clarify_note(
                         event.role or "crew", clip_chat_reply(event.text, reply_cap)
                     )
+                elif event.kind == EVENT_ERROR:
+                    notice = get_secret_masker().mask_text(event.text or "")
+                    if notice:
+                        sink.append_error_to_active_bubble(
+                            notice, role=event.role or current_role
+                        )
+                elif event.kind == EVENT_TURN_END:
+                    # Explicit terminal from orchestrator finally — settle UI.
+                    continue
                 elif event.kind == "apply_ready" and event.apply_payload:
                     payload = event.apply_payload
                     sink.set_apply_payload(payload)
@@ -414,12 +479,21 @@ class CopilotController:
                     f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
                 )
         except Exception as exc:  # noqa: BLE001
-            w._last_error = str(exc)
-            w._toast_error("Copilot", str(exc))
+            masked = get_secret_masker().mask_text(str(exc))
+            w._last_error = masked
+            sink.append_error_to_active_bubble(
+                f"{COPILOT_STREAM_ERROR_PREFIX}{masked}",
+                role=current_role or ROLE_COMPOSER,
+            )
             sink.mark_stopped()
         finally:
+            # Always settle Điều phối viên / typing dots — normal end, Stop, length, or error.
             viewed_id = w.copilot.session.id
             w._chat_runs.finish_run(target.id, viewed_session_id=viewed_id)
+            sink.on_turn_finished()
+            # Drop Planner/Critic/mid drafts; keep final Composer + user turns.
+            if target.prune_intermediate_crew_drafts() and sink.viewing():
+                w.copilot.load_session(target, settle_incomplete=False)
             if target.has_user_messages():
                 w._chat_store.upsert(target)
                 w._chat_store.prune_empties()
@@ -509,26 +583,53 @@ class CopilotController:
         if w.project is None:
             return
         kind = payload.get("kind")
+        # Apply button ⇒ DeliveryMode.APPLY (RealityChecker gate on cases)
+        payload = {**payload, "delivery_mode": "apply", "apply_requested": True}
         if kind == APPLY_KIND_COMPOSE:
             scenarios_raw = payload.get("scenarios") or []
-            scenarios = [TestScenario.model_validate(item) for item in scenarios_raw]
+            scenarios = normalize_compose_scenarios(list(scenarios_raw))
             if not scenarios:
                 return
-            start_url = str(payload.get("start_url") or "").strip()
+            from ai_qa_test_studio.agent.reality_checker import RealityChecker
+
+            checker = RealityChecker()
+            for scenario in scenarios:
+                for case in scenario.cases:
+                    reality = checker.check_case(case)
+                    if not reality.ok:
+                        w._toast_warn(
+                            "Apply blocked",
+                            f"{case.code}: {reality.message}",
+                        )
+                        return
+            start_url = extract_start_url(
+                scenarios,
+                payload_start_url=str(payload.get("start_url") or ""),
+            )
             if start_url:
                 w.url_edit.setText(start_url)
-                for scenario in scenarios:
-                    for case in scenario.cases:
-                        case.start_url = start_url
+                apply_start_url_to_cases(scenarios, start_url)
+            if should_rename_project(w.project.name):
+                w.project.name = suggest_project_name(
+                    scenarios,
+                    payload_title=str(
+                        payload.get("title")
+                        or payload.get("suite_title")
+                        or payload.get("name")
+                        or ""
+                    ),
+                )
             # Batch extend; single save + one Explorer reload (no per-item refresh storm).
             batch = max(1, int(WIZARD_IMPORT_BATCH_SIZE))
             for offset in range(0, len(scenarios), batch):
                 w.project.root_group.scenarios.extend(scenarios[offset : offset + batch])
             w.storage.save(w.project)
             w._reload_ui()
+            data_rows = sum(len(c.test_data_rows) for s in scenarios for c in s.cases)
             w._append_log(
                 f"Copilot/AI Wizard Apply: {len(scenarios)} scenario, "
-                f"{sum(len(s.cases) for s in scenarios)} case UNBOUND"
+                f"{sum(len(s.cases) for s in scenarios)} case UNBOUND, "
+                f"{data_rows} Test Data"
             )
             w._toast_info("Apply", f"Đã thêm {len(scenarios)} scenario draft.")
             return

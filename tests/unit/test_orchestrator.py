@@ -288,7 +288,8 @@ async def test_explain_turn_is_quiet_but_answers_via_composer() -> None:
         kinds.append(event.kind)
         if event.kind == "role_start" and event.role:
             roles.append(event.role)
-    assert ROLE_COORDINATOR in roles
+    # CHAT_FAST/explain greeting path: no coordinator bubble; composer answers.
+    assert ROLE_COORDINATOR not in roles
     assert ROLE_COMPOSER in roles
     assert ROLE_CRITIC not in roles
     assert EVENT_AGENT_MESSAGE not in kinds
@@ -704,7 +705,8 @@ async def test_explain_skips_analyzer_even_when_enabled() -> None:
     assert ROLE_ANALYZER not in roles
     assert ROLE_OPTIMIZER not in roles
     assert ROLE_CRITIC not in roles
-    assert roles[0] == ROLE_COORDINATOR
+    assert ROLE_COORDINATOR not in roles
+    assert roles[0] == ROLE_COMPOSER
     assert ROLE_COMPOSER in roles
 
 

@@ -39,6 +39,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.chat_models import CopilotSession
 from ai_qa_test_studio.ui.qt_compat import graphics_effects_supported
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
 from ai_qa_test_studio.ui.theme import elevation_channel, get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
@@ -145,6 +146,7 @@ class ChatHistoryRail(QWidget):
         self.list.setSpacing(COPILOT_HISTORY_ROW_GAP)
         self.list.setUniformItemSizes(True)
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        apply_pixel_scroll(self.list)
         self.list.currentItemChanged.connect(self._on_current_item_changed)
         root.addWidget(self.list, stretch=0)
 

@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QListWidgetItem,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -21,9 +20,9 @@ from qfluentwidgets import (
     LineEdit,
     ListWidget,
     PlainTextEdit,
+    PopUpAniStackedWidget,
     PrimaryPushButton,
     PushButton,
-    SmoothScrollArea,
     StrongBodyLabel,
 )
 from qfluentwidgets import (
@@ -50,6 +49,7 @@ from ai_qa_test_studio.core.wizard_documents import (
     load_wizard_document,
     merge_wizard_scenarios,
 )
+from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll, create_scroll_area
 from ai_qa_test_studio.ui.widgets.step_progress_bar import StepProgressBar
 
 _URL_HINT = "https://your-app.example/ (tuỳ chọn — dùng cho Sync/Run)"
@@ -83,7 +83,7 @@ class ComposeWizardPanel(QWidget):
         self.progress = StepProgressBar(list(_STEP_TITLES), self)
         layout.addWidget(self.progress)
 
-        self.stack = QStackedWidget(self)
+        self.stack = PopUpAniStackedWidget(self)
         self.source_page = _SourceStep(self)
         self.scenario_page = _ScenarioStep(self)
         self.review_page = _ReviewStep(self)
@@ -210,7 +210,7 @@ class _SourceStep(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        scroll = SmoothScrollArea(self)
+        scroll = create_scroll_area(self)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("background: transparent; border: none;")
         container = QWidget()
@@ -249,6 +249,7 @@ class _SourceStep(QWidget):
         docs_col.setSpacing(6)
         self.doc_list = ListWidget(docs_wrap)
         self.doc_list.setMinimumHeight(UI_WIZARD_DOC_LIST_MIN_HEIGHT)
+        apply_pixel_scroll(self.doc_list)
         docs_col.addWidget(self.doc_list)
         docs_btns = QHBoxLayout()
         docs_btns.setContentsMargins(0, 0, 0, 0)
@@ -434,6 +435,7 @@ class _ScenarioStep(QWidget):
             CaptionLabel("Bỏ chọn scenario không cần trước khi tạo draft.", card)
         )
         self.list = ListWidget(card)
+        apply_pixel_scroll(self.list)
         self.list.setMinimumHeight(140)
         form.addWidget(self.list)
         self.hint = CaptionLabel("", card)

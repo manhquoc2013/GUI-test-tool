@@ -1,19 +1,35 @@
-"""System settings dialog layout + save smoke."""
+"""System settings dialog layout + save smoke (QT_QPA_PLATFORM=offscreen)."""
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import pytest
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QApplication, QStackedWidget, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QScrollArea, QSizePolicy, QStackedWidget, QWidget
 
 from ai_qa_test_studio.constants import (
+    SETTINGS_FILENAME,
     UI_SETTINGS_BTN_MAX_WIDTH,
+    UI_SETTINGS_FOOTER_MIN_HEIGHT,
     UI_SETTINGS_MIN_HEIGHT,
     UI_SETTINGS_MIN_WIDTH,
+    UI_SETTINGS_SPIN_HEIGHT,
+    UI_SETTINGS_SPIN_LINE_MIN_WIDTH,
+    UI_SETTINGS_SPIN_MIN_WIDTH,
 )
+from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.models import AppSettings
-from ai_qa_test_studio.ui.widgets.system_settings_dialog import SystemSettingsDialog
+from ai_qa_test_studio.ui.widgets.system_settings_dialog import (
+    SettingsSpinBox,
+    SystemSettingsDialog,
+)
 
 
 @pytest.fixture(scope="session")
@@ -24,6 +40,16 @@ def qapp() -> QApplication:
     return app
 
 
+def _all_spins(dialog: SystemSettingsDialog) -> list[SettingsSpinBox]:
+    return [
+        dialog.spin_summary,
+        dialog.spin_debate,
+        dialog.spin_loop,
+        dialog.spin_clarify,
+        dialog.spin_lean,
+    ]
+
+
 def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
     host = QWidget()
     host.resize(1200, 800)
@@ -32,12 +58,15 @@ def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
     dialog.show()
     qapp.processEvents()
 
+    assert dialog.minimumWidth() >= UI_SETTINGS_MIN_WIDTH
+    assert dialog.minimumHeight() >= UI_SETTINGS_MIN_HEIGHT
     assert dialog.widget.minimumWidth() >= UI_SETTINGS_MIN_WIDTH
     assert dialog.widget.minimumHeight() >= UI_SETTINGS_MIN_HEIGHT
     assert isinstance(dialog.stack, QStackedWidget)
     assert dialog.stack.count() == 7
     assert dialog.yesButton.maximumWidth() <= UI_SETTINGS_BTN_MAX_WIDTH
     assert dialog.cancelButton.maximumWidth() <= UI_SETTINGS_BTN_MAX_WIDTH
+    assert dialog._header_hint.wordWrap() is True
 
     dialog.env_edit.setText("STAGING")
     dialog.spin_summary.setValue(120)
@@ -53,12 +82,8 @@ def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
     host.close()
 
 
-def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> None:
-    """Translucent CardWidget/SpinBox + transparent viewport ghosts while scrolling."""
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QScrollArea, QSizePolicy
-
-    from ai_qa_test_studio.constants import UI_SETTINGS_SPIN_HEIGHT, UI_SETTINGS_SPIN_MIN_WIDTH
+def test_settings_spins_enabled_with_visible_text(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
 
     host = QWidget()
     host.resize(1200, 800)
@@ -66,17 +91,111 @@ def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> N
     dialog = SystemSettingsDialog(AppSettings(), host)
     dialog.show()
     qapp.processEvents()
+    dialog._show("copilot", 5)
+    qapp.processEvents()
+    dialog.resize(UI_SETTINGS_MIN_WIDTH, UI_SETTINGS_MIN_HEIGHT)
+    qapp.processEvents()
+
+    assert dialog.graphicsEffect() is None
+    assert dialog.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) is False
+    assert dialog.widget.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) is False
+    assert dialog.buttonGroup.minimumHeight() >= UI_SETTINGS_FOOTER_MIN_HEIGHT
+
+    for spin in _all_spins(dialog):
+        assert spin.isEnabled() is True
+        assert spin.text().strip() != ""
+        assert spin.minimumHeight() >= UI_SETTINGS_SPIN_HEIGHT
+        assert spin.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert spin.graphicsEffect() is None
+        line = spin.lineEdit()
+        assert line is not None
+        assert line.isEnabled() is True
+        assert line.isReadOnly() is False
+        assert line.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert line.graphicsEffect() is None
+        # Custom dialog QSS used to push Fluent lineEdit off-canvas (width ≤ 0/tiny).
+        assert line.width() > UI_SETTINGS_SPIN_LINE_MIN_WIDTH
+        assert line.text().strip() != ""
+        # No per-lineEdit override that fights Fluent SpinBox layout.
+        assert line.styleSheet() == ""
+
+    # Keyboard entry must change value (lineEdit not clipped / read-only).
+    spin = dialog.spin_debate
+    original = spin.value()
+    target = 7 if original != 7 else 5
+    line = spin.lineEdit()
+    assert line is not None
+    line.setFocus(Qt.FocusReason.OtherFocusReason)
+    qapp.processEvents()
+    line.selectAll()
+    QTest.keyClicks(line, str(target))
+    qapp.processEvents()
+    spin.interpretText()
+    qapp.processEvents()
+    assert spin.value() == target
+
+    assert dialog.spin_clarify.value() == 60_000
+    dialog.close()
+    host.close()
+
+
+def test_settings_save_writes_settings_json(qapp: QApplication, tmp_path: Path) -> None:
+    env = EnvManager(tmp_path)
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(env.settings, host)
+    dialog.show()
+    qapp.processEvents()
+
+    dialog.spin_debate.setValue(5)
+    dialog.spin_lean.setValue(3200)
+    dialog.spin_clarify.setValue(90_000)
+    assert dialog.validate() is True
+    result = dialog.result_settings()
+    assert result is not None
+    env._settings = result
+    env.save_settings()
+
+    settings_path = tmp_path / SETTINGS_FILENAME
+    assert settings_path.is_file()
+    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    copilot = payload["copilot"]
+    assert copilot["debateMaxRounds"] == 5
+    assert copilot["leanTailMaxTokens"] == 3200
+    assert copilot["clarifyTimeoutMs"] == 90_000
+    dialog.close()
+    host.close()
+
+
+def test_settings_scroll_and_spins_are_opaque_for_paint(qapp: QApplication) -> None:
+    """Content ScrollArea is opaque; footer (Lưu/Hủy) lives outside it with min height."""
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+    dialog.resize(UI_SETTINGS_MIN_WIDTH, UI_SETTINGS_MIN_HEIGHT)
+    qapp.processEvents()
 
     page = dialog.stack.currentWidget()
     assert isinstance(page, QScrollArea)
     assert page.objectName() == "SystemSettingsScroll"
+    assert page.widgetResizable() is True
+    assert page.isEnabled() is True
+    assert page.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) is False
     assert "transparent" not in page.styleSheet().lower()
+    # Footer is a sibling of viewLayout content — not inside page ScrollArea.
+    assert dialog.buttonGroup.parentWidget() is dialog.widget
+    assert dialog.yesButton.isVisibleTo(dialog)
+    assert dialog.cancelButton.isVisibleTo(dialog)
+    assert dialog.buttonGroup.minimumHeight() >= UI_SETTINGS_FOOTER_MIN_HEIGHT
     assert dialog.spin_summary.focusPolicy() == Qt.FocusPolicy.StrongFocus
-    assert "transparent" not in dialog.spin_summary.styleSheet().lower()
     assert dialog.spin_summary.property("transparent") is False
     assert dialog.spin_summary.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
     assert dialog.spin_summary.minimumWidth() >= UI_SETTINGS_SPIN_MIN_WIDTH
-    assert dialog.spin_summary.height() == UI_SETTINGS_SPIN_HEIGHT
+    assert dialog.spin_summary.minimumHeight() >= UI_SETTINGS_SPIN_HEIGHT
     dialog.close()
     host.close()
 

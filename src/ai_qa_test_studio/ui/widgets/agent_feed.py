@@ -7,6 +7,12 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from ai_qa_test_studio.constants import ICON_COLOR_DANGER, ICON_COLOR_SUCCESS, ICON_COLOR_WARN
+from ai_qa_test_studio.ui.smooth_scroll import (
+    make_jump_button,
+    style_jump_button,
+    wire_list_auto_scroll,
+)
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 
 class AgentFeed(QWidget):
@@ -23,11 +29,18 @@ class AgentFeed(QWidget):
         self.list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.itemClicked.connect(self._toggle_detail)
+        self.jump_latest = make_jump_button(self)
+        style_jump_button(self.jump_latest)
+        self._theme_slot = bind_widget_theme(
+            self, lambda: style_jump_button(self.jump_latest)
+        )
+        self._auto_scroll = wire_list_auto_scroll(self.list, jump_button=self.jump_latest)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         layout.addWidget(self._title)
-        layout.addWidget(self.list)
+        layout.addWidget(self.list, stretch=1)
+        layout.addWidget(self.jump_latest, 0, Qt.AlignmentFlag.AlignHCenter)
 
     def set_title_visible(self, visible: bool) -> None:
         self._title.setVisible(visible)
@@ -35,6 +48,7 @@ class AgentFeed(QWidget):
     def clear(self) -> None:
         self._lines.clear()
         self.list.clear()
+        self._auto_scroll.set_following(True)
 
     def append_message(self, message: str) -> None:
         text = message.strip()
@@ -61,7 +75,7 @@ class AgentFeed(QWidget):
                 self.list.takeItem(0)
                 if self._lines:
                     self._lines.pop(0)
-        self.list.scrollToBottom()
+        self._auto_scroll.on_content_appended()
 
     def to_plain_text(self) -> str:
         return "\n".join(self._lines)

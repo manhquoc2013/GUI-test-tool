@@ -8,8 +8,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ai_qa_test_studio.agent.llm_json import loads_llm_json, preview_llm_text
-from ai_qa_test_studio.constants import LLM_JSON_ONLY_RULE, SPEC_OUTLINE_COVER_RULE
-from ai_qa_test_studio.core.models import TestCase, TestScenario, TestStep
+from ai_qa_test_studio.constants import (
+    LLM_JSON_ONLY_RULE,
+    PRIORITY_MAP,
+    SPEC_OUTLINE_COVER_RULE,
+)
+from ai_qa_test_studio.core.compose_mapping import (
+    coerce_preconditions,
+    ensure_case_test_data_rows,
+    normalize_raw_step,
+)
+from ai_qa_test_studio.core.models import Priority, TestCase, TestScenario, TestStep, TestType
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
 logger = logging.getLogger(__name__)
@@ -43,10 +52,12 @@ class SpecGenerator:
         prompt = (
             f"{LLM_JSON_ONLY_RULE} "
             "Shape: {\"scenarios\":[{code,title,requirement_ref,description,cases}]}. "
-            "Each case: {code,title,preconditions,steps}. "
-            "Each step: {step_no,action,intent_hint,input_data,expected_result}. "
-            "Actions must be one of: goto,click,fill,select,press_enter,hover,"
-            "assert_visible,assert_text,assert_url,verify_db.\n\n"
+            "Each case: {code,title,priority,test_type,preconditions,steps}. "
+            "Each step: {step_no,action,intent_hint,target,input_data,expected_result}. "
+            "Actions must be one of: navigate,click,fill,select,hover,scroll,wait,"
+            "assert,api_request (also accept goto/assert_visible aliases). "
+            "preconditions may be a string or string[]; never character-split. "
+            "Put every input value / threshold into input_data (test_data).\n\n"
             + self.compressor.budget.truncate_to_cap(table_markdown, cap=4000)
         )
         raw = await self.llm(prompt)
@@ -75,7 +86,11 @@ class SpecGenerator:
             f"Generate up to {batch_size} IEEE-style test cases as JSON for scenario "
             f"{scenario.code}: {scenario.title}. "
             "Shape: a JSON array of cases, or {\"cases\":[...]}. "
-            "Each case keys: code,title,priority,preconditions,steps."
+            "Each case keys: code,title,priority,test_type,preconditions,steps. "
+            "Use priority P1/P2/P3 appropriately (not all P1). "
+            "Actions: navigate|click|fill|select|hover|scroll|wait|assert|api_request. "
+            "Each step must include intent_hint, target (semantic UI object), and "
+            "input_data whenever values/thresholds appear."
         )
         raw = await self.llm(prompt)
         return self._parse_cases(raw, scenario)
@@ -203,40 +218,7 @@ class SpecGenerator:
                 for case_item in cases_raw:
                     if not isinstance(case_item, dict):
                         continue
-                    steps: list[TestStep] = []
-                    for idx, step in enumerate(case_item.get("steps") or [], start=1):
-                        if not isinstance(step, dict):
-                            continue
-                        try:
-                            steps.append(
-                                TestStep(
-                                    step_no=int(step.get("step_no") or idx),
-                                    action=step.get("action") or "click",
-                                    intent_hint=str(
-                                        step.get("intent_hint")
-                                        or step.get("description")
-                                        or ""
-                                    ),
-                                    input_data=step.get("input_data"),
-                                    expected_result=str(step.get("expected_result") or ""),
-                                    binding_status="UNBOUND",
-                                )
-                            )
-                        except Exception:  # noqa: BLE001 — LLM may emit invalid action literals
-                            steps.append(
-                                TestStep(
-                                    step_no=idx,
-                                    action="click",
-                                    intent_hint=str(
-                                        step.get("intent_hint")
-                                        or step.get("action")
-                                        or step.get("description")
-                                        or ""
-                                    ),
-                                    expected_result=str(step.get("expected_result") or ""),
-                                    binding_status="UNBOUND",
-                                )
-                            )
+                    steps = self._parse_steps(case_item.get("steps") or [])
                     scenario.cases.append(
                         TestCase(
                             id=str(uuid.uuid4()),
@@ -245,13 +227,20 @@ class SpecGenerator:
                                 or f"{scenario.code}_C{len(scenario.cases) + 1:02d}"
                             ),
                             title=str(case_item.get("title") or scenario.title),
-                            preconditions=[
-                                str(p) for p in (case_item.get("preconditions") or [])
-                            ],
+                            priority=self._parse_priority(case_item.get("priority")),
+                            test_type=self._parse_test_type(case_item.get("test_type")),
+                            preconditions=coerce_preconditions(case_item.get("preconditions")),
                             steps=steps,
                             requirement_ref=scenario.requirement_ref,
+                            description=str(case_item.get("description") or ""),
+                            expected_final_result=str(
+                                case_item.get("expected_final_result")
+                                or case_item.get("expected_result")
+                                or ""
+                            ),
                         )
                     )
+                    ensure_case_test_data_rows(scenario.cases[-1])
             scenarios.append(scenario)
         return scenarios
 
@@ -269,42 +258,78 @@ class SpecGenerator:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            steps_raw = item.get("steps") or []
-            steps: list[TestStep] = []
-            for idx, s in enumerate(steps_raw, start=1):
-                if not isinstance(s, dict):
-                    continue
-                try:
-                    steps.append(
-                        TestStep(
-                            step_no=int(s.get("step_no") or idx),
-                            action=s.get("action") or "click",
-                            intent_hint=str(s.get("intent_hint") or s.get("description") or ""),
-                            input_data=s.get("input_data"),
-                            expected_result=str(s.get("expected_result") or ""),
-                            binding_status="UNBOUND",
-                        )
-                    )
-                except Exception:  # noqa: BLE001 — LLM may emit invalid action literals
-                    steps.append(
-                        TestStep(
-                            step_no=idx,
-                            action="click",
-                            intent_hint=str(
-                                s.get("intent_hint") or s.get("action") or s.get("description") or ""
-                            ),
-                            expected_result=str(s.get("expected_result") or ""),
-                            binding_status="UNBOUND",
-                        )
-                    )
-            cases.append(
-                TestCase(
-                    id=str(uuid.uuid4()),
-                    code=str(item.get("code") or f"{scenario.code}_C{len(cases)+1:02d}"),
-                    title=str(item.get("title") or scenario.title),
-                    preconditions=[str(p) for p in (item.get("preconditions") or [])],
-                    steps=steps,
-                    requirement_ref=scenario.requirement_ref,
-                )
+            steps = self._parse_steps(item.get("steps") or [])
+            case = TestCase(
+                id=str(uuid.uuid4()),
+                code=str(item.get("code") or f"{scenario.code}_C{len(cases)+1:02d}"),
+                title=str(item.get("title") or scenario.title),
+                priority=self._parse_priority(item.get("priority")),
+                test_type=self._parse_test_type(item.get("test_type")),
+                preconditions=coerce_preconditions(item.get("preconditions")),
+                steps=steps,
+                requirement_ref=scenario.requirement_ref,
+                description=str(item.get("description") or ""),
+                expected_final_result=str(
+                    item.get("expected_final_result") or item.get("expected_result") or ""
+                ),
             )
+            cases.append(ensure_case_test_data_rows(case))
         return cases
+
+    @staticmethod
+    def _parse_priority(raw: object) -> Priority:
+        text = str(raw or "").strip()
+        if not text:
+            return "P1 - High"
+        if text in {"P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low"}:
+            return text  # type: ignore[return-value]
+        mapped = PRIORITY_MAP.get(text.upper()[:2])
+        if mapped is not None:
+            return mapped  # type: ignore[return-value]
+        lowered = text.lower()
+        if "critical" in lowered or "p0" in lowered:
+            return "P0 - Critical"
+        if "high" in lowered or "p1" in lowered:
+            return "P1 - High"
+        if "medium" in lowered or "p2" in lowered:
+            return "P2 - Medium"
+        if "low" in lowered or "p3" in lowered:
+            return "P3 - Low"
+        return "P1 - High"
+
+    @staticmethod
+    def _parse_test_type(raw: object) -> TestType:
+        text = str(raw or "").strip()
+        allowed = {
+            "Functional",
+            "Negative",
+            "Boundary",
+            "UI/UX",
+            "Security",
+            "API",
+        }
+        if text in allowed:
+            return text  # type: ignore[return-value]
+        lowered = text.lower()
+        if "api" in lowered:
+            return "API"
+        if "neg" in lowered:
+            return "Negative"
+        if "bound" in lowered or "bva" in lowered:
+            return "Boundary"
+        if "ui" in lowered or "ux" in lowered:
+            return "UI/UX"
+        if "sec" in lowered:
+            return "Security"
+        return "Functional"
+
+    @staticmethod
+    def _parse_steps(steps_raw: object) -> list[TestStep]:
+        if not isinstance(steps_raw, list):
+            return []
+        steps: list[TestStep] = []
+        for idx, raw_step in enumerate(steps_raw, start=1):
+            if not isinstance(raw_step, dict):
+                continue
+            steps.append(normalize_raw_step(raw_step, index=idx))
+        return steps

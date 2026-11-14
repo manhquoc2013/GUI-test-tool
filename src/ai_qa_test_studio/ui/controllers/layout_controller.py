@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QTimer
 
 from ai_qa_test_studio.constants import (
     UI_BREAKPOINT_MEDIUM,
@@ -17,15 +17,18 @@ from ai_qa_test_studio.constants import (
     UI_EDITOR_MIN_WIDTH,
     UI_EXPLORER_MIN_WIDTH,
     UI_MOTION_NORMAL_MS,
+    UI_RESIZE_DEBOUNCE_MS,
     UI_SIDEBAR_WIDTH,
     UI_SIDEBAR_WIDTH_COMPACT,
     UI_SIDEBAR_WIDTH_MAX,
+    UI_SPLITTER_PAINT_PAUSE_MS,
     UI_THREE_COL_SAFE,
 )
 from ai_qa_test_studio.ui.motion import (
     CHANNEL_WIDTH,
     animate_splitter_size,
     stop_channel,
+    suspend_updates,
 )
 from ai_qa_test_studio.ui.widgets.right_drawer import TAB_COPILOT
 
@@ -40,9 +43,29 @@ class LayoutController:
         self._saved_dock_w = UI_DRAWER_WIDTH
         self._applying = False
         self._dock_animating = False
+        self._sidebar_animating = False
+        self._resize_timer = QTimer(window)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(UI_RESIZE_DEBOUNCE_MS)
+        self._resize_timer.timeout.connect(self._flush_resize_breakpoint)
+        self._pending_resize_w = 0
+        self._splitter_paint_timer = QTimer(window)
+        self._splitter_paint_timer.setSingleShot(True)
+        self._splitter_paint_timer.setInterval(UI_SPLITTER_PAINT_PAUSE_MS)
+        self._splitter_paint_timer.timeout.connect(self._resume_splitter_paint)
 
     def connect_splitter(self) -> None:
         self._w.h_splitter.splitterMoved.connect(self._on_splitter_moved)
+
+    def schedule_resize_breakpoint(self, width: int) -> None:
+        """Debounce MainWindow.resizeEvent so heavy panes do not reflow every frame."""
+        self._pending_resize_w = width
+        self._resize_timer.start()
+
+    def _flush_resize_breakpoint(self) -> None:
+        w = self._w
+        with suspend_updates(w.workspace):
+            self.apply_layout_breakpoint(self._pending_resize_w or w.width())
 
     def apply_layout_breakpoint(self, width: int) -> None:
         w = self._w
@@ -97,23 +120,31 @@ class LayoutController:
 
             w.builder.setMinimumWidth(UI_EDITOR_MIN_WIDTH)
 
+            if self._dock_animating or self._sidebar_animating:
+                # Width driven by animation — keep current pane sizes, do not snap.
+                sizes = w.h_splitter.sizes()
+                show_explorer = explorer_visible or self._sidebar_animating
+                show_dock = dock_visible or self._dock_animating
+                w.explorer.setVisible(show_explorer)
+                if show_dock:
+                    w.right_drawer.show()
+                self._restore_splitter_sizes(
+                    sidebar_target,
+                    show_explorer,
+                    show_dock,
+                    explorer_width_override=max(sizes[0], 0) if sizes else 0,
+                    dock_width_override=(
+                        max(sizes[2], 0) if len(sizes) > 2 else 0
+                    ),
+                )
+                return
+
             if explorer_visible:
                 w.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
                 w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
             else:
                 w.explorer.setMinimumWidth(0)
                 w.explorer.setMaximumWidth(0)
-
-            if self._dock_animating:
-                # Keep explorer/editor constraints; dock width driven by animation.
-                w.explorer.setVisible(explorer_visible)
-                self._restore_splitter_sizes(
-                    sidebar_target,
-                    explorer_visible,
-                    dock_visible=True,
-                    dock_width_override=max(w.h_splitter.sizes()[2] if len(w.h_splitter.sizes()) > 2 else 0, 0),
-                )
-                return
 
             if dock_visible:
                 w.right_drawer.setMinimumWidth(UI_DOCK_MIN_WIDTH)
@@ -136,14 +167,18 @@ class LayoutController:
         dock_visible: bool,
         *,
         dock_width_override: int | None = None,
+        explorer_width_override: int | None = None,
     ) -> None:
         w = self._w
         total = max(w.h_splitter.width(), w.width(), 1)
         sizes = [0, 0, 0]
         if explorer_visible:
-            preferred = sidebar_target or self._saved_explorer_w
-            sizes[0] = min(max(self._saved_explorer_w, UI_EXPLORER_MIN_WIDTH), preferred)
-            sizes[0] = max(UI_EXPLORER_MIN_WIDTH, min(sizes[0], UI_SIDEBAR_WIDTH_MAX))
+            if explorer_width_override is not None:
+                sizes[0] = max(0, min(explorer_width_override, UI_SIDEBAR_WIDTH_MAX))
+            else:
+                preferred = sidebar_target or self._saved_explorer_w
+                sizes[0] = min(max(self._saved_explorer_w, UI_EXPLORER_MIN_WIDTH), preferred)
+                sizes[0] = max(UI_EXPLORER_MIN_WIDTH, min(sizes[0], UI_SIDEBAR_WIDTH_MAX))
         if dock_visible:
             if dock_width_override is not None:
                 sizes[2] = max(0, min(dock_width_override, UI_DOCK_MAX_WIDTH))
@@ -153,9 +188,12 @@ class LayoutController:
         w.h_splitter.setSizes(sizes)
 
     def _on_splitter_moved(self, _pos: int = 0, _index: int = 0) -> None:
-        if self._applying or self._dock_animating:
+        if self._applying or self._dock_animating or self._sidebar_animating:
             return
         w = self._w
+        if w.h_splitter.updatesEnabled():
+            w.h_splitter.setUpdatesEnabled(False)
+        self._splitter_paint_timer.start()
         sizes = w.h_splitter.sizes()
         if len(sizes) < 3:
             return
@@ -163,6 +201,11 @@ class LayoutController:
             self._saved_explorer_w = sizes[0]
         if w.right_drawer.isVisible() and sizes[2] >= UI_DOCK_MIN_WIDTH:
             self._saved_dock_w = sizes[2]
+
+    def _resume_splitter_paint(self) -> None:
+        splitter = self._w.h_splitter
+        if not splitter.updatesEnabled():
+            splitter.setUpdatesEnabled(True)
 
     def handle_resize_filter(self, watched: object, event: QEvent) -> bool:
         if event.type() != QEvent.Type.Resize:
@@ -199,15 +242,16 @@ class LayoutController:
             # Mutual-exclusion swap snaps dock closed (explorer takes the slot).
             # Stop in-flight width anim so open/close on_done cannot resurrect dock.
             w._prefer_dock = False
-            self._dock_animating = False
-            stop_channel(w.right_drawer, CHANNEL_WIDTH)
+            self._stop_dock_anim()
             w.right_drawer.close_drawer()
             w.top_bar.set_copilot_checked(False)
             w.right_drawer.setMinimumWidth(0)
             w.right_drawer.setMaximumWidth(0)
-        w._sidebar_collapsed = not w._sidebar_collapsed
         w._prefer_dock = False
-        self.apply_layout_breakpoint(w.width())
+        if opening:
+            self._animate_open_sidebar()
+        else:
+            self._animate_close_sidebar()
 
     def _open_dock_policy(self) -> None:
         w = self._w
@@ -219,14 +263,108 @@ class LayoutController:
         w = self._w
         return max(UI_DOCK_MIN_WIDTH, min(self._saved_dock_w, w._drawer_width, UI_DOCK_MAX_WIDTH))
 
+    def _target_sidebar_width(self) -> int:
+        return max(
+            UI_EXPLORER_MIN_WIDTH,
+            min(self._saved_explorer_w, self._sidebar_target_for_width(), UI_SIDEBAR_WIDTH_MAX),
+        )
+
     def _sidebar_target_for_width(self) -> int:
         width = self._w.width()
         if width >= UI_BREAKPOINT_WIDE:
             return UI_SIDEBAR_WIDTH
         return UI_SIDEBAR_WIDTH_COMPACT
 
+    def _stop_sidebar_anim(self) -> None:
+        w = self._w
+        self._sidebar_animating = False
+        stop_channel(w.explorer, CHANNEL_WIDTH)
+
+    def _stop_dock_anim(self) -> None:
+        w = self._w
+        self._dock_animating = False
+        stop_channel(w.right_drawer, CHANNEL_WIDTH)
+
+    def _animate_open_sidebar(self) -> None:
+        w = self._w
+        self._stop_sidebar_anim()
+        w._sidebar_collapsed = False
+        target = self._target_sidebar_width()
+        self._sidebar_animating = True
+        self._applying = True
+        try:
+            dock_visible = w.right_drawer.is_open
+            w.builder.setMinimumWidth(UI_EDITOR_MIN_WIDTH)
+            w.explorer.setMinimumWidth(0)
+            w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
+            w.explorer.show()
+            if dock_visible:
+                w.right_drawer.setMinimumWidth(UI_DOCK_MIN_WIDTH)
+                w.right_drawer.setMaximumWidth(UI_DOCK_MAX_WIDTH)
+            else:
+                w.right_drawer.setMinimumWidth(0)
+                w.right_drawer.setMaximumWidth(0)
+            self._restore_splitter_sizes(
+                self._sidebar_target_for_width(),
+                explorer_visible=True,
+                dock_visible=dock_visible,
+                explorer_width_override=0,
+            )
+        finally:
+            self._applying = False
+
+        def _on_done() -> None:
+            self._sidebar_animating = False
+            w.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
+            w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
+            self.apply_layout_breakpoint(w.width())
+
+        animate_splitter_size(
+            w.h_splitter,
+            0,
+            0,
+            target,
+            host=w.explorer,
+            duration_ms=UI_MOTION_NORMAL_MS,
+            on_done=_on_done,
+        )
+
+    def _animate_close_sidebar(self) -> None:
+        w = self._w
+        if w._sidebar_collapsed and not w.explorer.isVisible():
+            return
+        self._stop_sidebar_anim()
+        sizes = w.h_splitter.sizes()
+        start = sizes[0] if sizes else self._target_sidebar_width()
+        if start >= UI_EXPLORER_MIN_WIDTH:
+            self._saved_explorer_w = start
+        # Keep logically open until animation ends so mid-flight resize does not snap-hide.
+        self._sidebar_animating = True
+        w.explorer.setMinimumWidth(0)
+        w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
+
+        def _on_done() -> None:
+            self._sidebar_animating = False
+            w._sidebar_collapsed = True
+            w.explorer.setMinimumWidth(0)
+            w.explorer.setMaximumWidth(0)
+            w.explorer.hide()
+            self.apply_layout_breakpoint(w.width())
+
+        animate_splitter_size(
+            w.h_splitter,
+            0,
+            start,
+            0,
+            host=w.explorer,
+            duration_ms=UI_MOTION_NORMAL_MS,
+            on_done=_on_done,
+        )
+
     def _animate_open_dock(self, tab: str = TAB_COPILOT, *, compose: bool = False) -> None:
         w = self._w
+        self._stop_sidebar_anim()
+        self._stop_dock_anim()
         was_open = w.right_drawer.is_open
         sizes_before = list(w.h_splitter.sizes())
         start = (
@@ -268,6 +406,9 @@ class LayoutController:
             w.right_drawer.setMinimumWidth(UI_DOCK_MIN_WIDTH)
             w.right_drawer.setMaximumWidth(UI_DOCK_MAX_WIDTH)
             w.top_bar.set_copilot_checked(True)
+            # Snap to constraint-aware sizes — animation must not leave explorer
+            # wider than maximumWidth (dead gap between editor and dock).
+            self.apply_layout_breakpoint(w.width())
 
         animate_splitter_size(
             w.h_splitter,
@@ -283,6 +424,8 @@ class LayoutController:
         w = self._w
         if not w.right_drawer.is_open and not w.right_drawer.isVisible():
             return
+        self._stop_sidebar_anim()
+        self._stop_dock_anim()
         sizes = w.h_splitter.sizes()
         start = sizes[2] if len(sizes) > 2 else self._target_dock_width()
         if start >= UI_DOCK_MIN_WIDTH:
@@ -349,6 +492,8 @@ class LayoutController:
     def set_busy_chrome(self, busy: bool) -> None:
         w = self._w
         w.top_bar.set_running(busy)
+        if hasattr(w, "set_mcp_warmup"):
+            w.set_mcp_warmup(busy)
         if busy:
             w.busy_bar.show()
             w.busy_bar.start()

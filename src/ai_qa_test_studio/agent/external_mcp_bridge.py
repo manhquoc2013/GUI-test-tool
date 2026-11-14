@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_qa_test_studio.agent.binary_resolver import BinaryResolver
+from ai_qa_test_studio.agent.healer import may_persist_bound
 from ai_qa_test_studio.agent.mcp_client import McpClientFactory
 from ai_qa_test_studio.agent.mcp_manager import McpManager
 from ai_qa_test_studio.constants import DEFAULT_MCP_SERVERS_FILENAME
@@ -79,3 +80,8 @@ class ExternalMcpBridge:
     async def stop_all(self) -> None:
         await self._client.close_all()
         await self._manager.stop_all()
+
+    @staticmethod
+    def may_persist_bound_patch(confidence: float) -> bool:
+        """BOUND / SharedElement YAML patch only when ≥ HEAL_PERSIST_THRESHOLD."""
+        return may_persist_bound(confidence)

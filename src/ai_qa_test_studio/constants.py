@@ -12,6 +12,9 @@ SETTINGS_FILENAME = "settings.json"
 STUDIO_DIRNAME = ".studio"
 STUDIO_RUNTIME_DB = "runtime.db"
 STUDIO_ARTIFACTS_DIRNAME = "artifacts"
+STUDIO_RUNS_DIRNAME = "runs"
+EVIDENCE_MANIFEST_FILENAME = "manifest.json"
+EVIDENCE_AUDIT_FILENAME = "healing_audit.json"
 APP_STUDIO_DB = "studio.db"
 PROJECT_YAML_FILENAME = "project.yaml"
 PROJECT_SUITES_DIRNAME = "suites"
@@ -60,29 +63,61 @@ COPILOT_HISTORY_DELETE_TIP = "Xóa phiên này khỏi lịch sử"
 COPILOT_HISTORY_ROW_DELETE_SIZE = 26
 COPILOT_SLIDING_TURNS = 8
 COPILOT_CHAT_MAX_TOKENS = 2048
+COPILOT_GEN_MAX_TOKENS = 8192
 COPILOT_INPUT_HEIGHT = 64
 COPILOT_BTN_SEND_SIZE = 36
 COPILOT_STOP_MARKER = "— Đã dừng —"
 COPILOT_INCOMPLETE_MARKER = "— Chưa hoàn tất —"
 COPILOT_STOP_SUFFIX = f"\n\n{COPILOT_STOP_MARKER}"
+COPILOT_STREAM_LENGTH_NOTICE = (
+    "\n\n⚠️ Phản hồi tạm dừng do đạt giới hạn độ dài. "
+    "Nhập 'tiếp tục' để sinh nốt phần còn lại."
+)
+COPILOT_STREAM_ERROR_PREFIX = "⚠️ Lỗi khi đọc phản hồi model:\n"
+COPILOT_URL_BROWSER_OFF_NOTE = (
+    "ℹ️ Browser/MCP chưa bật — scenario dựa trên prompt (chưa đọc cấu trúc trang)."
+)
 COPILOT_STOP_ICON_INSET_RATIO = 0.28
 COPILOT_STOP_ICON_RADIUS_RATIO = 0.14
 COPILOT_STOP_TOOLTIP = "Dừng phản hồi Copilot"
 COPILOT_CHIP_HEIGHT = 26
+COPILOT_CHIP_MIN_WIDTH = 64
+COPILOT_CHIP_ERROR_MIN_WIDTH = 72
 COPILOT_MODEL_COMBO_HEIGHT = 28
 COPILOT_MODEL_COMBO_MIN_WIDTH = 88
 COPILOT_MODEL_COMBO_MAX_WIDTH = 148
 COPILOT_CONTEXT_FLOW_SPACING = 6
+COPILOT_CONTEXT_ROW_MIN_HEIGHT = 36
 COPILOT_COMPOSER_GAP = 8
 COPILOT_COMPOSER_PADDING = 8
 COPILOT_STATUS_MIN_HEIGHT = 28
+LLM_FINISH_REASON_LENGTH = "length"
+LLM_FINISH_REASON_STOP = "stop"
+URL_HTTP_RE = r"https?://[^\s<>\"'`\])\},]+"
+URL_CONTEXT_MAX_CHARS = 6000
+URL_FETCH_TIMEOUT_S = 12.0
+CHAT_MD_TABLE_CSS = (
+    "table{border-collapse:collapse;width:100%;margin:6px 0;}"
+    "th,td{border:1px solid #94A3B8;padding:4px 8px;text-align:left;vertical-align:top;}"
+    "th{font-weight:600;}"
+)
 COPILOT_ATTACH_MAX_FILES = 5
 COPILOT_ATTACH_PER_FILE_CHARS = 4000
 COPILOT_ATTACH_TOTAL_CHARS = 8000
 COPILOT_ATTACH_PREVIEW_CHARS = 800
 COPILOT_ATTACH_BTN_LABEL = "File"
+COPILOT_ATTACH_BTN_MIN_WIDTH = 36
 COPILOT_ATTACH_CHIP_HEIGHT = 28
 COPILOT_ATTACH_NAME_MAX_CHARS = 42
+COPILOT_STRUCTURED_DRAFT_BANNER = (
+    '[Bản nháp — Bấm "Áp dụng vào dự án" để lưu]'
+)
+COPILOT_JSON_STREAM_PROGRESS = (
+    "Đang cấu trúc bộ kịch bản kiểm thử (đã tạo {count} nhóm)…"
+)
+COPILOT_TEST_CASE_GEN_MAX_CASES = 8
+COPILOT_CRITIC_COMPOSER_DIGEST_CHARS = 1200
+COPILOT_COMPOSER_INPUT_MIN_WIDTH = 80
 DOC_CORPUS_DB_NAME = "doc_corpus.db"
 DOC_CORPUS_CACHE_DIRNAME = "ai_qa_test_studio"
 DOC_CORPUS_TMP_DB_NAME = "tmp_corpus.db"
@@ -129,6 +164,8 @@ COPILOT_STATUS_INFERRING_INTENT = "Đang nhận diện intent…"
 COPILOT_STATUS_COORD_DECIDE = "Điều phối viên đang chọn bước tiếp…"
 COPILOT_STATUS_INDEXING = "Đang index tài liệu đính kèm…"
 COPILOT_STATUS_ROLE_HANDOFF = "{role} đang chờ · đã giao → {next_role}"
+COPILOT_STATUS_ROLE_ROUTED = "✓ Đã định tuyến → {next_role}"
+COPILOT_STATUS_WAITING_FRAGMENT = "đang chờ"
 COPILOT_COORD_COMPLETE_FALLBACK = "Hoàn tất điều phối"
 COPILOT_COORD_JSON_HIDDEN = "Đã điều phối xong"
 COPILOT_COORD_EXPLAIN_GOAL = "Trả lời trực tiếp câu hỏi người dùng"
@@ -332,11 +369,13 @@ COPILOT_ROLE_BRIEFS: dict[str, str] = {
     ROLE_COMPOSER: (
         "Bạn là Chuyên gia kiểm thử. Thực thi đúng handoff từ hoạch định. "
         "Output: tóm tắt bubble tiếng Việt + artifact JSON khi intent=compose|test_data. "
+        "Tôn trọng stage isolation: test_scenario = scenario cấp cao (không lồng cases/steps); "
+        "test_case_gen = cases/steps cho scenario chỉ định (tối đa 8 case/lượt). "
         "Không yêu cầu đúng keyword; hiểu diễn đạt tự nhiên / lỗi chính tả."
     ),
     ROLE_CRITIC: (
         "Bạn là Chuyên gia phản biện (quality gate). Chỉ APPROVE hoặc REVISE. "
-        "REVISE phải liệt kê lỗ hổng cụ thể (thiếu expected, BVA, mâu thuẫn SRS). "
+        "REVISE: bullet ngắn theo mã (code), dạng diff — không lặp lại JSON Composer. "
         "Không APPROVE khi thiếu bằng chứng — tránh fantasy approval."
     ),
     ROLE_ANALYZER: (
@@ -443,6 +482,8 @@ EVENT_CLARIFY_RESOLVED = "clarify_resolved"
 EVENT_LOOP_HALTED = "loop_halted"
 EVENT_TOOL_CALL = "tool_call"
 EVENT_CHUNK = "chunk"
+EVENT_ERROR = "error"
+EVENT_TURN_END = "turn_end"
 COPILOT_FINAL_REPORT_MAX_CHARS = 420
 COPILOT_FINAL_REPORT_EMPTY = "Hoàn tất — chưa có artifact/kết quả để áp dụng."
 CLARIFY_SOURCE_USER = "user"
@@ -476,13 +517,17 @@ CLARIFY_AMBIGUITY_MARKERS = (
 ROUTING_MODE_AUTO = "auto"
 ROUTING_MODE_MANUAL = "manual"
 UI_SETTINGS_MIN_WIDTH = 820
-UI_SETTINGS_MIN_HEIGHT = 580
-UI_SETTINGS_CONTENT_HEIGHT = 400
+UI_SETTINGS_MIN_HEIGHT = 640
+UI_SETTINGS_CONTENT_HEIGHT = 420
 UI_SETTINGS_LIST_HEIGHT = 150
 UI_SETTINGS_BTN_MIN_WIDTH = 112
 UI_SETTINGS_BTN_MAX_WIDTH = 140
 UI_SETTINGS_FIELD_SPACING = 12
 UI_SETTINGS_SECTION_GAP = 14
+UI_SETTINGS_HEADER_MARGIN_H = 28
+UI_SETTINGS_HEADER_MARGIN_TOP = 24
+UI_SETTINGS_HEADER_MARGIN_BOTTOM = 12
+UI_SETTINGS_FOOTER_MIN_HEIGHT = 56
 UI_SETTINGS_MODEL_COMBO_PLACEHOLDER = "Gõ để tìm model từ API…"
 UI_SETTINGS_MODEL_COMBO_TOOLTIP = (
     "Danh sách chỉ gồm model tải từ API nhà cung cấp. Gõ để lọc/tìm tên model."
@@ -526,15 +571,17 @@ UI_EXPLORER_CONTENT_H_MARGIN = 16
 UI_EDITOR_MIN_WIDTH = 520
 UI_STEPS_COL_INDEX_WIDTH = 44
 UI_STEPS_COL_ACTION_WIDTH = 88
+UI_STEPS_COL_EXPECTED_WIDTH = 160
 UI_STEPS_COL_BINDING_WIDTH = 118
 UI_STEPS_HEADER_MIN_SECTION = 40
+UI_STEPS_COL_COUNT = 6
 UI_UNBOUND_BANNER_TITLE = "Có bước chưa gắn selector (UNBOUND)"
 UI_UNBOUND_BANNER_BODY = (
     "Nhập Target URL trên thanh công cụ rồi nhấn Sync để Agent tự động ánh xạ selector từ DOM."
 )
 UI_DATA_COL_SCENARIO_WIDTH = 210
-UI_DATA_COL_EXPECTED_WIDTH = 105
-UI_DATA_HEADER_MIN_SECTION = 72
+UI_DATA_COL_EXPECTED_WIDTH = 168
+UI_DATA_HEADER_MIN_SECTION = 96
 UI_DATA_TABLE_ROW_HEIGHT = 36
 UI_TREE_INDENT = 14
 UI_BROWSER_PANE_MIN_WIDTH = 320
@@ -544,7 +591,7 @@ UI_TABLE_ROW_HEIGHT = 42
 UI_TREE_ROW_HEIGHT = 34
 UI_MSG_ACTION_BTN_SIZE = 28
 CHAT_BUBBLE_MIN_WIDTH = 180
-CHAT_BUBBLE_PANEL_RATIO = 0.94
+CHAT_BUBBLE_PANEL_RATIO = 0.85
 CHAT_BUBBLE_RADIUS = 12
 CHAT_BUBBLE_PADDING_H = 12
 CHAT_BUBBLE_PADDING_V = 10
@@ -588,6 +635,25 @@ UI_SPLIT_SIZES_V = (540, 190)
 UI_MOTION_FAST_MS = 150
 UI_MOTION_NORMAL_MS = 220
 UI_MOTION_CHAT_MS = 180
+UI_MOTION_SLIDE_PX = 10
+UI_RESIZE_DEBOUNCE_MS = 24
+UI_SPLITTER_PAINT_PAUSE_MS = 16
+UI_SCROLL_NEAR_BOTTOM_PX = 48
+UI_JUMP_LATEST_LABEL = "Cuộn xuống mới nhất"
+UI_JUMP_LATEST_FG_LIGHT = "#1a1a1a"
+UI_JUMP_LATEST_FG_DARK = "#ffffff"
+UI_JUMP_LATEST_PADDING_H = 14
+UI_JUMP_LATEST_PADDING_V = 6
+UI_JUMP_LATEST_RADIUS = 16
+UI_JUMP_LATEST_BORDER_PX = 1
+UI_THINKING_STATUS = "Đang phân tích / Đang suy luận…"
+UI_MCP_WARMUP_LABEL = "MCP: đang warm-up…"
+UI_EXPORT_PROGRESS_TITLE = "Đang xuất báo cáo"
+UI_EXPORT_PROGRESS_BODY = "Ghi file trên luồng nền…"
+UI_EVIDENCE_LOADING = "Đang tải ảnh evidence…"
+UI_PROGRESS_RING_SIZE = 18
+UI_STEP_SPINNER_SIZE = 16
+COPILOT_STATUS_THINKING = "Đang phân tích / Đang suy luận…"
 UI_CANVAS_MARGIN_H = 20
 UI_CANVAS_MARGIN_V = 14
 UI_CANVAS_MARGIN_H_COMPACT = 12
@@ -595,7 +661,10 @@ UI_CANVAS_MARGIN_V_COMPACT = 10
 UI_CARD_GAP = 12
 UI_SETTINGS_NAV_WIDTH = 175
 UI_SETTINGS_SPIN_MIN_WIDTH = 200
-UI_SETTINGS_SPIN_HEIGHT = 33
+UI_SETTINGS_SPIN_HEIGHT = 36
+UI_SETTINGS_SPIN_LINE_MIN_WIDTH = 40
+UI_SETTINGS_SPIN_LINE_LEFT = 10
+UI_SETTINGS_SPIN_BUTTONS_RESERVE = 80
 UI_BTN_WIZARD_MIN_WIDTH = 115
 UI_BTN_SYNC_MIN_WIDTH = 104
 UI_BTN_RUN_MIN_WIDTH = 96
@@ -693,6 +762,8 @@ WIZARD_DOC_HEADER_EXPECTED = "expected result"
 WIZARD_DOC_HEADER_PRECONDITIONS = "pre-conditions"
 WIZARD_DOC_HEADER_REQUIREMENT = "requirement"
 WIZARD_DOC_HEADER_DESCRIPTION = "description"
+WIZARD_DOC_HEADER_TARGET = "target"
+WIZARD_DOC_HEADER_INTENT = "intent"
 WIZARD_DOC_SHEET_SCENARIOS = "test scenarios"
 WIZARD_DOC_SHEET_CASES = "test cases"
 WIZARD_DOC_CONTEXT_CAP_CHARS = 6000
@@ -717,6 +788,7 @@ WIZARD_DOC_HEADER_COMPACT_ALIASES = {
     "name": WIZARD_DOC_HEADER_TITLE,
     "testdata": WIZARD_DOC_HEADER_TEST_DATA,
     "inputdata": WIZARD_DOC_HEADER_TEST_DATA,
+    "datainput": WIZARD_DOC_HEADER_TEST_DATA,
     "data": WIZARD_DOC_HEADER_TEST_DATA,
     "expectedresult": WIZARD_DOC_HEADER_EXPECTED,
     "expected": WIZARD_DOC_HEADER_EXPECTED,
@@ -724,12 +796,23 @@ WIZARD_DOC_HEADER_COMPACT_ALIASES = {
     "precondition": WIZARD_DOC_HEADER_PRECONDITIONS,
     "requirement": WIZARD_DOC_HEADER_REQUIREMENT,
     "requirementid": WIZARD_DOC_HEADER_REQUIREMENT,
+    "target": WIZARD_DOC_HEADER_TARGET,
+    "element": WIZARD_DOC_HEADER_TARGET,
+    "object": WIZARD_DOC_HEADER_TARGET,
+    "intent": WIZARD_DOC_HEADER_INTENT,
+    "intenthint": WIZARD_DOC_HEADER_INTENT,
     "reqid": WIZARD_DOC_HEADER_REQUIREMENT,
     "description": WIZARD_DOC_HEADER_DESCRIPTION,
     "desc": WIZARD_DOC_HEADER_DESCRIPTION,
-    "intent": "intent",
 }
 DEFAULT_TARGET_URL = "https://example.com"
+COPILOT_SUITE_TITLE_SUFFIX = " — Copilot Suite"
+PLACEHOLDER_PROJECT_NAMES = frozenset(
+    {
+        "Imported Legacy Project",
+        "New Project",
+    }
+)
 FALLBACK_BLANK_URL = "about:blank"
 DEFAULT_SKILLS_DIRNAME = "skills"
 UI_INFOBAR_DURATION_MS = 6000
@@ -794,6 +877,8 @@ CONTEXT_KEY_SKILL_BODY = "skill_body"
 CONTEXT_KEY_SKILL_NAME = "skill_name"
 CONTEXT_KEY_PROJECT_ROOT = "project_root"
 ACTION_GOTO = "goto"
+STEP_WAIT_DEFAULT_MS = 500
+STEP_SCROLL_DEFAULT_DELTA_Y = 600
 ACTION_MAP_JAVA_TO_V4 = {
     "NAVIGATE": "goto",
     "GOTO": "goto",
@@ -823,3 +908,123 @@ BINDING_BOUND = "BOUND"
 BINDING_HEALED = "HEALED"
 VAR_PATTERN_LEGACY = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
 VAR_PATTERN_V4 = r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"
+
+# Self-heal dual thresholds (Sprint 2+)
+HEAL_RUN_THRESHOLD = 0.65
+HEAL_PERSIST_THRESHOLD = 0.85
+HEAL_NAME_HEURISTIC_CONFIDENCE = 0.70
+HEAL_VISION_DEFAULT_CONFIDENCE = 0.70
+
+# Fingerprint score weights (sum = 1.0)
+FP_WEIGHT_TEST_ID = 0.45
+FP_WEIGHT_ROLE_NAME = 0.25
+FP_WEIGHT_CSS = 0.15
+FP_WEIGHT_XPATH = 0.10
+FP_WEIGHT_TEXT = 0.05
+
+# SnapshotDistiller
+SNAPSHOT_MAX_NODES = 80
+SNAPSHOT_INCLUDE_ARIA_DEFAULT = False
+
+# DualLoop MCP-first (Sprint 4+); falls back to in-process page when executor unavailable
+MCP_ACTIONS_ENABLED = True
+
+# SkillAutoMatcher
+SKILL_MATCH_WEIGHT_INTENT = 0.45
+SKILL_MATCH_WEIGHT_KEYWORD = 0.30
+SKILL_MATCH_WEIGHT_WORKSPACE = 0.25
+SKILL_MATCH_MIN_SCORE = 0.45
+SKILL_MATCH_MAX_PER_TURN = 2
+
+# ThinkingPolicy token budgets
+THINKING_BUDGET_OFF = 0
+THINKING_BUDGET_LOW = 768
+THINKING_BUDGET_MEDIUM = 3072
+THINKING_BUDGET_HIGH = 8192
+
+# ContextCompactor pin markers + snapshot/tool retention
+COMPACTOR_PIN_PREFIX = "[[PIN:"
+COMPACTOR_PIN_SUFFIX = "]]"
+COMPACTOR_SNAPSHOT_MARKER = "browser_snapshot"
+COMPACTOR_SNAPSHOT_STUB_FROM_AGE = 2  # keep t-0..t-1 full; stub browser_snapshot from t-2+
+COMPACTOR_KEEP_LAST_TOOL_PAIRS = 2
+COMPACTOR_SNAPSHOT_STUB_TEMPLATE = "[stub:{marker} age=t-{age} omitted]"
+COMPACTOR_TOOL_ROLE_NAMES = frozenset({"tool", "function", "tool_call", "tool_result"})
+COMPACTOR_TOOL_CONTENT_MARKERS = (
+    "tool_call",
+    "tool_result",
+    "browser_click",
+    "browser_fill",
+    "browser_navigate",
+    "browser_type",
+)
+COMPACTOR_SYSTEM_ROLES = frozenset({"system"})
+COMPACTOR_TESTCASE_MARKERS = ("testcase", "test_case", "[[pin:testcase", "[[pin:case")
+COMPACTOR_CREW_DRAFT_ROLES = frozenset(
+    {ROLE_PLANNER, ROLE_COMPOSER, ROLE_CRITIC, ROLE_COORDINATOR}
+)
+COMPACTOR_CREW_FINAL_ROLES = frozenset({ROLE_COMPOSER, ROLE_COORDINATOR, "assistant"})
+
+# MCP error taxonomy class names
+MCP_ERR_TRANSIENT = "TRANSIENT"
+MCP_ERR_STALE_REF = "STALE_REF"
+MCP_ERR_BAD_ARGS = "BAD_ARGS"
+MCP_ERR_DOM_CHANGED = "DOM_CHANGED"
+MCP_ERR_FATAL = "FATAL"
+MCP_EXECUTOR_MAX_RETRIES = 2
+
+# Bindable step actions (case_binding_summary)
+BINDABLE_STEP_ACTIONS = frozenset(
+    {
+        "click",
+        "fill",
+        "select",
+        "hover",
+        "press_enter",
+        "assert",
+        "assert_visible",
+        "assert_text",
+    }
+)
+NON_BINDABLE_STEP_ACTIONS = frozenset(
+    {
+        "goto",
+        "navigate",
+        "scroll",
+        "wait",
+        "assert_url",
+        "verify_db",
+        "api_request",
+    }
+)
+
+# Slash → IntentType
+INTENT_SLASH_MAP = {
+    "/chat": "chat_fast",
+    "/research": "research",
+    "/scenario": "test_scenario",
+    "/tc": "test_case_gen",
+    "/script": "test_script_gen",
+    "/run": "exec_and_bind",
+    "/audit": "swarm_audit",
+}
+APPLY_PROMPT_RE = r"(?i)^\s*(?:apply|/apply)\b"
+
+# Outbound SecretMasker
+SECRET_MASK_PLACEHOLDER = "***MASKED***"
+SECRET_MASK_KEY_HINTS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "credential",
+)
+
+# AsyncTaskSupervisor
+SUPERVISOR_KEY_COPILOT_PREFIX = "copilot:"
+MICRO_ROUTER_TIMEOUT_S = 3.5
+MICRO_ROUTER_MIN_CONFIDENCE = 0.6

@@ -10,6 +10,7 @@ from typing import Any
 
 from ai_qa_test_studio.constants import (
     COPILOT_CHAT_MAX_TOKENS,
+    LLM_FINISH_REASON_STOP,
     LLM_PROVIDER_GEMINI,
     LLM_PROVIDER_OFFLINE,
     LLM_PROVIDER_OPENAI_COMPAT,
@@ -55,6 +56,7 @@ class UnifiedLLMGateway:
         self.base_url = base_url
         self._openai_client: Any | None = None
         self._gemini_client: Any | None = None
+        self.last_finish_reason: str | None = None
 
     @classmethod
     def from_settings(cls, ai: AiSettings) -> UnifiedLLMGateway:
@@ -72,11 +74,14 @@ class UnifiedLLMGateway:
         max_tokens: int = COPILOT_CHAT_MAX_TOKENS,
         cancel: asyncio.Event | None = None,
     ) -> AsyncIterator[str]:
+        self.last_finish_reason = None
         if cancel is not None and cancel.is_set():
             return
         if self.provider == LLM_PROVIDER_OFFLINE:
             async for chunk in self._stream_offline(messages, cancel=cancel):
                 yield chunk
+            if self.last_finish_reason is None and (cancel is None or not cancel.is_set()):
+                self.last_finish_reason = LLM_FINISH_REASON_STOP
             return
         if self.provider == LLM_PROVIDER_GEMINI:
             async for chunk in self._stream_gemini(messages, max_tokens=max_tokens, cancel=cancel):
@@ -177,9 +182,16 @@ class UnifiedLLMGateway:
                     if asyncio.iscoroutine(result):
                         await result
                 return
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                yield delta
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            reason = getattr(choice, "finish_reason", None)
+            if reason:
+                self.last_finish_reason = str(reason)
+            delta = getattr(choice, "delta", None)
+            content = getattr(delta, "content", None) if delta is not None else None
+            if content:
+                yield content
 
     async def _stream_gemini(
         self,
@@ -210,9 +222,16 @@ class UnifiedLLMGateway:
                         if asyncio.iscoroutine(result):
                             await result
                     return
+                candidates = getattr(chunk, "candidates", None) or ()
+                for candidate in candidates:
+                    reason = getattr(candidate, "finish_reason", None)
+                    if reason is not None:
+                        self.last_finish_reason = str(reason).split(".")[-1].lower()
                 text = getattr(chunk, "text", None)
                 if text:
                     yield text
+            if self.last_finish_reason is None and (cancel is None or not cancel.is_set()):
+                self.last_finish_reason = LLM_FINISH_REASON_STOP
         except Exception as exc:  # noqa: BLE001
             logger.error("gemini_stream_failed err=%s", exc)
             raise

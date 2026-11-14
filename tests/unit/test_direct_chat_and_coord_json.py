@@ -112,8 +112,9 @@ async def test_casual_question_uses_coordinator_then_composer() -> None:
             assert not looks_like_coord_protocol(event.text) or not event.text.startswith(
                 "{"
             )
-    assert roles_started[0] == ROLE_COORDINATOR
-    assert ROLE_COMPOSER in roles_started
+    # CHAT_FAST: footer status chip only — no separate coordinator bubble/role_start.
+    assert ROLE_COORDINATOR not in roles_started
+    assert roles_started[0] == ROLE_COMPOSER
     assert ROLE_CRITIC not in roles_started
     assert composer_ended
     assert EVENT_AGENT_MESSAGE not in kinds
