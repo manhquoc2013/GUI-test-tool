@@ -92,3 +92,40 @@ async def test_gemini_cancel_closes_stream() -> None:
             sys.modules["google.genai"] = prev_genai
     assert parts
     assert closed["n"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_openai_client_reused_across_streams() -> None:
+    created = {"n": 0}
+
+    class _EmptyStream:
+        def __aiter__(self) -> _EmptyStream:
+            return self
+
+        async def __anext__(self) -> Any:
+            raise StopAsyncIteration
+
+    class _FakeOpenAI:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            created["n"] += 1
+            self.chat = MagicMock()
+            self.chat.completions.create = AsyncMock(return_value=_EmptyStream())
+
+    openai_mod = ModuleType("openai")
+    openai_mod.AsyncOpenAI = _FakeOpenAI  # type: ignore[attr-defined]
+    prev = sys.modules.get("openai")
+    sys.modules["openai"] = openai_mod
+    try:
+        gw = UnifiedLLMGateway(
+            provider="openai_compatible", api_key="k", model="gpt-4o", base_url="http://x"
+        )
+        async for _ in gw.stream_chat([ChatMessage(role="user", content="a")]):
+            pass
+        async for _ in gw.stream_chat([ChatMessage(role="user", content="b")]):
+            pass
+        assert created["n"] == 1
+    finally:
+        if prev is None:
+            sys.modules.pop("openai", None)
+        else:
+            sys.modules["openai"] = prev

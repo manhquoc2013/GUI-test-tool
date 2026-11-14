@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 from ai_qa_test_studio.constants import (
     COPILOT_CHAT_MAX_TOKENS,
@@ -52,6 +53,7 @@ class UnifiedLLMGateway:
         self.api_key = api_key
         self.model = model or "offline"
         self.base_url = base_url
+        self._openai_client: Any | None = None
 
     @classmethod
     def from_settings(cls, ai: AiSettings) -> UnifiedLLMGateway:
@@ -129,7 +131,11 @@ class UnifiedLLMGateway:
             from openai import AsyncOpenAI
         except ImportError as exc:
             raise RuntimeError("openai package required for OpenAI-compatible provider") from exc
-        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url or None)
+        if self._openai_client is None:
+            self._openai_client = AsyncOpenAI(
+                api_key=self.api_key, base_url=self.base_url or None
+            )
+        client = self._openai_client
         payload = [{"role": m.role, "content": m.content} for m in messages]
         stream = await client.chat.completions.create(
             model=self.model,
