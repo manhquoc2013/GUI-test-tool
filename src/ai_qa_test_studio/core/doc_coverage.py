@@ -13,7 +13,6 @@ from ai_qa_test_studio.constants import (
     DOC_COVERAGE_MAX_SECTIONS,
     DOC_COVERAGE_MIN_CHUNKS,
     DOC_COVERAGE_SECTION_MAX_CHARS,
-    INTENT_COMPOSE,
 )
 from ai_qa_test_studio.core.doc_corpus import corpus_db_path
 
@@ -61,32 +60,6 @@ class CoveragePlan:
     total_chunks: int
     covered_chunks: int
     total_windows: int
-
-
-def should_run_coverage(*, intent: str, total_chunks: int) -> bool:
-    return intent == INTENT_COMPOSE and total_chunks >= DOC_COVERAGE_MIN_CHUNKS
-
-
-def sum_document_chunks(
-    project_root: Path | str | None, doc_ids: Sequence[str]
-) -> int:
-    ids = [d for d in doc_ids if d]
-    if not ids:
-        return 0
-    db_path = corpus_db_path(project_root)
-    if not db_path.is_file():
-        return 0
-    conn = sqlite3.connect(str(db_path), timeout=5.0)
-    try:
-        placeholders = ",".join("?" for _ in ids)
-        row = conn.execute(
-            f"SELECT COALESCE(SUM(total_chunks), 0) FROM documents "
-            f"WHERE doc_id IN ({placeholders})",
-            list(ids),
-        ).fetchone()
-        return int(row[0] if row else 0)
-    finally:
-        conn.close()
 
 
 def load_chunks(
@@ -199,31 +172,76 @@ def build_section_map_from_chunks(
 
     if len(raw) <= max_sections:
         return raw
-    merged: list[DocSection] = []
-    group = max(1, (len(raw) + max_sections - 1) // max_sections)
-    for i in range(0, len(raw), group):
-        batch = raw[i : i + group]
+    return _merge_sections_within_docs(raw, max_sections=max_sections)
+
+
+def _merge_same_doc_sections(
+    sections: Sequence[DocSection], *, max_slots: int
+) -> list[DocSection]:
+    """Pack sections of one doc into ≤ max_slots — never changes doc_id."""
+    if not sections:
+        return []
+    max_slots = max(1, int(max_slots))
+    doc_id = sections[0].doc_id
+    if any(s.doc_id != doc_id for s in sections):
+        raise ValueError("same-doc merge received mixed doc_id")
+    if len(sections) <= max_slots:
+        return list(sections)
+    group = max(1, (len(sections) + max_slots - 1) // max_slots)
+    packed: list[DocSection] = []
+    for i in range(0, len(sections), group):
+        batch = list(sections[i : i + group])
         indexes: list[int] = []
         for item in batch:
             indexes.extend(item.chunk_indexes)
-        merged.append(
+        packed.append(
             DocSection(
-                section_id=f"S{len(merged) + 1:02d}",
+                section_id=batch[0].section_id,
                 title=(
                     batch[0].title
                     if len(batch) == 1
                     else f"{batch[0].title} (+{len(batch) - 1})"
                 ),
-                doc_id=batch[0].doc_id,
+                doc_id=doc_id,
                 chunk_indexes=tuple(indexes),
             )
         )
-    # Never silently drop sections (former merged[:max_sections] trap).
-    if len(merged) > max_sections:
-        raise RuntimeError(
-            f"section merge produced {len(merged)} > max_sections={max_sections}"
+    return packed
+
+
+def _merge_sections_within_docs(
+    raw: Sequence[DocSection], *, max_sections: int
+) -> list[DocSection]:
+    """Reduce section count without ever merging across documents."""
+    max_sections = max(1, int(max_sections))
+    order: list[str] = []
+    by_doc: dict[str, list[DocSection]] = {}
+    for section in raw:
+        if section.doc_id not in by_doc:
+            order.append(section.doc_id)
+            by_doc[section.doc_id] = []
+        by_doc[section.doc_id].append(section)
+
+    n_docs = len(order)
+    # Each doc keeps ≥1 section so no document is dropped.
+    base = max(1, max_sections // n_docs)
+    remainder = max(0, max_sections - base * n_docs)
+    merged: list[DocSection] = []
+    for index, doc_id in enumerate(order):
+        slots = base + (1 if index < remainder else 0)
+        merged.extend(
+            _merge_same_doc_sections(by_doc[doc_id], max_slots=slots)
         )
-    return merged
+    # Renumber for stable S01… labels after pack.
+    return [
+        DocSection(
+            section_id=f"S{i:02d}",
+            title=section.title,
+            doc_id=section.doc_id,
+            chunk_indexes=section.chunk_indexes,
+        )
+        for i, section in enumerate(merged, start=1)
+    ]
 
 
 def build_section_map(
@@ -364,10 +382,11 @@ def plan_coverage_windows(
     total_windows = sum(len(wins) for _, wins in section_windows)
     if total_windows < 1:
         return None
+    non_empty = len(expected_chunk_keys(chunks))
     return CoveragePlan(
         sections=tuple(sections),
         section_windows=tuple(section_windows),
-        total_chunks=len(chunks),
+        total_chunks=non_empty,
         covered_chunks=covered,
         total_windows=total_windows,
     )

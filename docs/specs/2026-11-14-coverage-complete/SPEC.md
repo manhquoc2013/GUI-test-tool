@@ -5,8 +5,7 @@ Mỗi chunk (kể cả multi-doc attach) vào ≥1 Composer window; không trunc
 
 ## Success
 - Completeness key `(doc_id, chunk_index)` — test multi-doc fail nếu drop một doc.
-- Coverage path: **một** `load_chunks` (gate + windows); status dùng `plan.total_chunks`.
-- Empty scenarios → `mark_compose` + status lỗi; không để board trống.
-- Stop giữa pass → flush partial `apply_ready` nếu đã có scenario.
-- Coverage orchestration: `agent/coverage_pass.py`.
-- `max_sections` luôn ≥ 1; notes chỉ “ok” khi window có scenario.
+- Merge section **không** gộp cross-`doc_id` (kể cả khi `max_sections` thấp).
+- Coverage path: một `load_chunks`; status dùng số chunk non-empty.
+- Empty scenarios → `mark_compose`; Stop → partial `apply_ready` rồi `stopped`.
+- Ingest: thiếu `id` → tự gán UUID (không drop im lặng).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -69,14 +70,18 @@ def _ingest_window_scenarios(
     """Append validated scenarios; return how many were added."""
     added = 0
     for raw in payload.get("scenarios") or []:
+        if not isinstance(raw, dict):
+            continue
+        data = dict(raw)
+        if not str(data.get("id") or "").strip():
+            data["id"] = str(uuid.uuid4())
+        if not str(data.get("code") or "").strip():
+            data["code"] = f"T{len(merged) + 1:02d}"
         try:
-            scenario = TestScenario.model_validate(raw)
+            scenario = TestScenario.model_validate(data)
         except Exception:  # noqa: BLE001
             continue
-        if not scenario.code:
-            scenario.code = f"{code_prefix}_{len(merged) + 1:02d}"
-        else:
-            scenario.code = f"{code_prefix}_{scenario.code}"
+        scenario.code = f"{code_prefix}_{scenario.code}"
         if section_title and not scenario.requirement_ref:
             scenario.requirement_ref = section_title
         merged.append(scenario)

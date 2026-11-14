@@ -1,7 +1,8 @@
 # Learnings — Coverage completeness
 
-- Completeness keys `(doc_id, chunk_index)`; index-only false-greens multi-attach.
-- After Coverage statuses, never leave `compose_text` empty — heuristic Top-K composes again.
-- One corpus load for gate+windows (`plan_coverage_windows` + `min_chunks`).
-- Stop flush must finish before orchestrator aborts: return only on `ev.kind == "stopped"`, not bare `stop.is_set()`.
-- `TestScenario` requires `id`; silent validate skips drop scenarios without tests noticing.
+- Completeness keys `(doc_id, chunk_index)`; never merge sections across docs.
+- When `n_docs > max_sections`, keep ≥1 section/doc (may exceed budget) — never drop a doc.
+- One `load_chunks` for gate+windows; status uses non-empty chunk count.
+- Stop flush: orchestrator returns only on `ev.kind == "stopped"`.
+- Ingest: missing scenario `id` → UUID; do not silent-drop.
+- Removed unused `should_run_coverage` / `sum_document_chunks` (gate lives in `plan_coverage_windows`).

@@ -6,15 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ai_qa_test_studio.constants import INTENT_COMPOSE, INTENT_EXPLAIN
 from ai_qa_test_studio.core import doc_coverage as cov
 from ai_qa_test_studio.core.doc_corpus import ingest_path
-
-
-def test_should_run_coverage_threshold() -> None:
-    assert cov.should_run_coverage(intent=INTENT_COMPOSE, total_chunks=4) is True
-    assert cov.should_run_coverage(intent=INTENT_COMPOSE, total_chunks=3) is False
-    assert cov.should_run_coverage(intent=INTENT_EXPLAIN, total_chunks=99) is False
 
 
 def test_section_map_from_headings(tmp_path: Path) -> None:
@@ -99,6 +92,56 @@ def test_multi_doc_completeness_uses_doc_id_pairs(tmp_path: Path) -> None:
     partial = cov.covered_chunk_keys(root, kept, chunks=chunks)
     assert partial != expected
     assert len(partial) < len(expected)
+
+
+def test_multi_doc_merge_low_max_sections_keeps_all_chunks(tmp_path: Path) -> None:
+    """Must: aggressive section budget must not merge across doc_id."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    ids: list[str] = []
+    for name, letter in (("a.md", "A"), ("b.md", "B")):
+        path = tmp_path / name
+        path.write_text(
+            "\n\n".join(f"# {letter}{i}\n" + ("word " * 100) for i in range(20)),
+            encoding="utf-8",
+        )
+        ids.append(ingest_path(root, path).doc_id)
+
+    chunks = cov.load_chunks(root, ids)
+    expected = cov.expected_chunk_keys(chunks)
+    sections = cov.build_section_map_from_chunks(
+        chunks, max_sections=3, chunks_per_section=1
+    )
+    assert sections
+    # No section may list indexes that only exist on another doc.
+    by = {(c.doc_id, c.chunk_index): c for c in chunks}
+    for section in sections:
+        for index in section.chunk_indexes:
+            assert (section.doc_id, index) in by
+    covered = cov.covered_chunk_keys(root, sections, chunks=chunks)
+    assert covered == expected
+    # Mutation trap: old cross-doc merge lost pairs under low max_sections.
+    assert len(covered) == len(expected)
+
+
+def test_ingest_fills_missing_scenario_id() -> None:
+    from ai_qa_test_studio.agent.coverage_pass import _ingest_window_scenarios
+
+    merged: list = []
+    added = _ingest_window_scenarios(
+        payload={
+            "scenarios": [
+                {"code": "T1", "title": "Login", "cases": []},
+            ]
+        },
+        section_title="Auth",
+        code_prefix="S01",
+        merged=merged,
+    )
+    assert added == 1
+    assert merged[0].id
+    assert merged[0].code.startswith("S01_")
+    assert merged[0].requirement_ref == "Auth"
 
 
 def test_plan_coverage_windows_single_load(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
-# Todo — Coverage polish (review #3)
+# Todo — Coverage review #4
 
-- [x] Single load: gate inside `plan_coverage_windows`
-- [x] Stop mid-pass flush partial Apply (+ orchestrator wait for `stopped`)
-- [x] Nice: max_sections≥1, honest notes, plan.total_chunks status
-- [x] Tests + gates (235 passed)
+- [x] Merge within doc only + multi-doc low max_sections test
+- [x] Ingest auto-fill missing scenario id
+- [x] Status denominator = non-empty chunk keys
+- [x] Gates 237 + mutation re-review
