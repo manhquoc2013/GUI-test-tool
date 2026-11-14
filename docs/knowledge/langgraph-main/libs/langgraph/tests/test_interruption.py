@@ -1,0 +1,314 @@
+import asyncio
+import operator
+import sys
+from dataclasses import dataclass
+from typing import Annotated, Any
+
+import pytest
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from pydantic import BaseModel, ValidationError
+from typing_extensions import TypedDict
+
+from langgraph.errors import is_invalid_resume
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, Durability, Interrupt, interrupt
+from tests.any_str import AnyStr
+
+pytestmark = pytest.mark.anyio
+
+
+def test_interruption_without_state_updates(
+    sync_checkpointer: BaseCheckpointSaver, durability: Durability
+) -> None:
+    """Test interruption without state updates. This test confirms that
+    interrupting doesn't require a state key having been updated in the prev step"""
+
+    class State(TypedDict):
+        input: str
+
+    def noop(_state):
+        pass
+
+    builder = StateGraph(State)
+    builder.add_node("step_1", noop)
+    builder.add_node("step_2", noop)
+    builder.add_node("step_3", noop)
+    builder.add_edge(START, "step_1")
+    builder.add_edge("step_1", "step_2")
+    builder.add_edge("step_2", "step_3")
+    builder.add_edge("step_3", END)
+
+    graph = builder.compile(checkpointer=sync_checkpointer, interrupt_after="*")
+
+    initial_input = {"input": "hello world"}
+    thread = {"configurable": {"thread_id": "1"}}
+
+    graph.invoke(initial_input, thread, durability=durability)
+    assert graph.get_state(thread).next == ("step_2",)
+    n_checkpoints = len([c for c in graph.get_state_history(thread)])
+    assert n_checkpoints == (3 if durability != "exit" else 1)
+
+    graph.invoke(None, thread, durability=durability)
+    assert graph.get_state(thread).next == ("step_3",)
+    n_checkpoints = len([c for c in graph.get_state_history(thread)])
+    assert n_checkpoints == (4 if durability != "exit" else 2)
+
+    graph.invoke(None, thread, durability=durability)
+    assert graph.get_state(thread).next == ()
+    n_checkpoints = len([c for c in graph.get_state_history(thread)])
+    assert n_checkpoints == (5 if durability != "exit" else 3)
+
+
+async def test_interruption_without_state_updates_async(
+    async_checkpointer: BaseCheckpointSaver, durability: Durability
+) -> None:
+    """Test interruption without state updates. This test confirms that
+    interrupting doesn't require a state key having been updated in the prev step"""
+
+    class State(TypedDict):
+        input: str
+
+    async def noop(_state):
+        pass
+
+    builder = StateGraph(State)
+    builder.add_node("step_1", noop)
+    builder.add_node("step_2", noop)
+    builder.add_node("step_3", noop)
+    builder.add_edge(START, "step_1")
+    builder.add_edge("step_1", "step_2")
+    builder.add_edge("step_2", "step_3")
+    builder.add_edge("step_3", END)
+
+    graph = builder.compile(checkpointer=async_checkpointer, interrupt_after="*")
+
+    initial_input = {"input": "hello world"}
+    thread = {"configurable": {"thread_id": "1"}}
+
+    await graph.ainvoke(initial_input, thread, durability=durability)
+    assert (await graph.aget_state(thread)).next == ("step_2",)
+    n_checkpoints = len([c async for c in graph.aget_state_history(thread)])
+    assert n_checkpoints == (3 if durability != "exit" else 1)
+
+    await graph.ainvoke(None, thread, durability=durability)
+    assert (await graph.aget_state(thread)).next == ("step_3",)
+    n_checkpoints = len([c async for c in graph.aget_state_history(thread)])
+    assert n_checkpoints == (4 if durability != "exit" else 2)
+
+    await graph.ainvoke(None, thread, durability=durability)
+    assert (await graph.aget_state(thread)).next == ()
+    n_checkpoints = len([c async for c in graph.aget_state_history(thread)])
+    assert n_checkpoints == (5 if durability != "exit" else 3)
+
+
+class Decision(BaseModel):
+    approved: bool
+    note: str | None = None
+
+
+class DecisionDict(TypedDict):
+    approved: bool
+
+
+@dataclass
+class DecisionData:
+    approved: bool
+
+
+RAW_SCHEMA = {"type": "object", "properties": {"approved": {"type": "boolean"}}}
+
+
+@pytest.mark.parametrize(
+    ("response_schema", "expected_schema", "expected_answer"),
+    [
+        (None, None, {"approved": True, "extra": 1}),
+        (RAW_SCHEMA, RAW_SCHEMA, {"approved": True, "extra": 1}),
+        (Decision, Decision.model_json_schema(), Decision(approved=True)),
+        (
+            DecisionDict,
+            {
+                "properties": {"approved": {"title": "Approved", "type": "boolean"}},
+                "required": ["approved"],
+                "title": "DecisionDict",
+                "type": "object",
+            },
+            {"approved": True},
+        ),
+        (
+            DecisionData,
+            {
+                "properties": {"approved": {"title": "Approved", "type": "boolean"}},
+                "required": ["approved"],
+                "title": "DecisionData",
+                "type": "object",
+            },
+            DecisionData(approved=True),
+        ),
+    ],
+    ids=["none", "raw_dict", "pydantic", "typeddict", "dataclass"],
+)
+def test_interrupt_response_schema(
+    sync_checkpointer: BaseCheckpointSaver,
+    response_schema: Any,
+    expected_schema: dict[str, Any] | None,
+    expected_answer: Any,
+) -> None:
+    class State(TypedDict):
+        answer: Any
+
+    def node(state: State) -> State:
+        return {
+            "answer": interrupt(
+                {"question": "approve?"}, response_schema=response_schema
+            )
+        }
+
+    graph = (
+        StateGraph(State)
+        .add_node("node", node)
+        .add_edge(START, "node")
+        .compile(checkpointer=sync_checkpointer)
+    )
+    config = {"configurable": {"thread_id": "1"}}
+    expected = Interrupt(
+        value={"question": "approve?"}, id=AnyStr(), response_schema=expected_schema
+    )
+
+    assert list(graph.stream({"answer": None}, config)) == [
+        {"__interrupt__": (expected,)}
+    ]
+    assert graph.get_state(config).tasks[0].interrupts == (expected,)
+    assert graph.invoke(Command(resume={"approved": True, "extra": 1}), config) == {
+        "answer": expected_answer
+    }
+
+
+@pytest.mark.parametrize("resume_style", ["null", "map"])
+def test_interrupt_response_schema_rejects_invalid_resume(
+    sync_checkpointer: BaseCheckpointSaver, resume_style: str
+) -> None:
+    class State(TypedDict):
+        answer: Any
+
+    def node(state: State) -> State:
+        return {"answer": interrupt("approve?", response_schema=Decision)}
+
+    graph = (
+        StateGraph(State)
+        .add_node("node", node)
+        .add_edge(START, "node")
+        .compile(checkpointer=sync_checkpointer)
+    )
+    config = {"configurable": {"thread_id": "1"}}
+    graph.invoke({"answer": None}, config)
+    [pending] = graph.get_state(config).tasks[0].interrupts
+
+    def resume(value: dict[str, Any]) -> Command:
+        return Command(resume=value if resume_style == "null" else {pending.id: value})
+
+    with pytest.raises(ValidationError, match="approved") as exc_info:
+        graph.invoke(resume({"approved": "nope"}), config)
+    assert is_invalid_resume(exc_info.value)
+
+    assert graph.invoke(resume({"approved": False}), config) == {
+        "answer": Decision(approved=False)
+    }
+
+
+def test_is_invalid_resume_ignores_other_errors() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Decision.model_validate({"approved": "nope"})
+    assert not is_invalid_resume(exc_info.value)
+    assert not is_invalid_resume(ValueError("nope"))
+
+
+@pytest.mark.parametrize("resume_style", ["null", "id_map"])
+def test_interrupt_response_schema_invalid_resume_after_earlier_interrupt(
+    sync_checkpointer: BaseCheckpointSaver, resume_style: str
+) -> None:
+    class State(TypedDict):
+        answer: Any
+
+    def node(state: State) -> State:
+        first = interrupt("first")
+        second = interrupt("approve?", response_schema=Decision)
+        return {"answer": [first, second]}
+
+    graph = (
+        StateGraph(State)
+        .add_node("node", node)
+        .add_edge(START, "node")
+        .compile(checkpointer=sync_checkpointer)
+    )
+    config = {"configurable": {"thread_id": "1"}}
+    graph.invoke({"answer": None}, config)
+    graph.invoke(Command(resume="ok"), config)
+    [pending] = graph.get_state(config).tasks[0].interrupts
+
+    def resume(value: dict[str, Any]) -> Command:
+        return Command(resume=value if resume_style == "null" else {pending.id: value})
+
+    with pytest.raises(ValidationError, match="approved"):
+        graph.invoke(resume({"approved": "nope"}), config)
+
+    assert graph.invoke(resume({"approved": True}), config) == {
+        "answer": ["ok", Decision(approved=True)]
+    }
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="Python 3.11+ is required for async contextvars support",
+)
+async def test_invalid_resume_lets_other_answered_tasks_finish(
+    async_checkpointer: BaseCheckpointSaver,
+) -> None:
+    """An invalid answer fails the resume without cutting off the other answered tasks.
+
+    A task cancelled after its side effect keeps its answer and runs again on the next
+    resume, so the side effect would happen twice.
+    """
+    sent: list[str] = []
+
+    class State(TypedDict):
+        log: Annotated[list[str], operator.add]
+
+    async def send(state: State) -> State:
+        interrupt("send?", response_schema=Decision)
+        sent.append("email")
+        await asyncio.sleep(0.05)  # waiting on the reply to a request already sent
+        return {"log": ["sent"]}
+
+    async def check(state: State) -> State:
+        interrupt("check?", response_schema=Decision)
+        return {"log": ["checked"]}
+
+    graph = (
+        StateGraph(State)
+        .add_node("send", send)
+        .add_node("check", check)
+        .add_edge(START, "send")
+        .add_edge(START, "check")
+        .compile(checkpointer=async_checkpointer)
+    )
+    config = {"configurable": {"thread_id": "1"}}
+    await graph.ainvoke({"log": []}, config)
+    ids = {i.value: i.id for i in (await graph.aget_state(config)).interrupts}
+
+    with pytest.raises(ValidationError, match="approved"):
+        await graph.ainvoke(
+            Command(
+                resume={
+                    ids["send?"]: {"approved": True},
+                    ids["check?"]: {"approved": "nope"},
+                }
+            ),
+            config,
+        )
+    pending = [i.value for i in (await graph.aget_state(config)).interrupts]
+    assert (pending, sent) == (["check?"], ["email"])
+
+    result = await graph.ainvoke(
+        Command(resume={ids["check?"]: {"approved": True}}), config
+    )
+    assert (sorted(result["log"]), sent) == (["checked", "sent"], ["email"])

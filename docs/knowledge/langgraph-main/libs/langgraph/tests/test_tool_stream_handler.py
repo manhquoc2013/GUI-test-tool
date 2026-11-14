@@ -1,0 +1,412 @@
+"""Tests for StreamToolCallHandler and ToolRuntime.emit_output_delta.
+
+These tests exercise the langgraph-core piece in isolation — the prebuilt
+`ToolCallTransformer` has its own test file. Here we feed real graphs
+through `Pregel.stream(stream_mode=["tools", ...])` and inspect the raw
+`(ns, mode, payload)` tuples on the `tools` channel.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.prebuilt import ToolNode, ToolRuntime
+from typing_extensions import TypedDict
+
+from langgraph.constants import END, START
+from langgraph.errors import GraphDrained
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.pregel._tools import _tool_call_writer
+from langgraph.runtime import RunControl
+from langgraph.types import Command, interrupt
+
+
+class _State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+def _caller_sync(tool_name: str, tool_args: dict[str, Any], tc_id: str = "tc1"):
+    def caller(state: _State) -> dict:
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": tool_name, "args": tool_args, "id": tc_id}],
+                )
+            ]
+        }
+
+    return caller
+
+
+def _caller_async(tool_name: str, tool_args: dict[str, Any], tc_id: str = "tc1"):
+    async def caller(state: _State) -> dict:
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": tool_name, "args": tool_args, "id": tc_id}],
+                )
+            ]
+        }
+
+    return caller
+
+
+def _build_graph(caller, tools, checkpointer=None) -> Any:
+    sg = StateGraph(_State)
+    sg.add_node("caller", caller)
+    sg.add_node("tools", ToolNode(tools))
+    sg.add_edge(START, "caller")
+    sg.add_edge("caller", "tools")
+    sg.add_edge("tools", END)
+    return sg.compile(checkpointer=checkpointer)
+
+
+def _tool_events(stream) -> list[tuple[tuple[str, ...], dict]]:
+    """Collect `(ns, payload)` for every `tools`-mode chunk."""
+    out: list[tuple[tuple[str, ...], dict]] = []
+    for ns, mode, payload in stream:
+        if mode == "tools":
+            out.append((tuple(ns), payload))
+    return out
+
+
+class TestSyncGraphSyncTool:
+    def test_started_finished_cycle(self) -> None:
+        @tool
+        def echo(text: str) -> str:
+            """echo."""
+            return f"echoed:{text}"
+
+        graph = _build_graph(_caller_sync("echo", {"text": "hi"}), [echo])
+        events = _tool_events(
+            graph.stream(
+                {"messages": []},
+                stream_mode=["tools"],
+                subgraphs=True,
+            )
+        )
+
+        assert [p["event"] for _, p in events] == [
+            "tool-started",
+            "tool-finished",
+        ]
+        assert events[0][1]["tool_call_id"] == "tc1"
+        assert events[0][1]["tool_name"] == "echo"
+        assert events[0][1]["input"] == {"text": "hi"}
+        # ToolNode wraps the return in a ToolMessage.
+        assert events[1][1]["tool_call_id"] == "tc1"
+
+    def test_emit_output_delta_produces_delta_events(self) -> None:
+        @tool
+        def streaming_echo(text: str, runtime: ToolRuntime) -> str:
+            """stream chunks."""
+            for chunk in ("a", "b", "c"):
+                runtime.emit_output_delta(chunk)
+            return text
+
+        graph = _build_graph(
+            _caller_sync("streaming_echo", {"text": "x"}), [streaming_echo]
+        )
+        events = _tool_events(
+            graph.stream(
+                {"messages": []},
+                stream_mode=["tools"],
+                subgraphs=True,
+            )
+        )
+
+        deltas = [p["delta"] for _, p in events if p["event"] == "tool-output-delta"]
+        assert deltas == ["a", "b", "c"]
+        # The deltas must be bracketed by started and finished.
+        ordered = [p["event"] for _, p in events]
+        assert ordered[0] == "tool-started"
+        assert ordered[-1] == "tool-finished"
+
+    def test_tool_error_event(self) -> None:
+        @tool
+        def boom() -> str:
+            """raises."""
+            raise ValueError("nope")
+
+        graph = _build_graph(_caller_sync("boom", {}), [boom])
+        events: list[tuple[tuple[str, ...], dict]] = []
+        with pytest.raises(ValueError, match="nope"):
+            for ns, mode, payload in graph.stream(
+                {"messages": []},
+                stream_mode=["tools"],
+                subgraphs=True,
+            ):
+                if mode == "tools":
+                    events.append((tuple(ns), payload))
+
+        kinds = [p["event"] for _, p in events]
+        assert kinds == ["tool-started", "tool-error"]
+        assert events[1][1]["message"] == "nope"
+
+    def test_interrupt_in_tool_is_not_a_tool_error(self) -> None:
+        @tool
+        def ask() -> str:
+            """asks."""
+            return interrupt("ok?")
+
+        graph = _build_graph(_caller_sync("ask", {}), [ask], InMemorySaver())
+        config = {"configurable": {"thread_id": "1"}}
+        paused = _tool_events(
+            graph.stream(
+                {"messages": []}, config, stream_mode=["tools"], subgraphs=True
+            )
+        )
+        resumed = _tool_events(
+            graph.stream(
+                Command(resume="yes"), config, stream_mode=["tools"], subgraphs=True
+            )
+        )
+
+        assert [p["event"] for _, p in paused] == ["tool-started"]
+        assert [(p["event"], p["tool_call_id"]) for _, p in resumed] == [
+            ("tool-started", "tc1"),
+            ("tool-finished", "tc1"),
+        ]
+
+    def test_tool_handing_off_to_the_parent_still_ends_its_call(self) -> None:
+        class State(TypedDict):
+            messages: Annotated[list, add_messages]
+            done: bool
+
+        def hand_off(state: State) -> Command:
+            return Command(graph=Command.PARENT, goto="finish", update={"done": True})
+
+        inner = StateGraph(State).add_node("hand_off", hand_off)
+        inner = inner.add_edge(START, "hand_off").compile()
+
+        @tool
+        def handoff() -> str:
+            """hands off."""
+            inner.invoke({"messages": [], "done": False})
+            return "unreachable"
+
+        graph = (
+            StateGraph(State)
+            .add_node("caller", _caller_sync("handoff", {}))
+            .add_node("tools", ToolNode([handoff]))
+            .add_node("finish", lambda state: {"done": True})
+            .add_edge(START, "caller")
+            .add_edge("caller", "tools")
+            .add_edge("tools", END)
+            .add_edge("finish", END)
+            .compile()
+        )
+        events = [
+            payload["event"]
+            for _, payload in _tool_events(
+                graph.stream(
+                    {"messages": [], "done": False},
+                    stream_mode=["tools"],
+                    subgraphs=True,
+                )
+            )
+        ]
+
+        assert events[0] == "tool-started"
+        assert events[-1] == "tool-error", events
+
+    def test_drained_tool_is_not_a_tool_error(self) -> None:
+        control = RunControl()
+
+        def request_drain(state: _State) -> dict:
+            control.request_drain()
+            return {}
+
+        inner = (
+            StateGraph(_State)
+            .add_node("request_drain", request_drain)
+            .add_node("after", lambda state: {})
+            .add_edge(START, "request_drain")
+            .add_edge("request_drain", "after")
+            .compile()
+        )
+
+        @tool
+        def drained() -> str:
+            """drains."""
+            inner.invoke({"messages": []}, control=control)
+            return "unreachable"
+
+        graph = _build_graph(_caller_sync("drained", {}), [drained])
+        chunks: list = []
+        with pytest.raises(GraphDrained):
+            for chunk in graph.stream(
+                {"messages": []}, stream_mode=["tools"], subgraphs=True
+            ):
+                chunks.append(chunk)
+
+        assert [p["event"] for _, p in _tool_events(chunks)] == ["tool-started"]
+
+    def test_writer_unset_outside_tool(self) -> None:
+        # Outside any tool body the ContextVar that ToolRuntime reads
+        # is unset — emitting from there would be a no-op.
+        assert _tool_call_writer.get() is None
+
+    def test_no_events_without_tools_mode(self) -> None:
+        @tool
+        def echo(text: str) -> str:
+            """echo."""
+            return text
+
+        graph = _build_graph(_caller_sync("echo", {"text": "hi"}), [echo])
+        # No "tools" in stream_mode — handler is not attached and zero
+        # `tools`-method events fire.
+        chunks = list(
+            graph.stream(
+                {"messages": []},
+                stream_mode=["values"],
+                subgraphs=True,
+            )
+        )
+        assert all(
+            not (isinstance(c, tuple) and len(c) == 3 and c[1] == "tools")
+            for c in chunks
+        )
+
+
+class TestAsyncGraphAsyncTool:
+    @pytest.mark.anyio
+    async def test_async_tool_produces_events(self) -> None:
+        @tool
+        async def aecho(text: str, runtime: ToolRuntime) -> str:
+            """async echo."""
+            runtime.emit_output_delta(text)
+            return f"got:{text}"
+
+        graph = _build_graph(_caller_async("aecho", {"text": "hi"}), [aecho])
+        events: list[tuple[tuple[str, ...], dict]] = []
+        async for ns, mode, payload in graph.astream(
+            {"messages": []},
+            stream_mode=["tools"],
+            subgraphs=True,
+        ):
+            if mode == "tools":
+                events.append((tuple(ns), payload))
+
+        kinds = [p["event"] for _, p in events]
+        assert kinds == ["tool-started", "tool-output-delta", "tool-finished"]
+        assert events[1][1]["delta"] == "hi"
+
+    @pytest.mark.anyio
+    async def test_interrupt_in_async_tool_is_not_a_tool_error(self) -> None:
+        @tool
+        async def aask() -> str:
+            """asks."""
+            return interrupt("ok?")
+
+        graph = _build_graph(_caller_async("aask", {}), [aask], InMemorySaver())
+        config = {"configurable": {"thread_id": "1"}}
+        events = []
+        for graph_input in ({"messages": []}, Command(resume="yes")):
+            async for ns, mode, payload in graph.astream(
+                graph_input, config, stream_mode=["tools"], subgraphs=True
+            ):
+                if mode == "tools":
+                    events.append(payload["event"])
+
+        assert events == ["tool-started", "tool-started", "tool-finished"]
+
+
+class TestConcurrentToolCalls:
+    def test_parallel_tool_calls_do_not_bleed(self) -> None:
+        @tool
+        def streamer(marker: str, runtime: ToolRuntime) -> str:
+            """emits marker twice."""
+            runtime.emit_output_delta(f"{marker}-1")
+            runtime.emit_output_delta(f"{marker}-2")
+            return marker
+
+        def caller(state: _State) -> dict:
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"name": "streamer", "args": {"marker": "A"}, "id": "a"},
+                            {"name": "streamer", "args": {"marker": "B"}, "id": "b"},
+                        ],
+                    )
+                ]
+            }
+
+        graph = _build_graph(caller, [streamer])
+        events = _tool_events(
+            graph.stream(
+                {"messages": []},
+                stream_mode=["tools"],
+                subgraphs=True,
+            )
+        )
+
+        # Group deltas by tool_call_id.
+        by_id: dict[str, list[str]] = {}
+        for _, p in events:
+            if p["event"] == "tool-output-delta":
+                by_id.setdefault(p["tool_call_id"], []).append(p["delta"])
+        assert by_id["a"] == ["A-1", "A-2"]
+        assert by_id["b"] == ["B-1", "B-2"]
+
+
+class TestSubgraphNamespacePropagation:
+    def test_tool_inside_subgraph_emits_with_subgraph_ns(self) -> None:
+        @tool
+        def inner_tool(text: str) -> str:
+            """inner tool."""
+            return text
+
+        def sub_caller(state: _State) -> dict:
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "inner_tool",
+                                "args": {"text": "x"},
+                                "id": "tc1",
+                            }
+                        ],
+                    )
+                ]
+            }
+
+        inner = StateGraph(_State)
+        inner.add_node("sub_caller", sub_caller)
+        inner.add_node("sub_tools", ToolNode([inner_tool]))
+        inner.add_edge(START, "sub_caller")
+        inner.add_edge("sub_caller", "sub_tools")
+        inner.add_edge("sub_tools", END)
+        inner_graph = inner.compile()
+
+        outer = StateGraph(_State)
+        outer.add_node("sub", inner_graph)
+        outer.add_edge(START, "sub")
+        outer.add_edge("sub", END)
+        graph = outer.compile()
+
+        events = _tool_events(
+            graph.stream(
+                {"messages": []},
+                stream_mode=["tools"],
+                subgraphs=True,
+            )
+        )
+
+        # All `tools` events should carry a non-empty namespace rooted
+        # at the `sub` node.
+        assert events, "expected at least one tools event"
+        for ns, _ in events:
+            assert ns  # non-empty
+            assert ns[0].startswith("sub:")
