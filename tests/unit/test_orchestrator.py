@@ -19,6 +19,7 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_STOPPED,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
+    CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -346,3 +347,24 @@ async def test_run_clears_crew_memory_each_turn() -> None:
         pass
     got = mcp.invoke("qa-crew-memory", "get_full", {"ref": ref})
     assert got.get("found") is False
+
+
+@pytest.mark.asyncio
+async def test_bind_project_context_wires_memory_and_ingest(tmp_path) -> None:
+    from pathlib import Path
+
+    mcp = BundledMcpRegistry()
+    mcp.start()
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline"),
+        mcp=mcp,
+    )
+    root = Path(tmp_path)
+    orch._bind_project_context(mcp, {CONTEXT_KEY_PROJECT_ROOT: str(root)})
+    assert mcp.persistent_memory.project_root == root.resolve()
+    assert mcp.ingest.project_root == root.resolve()
+    put = mcp.persistent_memory.put_note("login", "bound ok")
+    assert put["ok"] is True
+    orch._bind_project_context(mcp, {})
+    assert mcp.persistent_memory.project_root is None
+    assert mcp.ingest.project_root is None

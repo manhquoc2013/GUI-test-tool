@@ -10,6 +10,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
@@ -26,6 +27,7 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_USER,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
+    CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -417,6 +419,13 @@ class CopilotOrchestrator:
             srs=str(context.get("srs") or ""),
             test_data_rows=list(context.get("test_data_rows") or []),
         )
+        root = str(context.get(CONTEXT_KEY_PROJECT_ROOT) or "").strip()
+        if root:
+            mcp.persistent_memory.bind_project(Path(root))
+            mcp.ingest.bind_project(Path(root))
+        else:
+            mcp.persistent_memory.bind_project(None)
+            mcp.ingest.bind_project(None)
 
     def _put_artifact(self, mcp: BundledMcpRegistry, role: str, kind: str, text: str) -> str:
         result = mcp.invoke(

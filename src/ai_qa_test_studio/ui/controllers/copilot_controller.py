@@ -19,6 +19,7 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
+    CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
@@ -216,6 +217,7 @@ class CopilotController:
         copilot_cfg = w.env.settings.copilot
         ctx[CONTEXT_KEY_ANALYZER_ENABLED] = bool(copilot_cfg.analyzer_enabled)
         ctx[CONTEXT_KEY_OPTIMIZER_ENABLED] = bool(copilot_cfg.optimizer_enabled)
+        ctx[CONTEXT_KEY_PROJECT_ROOT] = str(getattr(w.storage, "root", "") or "")
         return ctx
 
     def apply_payload(self, payload: dict[str, Any]) -> None:

@@ -103,6 +103,7 @@ def test_ingest_document_to_markdown(tmp_path: Path) -> None:
     doc.write_text("# Hello\n\nWorld body.\n", encoding="utf-8")
     reg = BundledMcpRegistry()
     reg.start()
+    reg.ingest.bind_project(tmp_path)
     result = reg.invoke(
         MCP_QA_INGEST,
         MCP_TOOL_DOCUMENT_TO_MARKDOWN,
@@ -112,6 +113,34 @@ def test_ingest_document_to_markdown(tmp_path: Path) -> None:
     assert result["ok"] is True
     assert "Hello" in result["markdown"] or "World" in result["markdown"]
     assert MCP_QA_INGEST in reg.health()["servers"]
+
+
+def test_ingest_rejects_path_outside_project(tmp_path: Path) -> None:
+    inside = tmp_path / "ok.md"
+    inside.write_text("# in\n", encoding="utf-8")
+    outside = tmp_path.parent / f"{tmp_path.name}-escape.md"
+    outside.write_text("# out\n", encoding="utf-8")
+    reg = BundledMcpRegistry()
+    reg.start()
+    reg.ingest.bind_project(tmp_path)
+    denied = reg.invoke(
+        MCP_QA_INGEST,
+        MCP_TOOL_DOCUMENT_TO_MARKDOWN,
+        {"path": str(outside)},
+        role=ROLE_PLANNER,
+    )
+    assert denied["ok"] is False
+    assert "outside project root" in denied["error"]
+    unbound = BundledMcpRegistry()
+    unbound.start()
+    missing = unbound.invoke(
+        MCP_QA_INGEST,
+        MCP_TOOL_DOCUMENT_TO_MARKDOWN,
+        {"path": str(inside)},
+        role=ROLE_PLANNER,
+    )
+    assert missing["ok"] is False
+    assert "unbound" in missing["error"]
 
 
 def test_persistent_memory_round_trip(tmp_path: Path) -> None:
@@ -133,6 +162,41 @@ def test_persistent_memory_round_trip(tmp_path: Path) -> None:
     )
     assert got["count"] >= 1
     assert "get_by_role" in got["notes"][0]["note"]
+
+
+def test_persistent_memory_requires_bind_and_coerces_limit(tmp_path: Path) -> None:
+    unbound = BundledMcpRegistry()
+    unbound.start()
+    denied = unbound.invoke(
+        MCP_QA_PERSISTENT_MEMORY,
+        MCP_TOOL_MEMORY_PUT,
+        {"domain": "x", "note": "y"},
+        role=ROLE_COMPOSER,
+    )
+    assert denied["ok"] is False
+    assert "unbound" in denied["error"]
+
+    reg = BundledMcpRegistry()
+    reg.start()
+    reg.persistent_memory.bind_project(tmp_path)
+    for i in range(3):
+        reg.invoke(
+            MCP_QA_PERSISTENT_MEMORY,
+            MCP_TOOL_MEMORY_PUT,
+            {"domain": "d", "note": f"note-{i}"},
+            role=ROLE_COMPOSER,
+        )
+    got = reg.invoke(
+        MCP_QA_PERSISTENT_MEMORY,
+        MCP_TOOL_MEMORY_GET,
+        {"domain": "d", "limit": "not-a-number"},
+        role=ROLE_SYSTEM,
+    )
+    assert got["ok"] is True
+    assert got["count"] >= 1
+    capped = reg.persistent_memory.get_notes(domain="d", limit=0)
+    assert capped["ok"] is True
+    assert capped["count"] >= 1
 
 
 def test_midscene_locate_routed_for_system_role() -> None:

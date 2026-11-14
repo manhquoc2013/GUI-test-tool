@@ -31,15 +31,18 @@ class QaPersistentMemoryServer:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
-        self.project_root = Path(project_root) if project_root else None
+        self.project_root = Path(project_root).resolve() if project_root else None
 
     def _db_path(self) -> Path:
-        root = self.project_root or Path.cwd()
-        studio = root / STUDIO_DIRNAME
+        if self.project_root is None:
+            raise RuntimeError("project root unbound")
+        studio = self.project_root / STUDIO_DIRNAME
         studio.mkdir(parents=True, exist_ok=True)
         return studio / _MEMORY_DB_NAME
 
     def _ensure(self) -> sqlite3.Connection:
+        if self.project_root is None:
+            raise RuntimeError("project root unbound")
         if self._conn is None:
             path = self._db_path()
             self._conn = sqlite3.connect(str(path))
@@ -48,7 +51,23 @@ class QaPersistentMemoryServer:
             self._conn.commit()
         return self._conn
 
+    @staticmethod
+    def _coerce_limit(limit: object, default: int = 20) -> int:
+        value = default
+        if isinstance(limit, bool):
+            value = default
+        elif isinstance(limit, int):
+            value = limit
+        elif isinstance(limit, str):
+            try:
+                value = int(limit.strip())
+            except ValueError:
+                value = default
+        return max(1, min(value if value else default, 100))
+
     def put_note(self, domain: str, note: str) -> dict[str, Any]:
+        if self.project_root is None:
+            return {"ok": False, "error": "project root unbound"}
         domain_key = (domain or "default").strip() or "default"
         text = (note or "").strip()
         if not text:
@@ -63,8 +82,10 @@ class QaPersistentMemoryServer:
         return {"ok": True, "id": int(row_id or 0), "domain": domain_key}
 
     def get_notes(self, domain: str = "", limit: int = 20) -> dict[str, Any]:
+        if self.project_root is None:
+            return {"ok": False, "notes": [], "count": 0, "error": "project root unbound"}
         conn = self._ensure()
-        lim = max(1, min(int(limit or 20), 100))
+        lim = self._coerce_limit(limit)
         if domain:
             rows = conn.execute(
                 "SELECT id, domain, note, created_at FROM notes WHERE domain = ? "
@@ -88,11 +109,13 @@ class QaPersistentMemoryServer:
         return {"ok": True, "notes": notes, "count": len(notes)}
 
     def search_notes(self, query: str, limit: int = 20) -> dict[str, Any]:
+        if self.project_root is None:
+            return {"ok": False, "notes": [], "count": 0, "error": "project root unbound"}
         needle = (query or "").strip()
         if not needle:
             return {"ok": True, "notes": [], "count": 0}
         conn = self._ensure()
-        lim = max(1, min(int(limit or 20), 100))
+        lim = self._coerce_limit(limit)
         rows = conn.execute(
             "SELECT id, domain, note, created_at FROM notes WHERE note LIKE ? "
             "ORDER BY id DESC LIMIT ?",
@@ -113,9 +136,13 @@ class QaPersistentMemoryServer:
         if tool == "put_note":
             return self.put_note(str(args.get("domain") or ""), str(args.get("note") or ""))
         if tool == "get_notes":
-            return self.get_notes(str(args.get("domain") or ""), int(args.get("limit") or 20))
+            return self.get_notes(
+                str(args.get("domain") or ""), self._coerce_limit(args.get("limit"), 20)
+            )
         if tool == "search_notes":
-            return self.search_notes(str(args.get("query") or ""), int(args.get("limit") or 20))
+            return self.search_notes(
+                str(args.get("query") or ""), self._coerce_limit(args.get("limit"), 20)
+            )
         raise KeyError(f"unknown tool: {tool}")
 
     def close(self) -> None:
