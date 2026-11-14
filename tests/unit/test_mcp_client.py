@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ai_qa_test_studio.agent.mcp_client import (
     ExternalMcpSession,
+    McpClientFactory,
     serialize_tool_result,
 )
+from ai_qa_test_studio.agent.mcp_manager import StdioServerParameters
 
 
 class _FakeContent:
@@ -52,3 +55,77 @@ async def test_external_mcp_session_call_tool() -> None:
     result = await session.call_tool("locate", {"intent": "Login"})
     assert result["ok"] is True
     assert fake.calls == [("locate", {"intent": "Login"})]
+
+
+@pytest.mark.asyncio
+async def test_connect_reuses_session_until_cdp_changes() -> None:
+    manager = MagicMock()
+    manager.build_stdio_params.return_value = StdioServerParameters(
+        command="echo", args=["ok"], env={}
+    )
+    factory = McpClientFactory(manager=manager)
+    fake_session = _FakeSession()
+    stack_closes: list[str] = []
+
+    class _Stack:
+        async def enter_async_context(self, _cm: Any) -> Any:
+            if not hasattr(self, "_n"):
+                self._n = 0
+            self._n += 1
+            if self._n == 1:
+                return (object(), object())
+            return fake_session
+
+        async def aclose(self) -> None:
+            stack_closes.append("closed")
+
+    with (
+        patch("ai_qa_test_studio.agent.mcp_client.AsyncExitStack", side_effect=_Stack),
+        patch("ai_qa_test_studio.agent.mcp_client.stdio_client", return_value=object()),
+        patch("ai_qa_test_studio.agent.mcp_client.ClientSession", return_value=fake_session),
+    ):
+        fake_session.initialize = AsyncMock()  # type: ignore[attr-defined]
+        first = await factory.connect("playwright", cdp_endpoint="http://cdp-a")
+        second = await factory.connect("playwright", cdp_endpoint="http://cdp-a")
+        assert first is second
+        assert stack_closes == []
+        third = await factory.connect("playwright", cdp_endpoint="http://cdp-b")
+        assert third is not first
+        assert stack_closes == ["closed"]
+        assert third.cdp_endpoint == "http://cdp-b"
+
+
+@pytest.mark.asyncio
+async def test_connect_aclose_stack_on_initialize_failure() -> None:
+    manager = MagicMock()
+    manager.build_stdio_params.return_value = StdioServerParameters(
+        command="echo", args=["ok"], env={}
+    )
+    factory = McpClientFactory(manager=manager)
+    closed = {"n": 0}
+
+    class _FailSession:
+        async def initialize(self) -> None:
+            raise RuntimeError("spawn failed")
+
+    class _Stack:
+        async def enter_async_context(self, _cm: Any) -> Any:
+            if not hasattr(self, "_n"):
+                self._n = 0
+            self._n += 1
+            if self._n == 1:
+                return (object(), object())
+            return _FailSession()
+
+        async def aclose(self) -> None:
+            closed["n"] += 1
+
+    with (
+        patch("ai_qa_test_studio.agent.mcp_client.AsyncExitStack", side_effect=_Stack),
+        patch("ai_qa_test_studio.agent.mcp_client.stdio_client", return_value=object()),
+        patch("ai_qa_test_studio.agent.mcp_client.ClientSession", return_value=_FailSession()),
+    ):
+        with pytest.raises(RuntimeError, match="spawn failed"):
+            await factory.connect("playwright", cdp_endpoint="http://cdp")
+    assert closed["n"] == 1
+    assert factory.get("playwright") is None

@@ -35,6 +35,7 @@ class ExternalMcpSession:
     name: str
     session: Any
     stack: AsyncExitStack | None = None
+    cdp_endpoint: str | None = None
 
     async def list_tool_names(self) -> list[str]:
         listed = await self.session.list_tools()
@@ -64,14 +65,28 @@ class McpClientFactory:
     async def connect(self, name: str, cdp_endpoint: str | None = None) -> ExternalMcpSession:
         existing = self._sessions.get(name)
         if existing is not None:
-            return existing
+            if (existing.cdp_endpoint or "") == (cdp_endpoint or ""):
+                return existing
+            await existing.close()
+            self._sessions.pop(name, None)
+            logger.info("mcp_client_reconnect name=%s reason=cdp_changed", name)
+
         params = self.manager.build_stdio_params(name, cdp_endpoint=cdp_endpoint)
         mcp_params = self._to_mcp_params(params)
         stack = AsyncExitStack()
-        read, write = await stack.enter_async_context(stdio_client(mcp_params))
-        session = await stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        wrapped = ExternalMcpSession(name=name, session=session, stack=stack)
+        try:
+            read, write = await stack.enter_async_context(stdio_client(mcp_params))
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+        except Exception:
+            try:
+                await stack.aclose()
+            except Exception as close_exc:  # noqa: BLE001
+                logger.warning("mcp_client_stack_close_failed name=%s err=%s", name, close_exc)
+            raise
+        wrapped = ExternalMcpSession(
+            name=name, session=session, stack=stack, cdp_endpoint=cdp_endpoint
+        )
         self._sessions[name] = wrapped
         logger.info("mcp_client_connected name=%s", name)
         return wrapped
