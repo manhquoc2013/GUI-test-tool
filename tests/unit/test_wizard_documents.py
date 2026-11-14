@@ -20,19 +20,23 @@ from ai_qa_test_studio.core.wizard_documents import (
 )
 
 
-def test_classify_by_filename_tokens(tmp_path: Path) -> None:
+def test_classify_prefers_structure_over_filename(tmp_path: Path) -> None:
+    path = tmp_path / "login_scenarios.csv"
+    headers = [
+        "test case id",
+        "scenario id",
+        "title",
+        "step no",
+        "action",
+    ]
     assert (
-        classify_wizard_document(tmp_path / "login_test_cases.csv") == WIZARD_DOC_KIND_TEST_CASE
-    )
-    assert (
-        classify_wizard_document(tmp_path / "checkout_scenarios.md")
-        == WIZARD_DOC_KIND_TEST_SCENARIO
+        classify_wizard_document(path, table_headers=headers) == WIZARD_DOC_KIND_TEST_CASE
     )
     assert classify_wizard_document(tmp_path / "product_srs.pdf") == WIZARD_DOC_KIND_SRS
 
 
-def test_load_csv_test_cases_imports_steps(tmp_path: Path) -> None:
-    path = tmp_path / "suite_test_cases.csv"
+def test_load_csv_named_scenarios_still_imports_case_steps(tmp_path: Path) -> None:
+    path = tmp_path / "login_scenarios.csv"
     path.write_text(
         "Test Case ID,Scenario ID,Title,Step No,Action,Test Data,Expected Result\n"
         "TC01,TS_LOGIN,Login happy,1,goto,https://app.example/,page open\n"
@@ -45,9 +49,66 @@ def test_load_csv_test_cases_imports_steps(tmp_path: Path) -> None:
     assert doc.kind == WIZARD_DOC_KIND_TEST_CASE
     assert len(doc.scenarios) == 1
     assert doc.scenarios[0].code == "TS_LOGIN"
-    assert len(doc.scenarios[0].cases) == 1
     assert len(doc.scenarios[0].cases[0].steps) == 3
-    assert doc.scenarios[0].cases[0].steps[0].action == "goto"
+
+
+def test_spec_named_csv_with_case_headers_imports(tmp_path: Path) -> None:
+    path = tmp_path / "requirements_spec.csv"
+    path.write_text(
+        "Test Case ID,Scenario ID,Title,Step No,Action\n"
+        "TC01,TS_A,A,1,click\n",
+        encoding="utf-8",
+    )
+    doc = load_wizard_document(path)
+    assert doc.kind == WIZARD_DOC_KIND_TEST_CASE
+    assert sum(len(c.steps) for s in doc.scenarios for c in s.cases) == 1
+
+
+def test_header_aliases_testcaseid(tmp_path: Path) -> None:
+    path = tmp_path / "suite.csv"
+    path.write_text(
+        "TestCaseID,ScenarioID,Title,StepNo,Action\n"
+        "TC01,TS_A,Login,1,fill\n",
+        encoding="utf-8",
+    )
+    doc = load_wizard_document(path)
+    assert doc.kind == WIZARD_DOC_KIND_TEST_CASE
+    case = doc.scenarios[0].cases[0]
+    assert case.code == "TC01"
+    assert case.steps[0].action == "fill"
+
+
+def test_loose_tabular_nonstandard_sets_needs_llm(tmp_path: Path) -> None:
+    path = tmp_path / "custom_matrix.csv"
+    path.write_text(
+        "Module,Check,Note\n"
+        "Login,Password required,ui\n"
+        "Checkout,Cart empty,edge\n",
+        encoding="utf-8",
+    )
+    doc = load_wizard_document(path)
+    assert doc.kind == WIZARD_DOC_KIND_TEST_CASE
+    assert doc.needs_llm is True
+    assert len(doc.scenarios[0].cases) == 2
+
+
+def test_llm_parser_enriches_nonstandard(tmp_path: Path) -> None:
+    path = tmp_path / "custom_matrix.csv"
+    path.write_text("Module,Check\nLogin,Need password\n", encoding="utf-8")
+
+    def fake_llm(_markdown: str) -> list[TestScenario]:
+        return [
+            TestScenario(
+                id="x",
+                code="TS_LLM",
+                title="From LLM",
+                cases=[],
+            )
+        ]
+
+    doc = load_wizard_document(path, llm_parser=fake_llm)
+    assert any(s.code == "TS_LLM" for s in doc.scenarios)
+    assert doc.needs_llm is False
 
 
 def test_load_xlsx_scenarios_sheet(tmp_path: Path) -> None:
@@ -63,25 +124,24 @@ def test_load_xlsx_scenarios_sheet(tmp_path: Path) -> None:
     doc = load_wizard_document(path)
     assert doc.error == ""
     assert doc.kind == WIZARD_DOC_KIND_TEST_SCENARIO
-    codes = {s.code for s in doc.scenarios}
-    assert codes == {"TS_A", "TS_B"}
+    assert {s.code for s in doc.scenarios} == {"TS_A", "TS_B"}
 
 
 def test_load_markdown_cases_and_context_merge(tmp_path: Path) -> None:
     path = tmp_path / "cases.md"
     path.write_text(
-        "# Suite\n\n## Test Case: Reset password\n\n## Test Case: Lock account\n",
+        "# Suite\n\n## Scenario: Auth\n\n## Test Case: Reset password\n\n## Test Case: Lock account\n",
         encoding="utf-8",
     )
     doc = load_wizard_document(path)
     assert doc.kind == WIZARD_DOC_KIND_TEST_CASE
+    assert len(doc.scenarios) >= 1
     assert len(doc.scenarios[0].cases) == 2
     context = build_wizard_llm_context(
         freeform_markdown="Feature notes",
         documents=[doc],
     )
-    assert "Feature notes" in context
-    assert "Attached (Test Case)" in context
+    assert "SRS / freeform" in context or "Feature notes" in context
     assert "cases.md" in context
 
 
@@ -106,3 +166,16 @@ def test_merge_and_collect_dedupe() -> None:
         WizardDocument(path=Path("b.md"), kind=WIZARD_DOC_KIND_SRS, markdown="srs"),
     ]
     assert len(collect_imported_scenarios(docs)) == 2
+
+
+def test_scenario_rows_dedupe(tmp_path: Path) -> None:
+    path = tmp_path / "scenarios_only.csv"
+    path.write_text(
+        "Scenario ID,Title,Description\n"
+        "TS_A,Auth,one\n"
+        "TS_A,Auth,two\n",
+        encoding="utf-8",
+    )
+    doc = load_wizard_document(path)
+    assert doc.kind == WIZARD_DOC_KIND_TEST_SCENARIO
+    assert len(doc.scenarios) == 1

@@ -271,11 +271,11 @@ WIZARD_DOC_KIND_LABELS = {
     WIZARD_DOC_KIND_TEST_CASE: "Test Case",
 }
 WIZARD_DOC_FILE_FILTER = (
-    "Documents (*.md *.txt *.csv *.xlsx *.xls *.docx *.pdf *.html *.htm);;All (*)"
+    "Documents (*.md *.txt *.csv *.tsv *.xlsx *.xlsm *.docx *.pdf *.html *.htm)"
 )
 WIZARD_DOC_MARKDOWN_SUFFIXES = (".md", ".markdown", ".txt")
-WIZARD_DOC_CSV_SUFFIXES = (".csv",)
-WIZARD_DOC_XLSX_SUFFIXES = (".xlsx", ".xlsm", ".xls")
+WIZARD_DOC_CSV_SUFFIXES = (".csv", ".tsv")
+WIZARD_DOC_XLSX_SUFFIXES = (".xlsx", ".xlsm")
 WIZARD_DOC_CLASSIFY_SRS_TOKENS = (
     "srs",
     "spec",
@@ -305,9 +305,46 @@ WIZARD_DOC_HEADER_SCENARIO_ID = "scenario id"
 WIZARD_DOC_HEADER_STEP_NO = "step no"
 WIZARD_DOC_HEADER_ACTION = "action"
 WIZARD_DOC_HEADER_TITLE = "title"
+WIZARD_DOC_HEADER_TEST_DATA = "test data"
+WIZARD_DOC_HEADER_EXPECTED = "expected result"
+WIZARD_DOC_HEADER_PRECONDITIONS = "pre-conditions"
+WIZARD_DOC_HEADER_REQUIREMENT = "requirement"
+WIZARD_DOC_HEADER_DESCRIPTION = "description"
 WIZARD_DOC_SHEET_SCENARIOS = "test scenarios"
 WIZARD_DOC_SHEET_CASES = "test cases"
 WIZARD_DOC_CONTEXT_CAP_CHARS = 6000
+WIZARD_DOC_MAX_FILE_BYTES = 2_000_000
+WIZARD_DOC_MAX_TABLE_ROWS = 500
+WIZARD_DOC_MAX_SHEETS = 20
+WIZARD_DOC_SAMPLE_MARKDOWN = "Sample SRS: login and checkout happy path"
+WIZARD_DOC_HEADER_COMPACT_ALIASES = {
+    "testcaseid": WIZARD_DOC_HEADER_CASE_ID,
+    "testid": WIZARD_DOC_HEADER_CASE_ID,
+    "tcid": WIZARD_DOC_HEADER_CASE_ID,
+    "tc": WIZARD_DOC_HEADER_CASE_ID,
+    "scenarioid": WIZARD_DOC_HEADER_SCENARIO_ID,
+    "scenariocode": WIZARD_DOC_HEADER_SCENARIO_ID,
+    "tsid": WIZARD_DOC_HEADER_SCENARIO_ID,
+    "stepno": WIZARD_DOC_HEADER_STEP_NO,
+    "stepnumber": WIZARD_DOC_HEADER_STEP_NO,
+    "step": WIZARD_DOC_HEADER_STEP_NO,
+    "action": WIZARD_DOC_HEADER_ACTION,
+    "title": WIZARD_DOC_HEADER_TITLE,
+    "name": WIZARD_DOC_HEADER_TITLE,
+    "testdata": WIZARD_DOC_HEADER_TEST_DATA,
+    "inputdata": WIZARD_DOC_HEADER_TEST_DATA,
+    "data": WIZARD_DOC_HEADER_TEST_DATA,
+    "expectedresult": WIZARD_DOC_HEADER_EXPECTED,
+    "expected": WIZARD_DOC_HEADER_EXPECTED,
+    "preconditions": WIZARD_DOC_HEADER_PRECONDITIONS,
+    "precondition": WIZARD_DOC_HEADER_PRECONDITIONS,
+    "requirement": WIZARD_DOC_HEADER_REQUIREMENT,
+    "requirementid": WIZARD_DOC_HEADER_REQUIREMENT,
+    "reqid": WIZARD_DOC_HEADER_REQUIREMENT,
+    "description": WIZARD_DOC_HEADER_DESCRIPTION,
+    "desc": WIZARD_DOC_HEADER_DESCRIPTION,
+    "intent": "intent",
+}
 DEFAULT_TARGET_URL = "https://example.com"
 FALLBACK_BLANK_URL = "about:blank"
 DEFAULT_SKILLS_DIRNAME = "skills"
