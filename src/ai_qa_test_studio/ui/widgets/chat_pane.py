@@ -61,6 +61,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_DOWNLOAD_EMPTY,
     COPILOT_DOWNLOAD_FAIL_TITLE,
     COPILOT_DOWNLOAD_TOOLTIP,
+    COPILOT_HISTORY_OVERLAY_WIDTH,
     COPILOT_HISTORY_TOGGLE_TIP,
     COPILOT_IDLE_PLACEHOLDER,
     COPILOT_INPUT_HEIGHT,
@@ -226,15 +227,10 @@ class CopilotChatPane(QWidget):
         self.body_stack = QStackedWidget(self)
 
         chat_body = QWidget(self.body_stack)
-        chat_shell = QHBoxLayout(chat_body)
+        self._chat_body = chat_body
+        chat_shell = QVBoxLayout(chat_body)
         chat_shell.setContentsMargins(0, 0, 0, 0)
-        chat_shell.setSpacing(8)
-
-        self.history_rail = ChatHistoryRail(chat_body)
-        self.history_rail.setVisible(False)
-        self.history_rail.session_activated.connect(self.history_session_activated.emit)
-        self.history_rail.delete_requested.connect(self.history_delete_requested.emit)
-        chat_shell.addWidget(self.history_rail, stretch=0)
+        chat_shell.setSpacing(0)
 
         chat_main = QWidget(chat_body)
         chat_layout = QVBoxLayout(chat_main)
@@ -356,6 +352,13 @@ class CopilotChatPane(QWidget):
         chat_layout.addWidget(composer_wrap)
         chat_shell.addWidget(chat_main, stretch=1)
 
+        # Overlay drawer (not side-by-side): keeps transcript full-width in a narrow dock.
+        self.history_rail = ChatHistoryRail(chat_body)
+        self.history_rail.hide()
+        self.history_rail.session_activated.connect(self.history_session_activated.emit)
+        self.history_rail.delete_requested.connect(self.history_delete_requested.emit)
+        chat_body.installEventFilter(self)
+
         self.wizard = ComposeWizardPanel(self.body_stack)
         self.wizard.drafts_ready.connect(self._on_wizard_drafts)
         self.wizard.cancelled.connect(self.focus_case_chat)
@@ -412,6 +415,9 @@ class CopilotChatPane(QWidget):
         return self._busy
 
     def eventFilter(self, obj: object, event: object) -> bool:
+        if obj is getattr(self, "_chat_body", None) and isinstance(event, QEvent):
+            if event.type() == QEvent.Type.Resize and self._history_visible:
+                self._layout_history_overlay()
         if obj is self.input_box and isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
             mods = event.modifiers()
             if event.key() == Qt.Key.Key_H and mods & (
@@ -490,8 +496,21 @@ class CopilotChatPane(QWidget):
 
     def set_history_rail_visible(self, visible: bool) -> None:
         self._history_visible = bool(visible)
-        self.history_rail.setVisible(self._history_visible)
         self.btn_history.setChecked(self._history_visible)
+        if self._history_visible:
+            self._layout_history_overlay()
+            self.history_rail.show()
+            self.history_rail.raise_()
+        else:
+            self.history_rail.hide()
+
+    def _layout_history_overlay(self) -> None:
+        host = getattr(self, "_chat_body", None)
+        if host is None:
+            return
+        width = min(COPILOT_HISTORY_OVERLAY_WIDTH, max(160, host.width()))
+        self.history_rail.setFixedWidth(width)
+        self.history_rail.setGeometry(0, 0, width, host.height())
 
     def set_history_sessions(
         self,
@@ -630,25 +649,49 @@ class CopilotChatPane(QWidget):
     def end_role(self, role: str, text: str, *, summary: str = "") -> None:
         """Persist full `text` for agents; show `summary` (or text) in the bubble."""
         display = summary or text
+        message_id: str | None = None
         if self._session.messages and self._session.messages[-1].role == role:
             self._session.messages[-1].content = text
             self._session.messages[-1].summary = display
-        if self._streaming_row is not None:
-            self._streaming_row.set_body(display)
+            message_id = self._session.messages[-1].id
+        self._paint_role_body(display, message_id=message_id)
         self._streaming_row = None
         self.session_changed.emit()
 
     def mark_stopped(self, role: str | None = None) -> None:
         del role
         suffix = "\n\n— Đã dừng —"
-        if self._streaming_row is not None:
-            self._streaming_row.set_body(self._streaming_row._text + suffix)
-            self._streaming_row = None
+        message_id: str | None = None
         if self._session.messages:
             self._session.messages[-1].content += suffix
             self._session.messages[-1].status = "stopped"
+            message_id = self._session.messages[-1].id
+        if self._streaming_row is not None:
+            self._streaming_row.set_body(self._streaming_row._text + suffix)
+        elif message_id is not None:
+            row = self._row_for_message_id(message_id)
+            if row is not None:
+                row.set_body(row._text + suffix)
+        self._streaming_row = None
         self.set_busy(False)
         self.session_changed.emit()
+
+    def _row_for_message_id(self, message_id: str) -> ChatMessageRow | None:
+        for row in self._rows:
+            if row.message_id == message_id:
+                return row
+        return None
+
+    def _paint_role_body(self, display: str, *, message_id: str | None) -> None:
+        """Update streaming row, or the rebuilt row after a mid-turn session switch."""
+        if self._streaming_row is not None:
+            self._streaming_row.set_body(display)
+            return
+        if not message_id:
+            return
+        row = self._row_for_message_id(message_id)
+        if row is not None:
+            row.set_body(display)
 
     def copy_selected(self) -> None:
         if not self._session.messages:

@@ -80,8 +80,8 @@ class ChatHistoryRail(QWidget):
     def _apply_theme_style(self) -> None:
         t = get_theme_tokens()
         self.setStyleSheet(
-            f"#CopilotHistoryRail {{ background: {t.bg_card_subtle};"
-            f" border: 1px solid {t.border_hairline};"
+            f"#CopilotHistoryRail {{ background: {t.bg_card};"
+            f" border: 1px solid {t.border_card};"
             f" border-radius: {THEME_CARD_RADIUS}px; }}"
         )
         self.list.setStyleSheet(

@@ -115,8 +115,7 @@ class MainWindow(QMainWindow):
         self._skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
         self._chat_store = ChatHistoryStore(self.data_root)
         self._chat_runs = ChatRunRegistry()
-        self._copilot_cancel: asyncio.Event | None = None
-        self._clarify_dialog: ClarifyDialog | None = None
+        self._clarify_dialogs: dict[str, ClarifyDialog] = {}
         self._dom_distiller = DomDistiller(self._token_budget)
         self._bundled_mcp = BundledMcpRegistry()
         self._bundled_mcp.start()
@@ -548,7 +547,9 @@ class MainWindow(QMainWindow):
         self._copilot_ctl.refresh_model_catalog()
 
     async def _clarify_from_ui(self, request: ClarifyRequest) -> ClarifyResponse:
-        return await self._copilot_ctl.clarify_from_ui(request)
+        return await self._copilot_ctl.clarify_from_ui(
+            request, session_id=self.copilot.session.id
+        )
 
     def _open_system_settings(self) -> None:
         dialog = SystemSettingsDialog(self.env.settings, self)
@@ -865,12 +866,7 @@ class MainWindow(QMainWindow):
 
     async def _async_shutdown(self) -> None:
         self._bundled_mcp.stop()
-        if self._copilot_cancel is not None:
-            self._copilot_cancel.set()
-        dialog = self._clarify_dialog
-        if dialog is not None:
-            dialog.abort_stopped()
-            self._clarify_dialog = None
+        self._copilot_ctl.cancel_all_runs()
         if self.session.started or self.session.run_in_progress:
             self.session.request_cancel()
             self._append_log("Đang đóng — dừng trình duyệt…")

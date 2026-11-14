@@ -110,3 +110,8 @@ class ChatRunRegistry:
 
     def running_session_ids(self) -> set[str]:
         return set(self._runs.keys())
+
+    def cancel_all(self) -> None:
+        """Ask every in-flight turn to stop (shutdown / app close)."""
+        for session_id in list(self._runs.keys()):
+            self.request_cancel(session_id)

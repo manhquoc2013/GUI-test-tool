@@ -97,3 +97,28 @@ def test_turn_sink_forwards_to_pane_when_viewing() -> None:
     sink.end_role(ROLE_COMPOSER, "draft-a", summary="short-a")
     assert w.copilot.roles == [ROLE_COMPOSER]
     assert w.copilot.ended == [(ROLE_COMPOSER, "draft-a")]
+
+
+def test_request_cancel_viewed_does_not_cancel_background() -> None:
+    """Stop isolation: cancelling B must not set A's cancel Event."""
+    registry = ChatRunRegistry()
+    a = CopilotSession(mode=COPILOT_MODE_CASE, title="A")
+    b = CopilotSession(mode=COPILOT_MODE_CASE, title="B")
+    run_a = registry.start_run(a, "a")
+    run_b = registry.start_run(b, "b")
+    registry.request_cancel(b.id)
+    assert run_b.cancel.is_set()
+    assert not run_a.cancel.is_set()
+    assert registry.is_cancel_requested(b.id)
+    assert not registry.is_cancel_requested(a.id)
+
+
+def test_cancel_all_running_sessions() -> None:
+    registry = ChatRunRegistry()
+    a = CopilotSession(mode=COPILOT_MODE_CASE, title="A")
+    b = CopilotSession(mode=COPILOT_MODE_CASE, title="B")
+    run_a = registry.start_run(a, "a")
+    run_b = registry.start_run(b, "b")
+    registry.cancel_all()
+    assert run_a.cancel.is_set()
+    assert run_b.cancel.is_set()

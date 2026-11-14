@@ -1,6 +1,8 @@
-# Plan — Copilot History + Parallel Runs
+# Plan — Copilot History Overlay + Remediation
 
-1. **T1** `chat-run-registry`: RED→GREEN unit tests + `ChatRunRegistry` (start/cancel/finish/unread/live).
-2. **T2** `chat-history-rail`: collapsible rail in Copilot; list/select/delete/new; restore last session on startup; empty prune.
-3. **T3** `parallel-session-switch`: `on_prompt` keyed by session id; switch without hijack; route events to live session; per-view busy/stop + badges.
-4. **T4** Full gates + `tasks/learnings.md` + mark todo complete.
+1. **T1** Stale cancel / Stop isolation + shutdown cancel-all (RED→GREEN)
+2. **T2** end_role/mark_stopped repaint after switch-back (RED→GREEN)
+3. **T3** History overlay drawer (full-width chat)
+4. **T4** Attachment ingest safe when not viewing
+5. **T5** Clarify dialog keyed by session_id
+6. **T6** Full gates + learnings

@@ -47,6 +47,7 @@ from ai_qa_test_studio.constants import (
     TOKEN_CONTEXT_BUDGET,
     WIZARD_IMPORT_BATCH_SIZE,
 )
+from ai_qa_test_studio.core.doc_corpus import ingest_path
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.ui.bubble_summary import format_final_report_bubble, summarize_for_bubble
 from ai_qa_test_studio.ui.controllers.copilot_turn_sink import CopilotTurnSink
@@ -126,11 +127,11 @@ class CopilotController:
             run = w._chat_runs.get_run(session_id)
             if run is not None and run.status:
                 w.copilot.set_status(run.status)
-            w._copilot_cancel = w._chat_runs.cancel_event(session_id)
         else:
             w.copilot.set_status("")
         w._chat_runs.mark_read(session_id)
         self.refresh_history_rail()
+        w.copilot.set_history_rail_visible(False)
 
     def delete_history_session(self, session_id: str) -> None:
         w = self._w
@@ -138,6 +139,7 @@ class CopilotController:
             return
         if w._chat_runs.is_running(session_id):
             w._chat_runs.request_cancel(session_id)
+        self._abort_clarify(session_id)
         w._chat_runs.forget(session_id)
         w._chat_store.delete(session_id)
         w._chat_store.save()
@@ -149,22 +151,39 @@ class CopilotController:
     def stop(self) -> None:
         w = self._w
         session_id = w.copilot.session.id
+        # Registry owns cancel Events — never trip a stale window-level pointer.
         w._chat_runs.request_cancel(session_id)
-        if w._copilot_cancel is not None:
-            w._copilot_cancel.set()
-        dialog = w._clarify_dialog
+        self._abort_clarify(session_id)
+        w.copilot.mark_stopped()
+
+    def cancel_all_runs(self) -> None:
+        w = self._w
+        for session_id in list(w._chat_runs.running_session_ids()):
+            self._abort_clarify(session_id)
+        w._chat_runs.cancel_all()
+
+    def _abort_clarify(self, session_id: str) -> None:
+        w = self._w
+        dialog = w._clarify_dialogs.pop(session_id, None)
         if dialog is not None:
             dialog.abort_stopped()
-            w._clarify_dialog = None
-        w.copilot.mark_stopped()
 
     def refresh_model_catalog(self) -> None:
         w = self._w
         router = ModelRouter(w.env.settings.ai)
         w.copilot.set_model_catalog(router.catalog_labels())
 
-    async def clarify_from_ui(self, request: ClarifyRequest) -> ClarifyResponse:
+    async def clarify_from_ui(
+        self, request: ClarifyRequest, *, session_id: str
+    ) -> ClarifyResponse:
         w = self._w
+        if w.copilot.session.id != session_id:
+            suggestions = list(request.suggestions)
+            answer = (request.default_answer or "").strip()
+            if not answer and suggestions:
+                answer = str(suggestions[0])
+            return ClarifyResponse(answer=answer or "OK", source="background")
+
         loop = asyncio.get_running_loop()
         future: asyncio.Future[ClarifyResponse] = loop.create_future()
         dialog = ClarifyDialog(
@@ -175,7 +194,10 @@ class CopilotController:
             timeout_ms=w.env.settings.copilot.clarify_timeout_ms,
             role=request.role or "Agents",
         )
-        w._clarify_dialog = dialog
+        prior = w._clarify_dialogs.pop(session_id, None)
+        if prior is not None:
+            prior.abort_stopped()
+        w._clarify_dialogs[session_id] = dialog
 
         def _on_answered(answer: str, source: str) -> None:
             if not future.done():
@@ -186,8 +208,8 @@ class CopilotController:
         try:
             return await future
         finally:
-            if w._clarify_dialog is dialog:
-                w._clarify_dialog = None
+            if w._clarify_dialogs.get(session_id) is dialog:
+                w._clarify_dialogs.pop(session_id, None)
 
     async def on_prompt(self, text: str, flags: dict[str, Any]) -> None:
         w = self._w
@@ -200,8 +222,6 @@ class CopilotController:
         sink = CopilotTurnSink(w, target)
         run = w._chat_runs.start_run(target, COPILOT_STATUS_CONNECTING)
         cancel = run.cancel
-        if sink.viewing():
-            w._copilot_cancel = cancel
         sink.set_busy(True)
         sink.set_status(COPILOT_STATUS_CONNECTING)
         sink.set_apply_payload(None)
@@ -210,9 +230,9 @@ class CopilotController:
             attach_paths = [
                 str(p) for p in (flags.get("attach_paths") or []) if str(p).strip()
             ]
-            if attach_paths and hasattr(w.copilot, "await_attachment_ingests"):
+            if attach_paths:
                 sink.set_status("Đang index tài liệu đính kèm…")
-                doc_by_path = await w.copilot.await_attachment_ingests(attach_paths)
+                doc_by_path = await self._resolve_attachment_doc_ids(attach_paths)
                 if doc_by_path:
                     flags[CONTEXT_KEY_DOC_IDS] = list(doc_by_path.values())
                     attachments = flags.get("attachments")
@@ -234,11 +254,16 @@ class CopilotController:
                 model_ref = w.copilot.selected_model_ref()
             router = ModelRouter(w.env.settings.ai, pin_ref=model_ref)
             copilot_cfg = w.env.settings.copilot
+            turn_session_id = target.id
+
+            async def _clarify(request: ClarifyRequest) -> ClarifyResponse:
+                return await self.clarify_from_ui(request, session_id=turn_session_id)
+
             orch = CopilotOrchestrator(
                 gateway,
                 mcp=w._bundled_mcp,
                 router=router,
-                clarify_handler=self.clarify_from_ui,
+                clarify_handler=_clarify,
                 debate_max_rounds=copilot_cfg.debate_max_rounds,
                 loop_repeat_limit=copilot_cfg.loop_repeat_limit,
                 summary_max_chars=copilot_cfg.summary_max_chars,
@@ -376,9 +401,26 @@ class CopilotController:
                 w._chat_store.prune_empties()
                 w._chat_store.save()
             sink.set_busy(False)
-            if sink.viewing() and w._copilot_cancel is cancel:
-                w._copilot_cancel = None
             self.refresh_history_rail()
+
+    async def _resolve_attachment_doc_ids(self, paths: list[str]) -> dict[str, str]:
+        """Resolve corpus doc ids even if the user switched sessions mid-await."""
+        w = self._w
+        by_path: dict[str, str] = {}
+        if hasattr(w.copilot, "await_attachment_ingests"):
+            by_path.update(await w.copilot.await_attachment_ingests(paths))
+        missing = [p for p in paths if p not in by_path]
+        if not missing:
+            return by_path
+        root = getattr(w.copilot, "_project_root", None) or getattr(w.storage, "root", None)
+        for raw in missing:
+            try:
+                result = await asyncio.to_thread(ingest_path, root, Path(raw))
+            except Exception:  # noqa: BLE001
+                continue
+            if result.doc_id:
+                by_path[raw] = result.doc_id
+        return by_path
 
     async def build_context(self, flags: dict[str, Any]) -> dict[str, Any]:
         w = self._w

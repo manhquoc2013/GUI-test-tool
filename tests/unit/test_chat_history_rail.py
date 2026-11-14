@@ -61,6 +61,8 @@ def test_chat_pane_toggles_history_rail_and_restores_transcript(qapp: QApplicati
     pane.toggle_history_rail()
     assert not pane.history_rail.isHidden()
     assert pane.btn_history.isChecked()
+    # Overlay must be a child of chat body (not a side-by-side layout peer).
+    assert pane.history_rail.parent() is pane._chat_body
     session = CopilotSession(mode=COPILOT_MODE_CASE, title="Saved")
     session.messages.append(CopilotMessage(role="user", content="x"))
     pane.set_history_sessions([session], active_id=session.id)
@@ -68,4 +70,20 @@ def test_chat_pane_toggles_history_rail_and_restores_transcript(qapp: QApplicati
     pane.load_session(session)
     assert pane.session.id == session.id
     assert len(pane.session.messages) == 1
+    pane.close()
+
+
+def test_end_role_repaints_after_load_session_clears_streaming_row(qapp: QApplication) -> None:
+    from ai_qa_test_studio.constants import ROLE_COMPOSER
+
+    pane = CopilotChatPane()
+    pane.begin_role(ROLE_COMPOSER)
+    assert pane._streaming_row is not None
+    live = pane.session
+    # Simulate switch-away + switch-back while the turn is open.
+    pane.load_session(live)
+    assert pane._streaming_row is None
+    pane.end_role(ROLE_COMPOSER, "full draft body", summary="short draft")
+    assert pane._rows[-1]._text == "short draft"
+    assert live.messages[-1].content == "full draft body"
     pane.close()
