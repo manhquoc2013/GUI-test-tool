@@ -13,6 +13,10 @@ STUDIO_DIRNAME = ".studio"
 STUDIO_RUNTIME_DB = "runtime.db"
 STUDIO_ARTIFACTS_DIRNAME = "artifacts"
 STUDIO_RUNS_DIRNAME = "runs"
+STUDIO_AUTH_DIRNAME = "auth"
+DEFAULT_AUTH_PROFILE = "default"
+AUTH_GITIGNORE_ENTRY = ".studio/auth/"
+LOGIN_PATH_MARKERS = ("/login", "/signin", "/sso", "/auth/login", "/oauth")
 EVIDENCE_MANIFEST_FILENAME = "manifest.json"
 EVIDENCE_AUDIT_FILENAME = "healing_audit.json"
 APP_STUDIO_DB = "studio.db"
@@ -220,6 +224,7 @@ COPILOT_MODE_CASE = "case_chat"
 APPLY_KIND_COMPOSE = "compose_scenarios"
 APPLY_KIND_TEST_DATA = "test_data_rows"
 APPLY_KIND_STEPS = "steps_patch"
+APPLY_KIND_SWARM_AUDIT = "swarm_audit"
 # Intent → compose artifact (Apply / Tải Excel). Typo-tolerant stems included.
 COPILOT_COMPOSE_KEYWORDS: tuple[str, ...] = (
     "tạo kịch bản",
@@ -651,6 +656,19 @@ UI_MCP_WARMUP_LABEL = "MCP: đang warm-up…"
 UI_EXPORT_PROGRESS_TITLE = "Đang xuất báo cáo"
 UI_EXPORT_PROGRESS_BODY = "Ghi file trên luồng nền…"
 UI_EVIDENCE_LOADING = "Đang tải ảnh evidence…"
+UI_EVIDENCE_TAB_LABEL = "Kết quả"
+UI_EVIDENCE_EMPTY = "Chưa có kết quả chạy — bấm Chạy để thu thập bằng chứng."
+UI_EVIDENCE_NO_SHOT = "Bước này không có ảnh chụp màn hình."
+UI_EVIDENCE_MISSING_SHOT = "Không tìm thấy file ảnh bằng chứng trên đĩa."
+UI_EVIDENCE_FIT = "Vừa khung"
+UI_EVIDENCE_FULL = "100%"
+UI_EVIDENCE_ZOOM = "Phóng to"
+UI_EVIDENCE_ACCEPT_HEAL = "Chấp nhận & Lưu selector này"
+UI_EVIDENCE_HEAL_TEMP = "Heal tạm thời để chạy tiếp — Chưa ghi đè YAML"
+UI_EVIDENCE_HEAL_PERSISTED = "Đã tự động cập nhật ElementFingerprint bền vững vào YAML"
+UI_EVIDENCE_SELECTOR_PREV = "Previous Selector"
+UI_EVIDENCE_SELECTOR_HEALED = "Healed Selector"
+REPORT_EXPORT_TASK_KEY = "report:export"
 UI_PROGRESS_RING_SIZE = 18
 UI_STEP_SPINNER_SIZE = 16
 COPILOT_STATUS_THINKING = "Đang phân tích / Đang suy luận…"
@@ -915,16 +933,65 @@ HEAL_PERSIST_THRESHOLD = 0.85
 HEAL_NAME_HEURISTIC_CONFIDENCE = 0.70
 HEAL_VISION_DEFAULT_CONFIDENCE = 0.70
 
-# Fingerprint score weights (sum = 1.0)
+# SWARM_AUDIT finding / failure codes
+AUDIT_CODE_MISSING_EVIDENCE = "MISSING_EVIDENCE"
+AUDIT_CODE_FALSE_POSITIVE_PASS = "FALSE_POSITIVE_PASS"
+AUDIT_CODE_HEAL_REVIEW = "HEAL_REVIEW"
+AUDIT_FAIL_SELECTOR_DRIFT = "SELECTOR_DRIFT"
+AUDIT_FAIL_ASSERTION_MISMATCH = "ASSERTION_MISMATCH"
+AUDIT_FAIL_APP_RUNTIME_ERROR = "APP_RUNTIME_ERROR"
+AUDIT_FAIL_ENVIRONMENT_TIMEOUT = "ENVIRONMENT_TIMEOUT"
+ASSERT_STEP_ACTIONS = frozenset(
+    {"assert", "assert_visible", "assert_text", "assert_url", "verify_db"}
+)
+AUDIT_HTTP_ERROR_RE = r"(?i)\b(?:HTTP[/\s-]?)?(?:4\d{2}|5\d{2})\b"
+AUDIT_CONSOLE_ERROR_RE = r"(?i)\b(?:uncaught|console\s*error|TypeError|ReferenceError)\b"
+AUDIT_SELECTOR_DRIFT_RE = r"(?i)\b(?:stale|selector|locator|not\s*found|no\s*node|element)\b"
+AUDIT_ASSERT_MISMATCH_RE = r"(?i)\b(?:assert|expected|mismatch|not\s*equal|timeout\s*waiting\s*for\s*text)\b"
+AUDIT_TIMEOUT_RE = r"(?i)\b(?:timeout|timed\s*out|environment|net::ERR|ECONNREFUSED)\b"
+COPILOT_AUDIT_EXPORT_TIP = "Xuất báo cáo Audit (HTML / Excel)"
+
+# Toolbar Run task keys / UX copy
+RUN_TASK_KEY_PREFIX = "run:"
+RUN_URL_EMPTY_TITLE = "Target URL"
+RUN_URL_EMPTY_BODY = "Nhập Target URL hợp lệ (http/https) trước khi chạy."
+RUN_URL_INVALID_TITLE = "Target URL không hợp lệ"
+RUN_URL_INVALID_BODY = "URL phải có scheme http/https (hoặc file://) và host/path hợp lệ."
+RUN_UNBOUND_TITLE = "Chưa Sync locator"
+RUN_UNBOUND_BODY = (
+    "Còn bước UNBOUND — hãy Sync URL trước, hoặc bật «Sync trước khi chạy» trong Settings."
+)
+RUN_PARTIAL_BIND_TITLE = "Một phần chưa BOUND"
+RUN_PARTIAL_BIND_BODY = (
+    "Ưu tiên chạy bước BOUND; các bước UNBOUND có thể thất bại hoặc cần Agent/Sync."
+)
+RUN_ALLOWED_URL_SCHEMES = frozenset({"http", "https", "file"})
+
+# Fingerprint score weights (identity stack ≈ 1.0; frame/shadow are contextual bonuses)
 FP_WEIGHT_TEST_ID = 0.45
 FP_WEIGHT_ROLE_NAME = 0.25
 FP_WEIGHT_CSS = 0.15
 FP_WEIGHT_XPATH = 0.10
 FP_WEIGHT_TEXT = 0.05
+FP_WEIGHT_FRAME_PATH = 0.08
+FP_WEIGHT_SHADOW_DOM = 0.04
+FP_FRAME_MISMATCH_FACTOR = 0.55
 
 # SnapshotDistiller
 SNAPSHOT_MAX_NODES = 80
 SNAPSHOT_INCLUDE_ARIA_DEFAULT = False
+SNAPSHOT_MAX_FRAME_DEPTH = 5
+SNAPSHOT_IFRAME_MIN_SIZE_PX = 2
+ATTR_IN_SHADOW_DOM = "in_shadow_dom"
+ATTR_SHADOW_HOST_CHAIN = "shadow_host_chain"
+FRAME_PATH_NTH_SEP = ">> nth="
+AUTH_CAPTURE_TASK_KEY = "auth:capture"
+UI_LABEL_AUTH_SESSION = "Phiên đăng nhập"
+UI_LABEL_AUTH_SAVE = "Lưu phiên"
+UI_AUTH_EXPIRED_TITLE = "Phiên đăng nhập hết hạn"
+UI_AUTH_EXPIRED_BODY = (
+    "URL bị chuyển về trang đăng nhập — mở «Phiên đăng nhập» để đăng nhập lại và lưu storageState."
+)
 
 # DualLoop MCP-first (Sprint 4+); falls back to in-process page when executor unavailable
 MCP_ACTIONS_ENABLED = True

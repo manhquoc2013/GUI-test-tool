@@ -33,7 +33,15 @@ _KEYWORD_RULES: tuple[tuple[re.Pattern[str], IntentType], ...] = (
     (re.compile(r"(?i)\b(test.?cases?|tc\b|bva|iso.?29119)\b"), IntentType.TEST_CASE_GEN),
     (re.compile(r"(?i)\b(script|playwright|codegen|exporter)\b"), IntentType.TEST_SCRIPT_GEN),
     (re.compile(r"(?i)\b(run|execute|bind|heal|dual.?loop)\b"), IntentType.EXEC_AND_BIND),
-    (re.compile(r"(?i)\b(audit|swarm|traceability|evidence)\b"), IntentType.SWARM_AUDIT),
+    (
+        re.compile(
+            r"(?i)\b("
+            r"audit|swarm|traceability|evidence|"
+            r"kiểm\s*toán|bằng\s*chứng|evidence\s*report|độ\s*phủ"
+            r")\b"
+        ),
+        IntentType.SWARM_AUDIT,
+    ),
 )
 
 

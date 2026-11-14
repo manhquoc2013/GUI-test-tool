@@ -57,3 +57,23 @@ async def test_emit_if_alive_skips_invalid_widget() -> None:
 
     supervisor.emit_if_alive(None, _Sig(), 1)
     assert emitted == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_key_stops_task() -> None:
+    supervisor = AsyncTaskSupervisor()
+    hit: list[str] = []
+
+    async def worker() -> None:
+        hit.append("start")
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            hit.append("cancelled")
+            raise
+
+    task = supervisor.register(worker(), key="run:case-1", replace=True)
+    await asyncio.sleep(0)
+    await supervisor.cancel("run:case-1")
+    assert task.cancelled() or task.done()
+    assert "cancelled" in hit or task.cancelled()

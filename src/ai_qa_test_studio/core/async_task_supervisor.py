@@ -58,6 +58,21 @@ class AsyncTaskSupervisor:
             task.add_done_callback(_cleanup)
             return task
 
+    def cancel_now(self, key: str) -> None:
+        """Cancel a registered task without awaiting (Stop / UI thread safe)."""
+        with self._lock:
+            task = self._tasks.get(key)
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def cancel(self, key: str) -> None:
+        with self._lock:
+            task = self._tasks.get(key)
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     async def cancel_all(self) -> None:
         with self._lock:
             tasks = list(self._tasks.values())

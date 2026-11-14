@@ -4,30 +4,60 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
-from ai_qa_test_studio.agent.auto_binder import ShiftLeftAutoBinder, repo_from_project
+from ai_qa_test_studio.agent.auto_binder import (
+    ShiftLeftAutoBinder,
+    SyncBindResult,
+    repo_from_project,
+)
 from ai_qa_test_studio.agent.bundled_mcp import BundledMcpRegistry
+from ai_qa_test_studio.agent.case_binding import case_binding_summary
 from ai_qa_test_studio.agent.dual_loop_agent import DualLoopAgent
 from ai_qa_test_studio.agent.external_mcp_bridge import ExternalMcpBridge
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.agent.vision_bridge import make_vision_locate
 from ai_qa_test_studio.browser.engine import BrowserEngine
 from ai_qa_test_studio.constants import (
+    AUTH_CAPTURE_TASK_KEY,
+    DEFAULT_AUTH_PROFILE,
     DEFAULT_TARGET_URL,
     FALLBACK_BLANK_URL,
     MCP_ACTIONS_ENABLED,
     RUN_CANCEL_WAIT_TIMEOUT_S,
+    UI_AUTH_EXPIRED_BODY,
     UI_VIEWPORT_HEIGHT,
     UI_VIEWPORT_WIDTH,
 )
+from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
+from ai_qa_test_studio.core.auth_session import (
+    auth_state_path,
+    ensure_auth_gitignore,
+    looks_like_login_url,
+    resolve_auth_state,
+)
 from ai_qa_test_studio.core.models import Project, RunReport, SharedElement, TestCase
+from ai_qa_test_studio.core.url_validation import is_valid_target_url
 
 logger = logging.getLogger(__name__)
 
 LogFn = Callable[[str], None]
 StepFn = Callable[[int, str, str, float, str], None]
+
+SYNC_NO_BINDABLE_MSG = "Không có bước UI nào cần đồng bộ selector"
+SYNC_INVALID_URL_MSG = "Target URL trống hoặc không hợp lệ — nhập http(s):// hoặc file:// trước khi Sync"
+
+
+def sync_preflight_error(case: TestCase, url: str) -> str | None:
+    """Return a user-facing error if Sync must not start; else None."""
+    if not is_valid_target_url(url):
+        return SYNC_INVALID_URL_MSG
+    summary = case_binding_summary(case)
+    if summary.total_bindable_steps == 0:
+        return SYNC_NO_BINDABLE_MSG
+    return None
 
 
 class SessionController:
@@ -37,6 +67,10 @@ class SessionController:
         self.cancel_requested = False
         self._active_run: asyncio.Future[None] | None = None
         self._external_mcp = ExternalMcpBridge()
+        self._supervisor = get_async_task_supervisor()
+        self._auth_engine: BrowserEngine | None = None
+        self._auth_path: Path | None = None
+        self._project_root: Path | None = None
 
     @property
     def started(self) -> bool:
@@ -46,24 +80,57 @@ class SessionController:
     def run_in_progress(self) -> bool:
         return self._active_run is not None and not self._active_run.done()
 
-    async def ensure_started(self, headless: bool = False, log: LogFn | None = None) -> None:
+    @property
+    def auth_capture_active(self) -> bool:
+        return self._auth_engine is not None
+
+    def set_project_root(self, project_root: Path | None) -> None:
+        self._project_root = project_root
+
+    async def ensure_started(
+        self,
+        headless: bool = False,
+        log: LogFn | None = None,
+        *,
+        project_root: Path | None = None,
+        storage_state: str | Path | None = None,
+    ) -> None:
         emit = log or (lambda _m: None)
         if self._started:
             return
+        root = project_root if project_root is not None else self._project_root
+        state = storage_state
+        if state is None and root is not None:
+            resolved = resolve_auth_state(root)
+            state = resolved
         emit("Đang khởi động Chromium (một context + CDP)…")
-        cdp = await self.engine.start(headless=headless)
+        cdp = await self.engine.start(headless=headless, storage_state=state)
         page = self.engine.page
         await page.set_viewport_size({"width": UI_VIEWPORT_WIDTH, "height": UI_VIEWPORT_HEIGHT})
         self._started = True
-        emit(f"Trình duyệt sẵn sàng — CDP {cdp.http_endpoint}")
+        if state:
+            emit(f"Trình duyệt sẵn sàng — CDP {cdp.http_endpoint} (storageState đã nạp)")
+        else:
+            emit(f"Trình duyệt sẵn sàng — CDP {cdp.http_endpoint}")
+
+    async def _warn_if_login_redirect(self, emit: LogFn) -> bool:
+        try:
+            current = str(self.engine.page.url or "")
+        except Exception:  # noqa: BLE001
+            return False
+        if looks_like_login_url(current):
+            emit(f"{UI_AUTH_EXPIRED_BODY} (url={current})")
+            return True
+        return False
 
     async def launch_url(self, url: str, log: LogFn | None = None) -> str:
         """Start Chromium and navigate. On nav failure keep browser open at blank page."""
         emit = log or (lambda _m: None)
         target = (url or "").strip() or DEFAULT_TARGET_URL
-        await self.ensure_started(headless=False, log=emit)
+        await self.ensure_started(headless=False, log=emit, project_root=self._project_root)
         try:
             await self.engine.goto(target)
+            await self._warn_if_login_redirect(emit)
             emit(f"Đã mở {target}")
             return target
         except Exception as exc:  # noqa: BLE001
@@ -79,12 +146,83 @@ class SessionController:
                     emit(f"Fallback {FALLBACK_BLANK_URL} cũng thất bại: {blank_exc}")
             raise
 
+    async def start_auth_capture(
+        self,
+        url: str,
+        project_root: Path,
+        *,
+        profile_name: str = DEFAULT_AUTH_PROFILE,
+        log: LogFn | None = None,
+    ) -> Path:
+        """Open a headed browser for manual login (SSO / OTP / CAPTCHA)."""
+        emit = log or (lambda _m: None)
+        if not is_valid_target_url(url):
+            raise ValueError(SYNC_INVALID_URL_MSG)
+        await self.abort_auth_capture(log=emit)
+        ensure_auth_gitignore(project_root)
+        target = auth_state_path(project_root, profile_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        engine = BrowserEngine()
+
+        async def _open() -> None:
+            await engine.start(headless=False)
+            await engine.goto(url)
+
+        task = self._supervisor.register(_open(), key=AUTH_CAPTURE_TASK_KEY, replace=True)
+        await task
+        self._auth_engine = engine
+        self._auth_path = target
+        self._project_root = project_root
+        emit(
+            f"Đã mở trình duyệt đăng nhập ({url}) — đăng nhập xong rồi bấm «Lưu phiên»"
+        )
+        return target
+
+    async def save_auth_capture(self, log: LogFn | None = None) -> Path:
+        """Persist ``storage_state`` then close the capture browser via AsyncTaskSupervisor."""
+        emit = log or (lambda _m: None)
+        engine = self._auth_engine
+        path = self._auth_path
+        if engine is None or path is None:
+            raise RuntimeError("Chưa mở phiên đăng nhập — bấm «Phiên đăng nhập» trước")
+
+        async def _save_and_close() -> Path:
+            saved = await engine.save_storage_state(path)
+            await engine.stop()
+            return saved
+
+        task = self._supervisor.register(
+            _save_and_close(),
+            key=AUTH_CAPTURE_TASK_KEY,
+            replace=True,
+        )
+        saved = await task
+        self._auth_engine = None
+        self._auth_path = None
+        emit(f"Đã lưu phiên đăng nhập → {saved}")
+        return Path(saved)
+
+    async def abort_auth_capture(self, log: LogFn | None = None) -> None:
+        emit = log or (lambda _m: None)
+        engine = self._auth_engine
+        self._auth_engine = None
+        self._auth_path = None
+        await self._supervisor.cancel(AUTH_CAPTURE_TASK_KEY)
+        if engine is not None:
+            try:
+                await engine.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("auth_capture_stop_failed err=%s", exc)
+            emit("Đã đóng trình duyệt thu thập phiên đăng nhập")
+
     def request_cancel(self) -> None:
         self.cancel_requested = True
 
     async def stop(self, log: LogFn | None = None) -> None:
         emit = log or (lambda _m: None)
         self.cancel_requested = True
+        await self.abort_auth_capture(log=emit)
+        await self._supervisor.cancel_all()
         if self.run_in_progress and self._active_run is not None:
             emit("Đang chờ dual-loop dừng…")
             try:
@@ -106,30 +244,60 @@ class SessionController:
         viewport = page.viewport_size or {"width": UI_VIEWPORT_WIDTH, "height": UI_VIEWPORT_HEIGHT}
         return png, int(viewport["width"]), int(viewport["height"])
 
+    def register_sync(
+        self,
+        coro: Coroutine[Any, Any, Any],
+        *,
+        case_id: str,
+    ) -> asyncio.Task[Any]:
+        """Register Sync under ``sync:{case_id}`` so Stop / re-Sync cancels cleanly."""
+        return self._supervisor.register(
+            coro,
+            key=f"sync:{case_id}",
+            replace=True,
+        )
+
     async def sync_bind(
         self,
         project: Project,
         case: TestCase,
         base_url: str,
         log: LogFn | None = None,
-    ) -> TestCase:
+        *,
+        headless: bool = False,
+    ) -> SyncBindResult:
+        """Warm MCP, open Target URL, distill DOM, map UNBOUND→BOUND (dual thresholds)."""
         emit = log or (lambda _m: None)
-        await self.ensure_started(headless=False, log=emit)
+        preflight = sync_preflight_error(case, base_url)
+        if preflight is not None:
+            raise ValueError(preflight)
+
+        root = self._project_root
+        await self.ensure_started(
+            headless=headless,
+            log=emit,
+            project_root=root,
+        )
+        cdp = self.engine.cdp_http_for_mcp() if self._started else ""
+        if cdp:
+            await self._external_mcp.ensure_playwright(cdp, log=emit)
+
         repo = repo_from_project(project)
         binder = ShiftLeftAutoBinder(self.engine.page, repo)
 
         def progress(msg: str) -> None:
             emit(msg)
 
-        updated = await binder.sync_test_case(case, base_url=base_url, on_progress=progress)
+        result = await binder.sync_with_audit(case, base_url=base_url, on_progress=progress)
+        await self._warn_if_login_redirect(emit)
         by_id = {el.element_id: el for el in project.shared_elements}
         for eid, el in repo.items():
             by_id[eid] = el
         project.shared_elements = list(by_id.values())
-        bound = sum(1 for s in updated.steps if s.binding_status == "BOUND")
-        unbound = sum(1 for s in updated.steps if s.binding_status == "UNBOUND")
+        bound = sum(1 for s in result.case.steps if s.binding_status == "BOUND")
+        unbound = sum(1 for s in result.case.steps if s.binding_status == "UNBOUND")
         emit(f"Đồng bộ xong — BOUND={bound} UNBOUND={unbound}")
-        return updated
+        return result
 
     async def run_case(
         self,
@@ -144,6 +312,7 @@ class SessionController:
         *,
         reset_cancel: bool = True,
         emit_report: bool = True,
+        project_root: Path | None = None,
     ) -> RunReport:
         emit = log or (lambda _m: None)
         if reset_cancel:
@@ -153,7 +322,8 @@ class SessionController:
         self._active_run = done
         _ = emit_report  # callers suppress side-effects; return value always full
         try:
-            await self.ensure_started(headless=False, log=emit)
+            root = project_root if project_root is not None else self._project_root
+            await self.ensure_started(headless=False, log=emit, project_root=root)
             skill_context = ""
             skill_loader: ProgressiveSkillLoader | None = None
             if skills_dir is not None:
@@ -164,6 +334,7 @@ class SessionController:
             if case.start_url:
                 await self.engine.goto(case.start_url)
                 emit(f"Mở start_url={case.start_url}")
+                await self._warn_if_login_redirect(emit)
             repo = repo_from_project(project)
             vision_locate = None
             if bundled_mcp is not None:
@@ -185,12 +356,18 @@ class SessionController:
                 )
                 mode = "external+bundled-fallback" if external_ok else "bundled-fallback"
                 emit(f"Midscene vision locate: on ({mode})")
+            from ai_qa_test_studio.reporting.evidence import EvidenceCollector
+
+            evidence = (
+                EvidenceCollector(project_root) if project_root is not None else None
+            )
             agent = DualLoopAgent(
                 self.engine.page,
                 repo,
                 vision_locate=vision_locate,
                 skill_context=skill_context,
                 skill_loader=skill_loader,
+                evidence=evidence,
             )
             if MCP_ACTIONS_ENABLED:
                 cdp_http = self.engine.cdp_http_for_mcp() if self._started else ""
@@ -200,28 +377,28 @@ class SessionController:
                 agent.mcp_executor = self._external_mcp.client.smart_executor()
                 emit("DualLoop MCP-first: SmartMCPToolExecutor attached")
             emit(f"Đang chạy dual-loop {case.code} ({len(case.steps)} bước)…")
+
+            def _progress(
+                step_no: int,
+                action: str,
+                status: str,
+                duration_ms: float,
+                message: str,
+            ) -> None:
+                if on_step is not None:
+                    on_step(step_no, action, status, duration_ms, message)
+                else:
+                    emit(f"  #{step_no} {action} → {status} ({duration_ms:.0f} ms) {message}")
+
             report = await agent.run_case(
                 case,
                 project_name=project.name,
                 should_cancel=lambda: self.cancel_requested,
+                on_step=_progress,
             )
             result = report.cases[0]
             case.last_status = result.status
             emit(f"Hoàn tất {case.code}: {result.status}")
-            for step in result.steps:
-                if on_step is not None:
-                    on_step(
-                        step.step_no,
-                        step.action,
-                        step.status,
-                        float(step.duration_ms),
-                        step.message,
-                    )
-                else:
-                    emit(
-                        f"  #{step.step_no} {step.action} → {step.status} "
-                        f"({step.duration_ms} ms) {step.message}"
-                    )
             return report
         finally:
             # Always release the run latch so Stop / UI busy state cannot stick

@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -97,6 +97,10 @@ from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 
 
 class MainWindow(QMainWindow):
+    """Shell window. ``sync_progress`` feeds Sync status via ``emit_if_alive``."""
+
+    sync_progress = Signal(str)
+
     def __init__(self, data_root: Path | None = None) -> None:
         super().__init__()
         self.setWindowTitle(APP_WINDOW_TITLE)
@@ -111,6 +115,7 @@ class MainWindow(QMainWindow):
         self._index_sync = ProjectIndexSync(self.storage.root)
         self.project: Project | None = self.storage.load()
         self.session = SessionController()
+        self.session.set_project_root(self.storage.root)
         self._busy = False
         self._last_report: RunReport | None = None
         self._last_error: str = ""
@@ -159,6 +164,8 @@ class MainWindow(QMainWindow):
         self.top_bar.wizard_clicked.connect(self._open_copilot)
         self.top_bar.new_case_clicked.connect(self._new_case)
         self.top_bar.sync_url_clicked.connect(lambda _url: self._sync_url())
+        self.top_bar.auth_session_clicked.connect(self._auth_session)
+        self.sync_progress.connect(self._on_sync_progress)
         self.top_bar.run_clicked.connect(self._run_current)
         self.top_bar.stop_clicked.connect(self._stop_browser)
         self.top_bar.batch_run_clicked.connect(self._run_selected_node)
@@ -610,7 +617,15 @@ class MainWindow(QMainWindow):
 
     @asyncSlot(str, dict)
     async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:
-        await self._copilot_ctl.on_prompt(text, flags)
+        from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
+        from ai_qa_test_studio.core.chat_run_registry import ChatRunRegistry
+
+        session_id = self.copilot.session.id
+        get_async_task_supervisor().register(
+            self._copilot_ctl.on_prompt(text, flags),
+            key=ChatRunRegistry.supervisor_key_for(session_id),
+            replace=True,
+        )
 
     async def _build_copilot_context(self, flags: dict[str, Any]) -> dict[str, Any]:
         return await self._copilot_ctl.build_context(flags)
@@ -727,10 +742,18 @@ class MainWindow(QMainWindow):
     async def _launch_browser(self) -> None:
         await self._run.launch_browser()
 
+    def _on_sync_progress(self, message: str) -> None:
+        self._status_caption.setText(message)
+        self._append_log(message)
+
     @asyncSlot()
     async def _sync_url(self) -> None:
-        """Sync bind — empty URL uses DEFAULT_TARGET_URL; toast-only feedback."""
+        """Unified Sync handler — toolbar Sync (N) and editor «Sync ngay»."""
         await self._run.sync_url()
+
+    @asyncSlot()
+    async def _auth_session(self) -> None:
+        await self._run.auth_session()
 
     @asyncSlot()
     async def _run_current(self) -> None:
@@ -745,6 +768,7 @@ class MainWindow(QMainWindow):
         if self._busy:
             self.session.request_cancel()
             self._append_log("Đã yêu cầu dừng batch / dual-loop…")
+            await self._run.stop_browser()
             return
         await self._run.stop_browser()
 

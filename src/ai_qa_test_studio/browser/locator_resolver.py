@@ -2,51 +2,114 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from ai_qa_test_studio.constants import STEP_SCROLL_DEFAULT_DELTA_Y, STEP_WAIT_DEFAULT_MS
+from ai_qa_test_studio.constants import (
+    FRAME_PATH_NTH_SEP,
+    STEP_SCROLL_DEFAULT_DELTA_Y,
+    STEP_WAIT_DEFAULT_MS,
+)
+from ai_qa_test_studio.core.fingerprint import normalize_frame_path
 from ai_qa_test_studio.core.models import ElementFingerprint, SharedElement, TestStep
+
+_ROLE_NAME_RE = re.compile(
+    r"""role\s*=\s*(?P<role>[\w-]+)\s*(?:\[\s*name\s*=\s*["'](?P<name>[^"']+)["']\s*\])?""",
+    re.IGNORECASE,
+)
 
 
 class LocatorResolver:
-    async def try_semantic_match(self, page: Any, element: SharedElement) -> Any | None:
-        candidates: list[str] = []
-        if element.primary_playwright:
-            candidates.append(element.primary_playwright)
-        if element.css:
-            candidates.append(element.css)
-        if element.test_id:
-            candidates.append(f"[data-testid=\"{element.test_id}\"]")
-        if element.xpath:
-            candidates.append(f"xpath={element.xpath}")
-        if element.fingerprint is not None:
-            fp = element.fingerprint
-            if fp.css and fp.css not in candidates:
-                candidates.append(fp.css)
-            if fp.test_id:
-                tid = f"[data-testid=\"{fp.test_id}\"]"
-                if tid not in candidates:
-                    candidates.append(tid)
-            if fp.xpath:
-                xp = fp.xpath if fp.xpath.startswith("xpath=") else f"xpath={fp.xpath}"
-                if xp not in candidates:
-                    candidates.append(xp)
+    def bound_selector(self, element: SharedElement) -> str:
+        """Deterministic BOUND selector: test_id → role+name → css → xpath (no LLM)."""
+        for candidate in self._fingerprint_candidates(element):
+            if candidate:
+                return candidate
+        return element.primary_playwright or element.css or ""
 
-        for candidate in candidates:
-            locator = self._to_locator(page, candidate)
+    def _fingerprint_candidates(self, element: SharedElement) -> list[str]:
+        fp = element.fingerprint
+        candidates: list[str] = []
+
+        def _add(value: str) -> None:
+            text = value.strip()
+            if text and text not in candidates:
+                candidates.append(text)
+
+        test_id = (element.test_id or (fp.test_id if fp else None) or "").strip()
+        if test_id:
+            _add(f'[data-testid="{test_id}"]')
+
+        role = (element.role or (fp.role if fp else None) or "").strip()
+        name = (element.name or (fp.accessible_name if fp else None) or "").strip()
+        if role and name:
+            _add(f'role={role}[name="{name}"]')
+        elif role:
+            _add(f"role={role}")
+
+        css = (element.css or (fp.css if fp else None) or "").strip()
+        if css:
+            _add(css)
+
+        xpath = (element.xpath or (fp.xpath if fp else None) or "").strip()
+        if xpath:
+            _add(xpath if xpath.startswith("xpath=") else f"xpath={xpath}")
+
+        if element.primary_playwright:
+            _add(element.primary_playwright)
+        return candidates
+
+    async def try_semantic_match(self, page: Any, element: SharedElement) -> Any | None:
+        root = await self._frame_root(page, element.fingerprint)
+        for candidate in self._fingerprint_candidates(element):
+            locator = self._to_locator(root, candidate)
             try:
                 count = await locator.count()
             except Exception:
                 continue
-            if count == 1:
+            if count >= 1:
                 return locator.first
         return None
 
+    async def _frame_root(self, page: Any, fingerprint: ElementFingerprint | None) -> Any:
+        if fingerprint is None:
+            return page
+        return self.chain_frame_locators(page, fingerprint.frame_path)
+
+    @staticmethod
+    def chain_frame_locators(page: Any, frame_path: list[str] | str | None) -> Any:
+        """Walk ``page.frame_locator(...)`` for each frame_path segment (incl. ``>> nth=N``)."""
+        parts = normalize_frame_path(frame_path)
+        if not parts:
+            return page
+        current: Any = page
+        for frame_sel in parts:
+            try:
+                if FRAME_PATH_NTH_SEP in frame_sel:
+                    base, _, nth_raw = frame_sel.partition(FRAME_PATH_NTH_SEP)
+                    base_sel = base.strip() or "iframe"
+                    current = current.frame_locator(base_sel).nth(int(nth_raw.strip()))
+                else:
+                    current = current.frame_locator(frame_sel)
+            except Exception:
+                return page
+        return current
+
     def _to_locator(self, page: Any, candidate: str) -> Any:
         text = candidate.strip()
-        if text.startswith("get_by_role"):
-            # Limited eval of common patterns — prefer CSS/xpath stored fields.
-            return page.locator("body")  # pragma: no cover - rare path
+        role_match = _ROLE_NAME_RE.fullmatch(text) or (
+            _ROLE_NAME_RE.search(text) if text.startswith("role=") else None
+        )
+        if role_match is not None:
+            role = role_match.group("role")
+            name = role_match.group("name")
+            if hasattr(page, "get_by_role"):
+                if name:
+                    return page.get_by_role(role, name=name)
+                return page.get_by_role(role)
+        if text.startswith("get_by_role") and hasattr(page, "get_by_role"):
+            # Best-effort: prefer stored role=/css fields; avoid eval.
+            return page.locator("body")  # pragma: no cover - legacy string form
         if text.startswith("xpath="):
             return page.locator(text)
         return page.locator(text)
@@ -73,6 +136,7 @@ class LocatorResolver:
             element.role = str(info["role"])
         if info.get("name"):
             element.name = str(info["name"])
+        prior = element.fingerprint
         element.fingerprint = ElementFingerprint(
             tag=str(info.get("tag") or ""),
             role=element.role,
@@ -81,6 +145,8 @@ class LocatorResolver:
             test_id=element.test_id,
             css=element.css,
             xpath=element.xpath,
+            frame_path=list(prior.frame_path) if prior is not None else [],
+            attrs_subset=dict(prior.attrs_subset) if prior is not None else {},
         )
 
     async def execute_step(self, page: Any, step: TestStep, element: SharedElement | None) -> None:

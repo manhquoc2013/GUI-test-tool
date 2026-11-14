@@ -42,8 +42,19 @@ class ElementFingerprint(BaseModel):
     test_id: str | None = None
     css: str | None = None
     xpath: str | None = None
-    frame_path: str | None = None
+    frame_path: list[str] = Field(default_factory=list)
     attrs_subset: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("frame_path", mode="before")
+    @classmethod
+    def _coerce_frame_path(cls, value: object) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        if isinstance(value, list):
+            return [str(part).strip() for part in value if str(part).strip()]
+        return []
 
 
 class DistilledNode(BaseModel):
@@ -213,6 +224,7 @@ class AppSettings(BaseModel):
     headless_default: bool = False
     theme: str = "auto"
     reduce_motion: bool = False
+    sync_before_run: bool = False
     ai: AiSettings = Field(default_factory=AiSettings)
     active_environment: str = "DEV"
     copilot: CopilotRuntimeSettings = Field(default_factory=CopilotRuntimeSettings)
@@ -245,6 +257,7 @@ class StepAuditEntry(BaseModel):
     binding_status: BindingStatus = "HEALED"
     confidence_score: float | None = None
     previous_selector: str | None = None
+    healed_selector: str | None = None
     persisted: bool = False
 
 
@@ -265,6 +278,8 @@ class RunStepResult(BaseModel):
     click_x: float | None = None
     click_y: float | None = None
     audit: StepAuditEntry | None = None
+    console_logs: list[str] = Field(default_factory=list)
+    network_status_codes: list[int] = Field(default_factory=list)
 
 
 # Preferred name for callers / contracts re-export.

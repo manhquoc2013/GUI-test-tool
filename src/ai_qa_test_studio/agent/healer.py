@@ -1,4 +1,4 @@
-"""Self-healing interceptor: fingerprint score + dual run/persist thresholds."""
+"""Self-healing interceptor — dual thresholds 0.65 run / 0.85 persist."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from ai_qa_test_studio.browser.locator_resolver import LocatorResolver
 from ai_qa_test_studio.constants import (
     BINDING_HEALED,
     HEAL_NAME_HEURISTIC_CONFIDENCE,
+    HEAL_PERSIST_THRESHOLD,
+    HEAL_RUN_THRESHOLD,
     HEAL_VISION_DEFAULT_CONFIDENCE,
 )
 from ai_qa_test_studio.core.enums import StepStatus
@@ -21,7 +23,7 @@ from ai_qa_test_studio.core.fingerprint import (
     should_persist_heal,
     should_run_heal,
 )
-from ai_qa_test_studio.core.models import SharedElement, StepAuditEntry, TestStep
+from ai_qa_test_studio.core.models import DistilledNode, SharedElement, StepAuditEntry, TestStep
 
 logger = logging.getLogger(__name__)
 
@@ -46,28 +48,35 @@ class Healer:
     ) -> StepAuditEntry | None:
         old = element.primary_playwright or element.css
         expected_fp = fingerprint_from_shared(element)
-        compact_dom, element_map = await self.distiller.extract(page)
-        del compact_dom  # distill for map only; keep lean
 
         best_id: str | None = None
         best_score = 0.0
         best_meta: dict[str, Any] | None = None
-        for eid, meta in element_map.items():
-            cand = fingerprint_from_meta(meta)
+
+        nodes = await self._distill_nodes(page)
+        for node in nodes:
+            cand = node.fingerprint
             scored = score_match(expected_fp, cand)
-            # Name/intent heuristic boost when fingerprint fields are sparse
-            name = str(meta.get("name") or "").lower()
+            name = (cand.accessible_name or "").lower()
             intent = (step.intent_hint or "").lower()
             if intent and name and (intent[:20] in name or name in intent):
                 scored = max(scored, HEAL_NAME_HEURISTIC_CONFIDENCE)
             if scored > best_score:
                 best_score = scored
-                best_id = eid
-                best_meta = meta
+                best_id = node.short_id
+                best_meta = {
+                    "tag": cand.tag,
+                    "role": cand.role or "",
+                    "name": cand.accessible_name or "",
+                    "testId": cand.test_id or "",
+                    "css": cand.css or "",
+                    "xpath": cand.xpath or "",
+                }
 
         if best_meta is not None and should_run_heal(best_score):
             new_css = str(best_meta.get("css") or "")
             cand_fp = fingerprint_from_meta(best_meta)
+            # Never persist DistilledNode short_id into YAML fingerprint
             persisted = apply_locator_to_element(
                 element,
                 css=new_css,
@@ -78,6 +87,7 @@ class Healer:
                 fingerprint=cand_fp,
             )
             step.binding_status = BINDING_HEALED  # type: ignore[assignment]
+            reason = self._reason_for_score(best_score, heuristic=best_score <= HEAL_NAME_HEURISTIC_CONFIDENCE)
             if not persisted:
                 logger.warning(
                     "heal_below_persist step=%s score=%.3f — runtime only, no YAML",
@@ -95,10 +105,11 @@ class Healer:
                 step_no=step.step_no,
                 old_locator=old,
                 new_locator=new_css,
-                reason="dom_heuristic" if best_score <= HEAL_NAME_HEURISTIC_CONFIDENCE else "fingerprint",
+                reason=reason,
                 binding_status="HEALED",
                 confidence_score=best_score,
                 previous_selector=old,
+                healed_selector=new_css,
                 persisted=persisted,
             )
 
@@ -122,6 +133,7 @@ class Healer:
                         binding_status=step.binding_status,
                         confidence_score=confidence,
                         previous_selector=old,
+                        healed_selector=None,
                         persisted=False,
                     )
                 element.vision_prompt = step.intent_hint
@@ -129,6 +141,7 @@ class Healer:
                     element, css=new_css, confidence=confidence
                 )
                 step.binding_status = BINDING_HEALED  # type: ignore[assignment]
+                reason = self._reason_for_score(confidence, base="midscene_vision")
                 if not persisted:
                     logger.warning(
                         "vision_heal_below_persist step=%s score=%.3f",
@@ -139,13 +152,67 @@ class Healer:
                     step_no=step.step_no,
                     old_locator=old,
                     new_locator=new_css,
-                    reason="midscene_vision",
+                    reason=reason,
                     binding_status="HEALED",
                     confidence_score=confidence,
                     previous_selector=old,
+                    healed_selector=new_css,
                     persisted=persisted,
                 )
         return None
+
+    async def _distill_nodes(self, page: Any) -> list[DistilledNode]:
+        distill = getattr(self.distiller, "distill", None)
+        raw_nodes: Any = None
+        if callable(distill):
+            maybe = distill(page)
+            if hasattr(maybe, "__await__"):
+                raw_nodes = await maybe
+            elif isinstance(maybe, list):
+                raw_nodes = maybe
+        if isinstance(raw_nodes, list) and raw_nodes:
+            distilled = [n for n in raw_nodes if isinstance(n, DistilledNode)]
+            if distilled:
+                return distilled
+        # Legacy mock / DomDistiller.extract path
+        extract = getattr(self.distiller, "extract", None)
+        if not callable(extract):
+            return []
+        extracted = extract(page)
+        if hasattr(extracted, "__await__"):
+            _compact, element_map = await extracted
+        else:
+            return []
+        legacy: list[DistilledNode] = []
+        if isinstance(element_map, dict):
+            for eid, meta in element_map.items():
+                if not isinstance(meta, dict):
+                    continue
+                fp = fingerprint_from_meta(meta)
+                legacy.append(
+                    DistilledNode(
+                        short_id=str(eid),
+                        fingerprint=fp,
+                    )
+                )
+        return legacy
+
+    @staticmethod
+    def _reason_for_score(
+        score: float,
+        *,
+        heuristic: bool = False,
+        base: str = "",
+    ) -> str:
+        if base:
+            reason = base
+        elif heuristic:
+            reason = "dom_heuristic"
+        else:
+            reason = "fingerprint"
+        if HEAL_RUN_THRESHOLD <= score < HEAL_PERSIST_THRESHOLD:
+            return f"{reason};medium_confidence"
+        return reason
 
 
 # Preferred name in roadmap / contracts language

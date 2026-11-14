@@ -36,7 +36,9 @@ from qfluentwidgets import (
     FluentIcon as FIF,
 )
 
+from ai_qa_test_studio.agent.case_binding import case_binding_summary
 from ai_qa_test_studio.constants import (
+    BINDING_BOUND,
     BINDING_UNBOUND,
     UI_BREAKPOINT_MEDIUM,
     UI_BREAKPOINT_WIDE,
@@ -58,7 +60,7 @@ from ai_qa_test_studio.constants import (
     UI_TABLE_ROW_HEIGHT,
 )
 from ai_qa_test_studio.core.enums import StepStatus
-from ai_qa_test_studio.core.models import TestCase, TestStep
+from ai_qa_test_studio.core.models import SharedElement, TestCase, TestStep
 from ai_qa_test_studio.core.step_actions import step_target_label
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.smooth_scroll import (
@@ -96,6 +98,8 @@ class EditorPane(QWidget):
         self._module_name = ""
         self._suite_name = ""
         self._last_drawer_ratio = 0.25
+        self._element_lookup: dict[str, SharedElement] = {}
+        self._deterministic_export = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V, UI_CANVAS_MARGIN_H, UI_CANVAS_MARGIN_V)
@@ -382,6 +386,18 @@ class EditorPane(QWidget):
         icon = FIF.CARE_UP_SOLID if self._details_expanded else FIF.CARE_DOWN_SOLID
         self.btn_toggle_details.setIcon(icon.icon())
 
+    def set_element_lookup(self, elements: dict[str, SharedElement]) -> None:
+        self._element_lookup = dict(elements)
+        self._refresh_binding_cells()
+
+    def set_deterministic_export_enabled(self, enabled: bool) -> None:
+        """Unlock Pytest tab deterministic export when the case is fully BOUND."""
+        self._deterministic_export = enabled
+        self.code_edit.setEnabled(True)
+        self.code_edit.setReadOnly(not enabled)
+        if self._case is not None:
+            self._render_pytest_preview()
+
     def load_case(self, case: TestCase, *, module: str = "", suite: str = "") -> None:
         self._loading = True
         try:
@@ -389,6 +405,8 @@ class EditorPane(QWidget):
             self.title_label.setText(f"{case.code} — {case.title}" if case.title else case.code)
             if module or suite:
                 self.set_breadcrumb(module, suite)
+            summary = case_binding_summary(case)
+            self._deterministic_export = summary.is_fully_bound
             self._render_all()
         finally:
             self._loading = False
@@ -480,6 +498,34 @@ class EditorPane(QWidget):
                 self._running_step_no = None
         self._refresh_binding_cells()
 
+    def _binding_tooltip(self, step: TestStep) -> str:
+        status = (step.binding_status or BINDING_UNBOUND).upper()
+        el = self._element_lookup.get(step.element_ref or "")
+        if el is None:
+            return status
+        fp = el.fingerprint
+        parts: list[str] = [status]
+        if el.test_id or (fp.test_id if fp else None):
+            parts.append(f"test_id={el.test_id or (fp.test_id if fp else '')}")
+        if el.role or (fp.role if fp else None):
+            parts.append(f"role={el.role or (fp.role if fp else '')}")
+        css = el.css or el.primary_playwright or (fp.css if fp else None)
+        if css:
+            parts.append(f"css={css}")
+        return "\n".join(parts)
+
+    def _style_binding_badge(self, bind_btn: PillPushButton, status: str) -> None:
+        tokens = get_theme_tokens()
+        normalized = (status or BINDING_UNBOUND).upper()
+        if normalized == BINDING_UNBOUND:
+            bind_btn.setStyleSheet(
+                f"color: {tokens.warning_fg}; font-size: 11px; font-weight: 600;"
+            )
+        elif normalized == BINDING_BOUND:
+            bind_btn.setStyleSheet(
+                f"color: {tokens.success_fg}; font-size: 11px; font-weight: 600;"
+            )
+
     def _refresh_binding_cells(self) -> None:
         if self._case is None:
             return
@@ -496,12 +542,11 @@ class EditorPane(QWidget):
                 ring.setToolTip(StepStatus.RUNNING.value)
                 layout.addWidget(ring)
             else:
-                bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
+                status = step.binding_status or BINDING_UNBOUND
+                bind_btn = PillPushButton(status)
                 bind_btn.setFixedHeight(26)
-                if (step.binding_status or "").upper() == BINDING_UNBOUND:
-                    bind_btn.setStyleSheet(
-                        f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
-                    )
+                bind_btn.setToolTip(self._binding_tooltip(step))
+                self._style_binding_badge(bind_btn, status)
                 layout.addWidget(bind_btn)
             self.table.setCellWidget(row, 5, wrap)
 
@@ -524,12 +569,39 @@ class EditorPane(QWidget):
             return
         self.case_changed.emit()
 
+    def _render_pytest_preview(self) -> None:
+        if self._case is None:
+            return
+        if not self._deterministic_export:
+            self.code_edit.setPlainText(
+                "# Pytest deterministic export bị khóa — Sync để gắn đủ selector (BOUND)."
+            )
+            self.code_edit.setReadOnly(True)
+            return
+        self.code_edit.setReadOnly(False)
+        lines = [f"# {self._case.code}", "def test_case(page):"]
+        for step in self._case.steps:
+            lines.append(f"    # {step.step_no}: {step.action} {step.intent_hint}")
+            if step.action in {"goto", "navigate"}:
+                lines.append(f"    page.goto({(step.input_data or '/')!r})")
+            elif step.element_ref:
+                el = self._element_lookup.get(step.element_ref)
+                css = (el.css or el.primary_playwright) if el else None
+                if css and step.action == "click":
+                    lines.append(f"    page.locator({css!r}).click()")
+                elif css and step.action == "fill":
+                    lines.append(
+                        f"    page.locator({css!r}).fill({(step.input_data or '')!r})"
+                    )
+        self.code_edit.setPlainText("\n".join(lines))
+
     def _render_all(self) -> None:
         if self._case is None:
             return
         unbound = count_unbound_steps(self._case)
+        summary = case_binding_summary(self._case)
         self.mode_switch.setItemText("nocode", f"Steps ({len(self._case.steps)})")
-        if unbound > 0:
+        if unbound > 0 and not summary.is_fully_bound:
             self.unbound_banner.set_count(unbound)
             self.unbound_banner.show()
         else:
@@ -582,12 +654,11 @@ class EditorPane(QWidget):
                 bwl = QHBoxLayout(bind_wrap)
                 bwl.setContentsMargins(4, 0, 4, 0)
                 bwl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                bind_btn = PillPushButton(step.binding_status or BINDING_UNBOUND)
+                status = step.binding_status or BINDING_UNBOUND
+                bind_btn = PillPushButton(status)
                 bind_btn.setFixedHeight(26)
-                if (step.binding_status or "").upper() == BINDING_UNBOUND:
-                    bind_btn.setStyleSheet(
-                        f"color: {get_theme_tokens().warning_fg}; font-size: 11px; font-weight: 600;"
-                    )
+                bind_btn.setToolTip(self._binding_tooltip(step))
+                self._style_binding_badge(bind_btn, status)
                 bwl.addWidget(bind_btn)
                 self.table.setCellWidget(row, 5, bind_wrap)
         finally:
@@ -601,12 +672,8 @@ class EditorPane(QWidget):
             "steps": [s.model_dump() for s in self._case.steps],
         }
         self.yaml_edit.setPlainText(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
-        lines = [f"# {self._case.code}", "def test_case(page):"]
-        for step in self._case.steps:
-            lines.append(f"    # {step.step_no}: {step.action} {step.intent_hint}")
-            if step.action in {"goto", "navigate"}:
-                lines.append(f"    page.goto({(step.input_data or '/')!r})")
-        self.code_edit.setPlainText("\n".join(lines))
+        self._deterministic_export = summary.is_fully_bound
+        self._render_pytest_preview()
 
     def _capture_spec_fields(self) -> None:
         if self._case is None or self._loading:

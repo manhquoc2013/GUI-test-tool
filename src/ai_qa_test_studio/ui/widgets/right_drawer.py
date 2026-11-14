@@ -1,4 +1,4 @@
-"""Right dock column — Pivot AI Copilot | Trình duyệt (splitter child)."""
+"""Right dock column — Pivot AI Copilot | Trình duyệt | Kết quả (splitter child)."""
 
 from __future__ import annotations
 
@@ -7,14 +7,23 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import PopUpAniStackedWidget, SegmentedWidget
 
-from ai_qa_test_studio.constants import UI_DOCK_MAX_WIDTH, UI_DOCK_MIN_WIDTH, UI_MOTION_NORMAL_MS
+from ai_qa_test_studio.constants import (
+    UI_DOCK_MAX_WIDTH,
+    UI_DOCK_MIN_WIDTH,
+    UI_EVIDENCE_TAB_LABEL,
+    UI_MOTION_NORMAL_MS,
+)
 from ai_qa_test_studio.ui.theme import panel_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
 from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
+from ai_qa_test_studio.ui.widgets.evidence_panel import EvidencePanel
 
 TAB_COPILOT = "copilot"
 TAB_BROWSER = "browser"
+TAB_EVIDENCE = "evidence"
+
+_TAB_INDEX = {TAB_COPILOT: 0, TAB_BROWSER: 1, TAB_EVIDENCE: 2}
 
 
 class RightDrawer(QWidget):
@@ -24,7 +33,7 @@ class RightDrawer(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("RightDock")
-        self.setAccessibleName("Right Drawer Copilot Browser")
+        self.setAccessibleName("Right Drawer Copilot Browser Evidence")
         self.setMinimumWidth(UI_DOCK_MIN_WIDTH)
         self.setMaximumWidth(UI_DOCK_MAX_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -35,17 +44,22 @@ class RightDrawer(QWidget):
         layout.setSpacing(12)
 
         self.pivot = SegmentedWidget(self)
-        self.pivot.setAccessibleName("Chuyển AI Copilot hoặc Trình duyệt")
+        self.pivot.setAccessibleName("Chuyển AI Copilot, Trình duyệt hoặc Kết quả")
         self.pivot.addItem(routeKey=TAB_COPILOT, text="AI Copilot", icon=FIF.ROBOT)
         self.pivot.addItem(routeKey=TAB_BROWSER, text="Trình duyệt", icon=FIF.GLOBE)
+        self.pivot.addItem(
+            routeKey=TAB_EVIDENCE, text=UI_EVIDENCE_TAB_LABEL, icon=FIF.HISTORY
+        )
         self.pivot.setCurrentItem(TAB_COPILOT)
         layout.addWidget(self.pivot)
 
         self.stack = PopUpAniStackedWidget(self)
         self.copilot = CopilotChatPane(self.stack)
         self.browser = BrowserAgentPane(self.stack)
+        self.evidence = EvidencePanel(self.stack)
         self.stack.addWidget(self.copilot)
         self.stack.addWidget(self.browser)
+        self.stack.addWidget(self.evidence)
         layout.addWidget(self.stack, stretch=1)
 
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
@@ -61,7 +75,7 @@ class RightDrawer(QWidget):
 
     def _on_pivot_changed(self, key: str) -> None:
         self.stack.setCurrentIndex(
-            0 if key == TAB_COPILOT else 1,
+            _TAB_INDEX.get(key, 0),
             duration=UI_MOTION_NORMAL_MS,
         )
 
@@ -87,9 +101,14 @@ class RightDrawer(QWidget):
             self.open_drawer(TAB_COPILOT)
 
     def set_tab(self, tab: str, *, compose: bool = False) -> None:
-        key = TAB_COPILOT if tab != TAB_BROWSER else TAB_BROWSER
+        if tab == TAB_BROWSER:
+            key = TAB_BROWSER
+        elif tab == TAB_EVIDENCE:
+            key = TAB_EVIDENCE
+        else:
+            key = TAB_COPILOT
         self.pivot.setCurrentItem(key)
-        self.stack.setCurrentIndex(0 if key == TAB_COPILOT else 1)
+        self.stack.setCurrentIndex(_TAB_INDEX[key])
         if key == TAB_COPILOT:
             if compose:
                 self.copilot.focus_compose()
@@ -101,3 +120,6 @@ class RightDrawer(QWidget):
 
     def show_browser(self) -> None:
         self.open_drawer(TAB_BROWSER)
+
+    def show_evidence(self) -> None:
+        self.open_drawer(TAB_EVIDENCE)

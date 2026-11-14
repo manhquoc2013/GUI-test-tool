@@ -16,6 +16,7 @@ from ai_qa_test_studio.agent.orchestrator import (
 from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    APPLY_KIND_SWARM_AUDIT,
     APPLY_KIND_TEST_DATA,
     CHAT_ROLE_LABELS,
     CONTEXT_KEY_ANALYZER_ENABLED,
@@ -27,6 +28,7 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_CATALOG,
     CONTEXT_KEY_SKILL_NAME,
     COPILOT_ARTIFACT_READY_NOTE,
+    COPILOT_AUDIT_EXPORT_TIP,
     COPILOT_CHAT_REPLY_MAX_CHARS,
     COPILOT_FINAL_REPORT_MAX_CHARS,
     COPILOT_STATUS_CLARIFY,
@@ -199,6 +201,12 @@ class CopilotController:
         session_id = w.copilot.session.id
         # Registry owns cancel Events — never trip a stale window-level pointer.
         w._chat_runs.request_cancel(session_id)
+        from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
+        from ai_qa_test_studio.core.chat_run_registry import ChatRunRegistry
+
+        get_async_task_supervisor().cancel_now(
+            ChatRunRegistry.supervisor_key_for(session_id)
+        )
         self._abort_clarify(session_id)
         w.copilot.mark_stopped()
         # Persist settled bubbles immediately so restart cannot revive typing dots.
@@ -376,7 +384,7 @@ class CopilotController:
                 elif event.kind == "role_end" and event.role:
                     # Persist FULL body for next-turn / agent history; bubble stays short.
                     full = event.text or ""
-                    payload = extract_structured_payload(full)
+                    payload = event.apply_payload or extract_structured_payload(full)
                     display = clip_chat_reply(
                         full, reply_cap, structured_payload=payload
                     )
@@ -421,6 +429,20 @@ class CopilotController:
                     full = (event.text or "").strip()
                     if not full:
                         continue
+                    audit_payload = event.apply_payload
+                    if isinstance(audit_payload, dict) and audit_payload.get("kind") == APPLY_KIND_SWARM_AUDIT:
+                        display = clip_chat_reply(
+                            full, reply_cap, structured_payload=audit_payload
+                        )
+                        sink.append_status_summary(
+                            event.role or ROLE_COORDINATOR,
+                            full,
+                            summary=display,
+                        )
+                        sink.set_apply_payload(audit_payload)
+                        sink.attach_apply_to_latest_crew(audit_payload)
+                        sink.set_status(display.splitlines()[0] if display else "")
+                        continue
                     display = format_final_report_bubble(
                         full,
                         max_chars=max(reply_cap, COPILOT_FINAL_REPORT_MAX_CHARS),
@@ -458,6 +480,11 @@ class CopilotController:
                     payload = event.apply_payload
                     sink.set_apply_payload(payload)
                     sink.attach_apply_to_latest_crew(payload)
+                    if payload.get("kind") == APPLY_KIND_SWARM_AUDIT:
+                        note = COPILOT_AUDIT_EXPORT_TIP
+                        sink.append_status_summary(ROLE_SYSTEM, note, summary=note)
+                        sink.set_status(note)
+                        continue
                     if payload.get("kind") == APPLY_KIND_COMPOSE:
                         count = len(payload.get("scenarios") or [])
                     elif payload.get("kind") == APPLY_KIND_TEST_DATA:
@@ -576,6 +603,10 @@ class CopilotController:
         ctx[CONTEXT_KEY_ANALYZER_ENABLED] = bool(copilot_cfg.analyzer_enabled)
         ctx[CONTEXT_KEY_OPTIMIZER_ENABLED] = bool(copilot_cfg.optimizer_enabled)
         ctx[CONTEXT_KEY_PROJECT_ROOT] = str(getattr(w.storage, "root", "") or "")
+        if w.project is not None:
+            ctx["project"] = w.project
+        if getattr(w, "_last_report", None) is not None:
+            ctx["run_report"] = w._last_report
         return ctx
 
     def apply_payload(self, payload: dict[str, Any]) -> None:
@@ -583,6 +614,9 @@ class CopilotController:
         if w.project is None:
             return
         kind = payload.get("kind")
+        if kind == APPLY_KIND_SWARM_AUDIT:
+            self._export_audit_report(payload)
+            return
         # Apply button ⇒ DeliveryMode.APPLY (RealityChecker gate on cases)
         payload = {**payload, "delivery_mode": "apply", "apply_requested": True}
         if kind == APPLY_KIND_COMPOSE:
@@ -647,3 +681,42 @@ class CopilotController:
             w._toast_info("Apply", f"Đã thêm {len(rows)} bộ Test Data.")
             return
         w._toast_warn("Apply", f"Loại artifact chưa hỗ trợ: {kind}")
+
+    def _export_audit_report(self, payload: dict[str, Any]) -> None:
+        """Export Audit HTML/Excel via ReportService (off-thread; UI via emit_if_alive)."""
+        w = self._w
+        if w.project is None:
+            return
+        report = w._last_report
+        if report is None and isinstance(payload.get("run_report"), dict):
+            try:
+                from ai_qa_test_studio.core.models import RunReport
+
+                report = RunReport.model_validate(payload["run_report"])
+            except Exception:  # noqa: BLE001
+                report = None
+        if report is None:
+            w._toast_warn("Audit", "Chưa có RunReport — chạy test trước rồi /audit.")
+            return
+        project = w.project
+        root = Path(str(getattr(w.storage, "root", "") or ""))
+        markdown = str(payload.get("markdown") or "")
+        run_id = report.run_id
+        from ai_qa_test_studio.core.async_task_supervisor import get_async_task_supervisor
+        from ai_qa_test_studio.reporting.report_service import ReportService
+
+        supervisor = get_async_task_supervisor()
+
+        async def _job() -> None:
+            service = ReportService(root)
+            bundle = await service.export_audit(
+                project,
+                report,
+                audit_markdown=markdown,
+            )
+            msg = f"Audit HTML/Excel: {bundle.evidence_dir}"
+            # qasync loop is the Qt thread — toast/log are safe after await.to_thread.
+            w._append_log(msg)
+            w._toast_info("Audit", msg)
+
+        supervisor.register(_job(), key=f"audit_export:{run_id}", replace=True)

@@ -53,9 +53,9 @@ def test_open_project_select_case(qapp: QApplication, tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.code == "TC1"
     assert window.url_edit.text()
-    assert window.unbound_badge.isVisible()
-    assert "UNBOUND" in window.unbound_badge.text()
-    assert window.builder.unbound_banner.isVisible()
+    # Only a Navigate step — no bindable UNBOUND targets → badge/banner hidden.
+    assert not window.unbound_badge.isVisible()
+    assert not window.builder.unbound_banner.isVisible()
     window._append_log("smoke-ok")
     assert "smoke-ok" in window._run_logs.to_plain_text()
     headers = [

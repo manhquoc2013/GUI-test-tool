@@ -13,6 +13,7 @@ from ai_qa_test_studio.agent.result_snippet import (
 )
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
+    APPLY_KIND_SWARM_AUDIT,
     APPLY_KIND_TEST_DATA,
     CHAT_ROLE_LABELS,
     COPILOT_CHAT_PROSE_MAX_CHARS,
@@ -322,6 +323,20 @@ def format_structured_payload_summary(payload: dict[str, Any] | None) -> str:
     if not isinstance(payload, dict):
         return ""
     kind = str(payload.get("kind") or "")
+    if kind == APPLY_KIND_SWARM_AUDIT:
+        markdown = str(payload.get("markdown") or "").strip()
+        if markdown:
+            return markdown
+        raw_metrics = payload.get("metrics")
+        metrics: dict[str, Any] = raw_metrics if isinstance(raw_metrics, dict) else {}
+        return (
+            "## Báo cáo kiểm toán (SWARM_AUDIT)\n\n"
+            f"| Tổng Case | Pass | Healed | Failed | Blocked | Độ phủ |\n"
+            f"| ---: | ---: | ---: | ---: | ---: | ---: |\n"
+            f"| {metrics.get('case_total', 0)} | {metrics.get('pure_pass', 0)} | "
+            f"{metrics.get('healed', 0)} | {metrics.get('failed', 0)} | "
+            f"{metrics.get('blocked', 0)} | {metrics.get('requirement_coverage_pct', 0)}% |"
+        )
     lines = [COPILOT_STRUCTURED_DRAFT_BANNER, ""]
     if kind == APPLY_KIND_TEST_DATA:
         rows = payload.get("rows") or []
@@ -331,9 +346,9 @@ def format_structured_payload_summary(payload: dict[str, Any] | None) -> str:
 
     scenarios = payload.get("scenarios")
     if not isinstance(scenarios, list):
-        cases = payload.get("cases")
-        if isinstance(cases, list):
-            scenarios = [{"code": "TS", "title": "Suite", "cases": cases}]
+        root_cases = payload.get("cases")
+        if isinstance(root_cases, list):
+            scenarios = [{"code": "TS", "title": "Suite", "cases": root_cases}]
         else:
             return ""
 
@@ -348,16 +363,17 @@ def format_structured_payload_summary(payload: dict[str, Any] | None) -> str:
             continue
         code = str(item.get("code") or "—").strip() or "—"
         title = str(item.get("title") or item.get("name") or "—").strip() or "—"
-        cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+        raw_cases = item.get("cases")
+        scenario_cases: list[Any] = raw_cases if isinstance(raw_cases, list) else []
         case_names: list[str] = []
-        for case in cases:
+        for case in scenario_cases:
             if isinstance(case, dict):
                 name = str(case.get("title") or case.get("code") or "").strip()
                 if name:
                     case_names.append(name)
         case_list = ", ".join(case_names) if case_names else "—"
         lines.append(
-            f"| `{code}` | {title} | {len(cases)} | {case_list} |"
+            f"| `{code}` | {title} | {len(scenario_cases)} | {case_list} |"
         )
     if len(lines) <= 4:
         return ""

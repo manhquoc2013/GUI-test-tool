@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from ai_qa_test_studio.constants import (
+    ATTR_IN_SHADOW_DOM,
+    FP_FRAME_MISMATCH_FACTOR,
     FP_WEIGHT_CSS,
+    FP_WEIGHT_FRAME_PATH,
     FP_WEIGHT_ROLE_NAME,
+    FP_WEIGHT_SHADOW_DOM,
     FP_WEIGHT_TEST_ID,
     FP_WEIGHT_TEXT,
     FP_WEIGHT_XPATH,
@@ -16,6 +20,14 @@ from ai_qa_test_studio.core.models import ElementFingerprint, SharedElement
 
 def _norm(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+def normalize_frame_path(value: list[str] | str | None) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return [str(part).strip() for part in value if str(part).strip()]
 
 
 def _partial_text_score(expected: str, candidate: str) -> float:
@@ -33,8 +45,13 @@ def _partial_text_score(expected: str, candidate: str) -> float:
     return overlap
 
 
+def _shadow_flag(fp: ElementFingerprint) -> bool:
+    raw = fp.attrs_subset.get(ATTR_IN_SHADOW_DOM, "")
+    return _norm(raw) in {"1", "true", "yes"}
+
+
 def score_match(expected: ElementFingerprint, candidate: ElementFingerprint) -> float:
-    """Weighted similarity in [0, 1]. test_id ≫ role+name ≫ css ≫ xpath ≫ text."""
+    """Weighted similarity in [0, 1]. test_id ≫ role+name ≫ css ≫ xpath ≫ text (+ frame/shadow)."""
     score = 0.0
     exp_tid = _norm(expected.test_id)
     cand_tid = _norm(candidate.test_id)
@@ -61,6 +78,21 @@ def score_match(expected: ElementFingerprint, candidate: ElementFingerprint) -> 
         _partial_text_score(_norm(expected.accessible_name), _norm(candidate.text_sample)),
     )
     score += FP_WEIGHT_TEXT * text_score
+
+    exp_frames = normalize_frame_path(expected.frame_path)
+    cand_frames = normalize_frame_path(candidate.frame_path)
+    if exp_frames:
+        if exp_frames == cand_frames:
+            score += FP_WEIGHT_FRAME_PATH
+        else:
+            score *= FP_FRAME_MISMATCH_FACTOR
+
+    if _shadow_flag(expected):
+        if _shadow_flag(candidate):
+            score += FP_WEIGHT_SHADOW_DOM
+        else:
+            score *= FP_FRAME_MISMATCH_FACTOR
+
     return round(min(score, 1.0), 4)
 
 
@@ -80,6 +112,14 @@ def fingerprint_from_shared(element: SharedElement) -> ElementFingerprint:
 
 def fingerprint_from_meta(meta: dict[str, object]) -> ElementFingerprint:
     name = str(meta.get("name") or meta.get("accessible_name") or "")
+    frame_raw = meta.get("framePath") or meta.get("frame_path") or []
+    attrs: dict[str, str] = {}
+    placeholder = meta.get("placeholder")
+    if placeholder:
+        attrs["placeholder"] = str(placeholder)
+    in_shadow = meta.get("inShadowDom") or meta.get(ATTR_IN_SHADOW_DOM)
+    if in_shadow:
+        attrs[ATTR_IN_SHADOW_DOM] = "true"
     return ElementFingerprint(
         tag=str(meta.get("tag") or ""),
         role=str(meta.get("role") or "") or None,
@@ -88,6 +128,8 @@ def fingerprint_from_meta(meta: dict[str, object]) -> ElementFingerprint:
         test_id=str(meta.get("testId") or meta.get("test_id") or "") or None,
         css=str(meta.get("css") or "") or None,
         xpath=str(meta.get("xpath") or "") or None,
+        frame_path=normalize_frame_path(frame_raw if isinstance(frame_raw, (list, str)) else []),
+        attrs_subset=attrs,
     )
 
 

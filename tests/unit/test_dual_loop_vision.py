@@ -51,6 +51,8 @@ async def test_vision_locate_heals_when_dom_misses() -> None:
             new_locator="#healed-btn",
             reason="midscene_vision",
             binding_status="HEALED",
+            confidence_score=0.9,
+            persisted=True,
         )
     )
 

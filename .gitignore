@@ -43,6 +43,7 @@ uv.lock
 data/v4/
 data/copilot/**
 **/.studio/
+.studio/auth/
 data/config/*.db
 
 .venv/

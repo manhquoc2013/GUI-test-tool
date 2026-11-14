@@ -4,22 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_qa_test_studio.agent.case_binding import case_binding_summary
 from ai_qa_test_studio.constants import BINDING_BOUND, BINDING_UNBOUND, PARAM_CELL_SEP
 from ai_qa_test_studio.core.models import TestCase
 
 
 def count_unbound_steps(case: TestCase) -> int:
-    return sum(1 for step in case.steps if step.binding_status == BINDING_UNBOUND)
+    """Remaining bindable UNBOUND steps (Navigate/Wait/AssertUrl excluded)."""
+    summary = case_binding_summary(case)
+    return summary.total_bindable_steps - summary.bound_bindable
 
 
 def case_binding_rollups(case: TestCase) -> str:
     if case.last_status == "FAIL":
         return "FAILED"
-    if not case.steps:
-        return BINDING_UNBOUND
-    if any(step.binding_status == BINDING_UNBOUND for step in case.steps):
-        return BINDING_UNBOUND
-    return BINDING_BOUND
+    summary = case_binding_summary(case)
+    if summary.is_fully_bound:
+        return BINDING_BOUND
+    return BINDING_UNBOUND
 
 
 def format_param_cell(value: Any) -> str:

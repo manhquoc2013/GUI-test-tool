@@ -32,7 +32,12 @@ from ai_qa_test_studio.agent.model_router import ModelRouter
 from ai_qa_test_studio.agent.reality_checker import RealityChecker
 from ai_qa_test_studio.agent.skill_auto_matcher import SkillAutoMatcher, SkillMatch
 from ai_qa_test_studio.agent.spec_generator import SpecGenerator
-from ai_qa_test_studio.agent.swarm_audit import SwarmAuditor, swarm_audit_context
+from ai_qa_test_studio.agent.swarm_audit import (
+    SwarmAuditor,
+    format_swarm_audit_markdown,
+    swarm_audit_context,
+    swarm_audit_structured_payload,
+)
 from ai_qa_test_studio.agent.url_context import enrich_user_text_with_urls
 from ai_qa_test_studio.agent.validate_case_schema import validate_case_schema
 from ai_qa_test_studio.constants import (
@@ -141,6 +146,7 @@ from ai_qa_test_studio.core.enums import DeliveryMode, IntentType
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario
 from ai_qa_test_studio.core.secret_masker import get_secret_masker
 from ai_qa_test_studio.core.token_budget import ContextCompactor, ContextCompressor
+from ai_qa_test_studio.reporting.evidence import EvidenceCollector
 from ai_qa_test_studio.ui.bubble_summary import sanitize_user_reply, usable_explain_answer
 
 logger = logging.getLogger(__name__)
@@ -353,60 +359,96 @@ class CopilotOrchestrator:
         context: dict[str, Any],
         stop: asyncio.Event,
     ) -> AsyncIterator[OrchestratorEvent]:
-        """SWARM_AUDIT: Evidence + RealityChecker + traceability over last RunReport."""
+        """SWARM_AUDIT: Evidence RO + RealityChecker + Traceability (no browser warm)."""
         yield OrchestratorEvent(kind="role_start", role=ROLE_COORDINATOR)
         yield OrchestratorEvent(
             kind=EVENT_STATUS_SUMMARY,
             role=ROLE_COORDINATOR,
-            text=self._clip("SWARM_AUDIT · Thinking HIGH · Evidence/Traceability"),
+            text=self._clip(
+                "SWARM_AUDIT · Thinking HIGH · Evidence RO (không mở trình duyệt)"
+            ),
         )
-        if stop.is_set():
-            yield OrchestratorEvent(kind=EVENT_STATUS_SUMMARY, role=ROLE_COORDINATOR, text=MSG_STATUS_STOPPED)
-            return
-        report_raw = context.get("run_report") or context.get("report")
-        report: RunReport | None = None
-        if isinstance(report_raw, RunReport):
-            report = report_raw
-        elif isinstance(report_raw, dict):
-            try:
-                report = RunReport.model_validate(report_raw)
-            except Exception:  # noqa: BLE001
-                report = None
-        if report is None:
+        try:
+            if stop.is_set():
+                yield OrchestratorEvent(
+                    kind=EVENT_STATUS_SUMMARY,
+                    role=ROLE_COORDINATOR,
+                    text=MSG_STATUS_STOPPED,
+                )
+                return
+            report = await asyncio.to_thread(self._resolve_audit_report, context)
+            if report is None:
+                body = "SWARM_AUDIT cần `run_report` hoặc `.studio/runs/<run_id>/` (chạy case trước)."
+                yield OrchestratorEvent(
+                    kind="role_end",
+                    role=ROLE_COORDINATOR,
+                    text=self._clip(body),
+                )
+                yield OrchestratorEvent(
+                    kind=EVENT_FINAL_REPORT,
+                    role=ROLE_COORDINATOR,
+                    text=self._clip("SWARM_AUDIT blocked: missing run_report"),
+                )
+                return
+            project: Project | None = (
+                context.get("project")
+                if isinstance(context.get("project"), Project)
+                else None
+            )
+            root_raw = context.get(CONTEXT_KEY_PROJECT_ROOT) or context.get("project_root")
+            project_root = Path(str(root_raw)) if root_raw else None
+            if stop.is_set():
+                yield OrchestratorEvent(
+                    kind=EVENT_STATUS_SUMMARY,
+                    role=ROLE_COORDINATOR,
+                    text=MSG_STATUS_STOPPED,
+                )
+                return
+            audit = await asyncio.to_thread(
+                self.swarm_auditor.run,
+                report,
+                project,
+                project_root=project_root,
+            )
+            context["swarm_audit"] = swarm_audit_context(audit)
+            payload = swarm_audit_structured_payload(audit)
+            markdown = format_swarm_audit_markdown(audit)
             yield OrchestratorEvent(
-                kind=EVENT_AGENT_MESSAGE,
+                kind="role_end",
                 role=ROLE_COORDINATOR,
-                text=self._clip(
-                    "SWARM_AUDIT cần `run_report` trong context (chạy case trước)."
-                ),
+                text=markdown,
+                apply_payload=payload,
+            )
+            yield OrchestratorEvent(
+                kind="apply_ready",
+                role=ROLE_COORDINATOR,
+                text=markdown,
+                apply_payload=payload,
             )
             yield OrchestratorEvent(
                 kind=EVENT_FINAL_REPORT,
                 role=ROLE_COORDINATOR,
-                text="SWARM_AUDIT blocked: missing run_report",
+                text=markdown,
+                apply_payload=payload,
             )
-            return
-        project: Project | None = context.get("project") if isinstance(context.get("project"), Project) else None
+        finally:
+            # Always close coordinator loading pill even if Stop mid-audit.
+            yield OrchestratorEvent(kind=EVENT_TURN_END, role=ROLE_COORDINATOR)
+
+    @staticmethod
+    def _resolve_audit_report(context: dict[str, Any]) -> RunReport | None:
+        report_raw = context.get("run_report") or context.get("report")
+        if isinstance(report_raw, RunReport):
+            return report_raw
+        if isinstance(report_raw, dict):
+            try:
+                return RunReport.model_validate(report_raw)
+            except Exception:  # noqa: BLE001
+                pass
         root_raw = context.get(CONTEXT_KEY_PROJECT_ROOT) or context.get("project_root")
-        project_root = Path(str(root_raw)) if root_raw else None
-        audit = await asyncio.to_thread(
-            self.swarm_auditor.run,
-            report,
-            project,
-            project_root=project_root,
-        )
-        context["swarm_audit"] = swarm_audit_context(audit)
-        lines = [
-            f"SWARM_AUDIT ok={audit.ok}",
-            f"findings={len(audit.findings)} gaps={len(audit.coverage_gaps)}",
-        ]
-        if audit.evidence_dir is not None:
-            lines.append(f"evidence={audit.evidence_dir}")
-        for finding in audit.findings[:12]:
-            lines.append(f"- [{finding.severity}] {finding.code}: {finding.message}")
-        body = "\n".join(lines)
-        yield OrchestratorEvent(kind=EVENT_AGENT_MESSAGE, role=ROLE_ANALYZER, text=self._clip(body))
-        yield OrchestratorEvent(kind=EVENT_FINAL_REPORT, role=ROLE_COORDINATOR, text=self._clip(body))
+        if not root_raw:
+            return None
+        return EvidenceCollector(Path(str(root_raw))).load_latest_report()
 
     @staticmethod
     def _max_tokens_for_intent(intent: IntentType, requested: int) -> int:
@@ -488,10 +530,16 @@ class CopilotOrchestrator:
                 source=hybrid.source,
                 prompt_body=hybrid.prompt_body,
             )
-        # CHAT_FAST: keep explain path; skip Playwright/MCP warm
-        if hybrid.intent == IntentType.CHAT_FAST:
+        # CHAT_FAST / SWARM_AUDIT: Evidence RO — skip Playwright/MCP warm
+        if hybrid.intent in {IntentType.CHAT_FAST, IntentType.SWARM_AUDIT}:
             mode = mode or COPILOT_MODE_COMPOSE
-            context = {**context, "hybrid_intent": hybrid.intent.value, "skip_mcp_warm": True}
+            context = {
+                **context,
+                "hybrid_intent": hybrid.intent.value,
+                "skip_mcp_warm": True,
+                "evidence_ro": hybrid.intent == IntentType.SWARM_AUDIT,
+                "thinking_level": hybrid.thinking.level.value,
+            }
             user_text = prompt_body
         else:
             context = {
@@ -1722,7 +1770,7 @@ class CopilotOrchestrator:
         for item in scenarios:
             if not isinstance(item, dict):
                 continue
-            row = {
+            row: dict[str, Any] = {
                 "id": str(item.get("id") or uuid.uuid4()),
                 "code": item.get("code"),
                 "title": item.get("title"),
@@ -1747,7 +1795,8 @@ class CopilotOrchestrator:
         for item in scenarios:
             if not isinstance(item, dict):
                 continue
-            cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+            raw_cases = item.get("cases")
+            cases: list[Any] = raw_cases if isinstance(raw_cases, list) else []
             if remaining <= 0:
                 break
             take = cases[:remaining]
@@ -2039,7 +2088,8 @@ class CopilotOrchestrator:
                     continue
                 code = str(item.get("code") or "?").strip()
                 title = str(item.get("title") or "").strip()
-                cases = item.get("cases") if isinstance(item.get("cases"), list) else []
+                raw_cases = item.get("cases")
+                cases: list[Any] = raw_cases if isinstance(raw_cases, list) else []
                 bullets.append(f"- {code}: {title} ({len(cases)} case)")
             if bullets:
                 digest = "\n".join(bullets)

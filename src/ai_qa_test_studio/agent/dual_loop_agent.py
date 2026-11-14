@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -22,18 +23,23 @@ from ai_qa_test_studio.constants import (
     TOKEN_MAX_ATOMIC_OUTPUT,
 )
 from ai_qa_test_studio.core.enums import StepStatus
+from ai_qa_test_studio.core.fingerprint import should_run_heal
 from ai_qa_test_studio.core.models import (
     CaseRunResult,
+    CaseStatus,
     RunReport,
     RunStepResult,
     SharedElement,
     TestCase,
 )
+from ai_qa_test_studio.core.secret_masker import get_secret_masker
+from ai_qa_test_studio.reporting.evidence import EvidenceCollector
 
 logger = logging.getLogger(__name__)
 
 CancelFn = Callable[[], bool]
 VisionLocateFn = Callable[[str], Awaitable[dict[str, Any] | None]]
+StepProgressFn = Callable[[int, str, str, float, str], None]
 
 
 def _normalize_text(value: str) -> str:
@@ -51,6 +57,7 @@ class DualLoopAgent:
         vision_locate: VisionLocateFn | None = None,
         skill_context: str = "",
         skill_loader: ProgressiveSkillLoader | None = None,
+        evidence: EvidenceCollector | None = None,
     ) -> None:
         self.page = page
         self.element_repo = element_repo
@@ -62,6 +69,7 @@ class DualLoopAgent:
         self.skill_loader = skill_loader
         self.mcp_actions_enabled = MCP_ACTIONS_ENABLED
         self.mcp_executor: Any | None = None
+        self.evidence = evidence
 
     def invoke_micro_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> str:
         if tool_name == MICRO_TOOL_LOAD_SKILL:
@@ -78,62 +86,98 @@ class DualLoopAgent:
         project_name: str = "",
         should_cancel: CancelFn | None = None,
         vision_locate: VisionLocateFn | None = None,
+        on_step: StepProgressFn | None = None,
+        run_id: str | None = None,
     ) -> RunReport:
         locate = vision_locate if vision_locate is not None else self.vision_locate
         started = datetime.now(UTC).isoformat()
         step_results: list[RunStepResult] = []
         audits = []
         case_status: str = CASE_STATUS_PASS
+        masker = get_secret_masker()
+        active_run_id = run_id or str(uuid.uuid4())
+        blocked = False
 
         for step in test_case.steps:
             if should_cancel is not None and should_cancel():
                 case_status = CASE_STATUS_CANCELLED
-                step_results.append(
-                    RunStepResult(
-                        step_no=step.step_no,
-                        action=step.action,
-                        status=CASE_STATUS_CANCELLED,  # type: ignore[arg-type]
-                        message="cancelled",
-                    )
+                result = RunStepResult(
+                    step_no=step.step_no,
+                    action=step.action,
+                    status=CASE_STATUS_CANCELLED,  # type: ignore[arg-type]
+                    step_status=StepStatus.SKIPPED,
+                    message="cancelled",
                 )
+                step_results.append(result)
+                self._emit_progress(on_step, result)
                 break
+
             if not step.enabled:
-                step_results.append(
-                    RunStepResult(
-                        step_no=step.step_no,
-                        action=step.action,
-                        status="SKIPPED",
-                        message="disabled",
-                    )
+                result = RunStepResult(
+                    step_no=step.step_no,
+                    action=step.action,
+                    status="SKIPPED",
+                    step_status=StepStatus.SKIPPED,
+                    message="disabled",
                 )
+                step_results.append(result)
+                self._emit_progress(on_step, result)
                 continue
+
+            if blocked:
+                result = RunStepResult(
+                    step_no=step.step_no,
+                    action=step.action,
+                    status="BLOCKED",
+                    step_status=StepStatus.BLOCKED,
+                    message="blocked_by_prior_failure",
+                )
+                step_results.append(result)
+                self._emit_progress(on_step, result)
+                continue
+
+            self._emit_progress(
+                on_step,
+                RunStepResult(
+                    step_no=step.step_no,
+                    action=step.action,
+                    status="NOT_RUN",
+                    step_status=StepStatus.RUNNING,
+                    message="",
+                ),
+            )
+
             t0 = time.perf_counter()
             element = self.element_repo.get(step.element_ref or "") if step.element_ref else None
-            step_status: StepStatus | None = None
+            step_status: StepStatus = StepStatus.RUNNING
             confidence: float | None = None
             audit_entry = None
+            status: CaseStatus = "PASS"
+            message = "ok"
             try:
                 await self._execute_step_mcp_first(step, element)
-                status = CASE_STATUS_PASS
+                status = "PASS"
                 message = "ok"
                 step_status = StepStatus.PASSED
             except Exception as exc:  # noqa: BLE001
-                message = str(exc)
-                status = CASE_STATUS_FAIL
+                message = masker.mask_text(str(exc))
+                status = "FAIL"
                 step_status = StepStatus.FAILED
                 if should_cancel is not None and should_cancel():
                     case_status = CASE_STATUS_CANCELLED
-                    status = CASE_STATUS_CANCELLED
+                    status = CASE_STATUS_CANCELLED  # type: ignore[assignment]
                     message = "cancelled"
+                    step_status = StepStatus.SKIPPED
                 elif element is not None:
                     audit = await self.healer.heal_step(
                         self.page, step, element, vision_locate=locate
                     )
                     if should_cancel is not None and should_cancel():
                         case_status = CASE_STATUS_CANCELLED
-                        status = CASE_STATUS_CANCELLED
+                        status = CASE_STATUS_CANCELLED  # type: ignore[assignment]
                         message = "cancelled"
-                    elif audit is not None:
+                        step_status = StepStatus.SKIPPED
+                    elif audit is not None and should_run_heal(audit.confidence_score or 0.0):
                         audits.append(audit)
                         audit_entry = audit
                         confidence = audit.confidence_score
@@ -145,29 +189,43 @@ class DualLoopAgent:
                             if not audit.persisted:
                                 message = f"{message};persist_skipped"
                         except Exception as exc2:  # noqa: BLE001
-                            message = f"{message}; retest_failed:{exc2}"
+                            message = masker.mask_text(
+                                f"{message}; retest_failed:{exc2}"
+                            )
                             case_status = CASE_STATUS_FAIL
+                            status = "FAIL"
                             step_status = StepStatus.FAILED
+                            blocked = True
                     else:
+                        if audit is not None:
+                            audits.append(audit)
+                            audit_entry = audit
+                            confidence = audit.confidence_score
                         case_status = CASE_STATUS_FAIL
+                        status = "FAIL"
+                        step_status = StepStatus.FAILED
+                        blocked = True
                 else:
                     case_status = CASE_STATUS_FAIL
+                    blocked = True
+
             duration = int((time.perf_counter() - t0) * 1000)
-            step_results.append(
-                RunStepResult(
-                    step_no=step.step_no,
-                    action=step.action,
-                    status=status,  # type: ignore[arg-type]
-                    step_status=step_status,
-                    duration_ms=duration,
-                    message=message,
-                    confidence_score=confidence,
-                    previous_selector=audit_entry.previous_selector if audit_entry else None,
-                    audit=audit_entry,
-                )
+            result = RunStepResult(
+                step_no=step.step_no,
+                action=step.action,
+                status=status,
+                step_status=step_status,
+                duration_ms=duration,
+                message=masker.mask_text(message),
+                confidence_score=confidence,
+                previous_selector=audit_entry.previous_selector if audit_entry else None,
+                audit=audit_entry,
             )
-            if case_status == CASE_STATUS_FAIL and status == CASE_STATUS_FAIL:
-                break
+            if step_status in {StepStatus.HEALED, StepStatus.FAILED}:
+                await self._capture_evidence(active_run_id, test_case.id, result)
+            step_results.append(result)
+            self._emit_progress(on_step, result)
+
             if case_status == CASE_STATUS_CANCELLED:
                 break
 
@@ -186,13 +244,14 @@ class DualLoopAgent:
                         step_no=len(step_results) + 1,
                         action="assert_text",
                         status=CASE_STATUS_FAIL,  # type: ignore[arg-type]
+                        step_status=StepStatus.FAILED,
                         message=f"verification missing: {expected!r}",
                     )
                 )
 
         finished = datetime.now(UTC).isoformat()
-        return RunReport(
-            run_id=str(uuid.uuid4()),
+        report = RunReport(
+            run_id=active_run_id,
             project_name=project_name,
             started_at=started,
             finished_at=finished,
@@ -207,6 +266,61 @@ class DualLoopAgent:
             ],
             healing_audit=audits,
         )
+        if self.evidence is not None:
+            await self._finalize_evidence(report)
+        return report
+
+    def _emit_progress(
+        self,
+        on_step: StepProgressFn | None,
+        result: RunStepResult,
+    ) -> None:
+        if on_step is None:
+            return
+        live = (
+            result.step_status.value
+            if result.step_status is not None
+            else str(result.status)
+        )
+        on_step(
+            result.step_no,
+            result.action,
+            live,
+            float(result.duration_ms),
+            result.message,
+        )
+
+    async def _capture_evidence(
+        self,
+        run_id: str,
+        case_id: str,
+        result: RunStepResult,
+    ) -> None:
+        if self.evidence is None:
+            return
+        try:
+            png = await self.page.screenshot(type="png")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("evidence_screenshot_failed step=%s err=%s", result.step_no, exc)
+            return
+        if not isinstance(png, (bytes, bytearray)):
+            return
+
+        def _write() -> None:
+            assert self.evidence is not None
+            self.evidence.persist_step_png(
+                run_id,
+                case_id,
+                result,
+                bytes(png),
+            )
+
+        await asyncio.to_thread(_write)
+
+    async def _finalize_evidence(self, report: RunReport) -> None:
+        if self.evidence is None:
+            return
+        await asyncio.to_thread(self.evidence.collect, report)
 
     async def _execute_step_mcp_first(
         self,
@@ -218,8 +332,10 @@ class DualLoopAgent:
             tool = f"browser_{step.action}"
             args: dict[str, Any] = {}
             if element is not None:
-                args["selector"] = element.primary_playwright or element.css or ""
+                # BOUND fast-path: fingerprint-derived selector, never LLM locate
+                args["selector"] = self.resolver.bound_selector(element)
             if step.input_data:
+                # Raw secrets go to Playwright; masking is outbound-only in executor/logs
                 args["text"] = step.input_data
             result = await self.mcp_executor.execute("playwright", tool, args)
             if result.get("ok"):

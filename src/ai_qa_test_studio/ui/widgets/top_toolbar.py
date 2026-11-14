@@ -24,6 +24,8 @@ from ai_qa_test_studio.constants import (
     UI_BTN_COPILOT_MIN_WIDTH,
     UI_BTN_RUN_MIN_WIDTH,
     UI_BTN_SYNC_MIN_WIDTH,
+    UI_LABEL_AUTH_SAVE,
+    UI_LABEL_AUTH_SESSION,
     UI_LABEL_COPILOT,
     UI_LABEL_RUN,
     UI_LABEL_STOP,
@@ -46,6 +48,7 @@ class UnifiedTopBar(QWidget):
     wizard_clicked = Signal()
     new_case_clicked = Signal()
     sync_url_clicked = Signal(str)
+    auth_session_clicked = Signal()
     run_clicked = Signal()
     stop_clicked = Signal()
     batch_run_clicked = Signal()
@@ -67,6 +70,7 @@ class UnifiedTopBar(QWidget):
         self._batch_actions_enabled = True
         self._batch_can_run = False
         self._batch_can_delete = False
+        self._auth_capturing = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
@@ -97,6 +101,14 @@ class UnifiedTopBar(QWidget):
         self.url_input.setAccessibleName("Ô nhập Target URL")
         self.url_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.url_input, stretch=1)
+
+        self.btn_auth = PushButton(FIF.CERTIFICATE, UI_LABEL_AUTH_SESSION, self)
+        self.btn_auth.setToolTip(
+            "Mở trình duyệt để đăng nhập thủ công (SSO/OTP), rồi Lưu phiên storageState"
+        )
+        self.btn_auth.setAccessibleName(UI_LABEL_AUTH_SESSION)
+        self.btn_auth.clicked.connect(lambda: self.auth_session_clicked.emit())
+        layout.addWidget(self.btn_auth)
 
         self.btn_sync = PushButton(FIF.SYNC, "Sync (0)", self)
         self.btn_sync.setMinimumWidth(UI_BTN_SYNC_MIN_WIDTH)
@@ -289,6 +301,29 @@ class UnifiedTopBar(QWidget):
             self.unbound_badge.setVisible(True)
         else:
             self.unbound_badge.setVisible(False)
+
+    def set_sync_loading(self, loading: bool) -> None:
+        """Light loading state on Sync while AutoBinder runs."""
+        self.btn_sync.setEnabled(not loading)
+        if loading:
+            self.btn_sync.setText("Sync…")
+            self.btn_sync.setToolTip("Đang đồng bộ selector — bấm Sync lần nữa hoặc Stop để hủy")
+        else:
+            self._refresh_sync_label()
+            self.btn_sync.setToolTip("Tự động ánh xạ các bước UNBOUND sang selector thật")
+
+    def set_auth_capturing(self, capturing: bool) -> None:
+        self._auth_capturing = capturing
+        if capturing:
+            self.btn_auth.setText(UI_LABEL_AUTH_SAVE)
+            self.btn_auth.setToolTip("Lưu cookie/storageState sau khi đăng nhập thủ công")
+            self.btn_auth.setAccessibleName(UI_LABEL_AUTH_SAVE)
+        else:
+            self.btn_auth.setText(UI_LABEL_AUTH_SESSION)
+            self.btn_auth.setToolTip(
+                "Mở trình duyệt để đăng nhập thủ công (SSO/OTP), rồi Lưu phiên storageState"
+            )
+            self.btn_auth.setAccessibleName(UI_LABEL_AUTH_SESSION)
 
     def _refresh_sync_label(self) -> None:
         if self._density == "narrow":

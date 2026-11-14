@@ -51,8 +51,9 @@ async def test_heal_attempts_dom_when_semantic_match_exists() -> None:
 
     distiller.extract.assert_awaited_once()
     assert audit is not None
-    assert audit.reason == "dom_heuristic"
+    assert audit.reason.startswith("dom_heuristic")
     assert audit.new_locator == "#submit-primary"
+    assert audit.healed_selector == "#submit-primary"
     assert element.css == "#submit-primary"
     assert step.binding_status == BINDING_HEALED
 
@@ -78,7 +79,7 @@ async def test_heal_attempts_vision_when_semantic_match_exists() -> None:
 
     vision_locate.assert_awaited_once()
     assert audit is not None
-    assert audit.reason == "midscene_vision"
+    assert audit.reason.startswith("midscene_vision")
     assert audit.new_locator == "#vision-submit"
     assert element.css == "#vision-submit"
     assert step.binding_status == BINDING_HEALED

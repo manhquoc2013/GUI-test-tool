@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 import socket
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from ai_qa_test_studio.constants import CDP_HOST, GOTO_TIMEOUT_MS
+from ai_qa_test_studio.core.auth_session import is_valid_storage_state
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class BrowserEngine:
         self._context: Any | None = None
         self._page: Any | None = None
         self._cdp: CdpEndpoint | None = None
+        self._storage_state: str | None = None
 
     @property
     def page(self) -> Any:
@@ -50,7 +53,16 @@ class BrowserEngine:
     def cdp_endpoint(self) -> CdpEndpoint | None:
         return self._cdp
 
-    async def start(self, headless: bool = True) -> CdpEndpoint:
+    @property
+    def storage_state_path(self) -> str | None:
+        return self._storage_state
+
+    async def start(
+        self,
+        headless: bool = True,
+        *,
+        storage_state: str | Path | None = None,
+    ) -> CdpEndpoint:
         """Launch Chromium with an ephemeral free port on 127.0.0.1 (not written to disk)."""
         from playwright.async_api import async_playwright
 
@@ -63,7 +75,15 @@ class BrowserEngine:
                 f"--remote-debugging-port={port}",
             ],
         )
-        self._context = await self._browser.new_context()
+        context_kwargs: dict[str, Any] = {}
+        state_path: str | None = None
+        if storage_state is not None:
+            path = Path(storage_state)
+            if is_valid_storage_state(path):
+                state_path = str(path)
+                context_kwargs["storage_state"] = state_path
+        self._storage_state = state_path
+        self._context = await self._browser.new_context(**context_kwargs)
         self._page = await self._context.new_page()
         http = f"http://{CDP_HOST}:{port}"
         self._cdp = CdpEndpoint(
@@ -71,11 +91,21 @@ class BrowserEngine:
             http_endpoint=http,
             port=port,
         )
-        logger.info("browser_started cdp=%s", self._cdp.http_endpoint)
+        logger.info(
+            "browser_started cdp=%s storage_state=%s",
+            self._cdp.http_endpoint,
+            state_path or "",
+        )
         return self._cdp
 
     async def goto(self, url: str, *, timeout_ms: int = GOTO_TIMEOUT_MS) -> None:
         await self.page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+    async def save_storage_state(self, path: str | Path) -> Path:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        await self.context.storage_state(path=str(target))
+        return target
 
     async def stop(self) -> None:
         if self._context is not None:
@@ -89,6 +119,7 @@ class BrowserEngine:
         self._browser = None
         self._playwright = None
         self._cdp = None
+        self._storage_state = None
 
     def cdp_http_for_mcp(self) -> str:
         if self._cdp is None:

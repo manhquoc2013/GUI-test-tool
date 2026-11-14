@@ -60,6 +60,8 @@ async def test_heal_score_070_runtime_not_persisted() -> None:
     assert audit.persisted is False
     assert element.css == "#submit-primary"
     assert step.binding_status == BINDING_HEALED
+    assert "medium_confidence" in audit.reason
+    assert audit.healed_selector == "#submit-primary"
     assert ExternalMcpBridge.may_persist_bound_patch(audit.confidence_score) is False
 
 
@@ -119,5 +121,5 @@ async def test_vision_heal_still_works() -> None:
         MagicMock(), _step(intent="Click green continue"), _element(), vision_locate=vision_locate
     )
     assert audit is not None
-    assert audit.reason == "midscene_vision"
+    assert audit.reason.startswith("midscene_vision")
     assert audit.persisted is True
