@@ -28,6 +28,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_ARTIFACT_READY_NOTE,
     COPILOT_CHAT_REPLY_MAX_CHARS,
     COPILOT_FINAL_REPORT_MAX_CHARS,
+    COPILOT_HISTORY_SWITCH_BUSY,
     COPILOT_STATUS_CLARIFY,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_PREPARING,
@@ -77,13 +78,74 @@ class CopilotController:
 
     def persist_session(self) -> None:
         w = self._w
-        w._chat_store.upsert(w.copilot.session)
+        session = w.copilot.session
+        if session.has_user_messages():
+            w._chat_store.upsert(session)
+        elif w._chat_store.get(session.id) is not None:
+            w._chat_store.delete(session.id)
+        w._chat_store.prune_empties()
         w._chat_store.save()
+        self.refresh_history_rail()
+
+    def refresh_history_rail(self) -> None:
+        w = self._w
+        registry = w._chat_runs
+        unread = {sid for sid in (s.id for s in w._chat_store.list_nonempty()) if registry.is_unread(sid)}
+        w.copilot.set_history_sessions(
+            w._chat_store.list_nonempty(),
+            active_id=w.copilot.session.id,
+            running_ids=registry.running_session_ids(),
+            unread_ids=unread,
+        )
+
+    def restore_startup_session(self) -> None:
+        w = self._w
+        sessions = w._chat_store.list_nonempty()
+        if sessions:
+            w.copilot.load_session(sessions[0])
+            w._chat_runs.mark_read(sessions[0].id)
+        self.refresh_history_rail()
+
+    def activate_history_session(self, session_id: str) -> None:
+        w = self._w
+        if not session_id or session_id == w.copilot.session.id:
+            w._chat_runs.mark_read(session_id)
+            self.refresh_history_rail()
+            return
+        if w.copilot.is_busy:
+            w._toast_warn("Copilot", COPILOT_HISTORY_SWITCH_BUSY)
+            self.refresh_history_rail()
+            return
+        self.persist_session()
+        live = w._chat_runs.get_live_session(session_id)
+        stored = w._chat_store.get(session_id)
+        target = live or stored
+        if target is None:
+            self.refresh_history_rail()
+            return
+        w.copilot.load_session(target)
+        w._chat_runs.mark_read(session_id)
+        self.refresh_history_rail()
+
+    def delete_history_session(self, session_id: str) -> None:
+        w = self._w
+        if not session_id:
+            return
+        if w._chat_runs.is_running(session_id):
+            w._chat_runs.request_cancel(session_id)
+        w._chat_runs.forget(session_id)
+        w._chat_store.delete(session_id)
+        w._chat_store.save()
+        if w.copilot.session.id == session_id:
+            w.copilot.new_session()
+        self.refresh_history_rail()
 
     def stop(self) -> None:
         w = self._w
+        session_id = w.copilot.session.id
         if w._copilot_cancel is not None:
             w._copilot_cancel.set()
+        w._chat_runs.request_cancel(session_id)
         dialog = w._clarify_dialog
         if dialog is not None:
             dialog.abort_stopped()

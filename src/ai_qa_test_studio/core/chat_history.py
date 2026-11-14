@@ -56,3 +56,16 @@ class ChatHistoryStore:
 
     def list_sessions(self) -> list[CopilotSession]:
         return sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
+
+    def list_nonempty(self) -> list[CopilotSession]:
+        """Workspace history rows that have at least one user turn."""
+        return [s for s in self.list_sessions() if s.has_user_messages()]
+
+    def prune_empties(self) -> int:
+        """Drop placeholder sessions with no user messages. Returns removed count."""
+        remove_ids = [
+            sid for sid, session in self._sessions.items() if not session.has_user_messages()
+        ]
+        for sid in remove_ids:
+            self._sessions.pop(sid, None)
+        return len(remove_ids)

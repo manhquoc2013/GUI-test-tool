@@ -61,6 +61,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_DOWNLOAD_EMPTY,
     COPILOT_DOWNLOAD_FAIL_TITLE,
     COPILOT_DOWNLOAD_TOOLTIP,
+    COPILOT_HISTORY_TOGGLE_TIP,
     COPILOT_IDLE_PLACEHOLDER,
     COPILOT_INPUT_HEIGHT,
     COPILOT_MODE_CASE,
@@ -94,6 +95,7 @@ from ai_qa_test_studio.ui.bubble_summary import summarize_for_bubble
 from ai_qa_test_studio.ui.motion import fade_in
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
+from ai_qa_test_studio.ui.widgets.chat_history_rail import ChatHistoryRail
 from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
 
@@ -120,6 +122,8 @@ class CopilotChatPane(QWidget):
     session_changed = Signal()
     info_message = Signal(str, str)
     settings_requested = Signal()
+    history_session_activated = Signal(str)
+    history_delete_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -134,6 +138,7 @@ class CopilotChatPane(QWidget):
         self._project_root: Path | None = None
         self._ingest_tasks: dict[str, asyncio.Task[IngestResult]] = {}
         self._ingest_results: dict[str, IngestResult] = {}
+        self._history_visible = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -183,6 +188,12 @@ class CopilotChatPane(QWidget):
         tools = QHBoxLayout(tools_wrap)
         tools.setContentsMargins(0, 0, 0, 0)
         tools.setSpacing(2)
+        self.btn_history = TransparentToolButton(FIF.HISTORY, tools_wrap)
+        self.btn_history.setFixedSize(28, 28)
+        self.btn_history.setToolTip(COPILOT_HISTORY_TOGGLE_TIP)
+        self.btn_history.setCheckable(True)
+        self.btn_history.setChecked(False)
+        self.btn_history.clicked.connect(self.toggle_history_rail)
         self.btn_settings = TransparentToolButton(FIF.SETTING, tools_wrap)
         self.btn_settings.setFixedSize(28, 28)
         self.btn_settings.setToolTip("System Settings")
@@ -195,6 +206,7 @@ class CopilotChatPane(QWidget):
         self.btn_clear.setFixedSize(28, 28)
         self.btn_clear.setToolTip("Xóa tin trong phiên")
         self.btn_clear.clicked.connect(self.clear_messages)
+        tools.addWidget(self.btn_history)
         tools.addWidget(self.btn_settings)
         tools.addWidget(self.btn_new)
         tools.addWidget(self.btn_clear)
@@ -214,11 +226,22 @@ class CopilotChatPane(QWidget):
         self.body_stack = QStackedWidget(self)
 
         chat_body = QWidget(self.body_stack)
-        chat_layout = QVBoxLayout(chat_body)
+        chat_shell = QHBoxLayout(chat_body)
+        chat_shell.setContentsMargins(0, 0, 0, 0)
+        chat_shell.setSpacing(8)
+
+        self.history_rail = ChatHistoryRail(chat_body)
+        self.history_rail.setVisible(False)
+        self.history_rail.session_activated.connect(self.history_session_activated.emit)
+        self.history_rail.delete_requested.connect(self.history_delete_requested.emit)
+        chat_shell.addWidget(self.history_rail, stretch=0)
+
+        chat_main = QWidget(chat_body)
+        chat_layout = QVBoxLayout(chat_main)
         chat_layout.setContentsMargins(0, 0, 0, 0)
         chat_layout.setSpacing(8)
 
-        self.starters = QWidget(chat_body)
+        self.starters = QWidget(chat_main)
         self.starters.setAccessibleName("Gợi ý bắt đầu Copilot")
         starters_grid = QGridLayout(self.starters)
         starters_grid.setContentsMargins(0, 0, 0, 0)
@@ -232,7 +255,7 @@ class CopilotChatPane(QWidget):
             starters_grid.addWidget(btn, idx // 2, idx % 2)
         chat_layout.addWidget(self.starters)
 
-        self.transcript_scroll = QScrollArea(chat_body)
+        self.transcript_scroll = QScrollArea(chat_main)
         self.transcript_scroll.setWidgetResizable(True)
         self.transcript_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.transcript_host = QWidget()
@@ -249,7 +272,7 @@ class CopilotChatPane(QWidget):
         self.transcript_scroll.setAccessibleName("Lịch sử hội thoại Copilot")
         chat_layout.addWidget(self.transcript_scroll, stretch=1)
 
-        composer_wrap = QFrame(chat_body)
+        composer_wrap = QFrame(chat_main)
         composer_wrap.setObjectName("CopilotComposer")
         composer_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         composer_col = QVBoxLayout(composer_wrap)
@@ -331,6 +354,7 @@ class CopilotChatPane(QWidget):
         artifact_row.addWidget(self.btn_apply, stretch=1)
         composer_col.addLayout(artifact_row)
         chat_layout.addWidget(composer_wrap)
+        chat_shell.addWidget(chat_main, stretch=1)
 
         self.wizard = ComposeWizardPanel(self.body_stack)
         self.wizard.drafts_ready.connect(self._on_wizard_drafts)
@@ -389,8 +413,14 @@ class CopilotChatPane(QWidget):
 
     def eventFilter(self, obj: object, event: object) -> bool:
         if obj is self.input_box and isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
+            mods = event.modifiers()
+            if event.key() == Qt.Key.Key_H and mods & (
+                Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+            ):
+                self.toggle_history_rail()
+                return True
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (
-                event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                mods & Qt.KeyboardModifier.ShiftModifier
             ):
                 self._emit_send()
                 return True
@@ -454,6 +484,29 @@ class CopilotChatPane(QWidget):
         if not self._busy:
             self.input_box.setPlaceholderText(COPILOT_IDLE_PLACEHOLDER)
         self.input_box.setFocus()
+
+    def toggle_history_rail(self) -> None:
+        self.set_history_rail_visible(not self._history_visible)
+
+    def set_history_rail_visible(self, visible: bool) -> None:
+        self._history_visible = bool(visible)
+        self.history_rail.setVisible(self._history_visible)
+        self.btn_history.setChecked(self._history_visible)
+
+    def set_history_sessions(
+        self,
+        sessions: list[CopilotSession],
+        *,
+        active_id: str | None = None,
+        running_ids: set[str] | None = None,
+        unread_ids: set[str] | None = None,
+    ) -> None:
+        self.history_rail.set_sessions(
+            sessions,
+            active_id=active_id if active_id is not None else self._session.id,
+            running_ids=running_ids,
+            unread_ids=unread_ids,
+        )
 
     def new_session(self) -> None:
         mode = self._session.mode

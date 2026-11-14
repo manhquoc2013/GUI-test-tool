@@ -52,6 +52,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.async_bridge import run_sync
 from ai_qa_test_studio.core.chat_history import ChatHistoryStore
+from ai_qa_test_studio.core.chat_run_registry import ChatRunRegistry
 from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.index_sync import ProjectIndexSync
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self._token_budget = TokenBudget()
         self._skills = ProgressiveSkillLoader(Path(DEFAULT_SKILLS_DIRNAME))
         self._chat_store = ChatHistoryStore(self.data_root)
+        self._chat_runs = ChatRunRegistry()
         self._copilot_cancel: asyncio.Event | None = None
         self._clarify_dialog: ClarifyDialog | None = None
         self._dom_distiller = DomDistiller(self._token_budget)
@@ -135,6 +137,7 @@ class MainWindow(QMainWindow):
         self._reload_ui()
         self._refresh_model_catalog()
         self._refresh_status_pills()
+        self._copilot_ctl.restore_startup_session()
         self.apply_layout_breakpoint(self.width())
 
     def _build_chrome(self) -> None:
@@ -204,6 +207,8 @@ class MainWindow(QMainWindow):
         self.copilot.apply_requested.connect(self._apply_copilot_payload)
         self.copilot.info_message.connect(lambda title, body: self._toast_info(title, body))
         self.copilot.session_changed.connect(self._persist_copilot_session)
+        self.copilot.history_session_activated.connect(self._activate_copilot_history)
+        self.copilot.history_delete_requested.connect(self._delete_copilot_history)
         self.copilot.settings_requested.connect(self._open_system_settings)
         self.right_drawer.drawer_opened.connect(lambda: self.top_bar.set_copilot_checked(True))
         self.right_drawer.drawer_closed.connect(lambda: self.top_bar.set_copilot_checked(False))
@@ -529,6 +534,12 @@ class MainWindow(QMainWindow):
 
     def _persist_copilot_session(self) -> None:
         self._copilot_ctl.persist_session()
+
+    def _activate_copilot_history(self, session_id: str) -> None:
+        self._copilot_ctl.activate_history_session(session_id)
+
+    def _delete_copilot_history(self, session_id: str) -> None:
+        self._copilot_ctl.delete_history_session(session_id)
 
     def _stop_copilot(self) -> None:
         self._copilot_ctl.stop()

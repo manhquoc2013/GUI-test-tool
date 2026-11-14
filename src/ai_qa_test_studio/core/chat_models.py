@@ -48,6 +48,9 @@ class CopilotSession(BaseModel):
     def touch(self) -> None:
         self.updated_at = _now_iso()
 
+    def has_user_messages(self) -> bool:
+        return any(m.role == "user" for m in self.messages)
+
     def undo_last_user_turn(self) -> str | None:
         """Remove last user message and all following role outputs; return user text."""
         last_user_idx: int | None = None
