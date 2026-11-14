@@ -172,12 +172,18 @@ class SessionController:
                     bundled_mcp.playwright.bind_cdp(cdp)
             if midscene_enabled and bundled_mcp is not None:
                 cdp = self.engine.cdp_http_for_mcp() if self._started else ""
+                external_ok = False
                 if cdp:
-                    await self._external_mcp.ensure_midscene(cdp, log=emit)
+                    external_ok = await self._external_mcp.ensure_midscene(cdp, log=emit)
                 vision_locate = await make_vision_locate(
-                    self.engine.page, bundled_mcp, enabled=True
+                    self.engine.page,
+                    bundled_mcp,
+                    enabled=True,
+                    external=self._external_mcp,
+                    cdp_endpoint=cdp,
                 )
-                emit("Midscene vision locate: on (bundled qa-midscene)")
+                mode = "external+bundled-fallback" if external_ok else "bundled-fallback"
+                emit(f"Midscene vision locate: on ({mode})")
             agent = DualLoopAgent(
                 self.engine.page,
                 repo,
