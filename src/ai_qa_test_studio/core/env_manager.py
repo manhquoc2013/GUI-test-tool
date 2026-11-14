@@ -18,6 +18,7 @@ from ai_qa_test_studio.constants import (
     LLM_TASK_ANALYZE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COMPOSE,
+    LLM_TASK_COORDINATE,
     LLM_TASK_CRITIQUE,
     LLM_TASK_DEBATE,
     LLM_TASK_INTENT,
@@ -67,14 +68,21 @@ def default_task_complexity_matrix() -> dict[str, dict[str, str]]:
             COMPLEXITY_NORMAL: LLM_TIER_FAST,
             COMPLEXITY_COMPLEX: LLM_TIER_FAST,
         },
-        LLM_TASK_PLAN: {
+        LLM_TASK_COORDINATE: {
             COMPLEXITY_SIMPLE: LLM_TIER_FAST,
             COMPLEXITY_NORMAL: LLM_TIER_MID,
             COMPLEXITY_COMPLEX: LLM_TIER_MID,
         },
+        LLM_TASK_PLAN: {
+            COMPLEXITY_SIMPLE: LLM_TIER_FAST,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
+            # Ruflo/ECC: architecture-like planning → strong when hard.
+            COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
+        },
         LLM_TASK_COMPOSE: {
+            # Ruflo QE: unit-ish → mid; suite/E2E → strong.
             COMPLEXITY_SIMPLE: LLM_TIER_MID,
-            COMPLEXITY_NORMAL: LLM_TIER_STRONG,
+            COMPLEXITY_NORMAL: LLM_TIER_MID,
             COMPLEXITY_COMPLEX: LLM_TIER_STRONG,
         },
         LLM_TASK_REVISE: {

@@ -123,6 +123,8 @@ class UnifiedLLMGateway:
                 '{"question":"Bạn muốn phạm vi nào?","suggestions":'
                 '["Happy path","Full BVA","Chỉ smoke"],"default":"Happy path"}'
             )
+        elif "coordinator" in sys_l and ("dispatch" in sys_l or "json" in sys_l):
+            text = '{"action":"complete","summary":"offline coordinator defers to heuristic"}'
         elif "critic" in sys_l:
             text = "APPROVE — offline review OK."
         elif "debate" in sys_l:

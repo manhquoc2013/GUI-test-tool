@@ -33,6 +33,7 @@ from ai_qa_test_studio.constants import (
     LLM_PROVIDER_OFFLINE,
     ROLE_ANALYZER,
     ROLE_COMPOSER,
+    ROLE_COORDINATOR,
     ROLE_CRITIC,
     ROLE_OPTIMIZER,
     ROLE_PLANNER,
@@ -40,7 +41,7 @@ from ai_qa_test_studio.constants import (
 
 
 @pytest.mark.asyncio
-async def test_default_role_order_planner_composer_critic() -> None:
+async def test_default_role_order_coordinator_then_specialists() -> None:
     orch = CopilotOrchestrator(
         UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
     )
@@ -52,7 +53,10 @@ async def test_default_role_order_planner_composer_critic() -> None:
     ):
         if event.kind == "role_start" and event.role:
             roles.append(event.role)
-    assert roles[:3] == [ROLE_PLANNER, ROLE_COMPOSER, ROLE_CRITIC]
+    assert roles[0] == ROLE_COORDINATOR
+    assert ROLE_COMPOSER in roles
+    assert ROLE_CRITIC in roles
+    assert roles.index(ROLE_COMPOSER) < roles.index(ROLE_CRITIC)
 
 
 @pytest.mark.asyncio
@@ -148,6 +152,94 @@ def test_infer_intent_attachment_defaults_to_compose() -> None:
     ctx = "ATTACHMENTS:\n### Attached: a.docx\n# SRS"
     assert orch._heuristic_intent("làm giúp tôi từ file này", COPILOT_MODE_CASE, ctx) == "compose"
     assert orch._heuristic_intent("Giải thích lỗi bước", COPILOT_MODE_CASE, "") == "explain"
+
+
+def test_crew_roster_explain_skips_tail_roles() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    roster = orch._crew_roster(
+        "explain",
+        "simple",
+        {"analyzer_enabled": True, "optimizer_enabled": True},
+    )
+    assert roster.roles[0] == ROLE_COORDINATOR
+    assert roster.run_critic is True
+    assert roster.run_debate is True
+    assert roster.run_analyzer is False
+    assert roster.run_optimizer is False
+
+
+def test_crew_roster_complex_compose_enables_analyzer_optimizer() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    roster = orch._crew_roster(
+        "compose",
+        "complex",
+        {"analyzer_enabled": True, "optimizer_enabled": True},
+    )
+    assert roster.roles[0] == ROLE_COORDINATOR
+    assert roster.run_debate is True
+    assert roster.run_analyzer is True
+    assert roster.run_optimizer is True
+    assert "analyzer" in roster.roles
+    assert "optimizer" in roster.roles
+
+
+def test_heuristic_coord_revises_after_critic_reject() -> None:
+    from ai_qa_test_studio.agent.crew_exchange import CrewBoard, heuristic_next_action
+
+    board = CrewBoard(
+        user_text="tạo kịch bản",
+        mode=COPILOT_MODE_COMPOSE,
+        ctx_block="",
+        intent="compose",
+        complexity="normal",
+        compose_text="draft",
+        critique_text="REVISE",
+        critique_approved=False,
+        critique_notes="thiếu expected",
+        dispatched=["composer", "critic"],
+    )
+    nxt = heuristic_next_action(board, run_analyzer=False, run_optimizer=False)
+    assert nxt["action"] == "dispatch"
+    assert nxt["to"] == ROLE_COMPOSER
+
+
+def test_handoff_packet_is_structured() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    packet = orch._handoff(
+        "planner",
+        "composer",
+        goal="Sinh draft",
+        acceptance="Có Apply",
+        body="Kế hoạch 1-2-3",
+    )
+    assert "[HANDOFF]" in packet
+    assert "From:" in packet and "To:" in packet
+    assert "Goal: Sinh draft" in packet
+    assert "Kế hoạch 1-2-3" in packet
+
+
+@pytest.mark.asyncio
+async def test_explain_turn_emits_coordinator_exchange() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    handoffs = []
+    async for event in orch.run(
+        user_text="Giải thích lỗi bước đăng nhập vừa chạy",
+        mode=COPILOT_MODE_CASE,
+        context={},
+    ):
+        if event.kind == "agent_message" and event.from_role and event.to_role:
+            handoffs.append((event.from_role, event.to_role))
+    assert (ROLE_COORDINATOR, ROLE_COMPOSER) in handoffs
+    assert (ROLE_COMPOSER, ROLE_COORDINATOR) in handoffs
+    assert (ROLE_COORDINATOR, ROLE_CRITIC) in handoffs
 
 
 def test_srs_from_attachments_preferred_over_prompt() -> None:
@@ -452,12 +544,37 @@ async def test_collect_yields_chunk_events() -> None:
 
 @pytest.mark.asyncio
 async def test_optional_analyzer_optimizer_roles() -> None:
+    """Complex compose + Settings on → Analyzer/Optimizer join the roster."""
     orch = CopilotOrchestrator(
         UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
     )
     roles: list[str] = []
     async for event in orch.run(
-        user_text="Giải thích bước lỗi",
+        user_text="Tạo toàn bộ kịch bản e2e từ SRS và BVA biên",
+        mode=COPILOT_MODE_COMPOSE,
+        context={
+            CONTEXT_KEY_ANALYZER_ENABLED: True,
+            CONTEXT_KEY_OPTIMIZER_ENABLED: True,
+            "srs": "A" * 900,
+            "include_dom": True,
+            "include_case": True,
+        },
+    ):
+        if event.kind == "role_start" and event.role:
+            roles.append(event.role)
+    assert ROLE_ANALYZER in roles
+    assert ROLE_OPTIMIZER in roles
+    assert roles.index(ROLE_CRITIC) < roles.index(ROLE_ANALYZER)
+
+
+@pytest.mark.asyncio
+async def test_explain_skips_analyzer_even_when_enabled() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    roles: list[str] = []
+    async for event in orch.run(
+        user_text="Giải thích lỗi bước đăng nhập vừa chạy",
         mode=COPILOT_MODE_CASE,
         context={
             CONTEXT_KEY_ANALYZER_ENABLED: True,
@@ -466,9 +583,10 @@ async def test_optional_analyzer_optimizer_roles() -> None:
     ):
         if event.kind == "role_start" and event.role:
             roles.append(event.role)
-    assert ROLE_ANALYZER in roles
-    assert ROLE_OPTIMIZER in roles
-    assert roles.index(ROLE_CRITIC) < roles.index(ROLE_ANALYZER)
+    assert ROLE_ANALYZER not in roles
+    assert ROLE_OPTIMIZER not in roles
+    assert roles[0] == ROLE_COORDINATOR
+    assert ROLE_COMPOSER in roles and ROLE_CRITIC in roles
 
 
 def test_format_context_includes_skill_catalog_and_body() -> None:

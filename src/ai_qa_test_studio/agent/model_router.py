@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ai_qa_test_studio.agent.llm_gateway import UnifiedLLMGateway
 from ai_qa_test_studio.constants import (
+    COMPLEXITY_NORMAL,
     COPILOT_MODEL_AUTO,
     COPILOT_MODEL_LABEL_AUTO,
     LLM_PROVIDER_OFFLINE,
@@ -70,7 +71,14 @@ class ModelRouter:
         if mode == ROUTING_MODE_MANUAL and manual and "::" in manual:
             return self._from_ref(manual, task=task, complexity=complexity, tier="manual")
 
-        tier = self._tier_for(task, complexity)
+        # Settings "Bật chọn model theo độ phức tạp" off → always treat as normal.
+        effective = (
+            complexity
+            if self.settings.routing.complexity_enabled
+            else COMPLEXITY_NORMAL
+        )
+        tier = self._tier_for(task, effective)
+        complexity = effective
         conn, model = self._pick_by_tier(tier)
         if conn is None or model is None:
             return self._offline_route(task, complexity, tier)

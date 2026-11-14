@@ -65,6 +65,7 @@ COPILOT_CHIP_CASE = "@Case"
 COPILOT_CHIP_DOM = "@DOM"
 COPILOT_CHIP_ERROR = "@Error"
 CONTEXT_KEY_ATTACHMENTS = "attachments"
+ROLE_COORDINATOR = "coordinator"
 ROLE_PLANNER = "planner"
 ROLE_COMPOSER = "composer"
 ROLE_CRITIC = "critic"
@@ -72,6 +73,17 @@ ROLE_ANALYZER = "analyzer"
 ROLE_OPTIMIZER = "optimizer"
 ROLE_CREW = "crew"
 ROLE_SYSTEM = "system"
+COORD_SPECIALISTS: tuple[str, ...] = (
+    ROLE_PLANNER,
+    ROLE_COMPOSER,
+    ROLE_CRITIC,
+    ROLE_ANALYZER,
+    ROLE_OPTIMIZER,
+)
+COORD_ACTION_DISPATCH = "dispatch"
+COORD_ACTION_COMPLETE = "complete"
+COORD_ACTION_CLARIFY = "clarify"
+COPILOT_COORDINATOR_MAX_ROUNDS = 8
 CONTEXT_KEY_ANALYZER_ENABLED = "analyzer_enabled"
 CONTEXT_KEY_OPTIMIZER_ENABLED = "optimizer_enabled"
 LLM_TASK_ANALYZE = "analyze"
@@ -198,6 +210,39 @@ COPILOT_ROLE_REPLY_STYLE = (
     "Trả lời tiếng Việt, ngắn gọn: tối đa 4 gạch đầu dòng hoặc ~80 từ. "
     "Không viết đoạn dài; chi tiết nằm trong artifact/Apply."
 )
+# NEXUS/Ruflo-inspired handoff + deliverable contracts (Studio domain — not vendored).
+COPILOT_HANDOFF_HEADER = "[HANDOFF]"
+COPILOT_ROLE_BRIEFS: dict[str, str] = {
+    ROLE_COORDINATOR: (
+        "Bạn là Điều phối viên (hierarchical lead). Nắm vững ngữ cảnh board, "
+        "giao việc / thu hồi kết quả từ chuyên gia, quyết định bước tiếp. "
+        "Không soạn artifact thay chuyên gia. Output JSON điều phối thôi."
+    ),
+    ROLE_PLANNER: (
+        "Bạn là Chuyên gia hoạch định. Chỉ lập kế hoạch giao việc — không soạn artifact. "
+        "Output bắt buộc: (1) Mục tiêu 1 câu; (2) 3–5 bước giao việc "
+        "ghi rõ agent nhận (kiểm thử/phản biện/phân tích/tối ưu); "
+        "(3) Tiêu chí xong (acceptance). Không bịa dữ liệu thiếu."
+    ),
+    ROLE_COMPOSER: (
+        "Bạn là Chuyên gia kiểm thử. Thực thi đúng handoff từ hoạch định. "
+        "Output: tóm tắt bubble tiếng Việt + artifact JSON khi intent=compose|test_data. "
+        "Không yêu cầu đúng keyword; hiểu diễn đạt tự nhiên / lỗi chính tả."
+    ),
+    ROLE_CRITIC: (
+        "Bạn là Chuyên gia phản biện (quality gate). Chỉ APPROVE hoặc REVISE. "
+        "REVISE phải liệt kê lỗ hổng cụ thể (thiếu expected, BVA, mâu thuẫn SRS). "
+        "Không APPROVE khi thiếu bằng chứng — tránh fantasy approval."
+    ),
+    ROLE_ANALYZER: (
+        "Bạn là Chuyên gia phân tích rủi ro/lỗi. Output: nguyên nhân khả dĩ, "
+        "tín hiệu quan sát, gợi ý heal — có căn cứ từ Composer/Critic."
+    ),
+    ROLE_OPTIMIZER: (
+        "Bạn là Chuyên gia tối ưu suite. Output: P0 cần giữ, case gộp/bỏ, "
+        "lỗ hổng coverage — ưu tiên actionable."
+    ),
+}
 COPILOT_AGENT_DEBATE_MAX_ROUNDS = 3
 COPILOT_AGENT_LOOP_REPEAT_LIMIT = 2
 COPILOT_CLARIFY_TIMEOUT_MS = 60_000
@@ -210,6 +255,7 @@ COPILOT_STARTER_PROMPTS: tuple[tuple[str, str], ...] = (
     ("Assertions", "Tạo kịch bản / Assertions từ SRS"),
 )
 AGENT_FEED_MAX_LINES = 5
+LLM_TASK_COORDINATE = "coordinate"
 LLM_TASK_PLAN = "plan"
 LLM_TASK_COMPOSE = "compose"
 LLM_TASK_REVISE = "revise"
@@ -230,6 +276,47 @@ COMPLEXITY_NORMAL = "normal"
 COMPLEXITY_COMPLEX = "complex"
 COMPLEXITY_SIMPLE_MAX_CHARS = 120
 COMPLEXITY_NORMAL_MAX_CHARS = 800
+COMPLEXITY_LARGE_DOC_CHARS = 2400
+COMPLEXITY_LABELS_VN: dict[str, str] = {
+    COMPLEXITY_SIMPLE: "dễ",
+    COMPLEXITY_NORMAL: "trung bình",
+    COMPLEXITY_COMPLEX: "khó",
+}
+# Ruflo QE / ECC model-route inspired signals — QA Studio domain.
+COMPLEXITY_EXPLAIN_HINTS: tuple[str, ...] = (
+    "giải thích",
+    "explain",
+    "vì sao",
+    "why",
+    "lỗi bước",
+    "debug",
+)
+COMPLEXITY_NORMAL_HINTS: tuple[str, ...] = (
+    "bva",
+    "test data",
+    "biên",
+    "bộ dữ liệu",
+    "assertion",
+    "một scenario",
+    "1 scenario",
+    "smoke",
+    "happy path",
+)
+COMPLEXITY_HARD_HINTS: tuple[str, ...] = (
+    "toàn bộ",
+    "nhiều scenario",
+    "multi",
+    "e2e",
+    "end-to-end",
+    "security",
+    "bảo mật",
+    "chaos",
+    "full suite",
+    "toàn bộ srs",
+    "phân tích sâu",
+    "architecture",
+    "kiến trúc",
+)
 MCP_QA_COMPRESS = "qa-compress"
 MCP_QA_CREW_MEMORY = "qa-crew-memory"
 MCP_QA_PROJECT_CONTEXT = "qa-project-context"
@@ -362,6 +449,7 @@ CHAT_BODY_FONT_PX = 13
 CHAT_TRANSCRIPT_SPACING = 10
 CHAT_ROLE_LABELS: dict[str, str] = {
     "user": "Bạn",
+    ROLE_COORDINATOR: "Điều phối viên",
     ROLE_PLANNER: "Chuyên gia hoạch định",
     ROLE_COMPOSER: "Chuyên gia kiểm thử",
     ROLE_CRITIC: "Chuyên gia phản biện",

@@ -37,6 +37,7 @@ from ai_qa_test_studio.constants import (
     EVENT_LOOP_HALTED,
     EVENT_STATUS_SUMMARY,
     ROLE_COMPOSER,
+    ROLE_COORDINATOR,
     ROLE_CRITIC,
     ROLE_PLANNER,
     ROLE_SYSTEM,
@@ -143,7 +144,15 @@ class CopilotController:
                 for m in w.copilot.session.llm_window(
                     max_chars=copilot_cfg.lean_tail_max_tokens
                 )
-                if m.role in {"user", ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC, "assistant"}
+                if m.role
+                in {
+                    "user",
+                    ROLE_COMPOSER,
+                    ROLE_PLANNER,
+                    ROLE_CRITIC,
+                    ROLE_COORDINATOR,
+                    "assistant",
+                }
                 and (m.content or "").strip()
             ]
             current_role: str | None = None
@@ -213,7 +222,12 @@ class CopilotController:
                     w.copilot.set_apply_payload(payload)
                     # Keep artifact on the latest composer/crew message for session history.
                     for msg in reversed(w.copilot.session.messages):
-                        if msg.role in {ROLE_COMPOSER, ROLE_PLANNER, ROLE_CRITIC}:
+                        if msg.role in {
+                            ROLE_COMPOSER,
+                            ROLE_PLANNER,
+                            ROLE_CRITIC,
+                            ROLE_COORDINATOR,
+                        }:
                             msg.apply_payload = dict(payload)
                             break
                     if payload.get("kind") == APPLY_KIND_COMPOSE:
