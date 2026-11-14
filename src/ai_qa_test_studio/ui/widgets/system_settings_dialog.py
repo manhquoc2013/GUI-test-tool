@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QSizePolicy,
     QStackedWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +34,7 @@ from qfluentwidgets import (
     StrongBodyLabel,
     SubtitleLabel,
     SwitchButton,
+    TreeWidget,
 )
 
 from ai_qa_test_studio.constants import (
@@ -52,7 +54,9 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_LIST_HEIGHT,
     UI_SETTINGS_MIN_HEIGHT,
     UI_SETTINGS_MIN_WIDTH,
+    UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
+    UI_SETTINGS_SPIN_WIDTH,
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
 from ai_qa_test_studio.core.models import (
@@ -101,7 +105,9 @@ class SystemSettingsDialog(MessageBoxBase):
         hint.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
         self.viewLayout.addWidget(hint)
 
+        # Pivot kept for API compatibility; nav UI is Master-Detail TreeWidget.
         self.pivot = Pivot(self.widget)
+        self.pivot.hide()
         self.pivot.setAccessibleName("Tab cấu hình")
         self.stack = QStackedWidget(self.widget)
         self.stack.setMinimumHeight(UI_SETTINGS_CONTENT_HEIGHT)
@@ -116,6 +122,12 @@ class SystemSettingsDialog(MessageBoxBase):
             "copilot": self._build_copilot,
             "mcp": self._build_mcp,
         }
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        self.nav_tree = TreeWidget(self.widget)
+        self.nav_tree.setHeaderHidden(True)
+        self.nav_tree.setFixedWidth(UI_SETTINGS_NAV_WIDTH)
+        self.nav_tree.setAccessibleName("Danh mục cấu hình")
         for index, (key, title_text) in enumerate(_TAB_DEFS):
             page = self._wrap_scroll(builders[key]())
             self.pages[key] = page
@@ -125,10 +137,17 @@ class SystemSettingsDialog(MessageBoxBase):
                 text=title_text,
                 onClick=lambda _checked=False, k=key, i=index: self._show(k, i),
             )
-        self.viewLayout.addWidget(self.pivot)
-        self.viewLayout.addWidget(self.stack, stretch=1)
+            item = QTreeWidgetItem([title_text])
+            item.setData(0, Qt.ItemDataRole.UserRole, (key, index))
+            self.nav_tree.addTopLevelItem(item)
+        self.nav_tree.currentItemChanged.connect(self._on_nav_changed)
+        body.addWidget(self.nav_tree)
+        body.addWidget(self.stack, stretch=1)
+        self.viewLayout.addLayout(body, stretch=1)
         self.pivot.setCurrentItem("general")
         self.stack.setCurrentIndex(0)
+        if self.nav_tree.topLevelItemCount() > 0:
+            self.nav_tree.setCurrentItem(self.nav_tree.topLevelItem(0))
 
         self.yesButton.setText("Lưu")
         self.cancelButton.setText("Hủy")
@@ -178,8 +197,19 @@ class SystemSettingsDialog(MessageBoxBase):
         scroll.setWidget(inner)
         return scroll
 
+    def _on_nav_changed(
+        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
+    ) -> None:
+        if current is None:
+            return
+        data = current.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(data, tuple) and len(data) == 2:
+            key, index = data
+            self._show(str(key), int(index))
+
     def _show(self, key: str, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        self.pivot.setCurrentItem(key)
         if key == "models":
             self._reload_model_list()
         elif key == "apis":
@@ -373,19 +403,24 @@ class SystemSettingsDialog(MessageBoxBase):
         self.spin_summary = SpinBox(card)
         self.spin_summary.setRange(40, 400)
         self.spin_summary.setValue(c.summary_max_chars)
+        self.spin_summary.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
         self.spin_debate = SpinBox(card)
         self.spin_debate.setRange(0, 8)
         self.spin_debate.setValue(c.debate_max_rounds)
+        self.spin_debate.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
         self.spin_loop = SpinBox(card)
         self.spin_loop.setRange(1, 5)
         self.spin_loop.setValue(c.loop_repeat_limit)
+        self.spin_loop.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
         self.spin_clarify = SpinBox(card)
         self.spin_clarify.setRange(5_000, 300_000)
         self.spin_clarify.setSingleStep(1000)
         self.spin_clarify.setValue(c.clarify_timeout_ms)
+        self.spin_clarify.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
         self.spin_lean = SpinBox(card)
         self.spin_lean.setRange(500, 16_000)
         self.spin_lean.setValue(c.lean_tail_max_tokens)
+        self.spin_lean.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
         self._add_field(body, card, "Summary max chars", self.spin_summary)
         self._add_field(body, card, "Debate max rounds", self.spin_debate)
         self._add_field(body, card, "Loop repeat limit", self.spin_loop)
