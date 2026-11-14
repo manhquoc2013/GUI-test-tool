@@ -1,10 +1,10 @@
 # Todo: UI Redesign v4.2
 
-- [ ] Slice 0: SPEC + ADR 0004 (supersede 0003)
-- [ ] Slice 1: constants + theme helpers
-- [ ] Slice 2: badges.py
-- [ ] Slice 3a: 3-column shell + LayoutController
-- [ ] Slice 3b: test_shell_v42.py
-- [ ] Slices 4–7: chrome polish (TopBar, Editor, Chat/Wizard, DataDrawer)
-- [ ] Slice 8: Settings Master-Detail
-- [ ] Slice 9: gates + .ai-context.md
+- [x] Slice 0: SPEC + ADR 0004 (supersede 0003)
+- [x] Slice 1: constants + theme helpers
+- [x] Slice 2: badges.py
+- [x] Slice 3a: 3-column shell + LayoutController
+- [x] Slice 3b: test_shell_v42.py
+- [x] Slices 4–7: chrome polish (TopBar, Editor, Chat/Wizard, DataDrawer)
+- [x] Slice 8: Settings Master-Detail
+- [x] Slice 9: gates + .ai-context.md
