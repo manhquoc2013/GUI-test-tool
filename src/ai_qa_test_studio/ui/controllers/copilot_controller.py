@@ -19,6 +19,7 @@ from ai_qa_test_studio.constants import (
     APPLY_KIND_TEST_DATA,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_ATTACHMENTS,
+    CONTEXT_KEY_DOC_IDS,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
@@ -42,6 +43,7 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
     ROLE_SYSTEM,
     TOKEN_CONTEXT_BUDGET,
+    WIZARD_IMPORT_BATCH_SIZE,
 )
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
@@ -120,6 +122,14 @@ class CopilotController:
         w._copilot_cancel = asyncio.Event()
         w.copilot.set_apply_payload(None)
         try:
+            attach_paths = [
+                str(p) for p in (flags.get("attach_paths") or []) if str(p).strip()
+            ]
+            if attach_paths and hasattr(w.copilot, "await_attachment_ingests"):
+                w.copilot.set_status("Đang index tài liệu đính kèm…")
+                doc_ids = await w.copilot.await_attachment_ingests(attach_paths)
+                if doc_ids:
+                    flags[CONTEXT_KEY_DOC_IDS] = doc_ids
             context = await self.build_context(flags)
             # Mode is a UI hint only — orchestrator LLM classifies compose/test_data/explain.
             mode = str(flags.get("mode") or w.copilot.session.mode)
@@ -273,17 +283,21 @@ class CopilotController:
                     continue
                 name = str(item.get("name") or "").strip()
                 markdown = str(item.get("markdown") or "").strip()
-                if not name or not markdown:
+                if not name:
                     continue
                 cleaned.append(
                     {
                         "name": name,
                         "path": str(item.get("path") or ""),
                         "markdown": markdown,
+                        "doc_id": str(item.get("doc_id") or ""),
                     }
                 )
             if cleaned:
                 ctx[CONTEXT_KEY_ATTACHMENTS] = cleaned
+        flag_ids = flags.get(CONTEXT_KEY_DOC_IDS)
+        if isinstance(flag_ids, list) and flag_ids:
+            ctx[CONTEXT_KEY_DOC_IDS] = [str(i) for i in flag_ids if str(i).strip()]
         case = w.builder.peek_case() if hasattr(w.builder, "peek_case") else w.builder.current_case()
         if ctx["include_case"] and case is not None:
             ctx["case"] = case.model_dump_json()
@@ -328,7 +342,10 @@ class CopilotController:
                 for scenario in scenarios:
                     for case in scenario.cases:
                         case.start_url = start_url
-            w.project.root_group.scenarios.extend(scenarios)
+            # Batch extend; single save + one Explorer reload (no per-item refresh storm).
+            batch = max(1, int(WIZARD_IMPORT_BATCH_SIZE))
+            for offset in range(0, len(scenarios), batch):
+                w.project.root_group.scenarios.extend(scenarios[offset : offset + batch])
             w.storage.save(w.project)
             w._reload_ui()
             w._append_log(

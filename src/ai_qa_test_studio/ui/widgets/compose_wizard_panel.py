@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -40,6 +41,7 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_FILE_FILTER,
     WIZARD_DOC_SAMPLE_MARKDOWN,
 )
+from ai_qa_test_studio.core.doc_corpus import ingest_path
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.wizard_documents import (
     WizardDocument,
@@ -66,6 +68,7 @@ class ComposeWizardPanel(QWidget):
         self.generator = SpecGenerator()
         self.scenarios: list[TestScenario] = []
         self._step = 0
+        self._project_root: Path | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -103,6 +106,10 @@ class ComposeWizardPanel(QWidget):
         nav.addWidget(self.btn_next)
         layout.addLayout(nav)
         self._sync_chrome()
+
+    def set_project_root(self, root: Path | str | None) -> None:
+        self._project_root = Path(root).resolve() if root else None
+        self.source_page.set_project_root(self._project_root)
 
     def reset(self) -> None:
         self._step = 0
@@ -247,9 +254,11 @@ class _SourceStep(QWidget):
         docs_btns.setContentsMargins(0, 0, 0, 0)
         self.btn_add_doc = PushButton(FIF.FOLDER, "Thêm tệp")
         self.btn_add_doc.setToolTip(
-            "Đính kèm SRS / test scenario / test case — hệ thống tự nhận loại"
+            "Đính kèm SRS / Excel lớn — import full YAML; preview cắt ngắn; "
+            "index corpus để Copilot retrieve Top-K."
         )
         self.btn_add_doc.clicked.connect(self._add_documents)
+        self._project_root: Path | None = None
         self.btn_remove_doc = PushButton("Xóa")
         self.btn_remove_doc.clicked.connect(self._remove_selected_document)
         docs_btns.addWidget(self.btn_add_doc)
@@ -284,21 +293,84 @@ class _SourceStep(QWidget):
         self.url.setText(DEFAULT_TARGET_URL)
         self.figma.clear()
 
+    def set_project_root(self, root: Path | str | None) -> None:
+        self._project_root = Path(root).resolve() if root else None
+
     def _add_documents(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Tài liệu đầu vào", "", WIZARD_DOC_FILE_FILTER
         )
         if not paths:
             return
-        errors: list[str] = []
-        preview_chunks: list[str] = []
         llm_parser = None
         parent = self.parent()
         generator = getattr(parent, "generator", None) if parent is not None else None
         if generator is not None and getattr(generator, "llm", None) is not None:
             llm_parser = generator.parse_test_table_sync
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._add_documents_sync(paths, llm_parser)
+            return
+        self.btn_add_doc.setEnabled(False)
+        self.hint.setText(f"Đang đọc {len(paths)} tệp…")
+        loop.create_task(self._add_documents_async(paths, llm_parser))
+
+    async def _add_documents_async(
+        self, paths: list[str], llm_parser: object | None
+    ) -> None:
+        try:
+            errors: list[str] = []
+            preview_chunks: list[str] = []
+            imported_cases = 0
+            for index, raw in enumerate(paths, start=1):
+                self.hint.setText(f"Đang đọc {index}/{len(paths)}: {Path(raw).name}")
+                path_str = raw
+
+                def _load(path: str = path_str) -> WizardDocument:
+                    return load_wizard_document(path, llm_parser=llm_parser)  # type: ignore[arg-type]
+
+                doc = await asyncio.to_thread(_load)
+                if doc.error:
+                    errors.append(f"{Path(raw).name}: {doc.error}")
+                    continue
+                if any(existing.path == doc.path for existing in self._documents):
+                    errors.append(f"{Path(raw).name}: đã đính kèm")
+                    continue
+                self._documents.append(doc)
+                item = QListWidgetItem(
+                    f"{doc.display_name} · {sum(len(s.cases) for s in doc.scenarios)} cases"
+                )
+                item.setData(Qt.ItemDataRole.UserRole, str(doc.path))
+                self.doc_list.addItem(item)
+                imported_cases += sum(len(s.cases) for s in doc.scenarios)
+                if doc.markdown.strip():
+                    preview_chunks.append(
+                        doc.markdown.strip()[: UI_MARKDOWN_PREVIEW_CHARS // 2]
+                    )
+                root = self._project_root
+                asyncio.create_task(asyncio.to_thread(ingest_path, root, doc.path))
+            current_md = self.markdown.toPlainText().strip()
+            if preview_chunks and (
+                not current_md or current_md == WIZARD_DOC_SAMPLE_MARKDOWN
+            ):
+                self.markdown.setPlainText(
+                    "\n\n".join(preview_chunks)[:UI_MARKDOWN_PREVIEW_CHARS]
+                )
+            if errors:
+                self.hint.setText("Một số tệp: " + "; ".join(errors[:3]))
+            else:
+                self.hint.setText(
+                    f"Đã nạp {len(paths)} tệp · {imported_cases} cases (full import)."
+                )
+        finally:
+            self.btn_add_doc.setEnabled(True)
+
+    def _add_documents_sync(self, paths: list[str], llm_parser: object | None) -> None:
+        errors: list[str] = []
+        preview_chunks: list[str] = []
         for raw in paths:
-            doc = load_wizard_document(raw, llm_parser=llm_parser)
+            doc = load_wizard_document(raw, llm_parser=llm_parser)  # type: ignore[arg-type]
             if doc.error:
                 errors.append(f"{Path(raw).name}: {doc.error}")
                 continue

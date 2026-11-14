@@ -35,7 +35,7 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_MARKDOWN_SUFFIXES,
     WIZARD_DOC_MAX_FILE_BYTES,
     WIZARD_DOC_MAX_SHEETS,
-    WIZARD_DOC_MAX_TABLE_ROWS,
+    WIZARD_DOC_PREVIEW_TABLE_ROWS,
     WIZARD_DOC_SHEET_CASES,
     WIZARD_DOC_SHEET_SCENARIOS,
     WIZARD_DOC_XLSX_SUFFIXES,
@@ -238,9 +238,7 @@ def _rows_from_delimited(path: Path) -> tuple[list[str], list[dict[str, str]]]:
             return [], []
         headers = [_norm_header(name) for name in reader.fieldnames if name is not None]
         rows: list[dict[str, str]] = []
-        for index, raw in enumerate(reader):
-            if index >= WIZARD_DOC_MAX_TABLE_ROWS:
-                break
+        for raw in reader:
             rows.append({_norm_header(k): str(v or "").strip() for k, v in raw.items() if k})
         return headers, rows
 
@@ -461,8 +459,6 @@ def _load_xlsx(path: Path) -> tuple[list[str], list[str], list[TestScenario], st
         headers.extend(usable_headers)
         dict_rows: list[dict[str, str]] = []
         for values in rows_iter:
-            if len(dict_rows) >= WIZARD_DOC_MAX_TABLE_ROWS:
-                break
             if values is None or all(v is None or str(v).strip() == "" for v in values):
                 continue
             row_map: dict[str, str] = {}
@@ -474,8 +470,14 @@ def _load_xlsx(path: Path) -> tuple[list[str], list[str], list[TestScenario], st
             dict_rows.append(row_map)
         sheet_l = _norm_header(name)
         md_chunks.append(f"## Sheet: {name}")
-        if dict_rows and usable_headers:
-            md_chunks.append(_csv_to_markdown(dict_rows, usable_headers))
+        preview_rows = dict_rows[:WIZARD_DOC_PREVIEW_TABLE_ROWS]
+        if preview_rows and usable_headers:
+            md_chunks.append(_csv_to_markdown(preview_rows, usable_headers))
+            if len(dict_rows) > WIZARD_DOC_PREVIEW_TABLE_ROWS:
+                md_chunks.append(
+                    f"_… {len(dict_rows) - WIZARD_DOC_PREVIEW_TABLE_ROWS} more rows "
+                    f"(full import keeps all {len(dict_rows)})_"
+                )
         if WIZARD_DOC_SHEET_CASES in sheet_l or _is_standard_case_table(usable_headers):
             imported.extend(_import_case_rows(dict_rows))
         elif WIZARD_DOC_SHEET_SCENARIOS in sheet_l or _is_standard_scenario_table(usable_headers):
@@ -533,7 +535,13 @@ def load_wizard_document(
     try:
         if suffix in WIZARD_DOC_CSV_SUFFIXES:
             headers, rows = _rows_from_delimited(target)
-            markdown = _csv_to_markdown(rows, headers)
+            preview = rows[:WIZARD_DOC_PREVIEW_TABLE_ROWS]
+            markdown = _csv_to_markdown(preview, headers)
+            if len(rows) > WIZARD_DOC_PREVIEW_TABLE_ROWS:
+                markdown += (
+                    f"\n\n_… {len(rows) - WIZARD_DOC_PREVIEW_TABLE_ROWS} more rows "
+                    f"(full import keeps all {len(rows)})_"
+                )
             kind = classify_wizard_document(target, markdown=markdown, table_headers=headers)
             scenarios, needs_llm = _import_from_table(headers, rows, kind)
             if needs_llm and llm_parser is not None:

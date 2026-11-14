@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,8 +43,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_ATTACH_CHIP_HEIGHT,
     COPILOT_ATTACH_MAX_FILES,
     COPILOT_ATTACH_NAME_MAX_CHARS,
-    COPILOT_ATTACH_PER_FILE_CHARS,
-    COPILOT_ATTACH_TOTAL_CHARS,
+    COPILOT_ATTACH_PREVIEW_CHARS,
     COPILOT_BTN_APPLY,
     COPILOT_BTN_DOWNLOAD_EXCEL,
     COPILOT_BTN_SEND_SIZE,
@@ -84,6 +84,7 @@ from ai_qa_test_studio.constants import (
     WIZARD_DOC_MAX_FILE_BYTES,
 )
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
+from ai_qa_test_studio.core.doc_corpus import IngestResult, ingest_path
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
@@ -92,12 +93,20 @@ from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.chat_message_row import ChatMessageRow
 from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
 
+_ATTACH_STATUS_PENDING = "pending"
+_ATTACH_STATUS_READY = "ready"
+_ATTACH_STATUS_ERROR = "error"
 
-@dataclass(frozen=True)
+
+@dataclass
 class ChatAttachment:
     path: Path
     name: str
     markdown: str
+    doc_id: str = ""
+    index_status: str = _ATTACH_STATUS_PENDING
+    index_detail: str = "đang index…"
+    total_chunks: int = 0
 
 
 class CopilotChatPane(QWidget):
@@ -118,6 +127,8 @@ class CopilotChatPane(QWidget):
         self._rows: list[ChatMessageRow] = []
         self._attachments: list[ChatAttachment] = []
         self._attach_compressor = ContextCompressor()
+        self._project_root: Path | None = None
+        self._ingest_tasks: dict[str, asyncio.Task[IngestResult]] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -264,7 +275,10 @@ class CopilotChatPane(QWidget):
         self.btn_attach = PushButton(COPILOT_ATTACH_BTN_LABEL, composer_wrap)
         self.btn_attach.setIcon(FIF.DOCUMENT.icon())
         self.btn_attach.setFixedHeight(COPILOT_BTN_SEND_SIZE)
-        self.btn_attach.setToolTip("Đính kèm tài liệu để phân tích (md/pdf/docx/xlsx…)")
+        self.btn_attach.setToolTip(
+            "Đính kèm tài liệu lớn (md/pdf/docx/xlsx). Index full vào corpus; "
+            "prompt chỉ nhận Top-K đoạn liên quan."
+        )
         self.btn_attach.setAccessibleName("Đính kèm file Copilot")
         self.btn_attach.clicked.connect(self._pick_attachments)
         self.input_box = PlainTextEdit(composer_wrap)
@@ -635,17 +649,23 @@ class CopilotChatPane(QWidget):
         prompt = text or "Phân tích các tài liệu đã đính kèm."
         flags = self.context_flags()
         flags["attachments"] = [
-            {"name": item.name, "path": str(item.path), "markdown": item.markdown}
+            {
+                "name": item.name,
+                "path": str(item.path),
+                "markdown": item.markdown,
+                "doc_id": item.doc_id,
+            }
             for item in self._attachments
         ]
+        flags["attach_paths"] = [str(item.path) for item in self._attachments]
         display = prompt
         if self._attachments:
             names = ", ".join(item.name for item in self._attachments)
             display = f"{prompt}\n\n📎 {names}"
         self.input_box.clear()
-        self._clear_attachments()
         self.append_user(display)
         self.prompt_submitted.emit(prompt, flags)
+        self._clear_attachments()
 
     def _emit_apply(self) -> None:
         if self._pending_apply:
@@ -673,6 +693,11 @@ class CopilotChatPane(QWidget):
             return
         self.info_message.emit(COPILOT_DOWNLOAD_DONE_TITLE, str(target))
 
+    def set_project_root(self, root: Path | str | None) -> None:
+        self._project_root = Path(root).resolve() if root else None
+        if hasattr(self, "wizard") and hasattr(self.wizard, "set_project_root"):
+            self.wizard.set_project_root(self._project_root)
+
     def _pick_attachments(self) -> None:
         if self._busy:
             return
@@ -695,40 +720,97 @@ class CopilotChatPane(QWidget):
                 errors.append(f"{target.name}: đã đính kèm")
                 continue
             try:
-                if target.suffix.lower() in WIZARD_DOC_MARKDOWN_SUFFIXES:
-                    markdown = target.read_text(encoding="utf-8")[:WIZARD_DOC_MAX_FILE_BYTES]
-                else:
-                    markdown = self._attach_compressor.document_to_markdown(target)
-            except Exception as exc:  # noqa: BLE001
+                size = target.stat().st_size
+            except OSError as exc:
                 errors.append(f"{target.name}: {exc}")
                 continue
-            clipped = markdown.strip()
-            if not clipped:
+            if size > WIZARD_DOC_MAX_FILE_BYTES:
+                errors.append(f"{target.name}: vượt {WIZARD_DOC_MAX_FILE_BYTES} bytes")
+                continue
+            preview = self._preview_markdown(target)
+            if not preview.strip():
                 errors.append(f"{target.name}: trống / không đọc được")
                 continue
-            if len(clipped) > COPILOT_ATTACH_PER_FILE_CHARS:
-                clipped = clipped[: COPILOT_ATTACH_PER_FILE_CHARS - 1] + "…"
-            self._attachments.append(
-                ChatAttachment(path=target, name=target.name, markdown=clipped)
+            attachment = ChatAttachment(
+                path=target,
+                name=target.name,
+                markdown=preview,
+                index_status=_ATTACH_STATUS_PENDING,
+                index_detail="đang index…",
             )
-        self._trim_attachment_budget()
+            self._attachments.append(attachment)
+            self._start_ingest(attachment)
         self._rebuild_attach_chips()
         if errors:
             self.info_message.emit("Đính kèm", "\n".join(errors[:4]))
 
-    def _trim_attachment_budget(self) -> None:
-        total = 0
-        kept: list[ChatAttachment] = []
+    def _preview_markdown(self, target: Path) -> str:
+        try:
+            if target.suffix.lower() in WIZARD_DOC_MARKDOWN_SUFFIXES:
+                text = target.read_text(encoding="utf-8", errors="replace")
+            else:
+                text = self._attach_compressor.document_to_markdown(target)
+        except Exception as exc:  # noqa: BLE001
+            return f"(preview unavailable: {exc})"
+        clipped = text.strip()
+        if len(clipped) > COPILOT_ATTACH_PREVIEW_CHARS:
+            clipped = clipped[: COPILOT_ATTACH_PREVIEW_CHARS - 1] + "…"
+        return clipped
+
+    def _start_ingest(self, attachment: ChatAttachment) -> None:
+        key = str(attachment.path)
+        root = self._project_root
+
+        async def _job() -> IngestResult:
+            return await asyncio.to_thread(ingest_path, root, attachment.path)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            attachment.index_status = _ATTACH_STATUS_ERROR
+            attachment.index_detail = "no event loop"
+            return
+
+        task = loop.create_task(_job())
+        self._ingest_tasks[key] = task
+
+        def _done(done: asyncio.Task[IngestResult], path: Path = attachment.path) -> None:
+            self._on_ingest_done(path, done)
+
+        task.add_done_callback(_done)
+
+    def _on_ingest_done(self, path: Path, task: asyncio.Task[IngestResult]) -> None:
         for item in self._attachments:
-            room = COPILOT_ATTACH_TOTAL_CHARS - total
-            if room <= 0:
+            if item.path != path:
+                continue
+            try:
+                result = task.result()
+            except Exception as exc:  # noqa: BLE001
+                item.index_status = _ATTACH_STATUS_ERROR
+                item.index_detail = str(exc)[:80]
                 break
-            body = item.markdown
-            if len(body) > room:
-                body = body[: max(0, room - 1)] + "…"
-            kept.append(ChatAttachment(path=item.path, name=item.name, markdown=body))
-            total += len(body)
-        self._attachments = kept
+            item.doc_id = result.doc_id
+            item.total_chunks = result.total_chunks
+            item.index_status = _ATTACH_STATUS_READY
+            item.index_detail = f"{result.total_chunks} chunks"
+            break
+        self._rebuild_attach_chips()
+
+    async def await_attachment_ingests(self, paths: list[str]) -> list[str]:
+        """Wait for pending corpus ingest; return doc_ids in path order."""
+        doc_ids: list[str] = []
+        for raw in paths:
+            task = self._ingest_tasks.get(raw)
+            if task is None:
+                continue
+            try:
+                result = await task
+            except Exception:  # noqa: BLE001
+                continue
+            if result.doc_id:
+                doc_ids.append(result.doc_id)
+            self._ingest_tasks.pop(raw, None)
+        return doc_ids
 
     def _rebuild_attach_chips(self) -> None:
         while self._attach_list.count():
@@ -746,8 +828,8 @@ class CopilotChatPane(QWidget):
             row_lay = QHBoxLayout(row)
             row_lay.setContentsMargins(0, 0, 0, 0)
             row_lay.setSpacing(4)
-            label = BodyLabel(self._short_attach_name(attachment.name), row)
-            label.setToolTip(str(attachment.path))
+            label = BodyLabel(self._chip_label(attachment), row)
+            label.setToolTip(f"{attachment.path}\n{attachment.index_detail}")
             label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             label.setStyleSheet(f"color: {tokens.text_secondary};")
             remove = TransparentToolButton(FIF.CLOSE, row)
@@ -775,6 +857,15 @@ class CopilotChatPane(QWidget):
         self._composer_wrap.updateGeometry()
 
     @staticmethod
+    def _chip_label(attachment: ChatAttachment) -> str:
+        short = CopilotChatPane._short_attach_name(attachment.name)
+        if attachment.index_status == _ATTACH_STATUS_PENDING:
+            return f"{short} · index…"
+        if attachment.index_status == _ATTACH_STATUS_ERROR:
+            return f"{short} · lỗi"
+        return f"{short} · {attachment.total_chunks} chunks"
+
+    @staticmethod
     def _short_attach_name(name: str) -> str:
         text = name.strip() or "file"
         if len(text) <= COPILOT_ATTACH_NAME_MAX_CHARS:
@@ -785,6 +876,10 @@ class CopilotChatPane(QWidget):
         return f"📎 {text[:head]}…{text[-tail:]}"
 
     def _remove_attachment(self, path: Path) -> None:
+        key = str(path)
+        task = self._ingest_tasks.pop(key, None)
+        if task is not None and not task.done():
+            task.cancel()
         self._attachments = [item for item in self._attachments if item.path != path]
         self._rebuild_attach_chips()
 

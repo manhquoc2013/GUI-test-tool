@@ -334,6 +334,8 @@ class MainWindow(QMainWindow):
         )
         self._refresh_status_pills()
         self._sync_batch_toolbar()
+        if hasattr(self.copilot, "set_project_root"):
+            self.copilot.set_project_root(getattr(self.storage, "root", None))
 
     def _persist_tree_mutation(self) -> None:
         if self.project is None:

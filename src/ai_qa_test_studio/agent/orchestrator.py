@@ -47,6 +47,7 @@ from ai_qa_test_studio.constants import (
     COMPLEXITY_SIMPLE,
     CONTEXT_KEY_ANALYZER_ENABLED,
     CONTEXT_KEY_ATTACHMENTS,
+    CONTEXT_KEY_DOC_IDS,
     CONTEXT_KEY_OPTIMIZER_ENABLED,
     CONTEXT_KEY_PROJECT_ROOT,
     CONTEXT_KEY_SKILL_BODY,
@@ -59,7 +60,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
     COPILOT_ARTIFACT_CTA_COMPOSE,
     COPILOT_ARTIFACT_CTA_TEST_DATA,
-    COPILOT_ATTACH_TOTAL_CHARS,
+    COPILOT_ATTACH_PREVIEW_CHARS,
     COPILOT_CHAT_MAX_TOKENS,
     COPILOT_COMPOSE_DOC_HINTS,
     COPILOT_COMPOSE_KEYWORDS,
@@ -95,6 +96,7 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
     SKILL_CONTEXT_MAX_CHARS,
 )
+from ai_qa_test_studio.core.doc_corpus import format_retrieved_block, retrieve
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
 
@@ -192,7 +194,14 @@ class CopilotOrchestrator:
             mcp.start()
         mcp.crew_memory.clear()
         self._bind_project_context(mcp, context)
-        ctx_block = self._format_context(context)
+        ctx_block = self._format_context(context, query=user_text)
+        retrieved_n = ctx_block.count("### doc=")
+        if retrieved_n:
+            yield OrchestratorEvent(
+                kind=EVENT_STATUS_SUMMARY,
+                role=ROLE_COORDINATOR,
+                text=self._clip(f"Retrieve {retrieved_n} đoạn từ corpus (Top-K)"),
+            )
 
         complexity = await self.classifier.classify(
             user_text, mode, context, gateway=self._gw(LLM_TASK_SUMMARIZE, "simple"), cancel=stop
@@ -960,7 +969,7 @@ class CopilotOrchestrator:
             return None
         return data if isinstance(data, dict) else None
 
-    def _format_context(self, context: dict[str, Any]) -> str:
+    def _format_context(self, context: dict[str, Any], *, query: str = "") -> str:
         parts: list[str] = []
         if context.get("include_case") and context.get("case"):
             parts.append("CASE:\n" + self.compressor.compress_text(str(context["case"])))
@@ -973,24 +982,37 @@ class CopilotOrchestrator:
                 "SRS:\n" + self.compressor.budget.truncate_to_cap(str(context["srs"]), cap=3000)
             )
         attachments = context.get(CONTEXT_KEY_ATTACHMENTS) or []
+        doc_ids: list[str] = []
+        raw_ids = context.get(CONTEXT_KEY_DOC_IDS)
+        if isinstance(raw_ids, list):
+            doc_ids = [str(i) for i in raw_ids if str(i).strip()]
         if isinstance(attachments, list) and attachments:
-            chunks: list[str] = []
+            preview_bits: list[str] = []
             for item in attachments:
                 if not isinstance(item, dict):
                     continue
                 name = str(item.get("name") or "file").strip() or "file"
                 markdown = str(item.get("markdown") or "").strip()
-                if not markdown:
-                    continue
-                chunks.append(f"### Attached: {name}\n{markdown}")
-            if chunks:
-                joined = "\n\n".join(chunks)
-                parts.append(
-                    "ATTACHMENTS:\n"
-                    + self.compressor.budget.truncate_to_cap(
-                        joined, cap=COPILOT_ATTACH_TOTAL_CHARS
-                    )
-                )
+                doc_id = str(item.get("doc_id") or "").strip()
+                if doc_id and doc_id not in doc_ids:
+                    doc_ids.append(doc_id)
+                if markdown:
+                    clipped = markdown
+                    if len(clipped) > COPILOT_ATTACH_PREVIEW_CHARS:
+                        clipped = clipped[: COPILOT_ATTACH_PREVIEW_CHARS - 1] + "…"
+                    preview_bits.append(f"### Attached: {name}\n{clipped}")
+            if preview_bits:
+                parts.append("ATTACHMENTS:\n" + "\n\n".join(preview_bits))
+        root = str(context.get(CONTEXT_KEY_PROJECT_ROOT) or "").strip() or None
+        if query.strip() or doc_ids:
+            hits = retrieve(
+                root,
+                query or "overview",
+                doc_ids=doc_ids or None,
+            )
+            block = format_retrieved_block(hits)
+            if block:
+                parts.append(block)
         catalog = str(context.get(CONTEXT_KEY_SKILL_CATALOG) or "").strip()
         if catalog:
             parts.append("SKILLS:\n" + catalog)
