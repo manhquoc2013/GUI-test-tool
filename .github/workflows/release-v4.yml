@@ -1,0 +1,156 @@
+name: Release v4 (Portable ZIP + Setup)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-v4-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            shell: bash
+          - os: ubuntu-latest
+            shell: bash
+          - os: windows-latest
+            shell: pwsh
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv / Python 3.11
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Sync project (no Playwright browser install)
+        run: uv sync --extra build --extra dev
+
+      - name: Unit tests (packaging helpers)
+        run: uv run pytest tests/unit/test_runtime_paths.py tests/unit/test_chromium_bootstrap.py tests/unit/test_app_metadata.py -q
+
+      - name: Package portable (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x scripts/*.sh
+          bash scripts/package_app.sh
+
+      - name: Package portable (Windows)
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          # package_app.ps1 signs onedir (when secrets present) THEN creates ZIP
+          ./scripts/package_app.ps1
+
+      - name: Build Windows Setup (Inno)
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          choco install innosetup --yes
+          ./scripts/build-installer-win.ps1
+
+      - name: Build macOS DMG
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
+        run: bash scripts/build-dmg.sh
+
+      - name: Build Linux deb
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot dpkg-dev zip
+          bash scripts/build-deb.sh
+
+      - name: Smoke-check portable binary
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          ZIP=$(ls dist/AIQATestStudio-*.zip | head -n1)
+          STAGE=$(mktemp -d)
+          unzip -q "$ZIP" -d "$STAGE"
+          if [[ -d "$STAGE"/AIQATestStudio.app ]]; then
+            "$STAGE"/AIQATestStudio.app/Contents/MacOS/AIQATestStudio --smoke-check
+          else
+            "$STAGE"/AIQATestStudio/AIQATestStudio --smoke-check
+          fi
+
+      - name: Smoke-check portable binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $zip = Get-ChildItem dist -Filter AIQATestStudio-*.zip | Select-Object -First 1
+          $stage = Join-Path $env:RUNNER_TEMP "smoke"
+          Expand-Archive $zip.FullName -DestinationPath $stage -Force
+          & (Join-Path $stage "AIQATestStudio\AIQATestStudio.exe") --smoke-check
+
+      - name: Checksums
+        if: runner.os != 'Windows'
+        run: bash scripts/make_checksums.sh dist
+        env:
+          GPG_RELEASE_KEY: ${{ secrets.GPG_RELEASE_KEY }}
+
+      - name: Checksums (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Get-FileHash dist\*.zip,dist\*-Setup.exe -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content dist\SHA256SUMS
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIQATestStudio-${{ runner.os }}
+          path: |
+            dist/AIQATestStudio-*.zip
+            dist/AIQATestStudio-*-Setup.exe
+            dist/AIQATestStudio-*.dmg
+            dist/AIQATestStudio-*.deb
+            dist/SHA256SUMS
+            dist/SHA256SUMS.asc
+            dist/metadata.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Flatten artifacts
+        run: |
+          mkdir -p dist
+          find release-assets -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name 'SHA256SUMS*' -o -name 'metadata.json' \) \
+            -exec cp {} dist/ \;
+          ls -la dist
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

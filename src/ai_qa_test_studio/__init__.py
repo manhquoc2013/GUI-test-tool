@@ -1,3 +1,3 @@
-"""AI QA Test Studio v4.0 — Autonomous MCP-powered QA IDE."""
+"""AI QA Test Studio v4 — Autonomous MCP-powered QA IDE."""
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"

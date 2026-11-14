@@ -26,6 +26,8 @@ from qfluentwidgets import (
     CheckBox,
     ComboBox,
     EditableComboBox,
+    InfoBar,
+    InfoBarPosition,
     LineEdit,
     ListWidget,
     MessageBoxBase,
@@ -839,7 +841,17 @@ class SystemSettingsDialog(MessageBoxBase):
         return root
 
     def validate(self) -> bool:
-        self._persist_draft()
+        try:
+            self._persist_draft()
+        except RuntimeError as exc:
+            InfoBar.error(
+                "Keyring",
+                str(exc),
+                parent=self.window(),
+                position=InfoBarPosition.TOP,
+                duration=6000,
+            )
+            return False
         self._accepted = True
         return True
 

@@ -28,15 +28,17 @@ JavaFX Test Studio (≤3.x) lives under `docs/legacy/javafx/` for reference only
 
 ## Quick start
 
-### Prerequisites
+### End users (portable / setup)
+
+Download **Portable ZIP** or **Setup** from GitHub Releases (`AIQATestStudio-*-{windows,macos,linux}-*.zip` / `-Setup.exe` / `.dmg` / `.deb`). No Python/`uv`/Node required. Chromium downloads on first Launch/Sync/Run (needs network once). Verify with `SHA256SUMS`. See [`docs/BUILD.md`](docs/BUILD.md).
+
+### Developers
 
 | Requirement | Version |
 |-------------|---------|
 | Python | ≥ 3.11 |
 | [uv](https://github.com/astral-sh/uv) | latest |
-| Playwright browsers | installed via `playwright install` |
-
-### Run
+| Playwright browsers | `playwright install chromium` (dev only) |
 
 ```bash
 git clone <repository-url>
@@ -46,7 +48,7 @@ uv run playwright install chromium
 uv run python -m ai_qa_test_studio
 ```
 
-Default window: **1200×720** (min **800×600**). Data root defaults to `./data`.
+Default window: **1200×720** (min **800×600**). Data root defaults to `./data` (or user Application Support when the app folder is not writable).
 
 ### Gates
 

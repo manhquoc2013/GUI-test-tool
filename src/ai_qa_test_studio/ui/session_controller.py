@@ -71,6 +71,10 @@ class SessionController:
         self._auth_engine: BrowserEngine | None = None
         self._auth_path: Path | None = None
         self._project_root: Path | None = None
+        self._ui_parent: Any | None = None
+
+    def set_ui_parent(self, parent: Any | None) -> None:
+        self._ui_parent = parent
 
     @property
     def started(self) -> bool:
@@ -98,6 +102,10 @@ class SessionController:
         emit = log or (lambda _m: None)
         if self._started:
             return
+        from ai_qa_test_studio.ui.chromium_ensure import ensure_chromium_with_dialog
+
+        if not await ensure_chromium_with_dialog(self._ui_parent):
+            raise RuntimeError("Chromium chưa sẵn sàng (đã hủy hoặc lỗi tải)")
         root = project_root if project_root is not None else self._project_root
         state = storage_state
         if state is None and root is not None:
@@ -159,6 +167,10 @@ class SessionController:
         if not is_valid_target_url(url):
             raise ValueError(SYNC_INVALID_URL_MSG)
         await self.abort_auth_capture(log=emit)
+        from ai_qa_test_studio.ui.chromium_ensure import ensure_chromium_with_dialog
+
+        if not await ensure_chromium_with_dialog(self._ui_parent):
+            raise RuntimeError("Chromium chưa sẵn sàng (đã hủy hoặc lỗi tải)")
         ensure_auth_gitignore(project_root)
         target = auth_state_path(project_root, profile_name)
         target.parent.mkdir(parents=True, exist_ok=True)

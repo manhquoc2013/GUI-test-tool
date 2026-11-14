@@ -17,7 +17,14 @@ def is_keyring_ref(ref: str) -> bool:
 
 def store_secret(slot: str, value: str) -> str:
     """Persist ``value`` under ``slot``; return ``keyring:<slot>`` ref."""
-    keyring.set_password(KEYRING_SERVICE, slot, value)
+    try:
+        keyring.set_password(KEYRING_SERVICE, slot, value)
+    except Exception as exc:
+        logger.exception("Failed to store keyring secret for slot %s", slot)
+        raise RuntimeError(
+            "Hệ thống keyring không khả dụng — không lưu API key dạng plaintext. "
+            "Cài Secret Service (Linux) hoặc kiểm tra Keychain/Credential Manager."
+        ) from exc
     return f"{KEYRING_REF_PREFIX}{slot}"
 
 
@@ -46,7 +53,10 @@ def resolve_api_key(ref: str) -> str:
 
 
 def seal_api_key_ref(slot: str, value: str) -> str:
-    """If ``value`` is a raw secret, store it and return a keyring ref; else return as-is."""
+    """If ``value`` is a raw secret, store it and return a keyring ref; else return as-is.
+
+    Fail-closed: keyring errors propagate — callers must not persist plaintext.
+    """
     stripped = (value or "").strip()
     if not stripped or is_keyring_ref(stripped):
         return stripped

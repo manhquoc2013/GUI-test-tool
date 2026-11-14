@@ -591,7 +591,34 @@ DEFAULT_COPILOT_MODELS = (
 
 # App identity / branding
 APP_DISPLAY_NAME = "AI QA Test Studio"
-APP_WINDOW_TITLE = "AI QA Test Studio v4.2"
+APP_EXE_NAME = "AIQATestStudio"
+APP_WINDOW_TITLE = "AI QA Test Studio v4.1"
+APP_PUBLISHER = "Mạnh Quốc"
+APP_PUBLISHER_EMAIL = "manhquoc11@gmail.com"
+APP_PUBLISHER_URL = "https://github.com/manhquoc11"
+APP_IDENTIFIER = "com.manhquoc.aiqateststudio"
+APP_COPYRIGHT = "Copyright © 2026 Mạnh Quốc"
+APP_SUPPORT_DIRNAME = "AIQATestStudio"
+APP_LINUX_OPT_DIR = "/opt/ai-qa-test-studio"
+APP_DATA_DIRNAME = "data"
+APP_BROWSERS_DIRNAME = "browsers"
+PLAYWRIGHT_BROWSERS_PATH_ENV = "PLAYWRIGHT_BROWSERS_PATH"
+CHROMIUM_INSTALL_TIMEOUT_SEC = 1800
+CHROMIUM_PROGRESS_PERCENT_RE = r"(\d+)\s*%"
+CHROMIUM_BINARY_GLOBS: tuple[str, ...] = (
+    "chromium-*/**/chrome",
+    "chromium-*/**/chrome.exe",
+    "chromium_headless_shell-*/**/chrome-headless-shell",
+    "chromium_headless_shell-*/**/chrome-headless-shell.exe",
+    "chromium-*/**/Chromium",
+    "chromium-*/**/Chromium.app/Contents/MacOS/Chromium",
+)
+UI_CHROMIUM_DOWNLOAD_TITLE = "Đang tải Chromium"
+UI_CHROMIUM_DOWNLOAD_BODY = "Cần Chromium để Launch / Sync / Run. Tiến độ tải xuống:"
+UI_CHROMIUM_CANCELLED = "Đã hủy tải Chromium"
+UI_CHROMIUM_FAILED = "Không tải được Chromium"
+UI_DATA_FALLBACK_NOTICE = "Thư mục data cạnh app không ghi được — dùng thư mục người dùng."
+UI_ABOUT_TITLE = "Giới thiệu"
 APP_ICON_DIRNAME = "icons"
 APP_ICON_MASTER_FILENAME = "app_icon.png"
 APP_ICON_FILENAME_TEMPLATE = "app_icon_{size}.png"

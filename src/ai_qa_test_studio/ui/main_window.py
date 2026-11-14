@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
         self.project: Project | None = self.storage.load()
         self.session = SessionController()
         self.session.set_project_root(self.storage.root)
+        self.session.set_ui_parent(self)
         self._busy = False
         self._last_report: RunReport | None = None
         self._last_error: str = ""
@@ -173,6 +174,7 @@ class MainWindow(QMainWindow):
         self.top_bar.copilot_toggled.connect(self._on_copilot_toggle)
         self.top_bar.export_requested.connect(self._export)
         self.top_bar.settings_requested.connect(self._open_system_settings)
+        self.top_bar.about_requested.connect(self._show_about)
         self.top_bar.theme_toggle_requested.connect(self._toggle_theme)
         root_layout.addWidget(self.top_bar)
 
@@ -586,11 +588,37 @@ class MainWindow(QMainWindow):
             result = dialog.result_settings()
             if result is not None:
                 self.env._settings = result
-                self.env.save_settings()
+                try:
+                    self.env.save_settings()
+                except RuntimeError as exc:
+                    self._toast_error("Settings", str(exc))
+                    return
                 self._apply_theme_preference(result.theme)
                 self._refresh_model_catalog()
                 self._refresh_status_pills()
                 self._toast_info("Settings", "Đã lưu cấu hình hệ thống.")
+
+    def _show_about(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from ai_qa_test_studio import __version__
+        from ai_qa_test_studio.constants import (
+            APP_COPYRIGHT,
+            APP_DISPLAY_NAME,
+            APP_PUBLISHER,
+            APP_PUBLISHER_URL,
+            UI_ABOUT_TITLE,
+        )
+
+        QMessageBox.about(
+            self,
+            UI_ABOUT_TITLE,
+            f"{APP_DISPLAY_NAME}\n"
+            f"Version {__version__}\n"
+            f"Publisher: {APP_PUBLISHER}\n"
+            f"{APP_PUBLISHER_URL}\n"
+            f"{APP_COPYRIGHT}",
+        )
 
     def _toggle_theme(self) -> None:
         next_theme = toggle_resolved_theme()

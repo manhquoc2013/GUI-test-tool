@@ -56,6 +56,7 @@ class UnifiedTopBar(QWidget):
     copilot_toggled = Signal(bool)
     export_requested = Signal(str)
     settings_requested = Signal()
+    about_requested = Signal()
     theme_toggle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -190,6 +191,13 @@ class UnifiedTopBar(QWidget):
                 FIF.SETTING,
                 "System Settings",
                 triggered=lambda: self.settings_requested.emit(),
+            )
+        )
+        more_menu.addAction(
+            Action(
+                FIF.INFO,
+                "Giới thiệu",
+                triggered=lambda: self.about_requested.emit(),
             )
         )
 
