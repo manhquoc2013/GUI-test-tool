@@ -229,6 +229,7 @@ class AppSettings(BaseModel):
     active_environment: str = "DEV"
     copilot: CopilotRuntimeSettings = Field(default_factory=CopilotRuntimeSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
+    model_profiles_cache: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class Project(BaseModel):

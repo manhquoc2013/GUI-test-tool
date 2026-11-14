@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     ComboBox,
     FlowLayout,
     IndeterminateProgressRing,
@@ -32,6 +33,7 @@ from qfluentwidgets import (
     PrimaryToolButton,
     PushButton,
     SegmentedWidget,
+    SpinBox,
     ToolButton,
     TransparentToolButton,
 )
@@ -97,6 +99,8 @@ from ai_qa_test_studio.constants import (
     COPILOT_STOP_MARKER,
     COPILOT_STOP_SUFFIX,
     COPILOT_STOP_TOOLTIP,
+    MODEL_TOKEN_DEFAULT_MAX_OUTPUT,
+    MODEL_TOKEN_LABEL_DEFAULT,
     ROLE_COMPOSER,
     ROLE_COORDINATOR,
     ROLE_CREW,
@@ -107,6 +111,8 @@ from ai_qa_test_studio.constants import (
     UI_MOTION_CHAT_MS,
     UI_MOTION_NORMAL_MS,
     UI_PROGRESS_RING_SIZE,
+    UI_SETTINGS_MODEL_TOKEN_SPIN_MAX,
+    UI_SETTINGS_MODEL_TOKEN_SPIN_MIN,
     VN_TC_FILE_FILTER,
     VN_TC_FILENAME_DEFAULT,
     WIZARD_DOC_FILE_FILTER,
@@ -116,7 +122,11 @@ from ai_qa_test_studio.constants import (
 from ai_qa_test_studio.core.chat_models import CopilotMessage, CopilotSession
 from ai_qa_test_studio.core.doc_corpus import IngestResult, ingest_path
 from ai_qa_test_studio.core.models import TestScenario
-from ai_qa_test_studio.core.token_budget import ContextCompressor
+from ai_qa_test_studio.core.token_budget import (
+    ContextCompressor,
+    resolve_model_token_profile,
+    token_profile_source_label,
+)
 from ai_qa_test_studio.reporting.vn_test_doc_exporter import CopilotArtifactExcelExporter
 from ai_qa_test_studio.ui.bubble_summary import (
     format_structured_payload_summary,
@@ -176,6 +186,7 @@ class CopilotChatPane(QWidget):
         self._ingest_results: dict[str, IngestResult] = {}
         self._history_visible = False
         self._history_app_filter = False
+        self._model_profiles_cache: dict[str, dict[str, int]] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -201,8 +212,25 @@ class CopilotChatPane(QWidget):
         self.model_combo.setMaximumWidth(COPILOT_MODEL_COMBO_MAX_WIDTH)
         self.model_combo.setAccessibleName("Chọn model Copilot")
         self.model_combo.setToolTip(COPILOT_MODEL_HINT_AUTO)
-        self.set_model_catalog([(COPILOT_MODEL_AUTO, COPILOT_MODEL_LABEL_AUTO)])
         self._context_flow.addWidget(self.model_combo)
+
+        self.spin_max_output = SpinBox(pill_box)
+        self.spin_max_output.setRange(
+            UI_SETTINGS_MODEL_TOKEN_SPIN_MIN, UI_SETTINGS_MODEL_TOKEN_SPIN_MAX
+        )
+        self.spin_max_output.setValue(MODEL_TOKEN_DEFAULT_MAX_OUTPUT)
+        self.spin_max_output.setFixedHeight(COPILOT_MODEL_COMBO_HEIGHT)
+        self.spin_max_output.setMinimumWidth(96)
+        self.spin_max_output.setMaximumWidth(120)
+        self.spin_max_output.setToolTip("Max output tokens (tự điền theo model)")
+        self.spin_max_output.setAccessibleName("Max output tokens")
+        self._context_flow.addWidget(self.spin_max_output)
+
+        self.token_source_label = CaptionLabel(MODEL_TOKEN_LABEL_DEFAULT, pill_box)
+        self.token_source_label.setWordWrap(False)
+        self._context_flow.addWidget(self.token_source_label)
+        self.model_combo.currentIndexChanged.connect(self._refresh_model_token_profile)
+        self.set_model_catalog([(COPILOT_MODEL_AUTO, COPILOT_MODEL_LABEL_AUTO)])
 
         self.chip_case = PillPushButton(COPILOT_CHIP_CASE, pill_box)
         self.chip_case.setCheckable(True)
@@ -763,6 +791,37 @@ class CopilotChatPane(QWidget):
         idx = max(0, self.model_combo.findData(current))
         self.model_combo.setCurrentIndex(idx)
         self.model_combo.setToolTip(COPILOT_MODEL_HINT_AUTO)
+        self._refresh_model_token_profile()
+
+    def bind_model_profiles_cache(self, cache: dict[str, dict[str, int]]) -> None:
+        self._model_profiles_cache = cache
+        self._refresh_model_token_profile()
+
+    def _model_id_from_ref(self, ref: str) -> str:
+        value = (ref or "").strip()
+        if not value or value == COPILOT_MODEL_AUTO:
+            return ""
+        if "::" in value:
+            return value.split("::", 1)[1].strip()
+        return value
+
+    def _refresh_model_token_profile(self) -> None:
+        model_id = self._model_id_from_ref(self.selected_model_ref())
+        if not model_id:
+            self.spin_max_output.blockSignals(True)
+            self.spin_max_output.setValue(MODEL_TOKEN_DEFAULT_MAX_OUTPUT)
+            self.spin_max_output.blockSignals(False)
+            self.token_source_label.setText(MODEL_TOKEN_LABEL_DEFAULT)
+            return
+        profile = resolve_model_token_profile(
+            model_id,
+            cache=self._model_profiles_cache,
+            skip_api=True,
+        )
+        self.spin_max_output.blockSignals(True)
+        self.spin_max_output.setValue(int(profile.max_output_tokens))
+        self.spin_max_output.blockSignals(False)
+        self.token_source_label.setText(token_profile_source_label(profile))
 
     def selected_model_ref(self) -> str:
         data = self.model_combo.currentData()

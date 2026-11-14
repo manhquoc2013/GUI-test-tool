@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import urllib.error
+import urllib.request
+from collections.abc import Callable, MutableMapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +26,19 @@ from ai_qa_test_studio.constants import (
     COMPACTOR_TESTCASE_MARKERS,
     COMPACTOR_TOOL_CONTENT_MARKERS,
     COMPACTOR_TOOL_ROLE_NAMES,
+    LLM_PROVIDER_GEMINI,
+    LLM_PROVIDER_OFFLINE,
+    MODEL_TOKEN_DEFAULT_CONTEXT,
+    MODEL_TOKEN_DEFAULT_MAX_OUTPUT,
+    MODEL_TOKEN_LABEL_API,
+    MODEL_TOKEN_LABEL_CACHE,
+    MODEL_TOKEN_LABEL_CATALOG,
+    MODEL_TOKEN_LABEL_DEFAULT,
+    MODEL_TOKEN_PROFILE_API_TIMEOUT_S,
+    MODEL_TOKEN_SOURCE_API,
+    MODEL_TOKEN_SOURCE_CACHE,
+    MODEL_TOKEN_SOURCE_CATALOG,
+    MODEL_TOKEN_SOURCE_DEFAULT,
     ROLE_COMPOSER,
     SLIDING_HISTORY_SUMMARY_CHARS,
     TOKEN_CONTEXT_BUDGET,
@@ -29,6 +47,351 @@ from ai_qa_test_studio.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ModelTokenProfile:
+    """Resolved context / max-output budget for one model id."""
+
+    context_window: int
+    max_output_tokens: int
+    source: str
+
+
+# Longest-prefix first. Values: (context_window, max_output_tokens).
+MODEL_CAPABILITIES: tuple[tuple[str, int, int], ...] = (
+    ("deepseek-reasoner", 128_000, 32_768),
+    ("deepseek-chat", 128_000, 8_192),
+    ("deepseek-flash", 128_000, 8_192),
+    ("deepseek", 128_000, 8_192),
+    ("gemini", 1_000_000, 65_536),
+    ("claude-opus", 200_000, 64_000),
+    ("claude-sonnet", 200_000, 64_000),
+    ("claude-haiku", 200_000, 16_384),
+    ("claude", 200_000, 16_384),
+    ("gpt-4.1", 1_000_000, 32_768),
+    ("gpt-5", 1_000_000, 32_768),
+    ("gpt-4o", 128_000, 16_384),
+    ("gpt-4", 128_000, 16_384),
+    ("o3", 200_000, 32_768),
+)
+
+
+def token_profile_source_label(profile: ModelTokenProfile) -> str:
+    if profile.source == MODEL_TOKEN_SOURCE_API:
+        return MODEL_TOKEN_LABEL_API
+    if profile.source == MODEL_TOKEN_SOURCE_CATALOG:
+        return MODEL_TOKEN_LABEL_CATALOG
+    if profile.source == MODEL_TOKEN_SOURCE_CACHE:
+        return MODEL_TOKEN_LABEL_CACHE
+    return MODEL_TOKEN_LABEL_DEFAULT
+
+
+def match_catalog_token_profile(model_id: str) -> ModelTokenProfile | None:
+    key = (model_id or "").strip().lower()
+    if not key:
+        return None
+    for prefix, context_window, max_output in MODEL_CAPABILITIES:
+        if key.startswith(prefix):
+            return ModelTokenProfile(
+                context_window=context_window,
+                max_output_tokens=max_output,
+                source=MODEL_TOKEN_SOURCE_CATALOG,
+            )
+    return None
+
+
+def _cache_lookup(
+    cache: MutableMapping[str, Any] | None, model_id: str
+) -> ModelTokenProfile | None:
+    if not cache:
+        return None
+    entry = cache.get(model_id) or cache.get(model_id.strip())
+    if not isinstance(entry, dict):
+        return None
+    try:
+        ctx = int(entry.get("context_window") or entry.get("contextWindow") or 0)
+        out = int(entry.get("max_output_tokens") or entry.get("maxOutputTokens") or 0)
+    except (TypeError, ValueError):
+        return None
+    if ctx <= 0 or out <= 0:
+        return None
+    return ModelTokenProfile(
+        context_window=ctx,
+        max_output_tokens=out,
+        source=MODEL_TOKEN_SOURCE_CACHE,
+    )
+
+
+def _store_cache(
+    cache: MutableMapping[str, Any] | None,
+    model_id: str,
+    profile: ModelTokenProfile,
+) -> None:
+    if cache is None or not model_id.strip():
+        return
+    cache[model_id.strip()] = {
+        "context_window": int(profile.context_window),
+        "max_output_tokens": int(profile.max_output_tokens),
+    }
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _extract_limits_from_mapping(data: Any) -> tuple[int, int] | None:
+    """Pull (context_window, max_output) from provider JSON / SDK objects."""
+    if data is None:
+        return None
+    payload: dict[str, Any]
+    if hasattr(data, "model_dump"):
+        try:
+            dumped = data.model_dump()
+            payload = dumped if isinstance(dumped, dict) else {}
+        except Exception:  # noqa: BLE001
+            raw = getattr(data, "__dict__", None)
+            payload = dict(raw) if isinstance(raw, dict) else {}
+    elif isinstance(data, dict):
+        payload = data
+    else:
+        raw = getattr(data, "__dict__", None)
+        payload = dict(raw) if isinstance(raw, dict) else {}
+    nested = payload.get("model_info") or payload.get("modelInfo") or payload.get("details") or {}
+    if not isinstance(nested, dict):
+        nested = {}
+    ctx_keys = (
+        "context_window",
+        "contextWindow",
+        "context_length",
+        "contextLength",
+        "max_model_len",
+        "maxModelLen",
+        "max_input_tokens",
+        "maxInputTokens",
+        "input_token_limit",
+        "inputTokenLimit",
+    )
+    out_keys = (
+        "max_output_tokens",
+        "maxOutputTokens",
+        "max_tokens",
+        "maxTokens",
+        "output_token_limit",
+        "outputTokenLimit",
+        "max_completion_tokens",
+        "maxCompletionTokens",
+    )
+    ctx: int | None = None
+    out: int | None = None
+    for key in ctx_keys:
+        ctx = _coerce_positive_int(payload.get(key)) or _coerce_positive_int(nested.get(key))
+        if ctx is not None:
+            break
+    for key in out_keys:
+        out = _coerce_positive_int(payload.get(key)) or _coerce_positive_int(nested.get(key))
+        if out is not None:
+            break
+    if ctx is None and out is None:
+        return None
+    return (
+        ctx or MODEL_TOKEN_DEFAULT_CONTEXT,
+        out or MODEL_TOKEN_DEFAULT_MAX_OUTPUT,
+    )
+
+
+def fetch_provider_token_profile(
+    model_id: str,
+    *,
+    provider: str = "",
+    api_key: str = "",
+    base_url: str = "",
+    timeout_s: float = MODEL_TOKEN_PROFILE_API_TIMEOUT_S,
+) -> ModelTokenProfile | None:
+    """Tier-1: silent provider metadata probe. Never raises."""
+    mid = (model_id or "").strip()
+    if not mid:
+        return None
+    kind = (provider or "").strip().lower()
+    if kind == LLM_PROVIDER_OFFLINE:
+        return None
+    try:
+        if kind == LLM_PROVIDER_GEMINI:
+            return _fetch_gemini_token_profile(mid, api_key=api_key, timeout_s=timeout_s)
+        ollama = _fetch_ollama_show(mid, base_url=base_url, timeout_s=timeout_s)
+        if ollama is not None:
+            return ollama
+        return _fetch_openai_compat_token_profile(
+            mid, api_key=api_key, base_url=base_url, timeout_s=timeout_s
+        )
+    except Exception as exc:  # noqa: BLE001 — silent tier-1 failure
+        logger.debug("model_token_api_probe_failed model=%s err=%s", mid, exc)
+        return None
+
+
+def _fetch_ollama_show(
+    model_id: str, *, base_url: str, timeout_s: float
+) -> ModelTokenProfile | None:
+    cleaned = (base_url or "").strip().rstrip("/")
+    if not cleaned:
+        return None
+    # Ollama OpenAI-compat base is often http://host:11434/v1 → strip /v1 for /api/show.
+    root = cleaned[:-3] if cleaned.endswith("/v1") else cleaned
+    url = f"{root}/api/show"
+    payload = json.dumps({"name": model_id}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310 — local provider
+            body = resp.read()
+        data = json.loads(body.decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
+        return None
+    limits = _extract_limits_from_mapping(data)
+    if limits is None:
+        return None
+    ctx, out = limits
+    return ModelTokenProfile(
+        context_window=ctx, max_output_tokens=out, source=MODEL_TOKEN_SOURCE_API
+    )
+
+
+def _fetch_openai_compat_token_profile(
+    model_id: str,
+    *,
+    api_key: str,
+    base_url: str,
+    timeout_s: float,
+) -> ModelTokenProfile | None:
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return None
+    kwargs: dict[str, Any] = {"api_key": key, "timeout": timeout_s}
+    cleaned = (base_url or "").strip().rstrip("/")
+    if cleaned:
+        kwargs["base_url"] = cleaned
+    client = OpenAI(**kwargs)
+    try:
+        model_obj = client.models.retrieve(model_id)
+    except Exception:  # noqa: BLE001
+        try:
+            for page in client.models.list():
+                mid = getattr(page, "id", None)
+                if isinstance(mid, str) and mid.strip() == model_id:
+                    model_obj = page
+                    break
+            else:
+                return None
+        except Exception:  # noqa: BLE001
+            return None
+    limits = _extract_limits_from_mapping(model_obj)
+    if limits is None:
+        return None
+    ctx, out = limits
+    return ModelTokenProfile(
+        context_window=ctx, max_output_tokens=out, source=MODEL_TOKEN_SOURCE_API
+    )
+
+
+def _fetch_gemini_token_profile(
+    model_id: str, *, api_key: str, timeout_s: float
+) -> ModelTokenProfile | None:
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    _ = timeout_s
+    try:
+        from google import genai
+    except ImportError:
+        return None
+    client = genai.Client(api_key=key)
+    name = model_id if model_id.startswith("models/") else f"models/{model_id}"
+    try:
+        info = client.models.get(model=name)
+    except Exception:  # noqa: BLE001
+        return None
+    limits = _extract_limits_from_mapping(info)
+    if limits is None:
+        return None
+    ctx, out = limits
+    return ModelTokenProfile(
+        context_window=ctx, max_output_tokens=out, source=MODEL_TOKEN_SOURCE_API
+    )
+
+
+def resolve_model_token_profile(
+    model_id: str,
+    *,
+    provider: str = "",
+    api_key: str = "",
+    base_url: str = "",
+    cache: MutableMapping[str, Any] | None = None,
+    skip_api: bool = False,
+    timeout_s: float = MODEL_TOKEN_PROFILE_API_TIMEOUT_S,
+    fetch_fn: Callable[..., ModelTokenProfile | None] | None = None,
+) -> ModelTokenProfile:
+    """Four-tier resolve: API → catalog → cache → safe default. Never None/0."""
+    mid = (model_id or "").strip()
+    safe = ModelTokenProfile(
+        context_window=MODEL_TOKEN_DEFAULT_CONTEXT,
+        max_output_tokens=MODEL_TOKEN_DEFAULT_MAX_OUTPUT,
+        source=MODEL_TOKEN_SOURCE_DEFAULT,
+    )
+    if not mid:
+        return safe
+
+    # Tier 1 — Provider API (silent failures).
+    if not skip_api:
+        probe = fetch_fn or fetch_provider_token_profile
+        try:
+            api_profile = probe(
+                mid,
+                provider=provider,
+                api_key=api_key,
+                base_url=base_url,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("model_token_resolve_api_err model=%s err=%s", mid, exc)
+            api_profile = None
+        if (
+            api_profile is not None
+            and api_profile.context_window > 0
+            and api_profile.max_output_tokens > 0
+        ):
+            resolved = ModelTokenProfile(
+                context_window=int(api_profile.context_window),
+                max_output_tokens=int(api_profile.max_output_tokens),
+                source=MODEL_TOKEN_SOURCE_API,
+            )
+            _store_cache(cache, mid, resolved)
+            return resolved
+
+    # Tier 2 — Internal catalog by prefix.
+    catalog = match_catalog_token_profile(mid)
+    if catalog is not None:
+        _store_cache(cache, mid, catalog)
+        return catalog
+
+    # Tier 3 — settings.json model_profiles_cache.
+    cached = _cache_lookup(cache, mid)
+    if cached is not None:
+        return cached
+
+    # Tier 4 — Safe default (never 0 / None).
+    return safe
 
 
 class TokenBudget:

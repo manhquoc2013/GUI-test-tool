@@ -48,6 +48,8 @@ from ai_qa_test_studio.constants import (
     LLM_TIER_FAST,
     LLM_TIER_MID,
     LLM_TIER_STRONG,
+    MODEL_TOKEN_DEFAULT_MAX_OUTPUT,
+    MODEL_TOKEN_PROFILE_API_TIMEOUT_S,
     ROUTING_MODE_AUTO,
     ROUTING_MODE_MANUAL,
     THEME_CARD_RADIUS,
@@ -65,6 +67,9 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_MODEL_COMBO_PLACEHOLDER,
     UI_SETTINGS_MODEL_COMBO_TOOLTIP,
     UI_SETTINGS_MODEL_COMPLETER_MAX_VISIBLE,
+    UI_SETTINGS_MODEL_TOKEN_FIELD_LABEL,
+    UI_SETTINGS_MODEL_TOKEN_SPIN_MAX,
+    UI_SETTINGS_MODEL_TOKEN_SPIN_MIN,
     UI_SETTINGS_MODEL_UNSET_LABEL,
     UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
@@ -86,6 +91,11 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
+from ai_qa_test_studio.core.token_budget import (
+    ModelTokenProfile,
+    resolve_model_token_profile,
+    token_profile_source_label,
+)
 from ai_qa_test_studio.ui.smooth_scroll import apply_pixel_scroll
 from ai_qa_test_studio.ui.theme import get_theme_tokens
 
@@ -157,6 +167,40 @@ class _ModelListWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class _TokenProfileWorker(QThread):
+    """Background tier-1 API probe; failures are silent (no failed signal)."""
+
+    succeeded = Signal(str, object)
+
+    def __init__(
+        self,
+        model_id: str,
+        provider: str,
+        api_key: str,
+        base_url: str,
+        cache: dict[str, dict[str, int]],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._model_id = model_id
+        self._provider = provider
+        self._api_key = api_key
+        self._base_url = base_url
+        self._cache = dict(cache)
+
+    def run(self) -> None:
+        profile = resolve_model_token_profile(
+            self._model_id,
+            provider=self._provider,
+            api_key=self._api_key,
+            base_url=self._base_url,
+            cache=self._cache,
+            skip_api=False,
+            timeout_s=MODEL_TOKEN_PROFILE_API_TIMEOUT_S,
+        )
+        self.succeeded.emit(self._model_id, profile)
+
+
 class SystemSettingsDialog(MessageBoxBase):
     def __init__(self, settings: AppSettings, parent: QWidget) -> None:
         super().__init__(parent)
@@ -165,6 +209,8 @@ class SystemSettingsDialog(MessageBoxBase):
         self._ensure_ai_defaults()
         self._accepted = False
         self._model_worker: _ModelListWorker | None = None
+        self._token_worker: _TokenProfileWorker | None = None
+        self._token_probe_model_id: str = ""
         self._remote_model_ids: list[str] = []
 
         # Size on both dialog + center widget so MaskDialogBase does not clip the header.
@@ -603,12 +649,32 @@ class SystemSettingsDialog(MessageBoxBase):
         self.model_tier = ComboBox(form_card)
         self.model_tier.addItems([LLM_TIER_FAST, LLM_TIER_MID, LLM_TIER_STRONG])
         self.model_default = CheckBox("Default của API", form_card)
+        self.spin_max_output = SettingsSpinBox(form_card)
+        self.spin_max_output.setRange(
+            UI_SETTINGS_MODEL_TOKEN_SPIN_MIN, UI_SETTINGS_MODEL_TOKEN_SPIN_MAX
+        )
+        self.spin_max_output.setValue(MODEL_TOKEN_DEFAULT_MAX_OUTPUT)
+        self.spin_max_output.setSuffix(" token")
+        self.spin_max_output.setToolTip(
+            "Giới hạn max output tokens — tự điền theo API / catalog / mặc định an toàn."
+        )
+        self.token_source_label = CaptionLabel("", form_card)
+        self.token_source_label.setWordWrap(True)
+        self.token_source_label.setStyleSheet(f"color: {get_theme_tokens().text_secondary};")
         self._add_field(form_body, form_card, "Model", self.model_id)
         form_body.addWidget(self.btn_fetch_models)
         form_body.addWidget(self.model_fetch_status)
         self._add_field(form_body, form_card, "Label hiển thị", self.model_label)
         self._add_field(form_body, form_card, "Tier", self.model_tier)
         form_body.addWidget(self.model_default)
+        self._add_spin_field(
+            form_body,
+            form_card,
+            UI_SETTINGS_MODEL_TOKEN_FIELD_LABEL,
+            "Tự điền khi đổi model (API → Catalog → Cache → mặc định an toàn).",
+            self.spin_max_output,
+        )
+        form_body.addWidget(self.token_source_label)
         self.btn_apply_model = PrimaryPushButton("Cập nhật model", form_card)
         form_body.addWidget(self.btn_apply_model)
         split.addWidget(form_card, stretch=3, alignment=Qt.AlignmentFlag.AlignTop)
@@ -783,6 +849,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self._draft.headless_default = self.headless_switch.isChecked()
         self._draft.reduce_motion = self.reduce_motion_switch.isChecked()
         self._draft.browser = self.browser_combo.currentText()
+        self._draft.ai.max_tokens = int(self.spin_max_output.value())
         self._draft.ai.routing.mode = self.route_mode.currentText()
         self._draft.ai.routing.complexity_enabled = self.complexity_enabled.isChecked()
         conn_id = self.default_conn.currentData()
@@ -956,6 +1023,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self.model_label.setText(model.label)
         self.model_tier.setCurrentText(model.tier)
         self.model_default.setChecked(model.is_default)
+        self._refresh_model_token_profile()
 
     def _add_model(self) -> None:
         conn = self._models_conn()
@@ -1014,6 +1082,73 @@ class SystemSettingsDialog(MessageBoxBase):
             or current_label == UI_SETTINGS_MODEL_UNSET_LABEL
         ):
             self.model_label.setText(value)
+        self._refresh_model_token_profile()
+
+    def _apply_token_profile_to_ui(self, profile: ModelTokenProfile) -> None:
+        self.spin_max_output.blockSignals(True)
+        self.spin_max_output.setValue(int(profile.max_output_tokens))
+        self.spin_max_output.blockSignals(False)
+        self.token_source_label.setText(token_profile_source_label(profile))
+        self._draft.ai.max_tokens = int(profile.max_output_tokens)
+
+    def _connection_credentials(self, conn: AiConnection | None) -> tuple[str, str, str]:
+        if conn is None:
+            return "", "", ""
+        api_key = resolve_api_key(conn.api_key_ref)
+        base_url = conn.base_url
+        provider = conn.provider
+        if self._current_conn() is not None and self._current_conn() is conn:
+            typed = self.api_key.text().strip()
+            if typed:
+                api_key = typed
+            base_url = self.api_base.text().strip() or base_url
+            provider = self.api_provider.currentText() or provider
+        return provider, api_key, base_url
+
+    def _refresh_model_token_profile(self) -> None:
+        model_id = self.model_id.currentText().strip()
+        if not model_id:
+            return
+        # Instant tiers 2–4 so SpinBox / label update without waiting on the network.
+        instant = resolve_model_token_profile(
+            model_id,
+            cache=self._draft.model_profiles_cache,
+            skip_api=True,
+        )
+        self._apply_token_profile_to_ui(instant)
+        conn = self._models_conn()
+        provider, api_key, base_url = self._connection_credentials(conn)
+        if (provider or "").strip().lower() == LLM_PROVIDER_OFFLINE:
+            return
+        if not api_key and not base_url:
+            return
+        if self._token_worker is not None and self._token_worker.isRunning():
+            if self._token_probe_model_id == model_id:
+                return
+            self._token_worker.requestInterruption()
+        self._token_probe_model_id = model_id
+        worker = _TokenProfileWorker(
+            model_id,
+            provider,
+            api_key,
+            base_url,
+            dict(self._draft.model_profiles_cache),
+            self,
+        )
+        worker.succeeded.connect(self._on_token_profile_resolved)
+        self._token_worker = worker
+        worker.start()
+
+    def _on_token_profile_resolved(self, model_id: str, profile: object) -> None:
+        if model_id != self.model_id.currentText().strip():
+            return
+        if not isinstance(profile, ModelTokenProfile):
+            return
+        self._draft.model_profiles_cache[model_id] = {
+            "context_window": int(profile.context_window),
+            "max_output_tokens": int(profile.max_output_tokens),
+        }
+        self._apply_token_profile_to_ui(profile)
 
     def _on_model_id_commit(self) -> None:
         """Select matching API model on Enter — never invent dropdown items."""

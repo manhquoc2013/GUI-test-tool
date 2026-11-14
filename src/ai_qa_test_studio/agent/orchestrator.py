@@ -105,6 +105,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_GEN_MAX_TOKENS_CAP,
     COPILOT_HANDOFF_HEADER,
     COPILOT_MODE_COMPOSE,
+    COPILOT_MODEL_AUTO,
     COPILOT_ROLE_BRIEFS,
     COPILOT_ROLE_REPLY_STYLE,
     COPILOT_STATUS_CLASSIFYING,
@@ -164,7 +165,11 @@ from ai_qa_test_studio.core.doc_corpus import format_retrieved_block, retrieve
 from ai_qa_test_studio.core.enums import DeliveryMode, IntentType
 from ai_qa_test_studio.core.models import Project, RunReport, TestCase, TestScenario
 from ai_qa_test_studio.core.secret_masker import get_secret_masker
-from ai_qa_test_studio.core.token_budget import ContextCompactor, ContextCompressor
+from ai_qa_test_studio.core.token_budget import (
+    ContextCompactor,
+    ContextCompressor,
+    resolve_model_token_profile,
+)
 from ai_qa_test_studio.reporting.evidence import EvidenceCollector
 from ai_qa_test_studio.ui.bubble_summary import (
     extract_structured_payload,
@@ -542,17 +547,34 @@ class CopilotOrchestrator:
         return EvidenceCollector(Path(str(root_raw))).load_latest_report()
 
     @staticmethod
-    def _max_tokens_for_intent(intent: IntentType, requested: int) -> int:
+    def _model_id_from_context(context: dict[str, Any]) -> str:
+        raw = str(context.get("model") or "").strip()
+        if not raw or raw == COPILOT_MODEL_AUTO:
+            return ""
+        if "::" in raw:
+            return raw.split("::", 1)[1].strip()
+        return raw
+
+    @staticmethod
+    def _max_tokens_for_intent(
+        intent: IntentType, requested: int, *, model_id: str = ""
+    ) -> int:
         if intent in {
             IntentType.TEST_SCENARIO,
             IntentType.TEST_CASE_GEN,
             IntentType.TEST_SCRIPT_GEN,
         }:
-            return min(
+            value = min(
                 max(int(requested), COPILOT_GEN_MAX_TOKENS),
                 COPILOT_GEN_MAX_TOKENS_CAP,
             )
-        return requested
+        else:
+            value = max(1, int(requested))
+        mid = (model_id or "").strip()
+        if mid and mid != "offline":
+            profile = resolve_model_token_profile(mid, skip_api=True)
+            value = min(value, int(profile.max_output_tokens))
+        return max(1, value)
 
     async def run(
         self,
@@ -613,7 +635,11 @@ class CopilotOrchestrator:
         prompt_body, hybrid, _skills = await self.prepare_hybrid_turn(
             user_text, context, apply_requested=apply_requested
         )
-        max_tokens = self._max_tokens_for_intent(hybrid.intent, max_tokens)
+        max_tokens = self._max_tokens_for_intent(
+            hybrid.intent,
+            max_tokens,
+            model_id=self._model_id_from_context(context),
+        )
         # Compact history with pin rules before crew exchange; mask outbound secrets
         if hist:
             masker = get_secret_masker()

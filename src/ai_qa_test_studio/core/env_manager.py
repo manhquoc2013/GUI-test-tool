@@ -305,6 +305,24 @@ class EnvManager:
         copilot_raw = payload.get("copilot") or {}
         mcp_raw = payload.get("mcp") or {}
         ext = mcp_raw.get("external") or {}
+        cache_raw = payload.get("model_profiles_cache") or payload.get("modelProfilesCache") or {}
+        profiles_cache: dict[str, dict[str, int]] = {}
+        if isinstance(cache_raw, dict):
+            for mid, entry in cache_raw.items():
+                if not isinstance(mid, str) or not isinstance(entry, dict):
+                    continue
+                ctx = entry.get("context_window", entry.get("contextWindow"))
+                out = entry.get("max_output_tokens", entry.get("maxOutputTokens"))
+                try:
+                    ctx_i = int(ctx)
+                    out_i = int(out)
+                except (TypeError, ValueError):
+                    continue
+                if ctx_i > 0 and out_i > 0:
+                    profiles_cache[mid.strip()] = {
+                        "context_window": ctx_i,
+                        "max_output_tokens": out_i,
+                    }
         return AppSettings(
             browser=str(payload.get("browser") or "CHROMIUM"),
             headless_default=bool(
@@ -333,6 +351,7 @@ class EnvManager:
                     db=bool(ext.get("db", False)),
                 )
             ),
+            model_profiles_cache=profiles_cache,
         )
 
     def _settings_to_payload(self) -> dict[str, Any]:
@@ -359,6 +378,16 @@ class EnvManager:
                     "figma": self._settings.mcp.external.figma,
                     "db": self._settings.mcp.external.db,
                 }
+            },
+            "model_profiles_cache": {
+                mid: {
+                    "context_window": int(entry.get("context_window", 0)),
+                    "max_output_tokens": int(entry.get("max_output_tokens", 0)),
+                }
+                for mid, entry in self._settings.model_profiles_cache.items()
+                if isinstance(entry, dict)
+                and int(entry.get("context_window", 0) or 0) > 0
+                and int(entry.get("max_output_tokens", 0) or 0) > 0
             },
         }
 

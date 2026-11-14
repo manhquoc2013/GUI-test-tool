@@ -227,6 +227,7 @@ class CopilotController:
     def refresh_model_catalog(self) -> None:
         w = self._w
         router = ModelRouter(w.env.settings.ai)
+        w.copilot.bind_model_profiles_cache(w.env.settings.model_profiles_cache)
         w.copilot.set_model_catalog(router.catalog_labels())
 
     async def clarify_from_ui(
