@@ -106,7 +106,9 @@ class CopilotController:
         w = self._w
         sessions = w._chat_store.list_nonempty()
         if sessions:
-            w.copilot.load_session(sessions[0])
+            # Runs do not survive process restart — settle zombie typing bubbles.
+            if w.copilot.load_session(sessions[0], settle_incomplete=True):
+                self.persist_session()
             w._chat_runs.mark_read(sessions[0].id)
         self.refresh_history_rail()
 
@@ -123,8 +125,10 @@ class CopilotController:
         if target is None:
             self.refresh_history_rail()
             return
-        w.copilot.load_session(target)
         running = w._chat_runs.is_running(session_id)
+        # Keep live empties as typing; settle blanks when the run is already done.
+        if w.copilot.load_session(target, settle_incomplete=not running):
+            self.persist_session()
         w.copilot.set_busy(running)
         if running:
             run = w._chat_runs.get_run(session_id)
@@ -158,6 +162,8 @@ class CopilotController:
         w._chat_runs.request_cancel(session_id)
         self._abort_clarify(session_id)
         w.copilot.mark_stopped()
+        # Persist settled bubbles immediately so restart cannot revive typing dots.
+        self.persist_session()
 
     def cancel_all_runs(self) -> None:
         w = self._w

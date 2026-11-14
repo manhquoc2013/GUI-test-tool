@@ -4,16 +4,28 @@ from __future__ import annotations
 
 import re
 
+from ai_qa_test_studio.agent.crew_exchange import looks_like_coord_protocol
 from ai_qa_test_studio.agent.result_snippet import (
     VERDICT_RE,
     coverage_headline,
 )
 from ai_qa_test_studio.constants import (
     CHAT_ROLE_LABELS,
+    COPILOT_CHAT_PROSE_MAX_CHARS,
     COPILOT_CHAT_REPLY_MAX_CHARS,
+    COPILOT_COORD_COMPLETE_FALLBACK,
+    COPILOT_COORD_JSON_HIDDEN,
+    COPILOT_EXPLAIN_META_MARKERS,
     COPILOT_FINAL_REPORT_MAX_CHARS,
     COPILOT_HANDOFF_HEADER,
     ROLE_COORDINATOR,
+)
+
+_MD_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+")
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_MD_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_META_SECTION_RE = re.compile(
+    r"(?is)\n+\s*#{0,6}\s*Báo cáo cho Điều phối[^\n]*\n.*$",
 )
 
 _HANDOFF_GOAL_RE = re.compile(r"(?im)^\s*Goal:\s*(.+?)\s*$")
@@ -118,6 +130,102 @@ def _result_core(text: str, max_chars: int) -> str:
     return _clip(" · ".join(lines), max_chars)
 
 
+def _is_compact_agent_result(text: str) -> bool:
+    """Coverage / APPROVE|REVISE dumps stay one-line; chat prose does not."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if coverage_headline(raw) is not None:
+        return True
+    first = next((ln.strip() for ln in raw.splitlines() if ln.strip()), "")
+    return bool(first and VERDICT_RE.search(first))
+
+
+def _strip_markdown_markers(text: str) -> str:
+    """QLabel is plain text — drop ## / ** so chat stays readable."""
+    out = _MD_HEADING_RE.sub("", text or "")
+    out = _MD_BOLD_RE.sub(r"\1", out)
+    out = _MD_ITALIC_RE.sub(r"\1", out)
+    return out
+
+
+def sanitize_user_reply(text: str) -> str:
+    """Drop coordinator-meta dumps; keep the user-facing answer body."""
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not raw:
+        return ""
+    if looks_like_coord_protocol(raw):
+        return COPILOT_COORD_JSON_HIDDEN
+
+    cut = _META_SECTION_RE.sub("", raw).strip()
+    lines: list[str] = []
+    blank_run = 0
+    for line in cut.splitlines():
+        lowered = line.strip().casefold()
+        if any(marker in lowered for marker in COPILOT_EXPLAIN_META_MARKERS):
+            # Drop this line and everything after (meta trail).
+            break
+        stripped = line.rstrip()
+        if not stripped.strip():
+            blank_run += 1
+            if blank_run == 1 and lines:
+                lines.append("")
+            continue
+        blank_run = 0
+        lines.append(_strip_markdown_markers(stripped))
+    return "\n".join(lines).strip()
+
+
+def format_prose_bubble(
+    text: str,
+    *,
+    max_chars: int = COPILOT_CHAT_PROSE_MAX_CHARS,
+) -> str:
+    """Keep paragraph breaks and blank-line separators for readable chat."""
+    out = sanitize_user_reply(text)
+    if not out:
+        return ""
+    if out == COPILOT_COORD_JSON_HIDDEN:
+        return out
+
+    lines = out.splitlines()
+    cap = max(80, int(max_chars))
+    if len(out) <= cap:
+        return out
+
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        piece = line
+        extra = len(piece) + (1 if kept else 0)
+        if used + extra > cap:
+            break
+        kept.append(piece)
+        used += extra
+    if kept:
+        body = "\n".join(kept).rstrip()
+        return body if body == out else body + "…"
+    return _clip(out, cap)
+
+
+def usable_explain_answer(text: str) -> bool:
+    """True when coordinator summary is already a user-facing answer."""
+    raw = sanitize_user_reply(text)
+    if not raw or raw == COPILOT_COORD_JSON_HIDDEN:
+        return False
+    compact = " ".join(raw.split())
+    if len(compact) < 8:
+        return False
+    noise = {
+        COPILOT_COORD_COMPLETE_FALLBACK.casefold(),
+        COPILOT_COORD_JSON_HIDDEN.casefold(),
+        "hoàn tất",
+        "đủ deliverable",
+        "đã có câu trả lời — đóng vòng điều phối",
+    }
+    return compact.casefold() not in noise
+
+
 def _parse_handoff(text: str) -> tuple[str, str]:
     """Return (goal, body) from a structured handoff packet."""
     raw = text or ""
@@ -173,21 +281,31 @@ def summarize_for_bubble(
     from_role: str | None = None,
     to_role: str | None = None,
 ) -> str:
-    """Turn agent/full content into a short bubble grounded in returned results."""
+    """Turn agent/full content into a user-facing bubble."""
     raw = (text or "").strip()
     if not raw:
         return ""
     cap = max(40, int(max_chars))
+    if looks_like_coord_protocol(raw):
+        return COPILOT_COORD_JSON_HIDDEN
 
     if COPILOT_HANDOFF_HEADER in raw or (
         from_role and to_role and ("Goal:" in raw or "From:" in raw)
     ):
         return _handoff_bubble(raw, from_role=from_role, to_role=to_role, max_chars=cap)
 
-    result = _result_core(raw, cap)
-    if result:
-        return result
-    return _clip(raw, cap)
+    # Compact one-liners only for coverage / critic verdict dumps.
+    if _is_compact_agent_result(raw):
+        result = _result_core(raw, cap)
+        if result:
+            return result
+        return _clip(raw, cap)
+
+    # Normal chat / explain: keep paragraphs and blank-line separators.
+    return format_prose_bubble(
+        raw,
+        max_chars=max(cap, COPILOT_CHAT_PROSE_MAX_CHARS),
+    )
 
 
 def format_final_report_bubble(
@@ -199,21 +317,7 @@ def format_final_report_bubble(
     raw = (text or "").strip()
     if not raw:
         return ""
-    cap = max(80, int(max_chars))
-    if len(raw) <= cap:
-        return raw
-    kept: list[str] = []
-    used = 0
-    for line in raw.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        extra = len(stripped) + (1 if kept else 0)
-        if used + extra > cap:
-            break
-        kept.append(stripped)
-        used += extra
-    if kept:
-        out = "\n".join(kept)
-        return out if out == raw or len(raw) <= cap else out.rstrip() + "…"
-    return _clip(raw, cap)
+    if looks_like_coord_protocol(raw):
+        return COPILOT_COORD_JSON_HIDDEN
+    # Prefer the same paragraph-preserving path as chat prose.
+    return format_prose_bubble(raw, max_chars=max(80, int(max_chars)))

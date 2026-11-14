@@ -20,6 +20,7 @@ from ai_qa_test_studio.constants import (
     COORD_ACTION_COMPLETE,
     COORD_ACTION_DISPATCH,
     COORD_SPECIALISTS,
+    COPILOT_COORD_COMPLETE_FALLBACK,
     COPILOT_FINAL_REPORT_CLOSING_MAX,
     COPILOT_FINAL_REPORT_EMPTY,
     COPILOT_FINAL_REPORT_NOTE_MAX,
@@ -186,12 +187,33 @@ def heuristic_next_action(
             "brief": board.user_text,
         }
     if not board.compose_text:
+        goal = (
+            "Trả lời người dùng bằng ngôn ngữ tự nhiên (không artifact)"
+            if board.intent == INTENT_EXPLAIN
+            else "Soạn deliverable theo intent"
+        )
+        acceptance = (
+            "Câu trả lời rõ, hữu ích"
+            if board.intent == INTENT_EXPLAIN
+            else "Artifact/Apply hoặc câu trả lời rõ theo intent"
+        )
         return {
             "action": COORD_ACTION_DISPATCH,
             "to": ROLE_COMPOSER,
-            "goal": "Soạn deliverable theo intent",
-            "acceptance": "Artifact/Apply hoặc câu trả lời rõ theo intent",
+            "goal": goal,
+            "acceptance": acceptance,
             "brief": board.plan_text or board.user_text,
+        }
+
+    # explain/chat: one composer answer is enough — no critic/optimizer loop.
+    if board.intent == INTENT_EXPLAIN:
+        return {
+            "action": COORD_ACTION_COMPLETE,
+            "summary": "Đã có câu trả lời — đóng vòng điều phối",
+            "to": ROLE_COORDINATOR,
+            "goal": "",
+            "acceptance": "",
+            "brief": "",
         }
 
     quality_on = max_critique_rounds > 0
@@ -274,20 +296,41 @@ def _empty_complete(summary: str) -> dict[str, str]:
     }
 
 
+def looks_like_coord_protocol(text: str) -> bool:
+    """True when text is internal coordinator JSON — never show in chat bubbles."""
+    compact = (text or "").strip()
+    if not compact.startswith("{"):
+        return False
+    lowered = compact.lower()
+    return '"action"' in lowered and any(
+        token in lowered
+        for token in (COORD_ACTION_COMPLETE, COORD_ACTION_DISPATCH, COORD_ACTION_CLARIFY)
+    )
+
+
+def _user_facing_summary(text: str, *, fallback: str = COPILOT_COORD_COMPLETE_FALLBACK) -> str:
+    raw = (text or "").strip()
+    if not raw or looks_like_coord_protocol(raw):
+        return fallback
+    return raw[:_SOFT_SUMMARY_MAX]
+
+
 def _soft_parse(text: str, fallback: dict[str, str]) -> dict[str, str]:
     lowered = text.lower()
     if COORD_ACTION_COMPLETE in lowered:
-        return _empty_complete(text[:_SOFT_SUMMARY_MAX])
+        # Never put raw protocol JSON into the user-facing summary.
+        return _empty_complete(COPILOT_COORD_COMPLETE_FALLBACK)
     if COORD_ACTION_CLARIFY in lowered:
-        return _empty_clarify(text[:_SOFT_SUMMARY_MAX])
+        return _empty_clarify(_user_facing_summary(text, fallback="Cần làm rõ yêu cầu?"))
     hits = [role for role in COORD_SPECIALISTS if re.search(rf"\b{re.escape(role)}\b", lowered)]
     if len(hits) == 1:
+        brief = text if not looks_like_coord_protocol(text) else ""
         return {
             "action": COORD_ACTION_DISPATCH,
             "to": hits[0],
             "goal": "Tiếp tục theo quyết định điều phối",
             "acceptance": "Báo cáo rõ cho Điều phối viên",
-            "brief": text[:_SOFT_BRIEF_MAX],
+            "brief": brief[:_SOFT_BRIEF_MAX],
         }
     return fallback
 
@@ -311,7 +354,9 @@ def parse_coord_decision(raw: str, fallback: dict[str, str]) -> dict[str, str]:
     action = str(data.get("action") or "").strip().lower()
     to = str(data.get("to") or "").strip().lower()
     if action == COORD_ACTION_COMPLETE:
-        return _empty_complete(str(data.get("summary") or "Hoàn tất"))
+        return _empty_complete(
+            _user_facing_summary(str(data.get("summary") or ""), fallback="Hoàn tất")
+        )
     if action == COORD_ACTION_CLARIFY:
         return _empty_clarify(str(data.get("goal") or data.get("question") or "Cần làm rõ yêu cầu?"))
     if action == COORD_ACTION_DISPATCH and to in COORD_SPECIALISTS:

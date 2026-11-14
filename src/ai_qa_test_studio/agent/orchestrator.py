@@ -21,6 +21,7 @@ from ai_qa_test_studio.agent.crew_exchange import (
     CrewBoard,
     build_final_report,
     heuristic_next_action,
+    looks_like_coord_protocol,
     parse_coord_decision,
 )
 from ai_qa_test_studio.agent.llm_gateway import ChatMessage, UnifiedLLMGateway
@@ -44,6 +45,7 @@ from ai_qa_test_studio.constants import (
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
+    CLARIFY_SUGGESTION_MIN_CHARS,
     COMPLEXITY_COMPLEX,
     COMPLEXITY_LABELS_VN,
     COMPLEXITY_SIMPLE,
@@ -57,6 +59,7 @@ from ai_qa_test_studio.constants import (
     CONTEXT_KEY_SKILL_NAME,
     COORD_ACTION_CLARIFY,
     COORD_ACTION_COMPLETE,
+    COORD_ACTION_DISPATCH,
     COORD_SPECIALISTS,
     COPILOT_AGENT_DEBATE_MAX_ROUNDS,
     COPILOT_AGENT_LOOP_REPEAT_LIMIT,
@@ -64,8 +67,12 @@ from ai_qa_test_studio.constants import (
     COPILOT_ARTIFACT_CTA_TEST_DATA,
     COPILOT_ATTACH_PREVIEW_CHARS,
     COPILOT_CHAT_MAX_TOKENS,
+    COPILOT_CHAT_PROSE_STYLE,
     COPILOT_COMPOSE_DOC_HINTS,
     COPILOT_COMPOSE_KEYWORDS,
+    COPILOT_COORD_COMPLETE_FALLBACK,
+    COPILOT_COORD_EXPLAIN_ACCEPTANCE,
+    COPILOT_COORD_EXPLAIN_GOAL,
     COPILOT_COORDINATOR_MAX_ROUNDS,
     COPILOT_HANDOFF_HEADER,
     COPILOT_MODE_COMPOSE,
@@ -116,6 +123,7 @@ from ai_qa_test_studio.constants import (
 from ai_qa_test_studio.core.doc_corpus import format_retrieved_block, retrieve
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.token_budget import ContextCompressor
+from ai_qa_test_studio.ui.bubble_summary import sanitize_user_reply, usable_explain_answer
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +267,7 @@ class CopilotOrchestrator:
             ),
         )
 
+        # Always LLM/heuristic coordinator — no keyword fast-path bypass.
         async for ev in self._run_coordinated(
             user_text=user_text,
             mode=mode,
@@ -274,7 +283,6 @@ class CopilotOrchestrator:
             mcp=mcp,
         ):
             yield ev
-
 
     def _route(self, task: str, complexity: str) -> Any:
         if self.router is not None:
@@ -301,7 +309,8 @@ class CopilotOrchestrator:
         if need_plan:
             roles.append(ROLE_PLANNER)
         roles.append(ROLE_COMPOSER)
-        run_critic = self.debate_max_rounds > 0
+        # explain/chat: LLM still routes via coordinator → composer, but skip critic loop.
+        run_critic = self.debate_max_rounds > 0 and intent != INTENT_EXPLAIN
         run_analyzer = (
             analyzer_on
             and intent != INTENT_EXPLAIN
@@ -412,25 +421,70 @@ class CopilotOrchestrator:
                 board, roster, coord_route.gateway(), stop
             )
             action = decision.get("action") or COORD_ACTION_COMPLETE
+            # Never close the turn before a specialist produces an answer/artifact.
+            if action == COORD_ACTION_COMPLETE and not board.compose_text:
+                summary_guess = str(decision.get("summary") or "").strip()
+                # Explain: if coordinator already wrote the user answer, keep it —
+                # do not force another hop that re-answers with meta noise.
+                if board.intent == INTENT_EXPLAIN and usable_explain_answer(summary_guess):
+                    board.compose_text = sanitize_user_reply(summary_guess)
+                    yield OrchestratorEvent(kind="role_start", role=ROLE_COMPOSER)
+                    yield OrchestratorEvent(
+                        kind="role_end",
+                        role=ROLE_COMPOSER,
+                        text=board.compose_text,
+                    )
+                    closing_summary = ""
+                    break
+                decision = heuristic_next_action(
+                    board,
+                    run_analyzer=roster.run_analyzer,
+                    run_optimizer=roster.run_optimizer,
+                    max_critique_rounds=self.debate_max_rounds if roster.run_critic else 0,
+                )
+                action = decision.get("action") or COORD_ACTION_DISPATCH
             if action == COORD_ACTION_COMPLETE:
-                closing_summary = str(decision.get("summary") or "Hoàn tất điều phối")
-                yield OrchestratorEvent(
-                    kind=EVENT_STATUS_SUMMARY,
-                    role=ROLE_COORDINATOR,
-                    text=self._clip(closing_summary),
-                    model=coord_route.model,
+                closing_summary = str(
+                    decision.get("summary") or COPILOT_COORD_COMPLETE_FALLBACK
                 )
+                if looks_like_coord_protocol(closing_summary):
+                    closing_summary = COPILOT_COORD_COMPLETE_FALLBACK
+                # Explain chat: composer bubble is enough — skip "Hoàn tất điều phối".
+                if board.intent != INTENT_EXPLAIN:
+                    yield OrchestratorEvent(
+                        kind=EVENT_STATUS_SUMMARY,
+                        role=ROLE_COORDINATOR,
+                        text=self._clip(closing_summary),
+                        model=coord_route.model,
+                    )
                 break
+            # Casual explain/chat: answer via composer — never interrupt with a QA picker.
+            if action == COORD_ACTION_CLARIFY and board.intent == INTENT_EXPLAIN:
+                decision = {
+                    "action": COORD_ACTION_DISPATCH,
+                    "to": ROLE_COMPOSER,
+                    "goal": COPILOT_COORD_EXPLAIN_GOAL,
+                    "acceptance": COPILOT_COORD_EXPLAIN_ACCEPTANCE,
+                    "brief": board.user_text,
+                    "summary": "",
+                }
+                action = COORD_ACTION_DISPATCH
+
             if action == COORD_ACTION_CLARIFY:
-                req = ClarifyRequest(
-                    role=ROLE_COORDINATOR,
-                    question=decision.get("goal") or "Cần làm rõ yêu cầu?",
-                    suggestions=["Happy path", "Full BVA", "Chỉ giải thích"],
-                    default_answer="Happy path",
+                heuristic = self._heuristic_clarify_draft(board.user_text)
+                fake = _RoleResult(
+                    text=str(decision.get("goal") or heuristic["question"]),
+                    needs_clarify=True,
                 )
-                fake = _RoleResult(text=req.question, needs_clarify=True)
                 async for ev in self._maybe_clarify(
-                    ROLE_COORDINATOR, fake, board.user_text, complexity, stop, max_tokens, mode=mode
+                    ROLE_COORDINATOR,
+                    fake,
+                    board.user_text,
+                    complexity,
+                    stop,
+                    max_tokens,
+                    mode=mode,
+                    intent=board.intent,
                 ):
                     if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                         board.user_text = f"{board.user_text}\n\n[Clarify] {ev.text}"
@@ -461,15 +515,17 @@ class CopilotOrchestrator:
                 acceptance=str(decision.get("acceptance") or ""),
                 body=str(decision.get("brief") or board.user_text),
             )
-            yield OrchestratorEvent(
-                kind=EVENT_AGENT_MESSAGE,
-                role=ROLE_COORDINATOR,
-                from_role=ROLE_COORDINATOR,
-                to_role=to_role,
-                # Full packet — UI bubble summarizer clips for display.
-                text=packet,
-                model=coord_route.model,
-            )
+            # Explain/chat: quiet hops — no "→ Giao …" / report bubbles.
+            if board.intent != INTENT_EXPLAIN:
+                yield OrchestratorEvent(
+                    kind=EVENT_AGENT_MESSAGE,
+                    role=ROLE_COORDINATOR,
+                    from_role=ROLE_COORDINATOR,
+                    to_role=to_role,
+                    # Full packet — UI bubble summarizer clips for display.
+                    text=packet,
+                    model=coord_route.model,
+                )
 
             async for ev in self._dispatch_specialist(
                 to_role=to_role,
@@ -496,21 +552,22 @@ class CopilotOrchestrator:
                 ROLE_OPTIMIZER: board.optimize_text,
             }.get(to_role, "")
             board.record_report(to_role, report_body)
-            back = self._handoff(
-                to_role,
-                ROLE_COORDINATOR,
-                goal="Báo cáo kết quả",
-                acceptance="Điều phối viên cập nhật board và chọn bước tiếp",
-                body=report_body or "(empty)",
-            )
-            yield OrchestratorEvent(
-                kind=EVENT_AGENT_MESSAGE,
-                role=to_role,
-                from_role=to_role,
-                to_role=ROLE_COORDINATOR,
-                # Full report body preserved for user-facing bubble synthesis.
-                text=back,
-            )
+            if board.intent != INTENT_EXPLAIN:
+                back = self._handoff(
+                    to_role,
+                    ROLE_COORDINATOR,
+                    goal="Báo cáo kết quả",
+                    acceptance="Điều phối viên cập nhật board và chọn bước tiếp",
+                    body=report_body or "(empty)",
+                )
+                yield OrchestratorEvent(
+                    kind=EVENT_AGENT_MESSAGE,
+                    role=to_role,
+                    from_role=to_role,
+                    to_role=ROLE_COORDINATOR,
+                    # Full report body preserved for user-facing bubble synthesis.
+                    text=back,
+                )
         else:
             closing_summary = "Hết vòng điều phối — đóng pipeline"
             yield OrchestratorEvent(
@@ -518,6 +575,13 @@ class CopilotOrchestrator:
                 role=ROLE_COORDINATOR,
                 text=self._clip(closing_summary),
             )
+
+        # Explain/chat: one composer answer is enough — no closing report stack.
+        if board.intent == INTENT_EXPLAIN:
+            if board.compose_text:
+                board.compose_text = sanitize_user_reply(board.compose_text)
+            yield OrchestratorEvent(kind="pipeline_complete")
+            return
 
         report = build_final_report(board, closing=closing_summary)
         yield OrchestratorEvent(
@@ -576,11 +640,16 @@ class CopilotOrchestrator:
         system = (
             f"You are the Coordinator ({ROLE_COORDINATOR}). "
             f"{COPILOT_ROLE_BRIEFS[ROLE_COORDINATOR]} "
+            "Analyze Intent on the board and choose the next hop yourself — "
+            "do not invent keyword shortcuts. "
+            "intent=explain (chat/Q&A/math/weather/general help): "
+            "dispatch composer to answer in natural language, OR complete with summary="
+            "the full user-facing answer (no protocol JSON). If HasCompose=true → complete. "
+            "intent=compose|test_data: dispatch planner/composer/critic as needed for artifacts; "
+            "never complete while HasCompose=false. Never invent roles outside Team. "
             "Reply JSON only: "
             '{"action":"dispatch"|"complete"|"clarify","to":"planner|composer|critic|analyzer|optimizer",'
-            '"goal":"...","acceptance":"...","brief":"...","summary":"..."} . '
-            "After a specialist reports, you may dispatch another (including re-dispatch). "
-            "Complete when the user goal is met. Do not invent roles."
+            '"goal":"...","acceptance":"...","brief":"...","summary":"..."} .'
         )
         messages = [
             ChatMessage(role="system", content=system),
@@ -588,6 +657,7 @@ class CopilotOrchestrator:
                 role="user",
                 content=(
                     f"Team={','.join(roster.roles)}\n"
+                    f"Intent={board.intent}\n"
                     f"Request:\n{board.user_text}\n\nBoard:\n{board.digest()}\n"
                     f"ContextHead:\n{board.ctx_block[:800]}"
                 ),
@@ -682,8 +752,12 @@ class CopilotOrchestrator:
         max_tokens: int,
         *,
         mode: str = "",
+        intent: str = "",
     ) -> AsyncIterator[OrchestratorEvent]:
-        # Clear QA intents (compose / BVA / explain) must not pop a vague dialog
+        # Explain/chat answers the user — never pop a product-picker dialog.
+        if intent == INTENT_EXPLAIN or result.intent == INTENT_EXPLAIN:
+            return
+        # Clear QA intents (compose / BVA) must not pop a vague dialog
         # just because the model hedged with the word CLARIFY.
         if self._intent_is_actionable(user_text, mode) and not self._looks_ambiguous(user_text):
             return
@@ -835,7 +909,9 @@ class CopilotOrchestrator:
             "compose = create/analyze/draft test scenarios or cases from SRS/docs "
             "(user wants Apply/Excel artifact). "
             "test_data = boundary/BVA rows for an existing case. "
-            "explain = only explain/plan/debug, no artifact. "
+            "explain = chat/Q&A/math/general help, OR explain/plan/debug a test step "
+            "— no Apply/Excel artifact. "
+            "Casual questions (e.g. arithmetic, definitions) are explain. "
             "If a document is attached and the user asks to help build tests "
             "(any wording), prefer compose. "
             'Reply JSON only: {"intent":"compose"|"test_data"|"explain"}.'
@@ -1058,17 +1134,39 @@ class CopilotOrchestrator:
         parsed = self._parse_json_obj(raw)
         if not parsed:
             return heuristic
-        suggestions = [str(s).strip() for s in (parsed.get("suggestions") or []) if str(s).strip()][:4]
-        question = str(parsed.get("question") or "").strip()
-        default = str(parsed.get("default") or (suggestions[0] if suggestions else "")).strip()
+        suggestions = self._normalize_clarify_labels(parsed.get("suggestions") or [])[:4]
+        question = " ".join(str(parsed.get("question") or "").split())
+        default = " ".join(
+            str(parsed.get("default") or (suggestions[0] if suggestions else "")).split()
+        )
         draft = {
             "question": question or heuristic["question"],
             "suggestions": suggestions or list(heuristic["suggestions"]),
             "default": default or heuristic["default"],
         }
+        if draft["default"] not in draft["suggestions"]:
+            draft["default"] = draft["suggestions"][0]
         if self._is_vague_clarify_draft(draft):
             return heuristic
         return draft
+
+    def _normalize_clarify_labels(self, raw: Any) -> list[str]:
+        """Keep only visible, unique suggestion labels for the clarify dialog."""
+        labels: list[str] = []
+        seen: set[str] = set()
+        items = raw if isinstance(raw, (list, tuple)) else ()
+        for item in items:
+            if item is None:
+                continue
+            label = " ".join(str(item).split())
+            if len(label) < CLARIFY_SUGGESTION_MIN_CHARS:
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            labels.append(label)
+        return labels
 
     def _parse_json_obj(self, raw: str) -> dict[str, Any] | None:
         text = raw.strip()
@@ -1246,19 +1344,27 @@ class CopilotOrchestrator:
                 self._gw(LLM_TASK_INTENT, "simple"),
                 stop,
             )
-        system = (
-            f"You are the Composer ({ROLE_COMPOSER}). "
-            f"{COPILOT_ROLE_BRIEFS[ROLE_COMPOSER]} "
-            "When creating scenarios/cases, ALSO append a JSON object "
-            '{"kind":"compose_scenarios","scenarios":[{"code","title","requirement_ref",'
-            '"description","cases":[{"code","title","preconditions","steps":'
-            '[{"step_no","action","intent_hint","input_data","expected_result"}]}]}]}. '
-            "When creating test data only, append "
-            '{"kind":"test_data_rows","rows":[...]} . '
-            "When intent=explain, answer clearly — do NOT invent compose JSON. "
-            f"{COPILOT_ROLE_REPLY_STYLE} "
-            "Only include CLARIFY when blocked by missing required input."
-        )
+        if intent == INTENT_EXPLAIN:
+            system = (
+                "You are a helpful Vietnamese assistant in AI QA Test Studio. "
+                "Answer the user's question directly. "
+                "Do NOT invent compose/test-data JSON. "
+                "Do NOT role-play a blocked testing expert or mention handoff/tools. "
+                f"{COPILOT_CHAT_PROSE_STYLE}"
+            )
+        else:
+            system = (
+                f"You are the Composer ({ROLE_COMPOSER}). "
+                f"{COPILOT_ROLE_BRIEFS[ROLE_COMPOSER]} "
+                "When creating scenarios/cases, ALSO append a JSON object "
+                '{"kind":"compose_scenarios","scenarios":[{"code","title","requirement_ref",'
+                '"description","cases":[{"code","title","preconditions","steps":'
+                '[{"step_no","action","intent_hint","input_data","expected_result"}]}]}]}. '
+                "When creating test data only, append "
+                '{"kind":"test_data_rows","rows":[...]} . '
+                f"{COPILOT_ROLE_REPLY_STYLE} "
+                "Only include CLARIFY when blocked by missing required input."
+            )
         messages = [
             ChatMessage(role="system", content=system),
             *hist[-6:],
@@ -1334,6 +1440,8 @@ class CopilotOrchestrator:
                 f"{'[Revised] ' if revise else ''}"
                 f"Đã xử lý yêu cầu «{user_text[:80]}» — xem Apply / Tải Excel nếu có artifact."
             )
+        if intent == INTENT_EXPLAIN:
+            text = sanitize_user_reply(text) or text
         needs = "CLARIFY" in text.upper()
         out.append(
             _RoleResult(

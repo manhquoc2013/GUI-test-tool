@@ -9,9 +9,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ai_qa_test_studio.constants import (
+    COPILOT_INCOMPLETE_MARKER,
     COPILOT_MODE_CASE,
     COPILOT_SLIDING_TURNS,
     MSG_STATUS_COMPLETE,
+    MSG_STATUS_STOPPED,
 )
 
 
@@ -35,6 +37,9 @@ class CopilotMessage(BaseModel):
         short = (self.summary or "").strip()
         return short if short else self.content
 
+    def is_blank(self) -> bool:
+        return not (self.content or "").strip() and not (self.summary or "").strip()
+
 
 class CopilotSession(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -50,6 +55,22 @@ class CopilotSession(BaseModel):
 
     def has_user_messages(self) -> bool:
         return any(m.role == "user" for m in self.messages)
+
+    def settle_incomplete_messages(
+        self, *, marker: str = COPILOT_INCOMPLETE_MARKER
+    ) -> bool:
+        """Stamp blank agent bubbles so reload never resurrects typing indicators."""
+        changed = False
+        for msg in self.messages:
+            if msg.role == "user" or not msg.is_blank():
+                continue
+            msg.content = marker
+            msg.summary = marker
+            msg.status = MSG_STATUS_STOPPED
+            changed = True
+        if changed:
+            self.touch()
+        return changed
 
     def undo_last_user_turn(self) -> str | None:
         """Remove last user message and all following role outputs; return user text."""

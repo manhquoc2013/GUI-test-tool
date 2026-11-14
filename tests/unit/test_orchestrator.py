@@ -15,6 +15,8 @@ from ai_qa_test_studio.agent.orchestrator import (
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     APPLY_KIND_TEST_DATA,
+    CLARIFY_OPT_COMPOSE_HAPPY,
+    CLARIFY_OPT_EXPLAIN_ONLY,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_STOPPED,
     CONTEXT_KEY_ANALYZER_ENABLED,
@@ -30,6 +32,7 @@ from ai_qa_test_studio.constants import (
     EVENT_CLARIFY_REQUEST,
     EVENT_CLARIFY_RESOLVED,
     EVENT_STATUS_SUMMARY,
+    INTENT_EXPLAIN,
     LLM_PROVIDER_OFFLINE,
     ROLE_ANALYZER,
     ROLE_COMPOSER,
@@ -47,9 +50,9 @@ async def test_default_role_order_coordinator_then_specialists() -> None:
     )
     roles: list[str] = []
     async for event in orch.run(
-        user_text="Giải thích bước lỗi",
+        user_text="Tạo kịch bản kiểm thử đăng nhập",
         mode=COPILOT_MODE_CASE,
-        context={},
+        context={"srs": "Login happy path"},
     ):
         if event.kind == "role_start" and event.role:
             roles.append(event.role)
@@ -164,7 +167,9 @@ def test_crew_roster_explain_skips_tail_roles() -> None:
         {"analyzer_enabled": True, "optimizer_enabled": True},
     )
     assert roster.roles[0] == ROLE_COORDINATOR
-    assert roster.run_critic is True
+    # explain/chat: coordinator→composer only (LLM still decides hops; no critic loop).
+    assert roster.run_critic is False
+    assert ROLE_CRITIC not in roster.roles
     assert roster.run_analyzer is False
     assert roster.run_optimizer is False
 
@@ -266,21 +271,28 @@ def test_handoff_packet_is_structured() -> None:
 
 
 @pytest.mark.asyncio
-async def test_explain_turn_emits_coordinator_exchange() -> None:
+async def test_explain_turn_is_quiet_but_answers_via_composer() -> None:
+    """Explain chat: no handoff/final-report bubbles; composer still answers."""
+    from ai_qa_test_studio.constants import EVENT_AGENT_MESSAGE, EVENT_FINAL_REPORT
+
     orch = CopilotOrchestrator(
         UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
     )
-    handoffs = []
+    kinds: list[str] = []
+    roles: list[str] = []
     async for event in orch.run(
         user_text="Giải thích lỗi bước đăng nhập vừa chạy",
         mode=COPILOT_MODE_CASE,
         context={},
     ):
-        if event.kind == "agent_message" and event.from_role and event.to_role:
-            handoffs.append((event.from_role, event.to_role))
-    assert (ROLE_COORDINATOR, ROLE_COMPOSER) in handoffs
-    assert (ROLE_COMPOSER, ROLE_COORDINATOR) in handoffs
-    assert (ROLE_COORDINATOR, ROLE_CRITIC) in handoffs
+        kinds.append(event.kind)
+        if event.kind == "role_start" and event.role:
+            roles.append(event.role)
+    assert ROLE_COORDINATOR in roles
+    assert ROLE_COMPOSER in roles
+    assert ROLE_CRITIC not in roles
+    assert EVENT_AGENT_MESSAGE not in kinds
+    assert EVENT_FINAL_REPORT not in kinds
 
 
 def test_srs_from_attachments_preferred_over_prompt() -> None:
@@ -461,9 +473,9 @@ async def test_critic_clarify_appends_to_user_text() -> None:
         clarify_handler=clarify,
     )
     async for _ in orch.run(
-        user_text="Yêu cầu chưa rõ phạm vi login — ???",
-        mode=COPILOT_MODE_CASE,
-        context={},
+        user_text="Tạo kịch bản login — phạm vi ??? chưa rõ",
+        mode=COPILOT_MODE_COMPOSE,
+        context={"srs": "Login flow"},
     ):
         pass
     merged = [t for t in post_critic_prompts if "[Clarify]" in t and "happy path" in t.lower()]
@@ -492,6 +504,55 @@ def test_actionable_intent_skips_clarify_popup() -> None:
     assert "giả định mặc định" not in draft["question"].lower()
     assert all("giả định mặc định" not in s.lower() for s in draft["suggestions"])
     assert draft["default"] == draft["suggestions"][0]
+
+
+@pytest.mark.asyncio
+async def test_explain_intent_skips_clarify_popup() -> None:
+    asked: list[str] = []
+
+    async def clarify(req: ClarifyRequest) -> ClarifyResponse:
+        asked.append(req.question)
+        return ClarifyResponse(answer=req.default_answer, source="user")
+
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline"),
+        clarify_handler=clarify,
+    )
+    result = _RoleResult(
+        text="Cần làm rõ sản phẩm QA?",
+        needs_clarify=True,
+        intent=INTENT_EXPLAIN,
+    )
+    events: list[str] = []
+    async for ev in orch._maybe_clarify(
+        ROLE_COORDINATOR,
+        result,
+        "thời tiết hôm nay",
+        "simple",
+        asyncio.Event(),
+        64,
+        intent=INTENT_EXPLAIN,
+    ):
+        events.append(ev.kind)
+    assert events == []
+    assert asked == []
+
+
+def test_normalize_clarify_labels_drops_blank() -> None:
+    orch = CopilotOrchestrator(
+        UnifiedLLMGateway(provider=LLM_PROVIDER_OFFLINE, api_key="", model="offline")
+    )
+    assert orch._normalize_clarify_labels(["", "  ", "\u200b", "a"]) == []
+    assert orch._normalize_clarify_labels(["Happy path", "", "Happy path"]) == ["Happy path"]
+
+
+def test_sanitize_clarify_suggestions_fallback() -> None:
+    from ai_qa_test_studio.ui.widgets.clarify_dialog import sanitize_clarify_suggestions
+
+    blank = sanitize_clarify_suggestions(["", " ", "\u200b", None])  # type: ignore[list-item]
+    assert blank[0] == CLARIFY_OPT_COMPOSE_HAPPY
+    assert CLARIFY_OPT_EXPLAIN_ONLY in blank
+    assert sanitize_clarify_suggestions(["Chỉ giải thích"]) == ["Chỉ giải thích"]
 
 
 @pytest.mark.asyncio
@@ -642,8 +703,9 @@ async def test_explain_skips_analyzer_even_when_enabled() -> None:
             roles.append(event.role)
     assert ROLE_ANALYZER not in roles
     assert ROLE_OPTIMIZER not in roles
+    assert ROLE_CRITIC not in roles
     assert roles[0] == ROLE_COORDINATOR
-    assert ROLE_COMPOSER in roles and ROLE_CRITIC in roles
+    assert ROLE_COMPOSER in roles
 
 
 def test_format_context_includes_skill_catalog_and_body() -> None:

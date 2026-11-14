@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QButtonGroup, QRadioButton, QWidget
-from qfluentwidgets import CaptionLabel, LineEdit, MessageBoxBase, SubtitleLabel
+from PySide6.QtWidgets import QButtonGroup, QWidget
+from qfluentwidgets import CaptionLabel, LineEdit, MessageBoxBase, RadioButton, SubtitleLabel
 
 from ai_qa_test_studio.constants import (
     CLARIFY_DIALOG_CUSTOM_PLACEHOLDER,
@@ -12,14 +12,49 @@ from ai_qa_test_studio.constants import (
     CLARIFY_DIALOG_OK,
     CLARIFY_DIALOG_TITLE,
     CLARIFY_DIALOG_USE_DEFAULT,
+    CLARIFY_FALLBACK_DEFAULT,
+    CLARIFY_OPT_COMPOSE_FULL,
+    CLARIFY_OPT_COMPOSE_HAPPY,
+    CLARIFY_OPT_EXPLAIN_ONLY,
     CLARIFY_SOURCE_DEFAULT_SKIP,
     CLARIFY_SOURCE_DEFAULT_TIMEOUT,
     CLARIFY_SOURCE_STOPPED,
     CLARIFY_SOURCE_USER,
+    CLARIFY_SUGGESTION_MIN_CHARS,
     COPILOT_CLARIFY_TIMEOUT_MS,
     UI_PALETTE_MIN_WIDTH,
 )
 from ai_qa_test_studio.ui.motion import animate_dialog_show
+
+_FALLBACK_SUGGESTIONS: tuple[str, ...] = (
+    CLARIFY_OPT_COMPOSE_HAPPY,
+    CLARIFY_OPT_COMPOSE_FULL,
+    CLARIFY_OPT_EXPLAIN_ONLY,
+)
+
+
+def sanitize_clarify_suggestions(
+    suggestions: list[str] | tuple[str, ...] | None,
+    *,
+    fallback: tuple[str, ...] | list[str] = _FALLBACK_SUGGESTIONS,
+) -> list[str]:
+    """Drop blank/invisible labels so radios always show concrete choices."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in suggestions or ():
+        if raw is None:
+            continue
+        label = " ".join(str(raw).split())
+        if len(label) < CLARIFY_SUGGESTION_MIN_CHARS:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(label)
+    if cleaned:
+        return cleaned
+    return [str(s) for s in fallback if str(s).strip()]
 
 
 class ClarifyDialog(MessageBoxBase):
@@ -37,7 +72,11 @@ class ClarifyDialog(MessageBoxBase):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(CLARIFY_DIALOG_TITLE)
-        self._default = default_answer or (suggestions[0] if suggestions else "")
+        options = sanitize_clarify_suggestions(suggestions)
+        default = " ".join(str(default_answer or "").split())
+        if default not in options:
+            default = options[0] if options else CLARIFY_FALLBACK_DEFAULT
+        self._default = default
         self._resolved = False
         self.widget.setMinimumWidth(UI_PALETTE_MIN_WIDTH)
 
@@ -48,9 +87,9 @@ class ClarifyDialog(MessageBoxBase):
         self.viewLayout.addWidget(CaptionLabel(question, self.widget))
 
         self._group = QButtonGroup(self.widget)
-        self._radios: list[QRadioButton] = []
-        for idx, suggestion in enumerate(suggestions):
-            radio = QRadioButton(suggestion, self.widget)
+        self._radios: list[RadioButton] = []
+        for idx, suggestion in enumerate(options):
+            radio = RadioButton(suggestion, self.widget)
             if suggestion == self._default or (idx == 0 and not self._default):
                 radio.setChecked(True)
             self._group.addButton(radio, idx)

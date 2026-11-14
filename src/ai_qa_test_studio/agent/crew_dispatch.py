@@ -75,7 +75,14 @@ async def dispatch_specialist(
         ref = host._put_artifact(mcp, to_role, "plan", result.text)
         result.summary = host._summary_of(mcp, ref, result.text, role=to_role)
         async for ev in host._maybe_clarify(
-            to_role, result, board.user_text, complexity, stop, max_tokens, mode=board.mode
+            to_role,
+            result,
+            board.user_text,
+            complexity,
+            stop,
+            max_tokens,
+            mode=board.mode,
+            intent=board.intent,
         ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 board.user_text = f"{board.user_text}\n\n[Clarify] {ev.text}"
@@ -136,7 +143,14 @@ async def dispatch_specialist(
         ref = host._put_artifact(mcp, to_role, "compose", result.text)
         result.summary = host._summary_of(mcp, ref, result.text, role=to_role)
         async for ev in host._maybe_clarify(
-            to_role, result, board.user_text, complexity, stop, max_tokens, mode=board.mode
+            to_role,
+            result,
+            board.user_text,
+            complexity,
+            stop,
+            max_tokens,
+            mode=board.mode,
+            intent=board.intent,
         ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 board.user_text = f"{board.user_text}\n\n[Clarify] {ev.text}"
@@ -188,7 +202,14 @@ async def dispatch_specialist(
         ref = host._put_artifact(mcp, to_role, "critique", result.text)
         result.summary = host._summary_of(mcp, ref, result.text, role=to_role)
         async for ev in host._maybe_clarify(
-            to_role, result, board.user_text, complexity, stop, max_tokens, mode=board.mode
+            to_role,
+            result,
+            board.user_text,
+            complexity,
+            stop,
+            max_tokens,
+            mode=board.mode,
+            intent=board.intent,
         ):
             if ev.kind == EVENT_CLARIFY_RESOLVED and ev.text:
                 board.user_text = f"{board.user_text}\n\n[Clarify] {ev.text}"

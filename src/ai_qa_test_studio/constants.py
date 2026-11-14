@@ -63,6 +63,7 @@ COPILOT_CHAT_MAX_TOKENS = 2048
 COPILOT_INPUT_HEIGHT = 64
 COPILOT_BTN_SEND_SIZE = 36
 COPILOT_STOP_MARKER = "— Đã dừng —"
+COPILOT_INCOMPLETE_MARKER = "— Chưa hoàn tất —"
 COPILOT_STOP_SUFFIX = f"\n\n{COPILOT_STOP_MARKER}"
 COPILOT_STOP_ICON_INSET_RATIO = 0.28
 COPILOT_STOP_ICON_RADIUS_RATIO = 0.14
@@ -128,6 +129,13 @@ COPILOT_STATUS_INFERRING_INTENT = "Đang nhận diện intent…"
 COPILOT_STATUS_COORD_DECIDE = "Điều phối viên đang chọn bước tiếp…"
 COPILOT_STATUS_INDEXING = "Đang index tài liệu đính kèm…"
 COPILOT_STATUS_ROLE_HANDOFF = "{role} đang chờ · đã giao → {next_role}"
+COPILOT_COORD_COMPLETE_FALLBACK = "Hoàn tất điều phối"
+COPILOT_COORD_JSON_HIDDEN = "Đã điều phối xong"
+COPILOT_COORD_EXPLAIN_GOAL = "Trả lời trực tiếp câu hỏi người dùng"
+COPILOT_COORD_EXPLAIN_ACCEPTANCE = (
+    "Câu trả lời rõ ràng; không bắt chọn sản phẩm QA hay mở hộp thoại làm rõ"
+)
+CLARIFY_SUGGESTION_MIN_CHARS = 2
 COPILOT_BUSY_PLACEHOLDER = "Đang xử lý — bấm Stop để dừng…"
 COPILOT_IDLE_PLACEHOLDER = "Nhập yêu cầu hoặc đính kèm file…"
 COPILOT_MODEL_LABEL_AUTO = "Auto"
@@ -284,17 +292,36 @@ CASE_STATUS_FAIL = "FAIL"
 RUN_CANCEL_WAIT_TIMEOUT_S = 30.0
 COPILOT_SUMMARY_MAX_CHARS = 160
 COPILOT_CHAT_REPLY_MAX_CHARS = 220
+# Full readable chat/explain replies (paragraphs + blank-line separators).
+COPILOT_CHAT_PROSE_MAX_CHARS = 8_000
 COPILOT_ROLE_REPLY_STYLE = (
     "Trả lời tiếng Việt, ngắn gọn: tối đa 4 gạch đầu dòng hoặc ~80 từ. "
     "Không viết đoạn dài; chi tiết nằm trong artifact/Apply."
+)
+COPILOT_CHAT_PROSE_STYLE = (
+    "Trả lời tiếng Việt, đầy đủ và dễ đọc: tách ý bằng xuống dòng, "
+    "chừa một dòng trống giữa các đoạn, dùng gạch đầu dòng khi liệt kê. "
+    "Không gom toàn bộ thành một dòng liền. "
+    "Trả lời thẳng câu hỏi người dùng — không tự xưng Chuyên gia kiểm thử/composer, "
+    "không viết mục Báo cáo cho Điều phối viên, không liệt kê Intent/Skill/RETRIEVED."
+)
+COPILOT_EXPLAIN_META_MARKERS = (
+    "báo cáo cho điều phối",
+    "báo cáo cho điều phối viên",
+    "intent nhận được",
+    "skill đang gắn",
+    "ngữ cảnh retrieved",
+    "không phát sinh artifact",
 )
 # NEXUS/Ruflo-inspired handoff + deliverable contracts (Studio domain — not vendored).
 COPILOT_HANDOFF_HEADER = "[HANDOFF]"
 COPILOT_ROLE_BRIEFS: dict[str, str] = {
     ROLE_COORDINATOR: (
-        "Bạn là Điều phối viên (hierarchical lead). Nắm vững ngữ cảnh board, "
-        "giao việc / thu hồi kết quả từ chuyên gia, quyết định bước tiếp. "
-        "Không soạn artifact thay chuyên gia. Output JSON điều phối thôi."
+        "Bạn là Điều phối viên (hierarchical lead). Tự phân tích Intent + board "
+        "bằng lý luận (không dựa keyword cứng). Giao việc / thu hồi kết quả từ "
+        "chuyên gia, quyết định bước tiếp. Không soạn artifact thay chuyên gia. "
+        "Không complete khi chưa có câu trả lời/artifact. Output JSON điều phối "
+        "thôi (JSON không hiện cho user)."
     ),
     ROLE_PLANNER: (
         "Bạn là Chuyên gia hoạch định. Chỉ lập kế hoạch giao việc — không soạn artifact. "

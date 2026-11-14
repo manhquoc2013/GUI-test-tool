@@ -106,3 +106,44 @@ def test_critic_report_handoff_keeps_revise_findings() -> None:
 def test_clip_chat_reply_delegates() -> None:
     out = clip_chat_reply("Planner: 3 bước")
     assert out == "Planner: 3 bước"
+
+
+def test_chat_prose_keeps_paragraph_breaks() -> None:
+    raw = (
+        "Đây là câu trả lời chat.\n"
+        "\n"
+        "Đoạn hai giải thích thêm.\n"
+        "- Ý A\n"
+        "- Ý B\n"
+        "\n"
+        "Kết luận ngắn."
+    )
+    out = summarize_for_bubble(raw, max_chars=180)
+    assert "Đây là câu trả lời chat." in out
+    assert "Đoạn hai giải thích thêm." in out
+    assert "- Ý A" in out
+    assert "- Ý B" in out
+    assert "Kết luận ngắn." in out
+    assert "\n\n" in out
+    assert " · " not in out
+
+
+def test_sanitize_strips_meta_report_and_markdown() -> None:
+    from ai_qa_test_studio.ui.bubble_summary import sanitize_user_reply, usable_explain_answer
+
+    raw = (
+        "## Kết quả\n"
+        "**10 × 200 + 300 = 2.300**\n"
+        "\n"
+        "## Báo cáo cho Điều phối viên\n"
+        "- **Intent nhận được:** explain\n"
+        "- Skill đang gắn (a11y-audit) không áp dụng\n"
+    )
+    out = sanitize_user_reply(raw)
+    assert "10 × 200 + 300 = 2.300" in out
+    assert "##" not in out
+    assert "**" not in out
+    assert "Intent" not in out
+    assert "a11y" not in out
+    assert usable_explain_answer("Câu trả lời đã có: 10×200+300 = 2.300") is True
+    assert usable_explain_answer("Hoàn tất điều phối") is False

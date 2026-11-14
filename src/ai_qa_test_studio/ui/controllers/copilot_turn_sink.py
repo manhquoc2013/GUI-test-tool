@@ -118,11 +118,14 @@ class CopilotTurnSink:
                 continue
             if not content.strip():
                 msg.content = COPILOT_STOP_MARKER
+                msg.summary = COPILOT_STOP_MARKER
                 msg.status = "stopped"
         if self.session.messages:
             last = self.session.messages[-1]
             if last.role != "user" and COPILOT_STOP_MARKER not in (last.content or ""):
                 last.content = (last.content or "") + COPILOT_STOP_SUFFIX
+                if COPILOT_STOP_MARKER not in (last.summary or ""):
+                    last.summary = (last.summary or "") + COPILOT_STOP_SUFFIX
                 last.status = "stopped"
 
     def attach_apply_to_latest_crew(self, payload: dict[str, Any]) -> None:

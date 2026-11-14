@@ -71,6 +71,7 @@ from ai_qa_test_studio.constants import (
     COPILOT_HISTORY_POPOVER_WIDTH,
     COPILOT_HISTORY_TOGGLE_TIP,
     COPILOT_IDLE_PLACEHOLDER,
+    COPILOT_INCOMPLETE_MARKER,
     COPILOT_INPUT_HEIGHT,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
@@ -634,14 +635,25 @@ class CopilotChatPane(QWidget):
         self.starters.setVisible(True)
         self.session_changed.emit()
 
-    def load_session(self, session: CopilotSession) -> None:
+    def load_session(
+        self, session: CopilotSession, *, settle_incomplete: bool = True
+    ) -> bool:
+        """Load transcript. Returns True when blank agent bubbles were settled."""
         self._session = session
+        settled = False
+        if settle_incomplete:
+            settled = session.settle_incomplete_messages()
         self._clear_transcript()
         for msg in session.messages:
-            self._append_row(msg.id, msg.role, msg.bubble_text())
+            text = msg.bubble_text()
+            # Settled history: never resurrect typing from a blank body.
+            if settle_incomplete and not (text or "").strip():
+                text = COPILOT_INCOMPLETE_MARKER
+            self._append_row(msg.id, msg.role, text, animate=False)
         self.starters.setVisible(len(session.messages) == 0)
         self.focus_case_chat()
         self.session_changed.emit()
+        return settled
 
     def set_model_catalog(self, items: list[tuple[str, str]]) -> None:
         current = self.selected_model_ref()
@@ -805,6 +817,7 @@ class CopilotChatPane(QWidget):
             if not pending:
                 continue
             msg.content = COPILOT_STOP_MARKER
+            msg.summary = COPILOT_STOP_MARKER
             msg.status = "stopped"
             if row is not None:
                 row.set_body(COPILOT_STOP_MARKER)
@@ -812,6 +825,11 @@ class CopilotChatPane(QWidget):
             last = self._session.messages[-1]
             if last.role != "user" and COPILOT_STOP_MARKER not in (last.content or ""):
                 last.content = (last.content or "") + COPILOT_STOP_SUFFIX
+                last.summary = (last.summary or "") + (
+                    ""
+                    if COPILOT_STOP_MARKER in (last.summary or "")
+                    else COPILOT_STOP_SUFFIX
+                )
                 last.status = "stopped"
                 paint_row = self._row_for_message_id(last.id)
                 if paint_row is not None and COPILOT_STOP_MARKER not in (paint_row._text or ""):
@@ -1176,9 +1194,14 @@ class CopilotChatPane(QWidget):
             row.deleteLater()
 
     def _rebuild_from_session(self) -> None:
+        if not self._busy:
+            self._session.settle_incomplete_messages()
         self._clear_transcript()
         for msg in self._session.messages:
-            self._append_row(msg.id, msg.role, msg.bubble_text(), animate=False)
+            text = msg.bubble_text()
+            if not self._busy and not (text or "").strip():
+                text = COPILOT_INCOMPLETE_MARKER
+            self._append_row(msg.id, msg.role, text, animate=False)
 
     def _append_row(
         self,
