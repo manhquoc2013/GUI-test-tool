@@ -1,7 +1,4 @@
-# Learnings — s-review remediation (2026-11-14)
+# Learnings — s-review remediation #2 (2026-11-14)
 
-- Dock open/close `on_done` must be cancelled via `stop_channel` before snap-close; flipping `_dock_animating` alone is not enough.
-- Sparse `list[doc_id]` + `zip(attachments, …)` mis-labels peers; return `dict[path, doc_id]`.
-- Chip clear must keep ingest cache for the in-flight send; `new_session` / `clear_messages` must reset it.
-- Agent must not import UI: put shared bubble/crew synthesis in `agent/result_snippet.py`.
-- Never stage `data/copilot/sessions.json`.
+- Restoring sessions.json in the working tree is not enough if a prior commit already bloated HEAD; tip must match origin (or a tiny fixture) before push.
+- Primitive unit tests for `stop_channel` do not guard call-site wiring — assert registry/`on_done` through `toggle_sidebar` mutual-exclusion path.
