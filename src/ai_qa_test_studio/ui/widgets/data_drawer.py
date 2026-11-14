@@ -1,4 +1,4 @@
-"""Collapsible Test Data drawer — emits toggled; owner drives QSplitter sizes."""
+"""Collapsible Test Data drawer — summary table + modal add/edit."""
 
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ from ai_qa_test_studio.constants import (
 from ai_qa_test_studio.ui.formatting import format_param_cell, humanize_header
 from ai_qa_test_studio.ui.theme import card_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
+from ai_qa_test_studio.ui.widgets.test_data_row_dialog import TestDataRowDialog
 
 _SCENARIO_KEYS = ("scenario", "Scenario", "case", "Case", "name", "Name", "title")
 _EXPECTED_KEYS = (
@@ -79,7 +80,7 @@ class TestDataDrawer(QWidget):
 
         self.btn_add_row = PushButton(FIF.ADD, "Thêm bộ dữ liệu", self)
         self.btn_add_row.setFixedHeight(28)
-        self.btn_add_row.setToolTip("Thêm một bộ dữ liệu trống vào case đang mở")
+        self.btn_add_row.setToolTip("Mở form thêm bộ dữ liệu cho case đang mở")
         self.btn_add_row.setAccessibleName("Thêm bộ dữ liệu")
         self.btn_add_row.clicked.connect(lambda: self.add_requested.emit())
         header.addWidget(self.btn_add_row)
@@ -123,9 +124,10 @@ class TestDataDrawer(QWidget):
         table.setTextElideMode(Qt.TextElideMode.ElideRight)
         table.setHorizontalScrollMode(TableWidget.ScrollMode.ScrollPerPixel)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        table.setEditTriggers(
-            TableWidget.EditTrigger.DoubleClicked | TableWidget.EditTrigger.EditKeyPressed
-        )
+        table.setEditTriggers(TableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(TableWidget.SelectionMode.SingleSelection)
+        table.setToolTip("Nhấp đúp để sửa bộ dữ liệu")
         hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(UI_DATA_HEADER_MIN_SECTION)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
@@ -133,7 +135,7 @@ class TestDataDrawer(QWidget):
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         table.setColumnWidth(0, UI_DATA_COL_SCENARIO_WIDTH)
         table.setColumnWidth(2, UI_DATA_COL_EXPECTED_WIDTH)
-        table.itemChanged.connect(self._on_item_changed)
+        table.doubleClicked.connect(self._on_row_double_clicked)
         return table
 
     @property
@@ -147,45 +149,56 @@ class TestDataDrawer(QWidget):
         self._loading = True
         try:
             self._raw_rows = [dict(row) for row in rows]
-            self.table.setRowCount(len(self._raw_rows))
-            self.tabs.setItemText("data", f"Test Data ({len(self._raw_rows)})")
-            for r_idx, row in enumerate(self._raw_rows):
-                scenario, params, expected = self._split_row(row, r_idx)
-                self.table.setItem(r_idx, 0, QTableWidgetItem(scenario))
-                param_item = QTableWidgetItem(params)
-                param_item.setToolTip(params.replace(" | ", "\n"))
-                self.table.setItem(r_idx, 1, param_item)
-                self.table.setItem(r_idx, 2, QTableWidgetItem(expected))
-                self.table.setRowHeight(r_idx, UI_DATA_TABLE_ROW_HEIGHT)
+            self._refresh_table()
         finally:
             self._loading = False
 
-    def add_blank_row(self) -> None:
-        index = len(self._raw_rows) + 1
-        params = self._template_parameters()
-        row: dict[str, Any] = {
-            "scenario": f"{TEST_DATA_NEW_ROW_LABEL} {index}",
-            "parameters": params,
-            "ExpectedOutcome": DEFAULT_EXPECTED_OUTCOME,
-        }
-        self._raw_rows.append(row)
-        self._loading = True
-        try:
-            r_idx = self.table.rowCount()
-            self.table.insertRow(r_idx)
-            scenario, params_text, expected = self._split_row(row, r_idx)
-            self.table.setItem(r_idx, 0, QTableWidgetItem(scenario))
-            param_item = QTableWidgetItem(params_text)
-            param_item.setToolTip(params_text.replace(" | ", "\n") if params_text else "")
-            self.table.setItem(r_idx, 1, param_item)
-            self.table.setItem(r_idx, 2, QTableWidgetItem(expected))
-            self.table.setRowHeight(r_idx, UI_DATA_TABLE_ROW_HEIGHT)
-            self.table.selectRow(r_idx)
-            self.table.scrollToBottom()
-            self.tabs.setItemText("data", f"Test Data ({len(self._raw_rows)})")
-        finally:
-            self._loading = False
+    def open_add_dialog(self) -> bool:
+        index = len(self._raw_rows)
+        dialog = TestDataRowDialog(
+            self.window() or self,
+            scenario=f"{TEST_DATA_NEW_ROW_LABEL} {index + 1}",
+            parameters=self._template_parameters(),
+            expected=DEFAULT_EXPECTED_OUTCOME,
+            editing=False,
+            index=index,
+        )
+        if not dialog.exec():
+            return False
+        self._raw_rows.append(dialog.result_row())
+        self._refresh_table()
+        self.table.selectRow(len(self._raw_rows) - 1)
+        self.table.scrollToBottom()
         self.rows_changed.emit(self.rows())
+        return True
+
+    def open_edit_dialog(self, row_index: int) -> bool:
+        if row_index < 0 or row_index >= len(self._raw_rows):
+            return False
+        raw = self._raw_rows[row_index]
+        scenario, _params_text, expected = self._split_row(raw, row_index)
+        parameters = self._extract_parameters(raw)
+        dialog = TestDataRowDialog(
+            self.window() or self,
+            scenario=scenario,
+            parameters=parameters,
+            expected=expected,
+            editing=True,
+            index=row_index,
+        )
+        if not dialog.exec():
+            return False
+        if dialog.deleted:
+            del self._raw_rows[row_index]
+        else:
+            self._raw_rows[row_index] = dialog.result_row()
+        self._refresh_table()
+        self.rows_changed.emit(self.rows())
+        return True
+
+    def add_blank_row(self) -> None:
+        """Compat: mở modal thêm (không còn chèn dòng trống inline)."""
+        self.open_add_dialog()
 
     def toggle_collapse(self) -> None:
         self._collapsed = not self._collapsed
@@ -203,54 +216,40 @@ class TestDataDrawer(QWidget):
     def _apply_theme_style(self) -> None:
         self.setStyleSheet(card_stylesheet("#TestDataDrawer"))
 
+    def _on_row_double_clicked(self, index) -> None:  # type: ignore[no-untyped-def]
+        if self._loading:
+            return
+        self.open_edit_dialog(index.row())
+
+    def _refresh_table(self) -> None:
+        self._loading = True
+        try:
+            self.table.setRowCount(len(self._raw_rows))
+            self.tabs.setItemText("data", f"Test Data ({len(self._raw_rows)})")
+            for r_idx, row in enumerate(self._raw_rows):
+                scenario, params, expected = self._split_row(row, r_idx)
+                self.table.setItem(r_idx, 0, QTableWidgetItem(scenario))
+                param_item = QTableWidgetItem(params)
+                param_item.setToolTip(params.replace(" | ", "\n") if params else "")
+                self.table.setItem(r_idx, 1, param_item)
+                self.table.setItem(r_idx, 2, QTableWidgetItem(expected))
+                self.table.setRowHeight(r_idx, UI_DATA_TABLE_ROW_HEIGHT)
+        finally:
+            self._loading = False
+
     def _template_parameters(self) -> dict[str, str]:
         for row in reversed(self._raw_rows):
-            if isinstance(row.get("parameters"), dict) and row["parameters"]:
-                return {str(k): "" for k in row["parameters"]}
-            skip = set(_SCENARIO_KEYS) | set(_EXPECTED_KEYS) | {"parameters", "Parameters"}
-            leftover = {k: v for k, v in row.items() if k not in skip}
-            if leftover:
-                return {str(k): "" for k in leftover}
+            params = self._extract_parameters(row)
+            if params:
+                return {str(k): "" for k in params}
         return {}
 
-    def _on_item_changed(self, item: QTableWidgetItem) -> None:
-        if self._loading or item is None:
-            return
-        row = item.row()
-        col = item.column()
-        if row < 0 or row >= len(self._raw_rows):
-            return
-        text = item.text().strip()
-        raw = self._raw_rows[row]
-        if col == 0:
-            raw["scenario"] = text or f"{TEST_DATA_NEW_ROW_LABEL} {row + 1}"
-            for key in _SCENARIO_KEYS:
-                if key != "scenario" and key in raw:
-                    del raw[key]
-        elif col == 2:
-            raw["ExpectedOutcome"] = text or DEFAULT_EXPECTED_OUTCOME
-            for key in _EXPECTED_KEYS:
-                if key != "ExpectedOutcome" and key in raw:
-                    del raw[key]
-        elif col == 1:
-            raw["parameters"] = self._parse_params_text(text)
-            item.setToolTip(text.replace(" | ", "\n") if text else "")
-        self.rows_changed.emit(self.rows())
-
-    def _parse_params_text(self, text: str) -> dict[str, str]:
-        params: dict[str, str] = {}
-        if not text.strip():
-            return params
-        for part in text.split("|"):
-            chunk = part.strip()
-            if not chunk:
-                continue
-            if ":" in chunk:
-                key, _, value = chunk.partition(":")
-                params[key.strip()] = value.strip()
-            else:
-                params[chunk] = ""
-        return params
+    def _extract_parameters(self, row: dict[str, Any]) -> dict[str, str]:
+        if isinstance(row.get("parameters"), dict):
+            return {str(k): "" if v is None else str(v) for k, v in row["parameters"].items()}
+        skip = set(_SCENARIO_KEYS) | set(_EXPECTED_KEYS) | {"parameters", "Parameters"}
+        leftover = {k: v for k, v in row.items() if k not in skip}
+        return {str(k): "" if v is None else str(v) for k, v in leftover.items()}
 
     def _split_row(self, row: dict[str, Any], index: int) -> tuple[str, str, str]:
         scenario = next((str(row[k]) for k in _SCENARIO_KEYS if k in row and row[k]), "")

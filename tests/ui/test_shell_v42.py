@@ -195,6 +195,9 @@ def test_editor_title_elides_long_names(qapp: QApplication, tmp_path: Path) -> N
     qapp.processEvents()
     assert window.builder.title_label.toolTip() == long_title
     assert len(window.builder.title_label.text()) <= len(long_title)
+    style = window.builder.title_label.styleSheet()
+    assert "color:" in style
+    assert "font-weight: 600" in style
     window.close()
 
 
@@ -251,6 +254,57 @@ def test_editor_min_width_floor(qapp: QApplication, tmp_path: Path) -> None:
     window.show()
     assert window.builder.minimumSizeHint().width() == UI_EDITOR_MIN_WIDTH
     assert window.explorer.minimumWidth() == UI_EXPLORER_MIN_WIDTH
+    window.close()
+
+
+def test_explorer_pivot_icon_only_below_density_wide(qapp: QApplication) -> None:
+    from ai_qa_test_studio.constants import (
+        UI_EXPLORER_CONTENT_H_MARGIN,
+        UI_EXPLORER_DENSITY_WIDE,
+        UI_EXPLORER_MIN_WIDTH,
+    )
+    from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
+
+    pane = ExplorerPane()
+    pane.set_element_count(67)
+    pane.apply_density(UI_EXPLORER_MIN_WIDTH)
+    assert pane.pivot.widget("suites").text() == ""
+    assert pane.pivot.widget("elements").text() == ""
+    assert pane.pivot.widget("reports").text() == ""
+    assert "67" in pane.pivot.widget("elements").toolTip()
+    pane.apply_density(UI_EXPLORER_DENSITY_WIDE + UI_EXPLORER_CONTENT_H_MARGIN)
+    assert pane.pivot.widget("suites").text() == "Cases"
+    assert pane.pivot.widget("elements").text() == "EL (67)"
+    assert pane.pivot.widget("reports").text() == "Reports"
+    pane.close()
+
+
+def test_copilot_context_chips_stay_labeled_when_narrow(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    from ai_qa_test_studio.constants import (
+        COPILOT_CHIP_CASE,
+        COPILOT_CHIP_DOM,
+        COPILOT_CHIP_ERROR,
+        COPILOT_MODEL_LABEL_AUTO,
+        UI_DOCK_MIN_WIDTH,
+    )
+
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
+    qapp.processEvents()
+    window.right_drawer.open_drawer()
+    window._sync_drawer_geometry()
+    qapp.processEvents()
+    pane = window.copilot
+    pane.resize(UI_DOCK_MIN_WIDTH, 600)
+    qapp.processEvents()
+    assert pane.chip_case.text() == COPILOT_CHIP_CASE
+    assert pane.chip_dom.text() == COPILOT_CHIP_DOM
+    assert pane.chip_error.text() == COPILOT_CHIP_ERROR
+    assert pane.model_combo.currentText() == COPILOT_MODEL_LABEL_AUTO
     window.close()
 
 

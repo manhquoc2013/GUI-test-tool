@@ -45,7 +45,7 @@ class LayoutController:
         w.top_bar.apply_density(width)
         w.builder.apply_density(width)
         if hasattr(w.explorer, "apply_density") and not w._sidebar_collapsed:
-            w.explorer.apply_density(self._saved_explorer_w)
+            w.explorer.apply_density(w.explorer.width() or self._saved_explorer_w)
 
     def _update_breakpoint_chrome(self, width: int) -> int:
         w = self._w

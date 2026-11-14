@@ -41,11 +41,50 @@ def test_settings_dialog_uses_stack_and_saves(qapp: QApplication) -> None:
 
     dialog.env_edit.setText("STAGING")
     dialog.spin_summary.setValue(120)
+    assert "120" in dialog.spin_summary.text()
+    assert dialog.spin_summary.suffix()
+    assert dialog.spin_clarify.value() >= 5_000
     assert dialog.validate() is True
     result = dialog.result_settings()
     assert result is not None
     assert result.active_environment == "STAGING"
     assert result.copilot.summary_max_chars == 120
+    dialog.close()
+    host.close()
+
+
+def test_settings_lists_are_top_aligned_fixed_height(qapp: QApplication) -> None:
+    from ai_qa_test_studio.constants import UI_SETTINGS_LIST_HEIGHT
+
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+    from PySide6.QtWidgets import QSizePolicy
+
+    assert dialog.api_list.height() == UI_SETTINGS_LIST_HEIGHT
+    assert dialog.model_list.height() == UI_SETTINGS_LIST_HEIGHT
+    assert dialog.api_list.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
+    assert dialog.model_list.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
+    dialog.close()
+    host.close()
+
+
+def test_models_tab_uses_editable_combo_for_model_id(qapp: QApplication) -> None:
+    from qfluentwidgets import EditableComboBox
+
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+    dialog._show("models", 3)
+    qapp.processEvents()
+    assert isinstance(dialog.model_id, EditableComboBox)
+    assert hasattr(dialog, "btn_fetch_models")
     dialog.close()
     host.close()
 

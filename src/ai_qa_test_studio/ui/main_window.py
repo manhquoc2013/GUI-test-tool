@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
         if self.project is None or self.builder.current_case() is None:
             self._toast_warn("Test Data", "Chọn một test case trước khi thêm bộ dữ liệu.")
             return
-        self.data_drawer.add_blank_row()
+        self.data_drawer.open_add_dialog()
 
     def _on_test_data_rows_changed(self, rows: list[dict[str, Any]]) -> None:
         if self.project is None:

@@ -20,6 +20,7 @@ from ai_qa_test_studio.constants import (
     THEME_SURFACE_CARD_ALPHA,
     THEME_SURFACE_PANEL_ALPHA,
     THEME_TEXT_MUTED,
+    THEME_TEXT_ON_LIGHT,
     THEME_TEXT_PRIMARY,
     THEME_UNBOUND_BG_ALPHA,
     THEME_UNBOUND_BORDER_ALPHA,
@@ -53,6 +54,12 @@ def unbound_banner_bg_css(*, dark: bool | None = None) -> str:
 
 def unbound_banner_border_css(*, dark: bool | None = None) -> str:
     return f"rgba(245, 158, 11, {THEME_UNBOUND_BORDER_ALPHA:.2f})"
+
+
+def text_primary_css(*, dark: bool | None = None) -> str:
+    """Primary body/title text for current (or forced) theme."""
+    use_dark = isDarkTheme() if dark is None else dark
+    return THEME_TEXT_PRIMARY if use_dark else THEME_TEXT_ON_LIGHT
 
 
 def action_badge_bg_css(fg_hex: str) -> str:

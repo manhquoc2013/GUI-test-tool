@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import uuid
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from qfluentwidgets import (
     CardWidget,
     CheckBox,
     ComboBox,
+    EditableComboBox,
     LineEdit,
     ListWidget,
     MessageBoxBase,
@@ -37,6 +38,7 @@ from qfluentwidgets import (
     TreeWidget,
 )
 
+from ai_qa_test_studio.agent.model_catalog import list_available_models
 from ai_qa_test_studio.constants import (
     LLM_PROVIDER_GEMINI,
     LLM_PROVIDER_OFFLINE,
@@ -57,6 +59,7 @@ from ai_qa_test_studio.constants import (
     UI_SETTINGS_NAV_WIDTH,
     UI_SETTINGS_SECTION_GAP,
     UI_SETTINGS_SPIN_WIDTH,
+    UI_SETTINGS_SPIN_WIDTH_WIDE,
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
 from ai_qa_test_studio.core.models import (
@@ -70,6 +73,7 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
 )
 from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
+from ai_qa_test_studio.ui.theme import text_primary_css
 
 _TAB_DEFS: tuple[tuple[str, str], ...] = (
     ("general", "Chung"),
@@ -82,6 +86,28 @@ _TAB_DEFS: tuple[tuple[str, str], ...] = (
 )
 
 
+class _ModelListWorker(QThread):
+    succeeded = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, provider: str, api_key: str, base_url: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._provider = provider
+        self._api_key = api_key
+        self._base_url = base_url
+
+    def run(self) -> None:
+        try:
+            ids = list_available_models(
+                provider=self._provider,
+                api_key=self._api_key,
+                base_url=self._base_url,
+            )
+            self.succeeded.emit(ids)
+        except Exception as exc:  # noqa: BLE001 — surface to UI status
+            self.failed.emit(str(exc))
+
+
 class SystemSettingsDialog(MessageBoxBase):
     def __init__(self, settings: AppSettings, parent: QWidget) -> None:
         super().__init__(parent)
@@ -89,6 +115,8 @@ class SystemSettingsDialog(MessageBoxBase):
         self._draft = settings.model_copy(deep=True)
         self._ensure_ai_defaults()
         self._accepted = False
+        self._model_worker: _ModelListWorker | None = None
+        self._remote_model_ids: list[str] = []
 
         self.widget.setMinimumWidth(UI_SETTINGS_MIN_WIDTH)
         self.widget.setMinimumHeight(UI_SETTINGS_MIN_HEIGHT)
@@ -212,24 +240,73 @@ class SystemSettingsDialog(MessageBoxBase):
         self.pivot.setCurrentItem(key)
         if key == "models":
             self._reload_model_list()
+            self._fetch_remote_models()
         elif key == "apis":
             self._reload_api_list()
 
     def _card(self, parent: QWidget, title: str) -> tuple[CardWidget, QVBoxLayout]:
         card = CardWidget(parent)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(UI_SETTINGS_FIELD_SPACING)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(StrongBodyLabel(title, card))
         return card, layout
+
+    def _prep_settings_list(self, widget: ListWidget) -> None:
+        """Keep rows glued to the top — do not let the list viewport expand and float items."""
+        widget.setFixedHeight(UI_SETTINGS_LIST_HEIGHT)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        widget.setSpacing(2)
 
     def _add_field(self, layout: QVBoxLayout, parent: QWidget, label: str, widget: QWidget) -> None:
         block = QVBoxLayout()
         block.setSpacing(4)
         block.setContentsMargins(0, 0, 0, 0)
         block.addWidget(CaptionLabel(label, parent))
-        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        if not isinstance(widget, SpinBox):
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         block.addWidget(widget)
+        layout.addLayout(block)
+
+    def _style_spin(self, spin: SpinBox, *, wide: bool = False) -> None:
+        """Fluent SpinBox needs fixed width + explicit text color or digits vanish."""
+        width = UI_SETTINGS_SPIN_WIDTH_WIDE if wide else UI_SETTINGS_SPIN_WIDTH
+        spin.setFixedWidth(width)
+        spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        spin.setStyleSheet(
+            "SpinBox {"
+            f"color: {text_primary_css()};"
+            "background-color: transparent;"
+            "padding-left: 12px;"
+            "padding-right: 72px;"
+            "}"
+        )
+
+    def _add_spin_field(
+        self,
+        layout: QVBoxLayout,
+        parent: QWidget,
+        label: str,
+        hint: str,
+        spin: SpinBox,
+        *,
+        wide: bool = False,
+    ) -> None:
+        self._style_spin(spin, wide=wide)
+        block = QVBoxLayout()
+        block.setSpacing(4)
+        block.setContentsMargins(0, 0, 0, 0)
+        block.addWidget(CaptionLabel(label, parent))
+        tip = BodyLabel(hint, parent)
+        tip.setWordWrap(True)
+        tip.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        block.addWidget(tip)
+        block.addWidget(spin)
         layout.addLayout(block)
 
     def _page_root(self) -> tuple[QWidget, QVBoxLayout]:
@@ -282,11 +359,11 @@ class SystemSettingsDialog(MessageBoxBase):
         root, layout = self._page_root()
         split = QHBoxLayout()
         split.setSpacing(UI_SETTINGS_SECTION_GAP)
+        split.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         list_card, list_body = self._card(root, "Danh sách API")
         self.api_list = ListWidget(list_card)
-        self.api_list.setMinimumHeight(UI_SETTINGS_LIST_HEIGHT)
-        self.api_list.setMaximumHeight(UI_SETTINGS_LIST_HEIGHT + 40)
+        self._prep_settings_list(self.api_list)
         list_body.addWidget(self.api_list)
         list_actions = QHBoxLayout()
         list_actions.setSpacing(8)
@@ -296,7 +373,7 @@ class SystemSettingsDialog(MessageBoxBase):
         list_actions.addWidget(self.btn_del_api)
         list_actions.addStretch(1)
         list_body.addLayout(list_actions)
-        split.addWidget(list_card, stretch=2)
+        split.addWidget(list_card, stretch=2, alignment=Qt.AlignmentFlag.AlignTop)
 
         form_card, form_body = self._card(root, "Chi tiết API")
         self.api_label = LineEdit(form_card)
@@ -315,9 +392,10 @@ class SystemSettingsDialog(MessageBoxBase):
         form_body.addWidget(self.api_enabled)
         self.btn_apply_api = PrimaryPushButton("Cập nhật API đang chọn", form_card)
         form_body.addWidget(self.btn_apply_api)
-        split.addWidget(form_card, stretch=3)
+        split.addWidget(form_card, stretch=3, alignment=Qt.AlignmentFlag.AlignTop)
 
         layout.addLayout(split)
+        layout.addStretch(1)
         self.btn_add_api.clicked.connect(self._add_api)
         self.btn_del_api.clicked.connect(self._del_api)
         self.btn_apply_api.clicked.connect(self._apply_api)
@@ -334,11 +412,11 @@ class SystemSettingsDialog(MessageBoxBase):
 
         split = QHBoxLayout()
         split.setSpacing(UI_SETTINGS_SECTION_GAP)
+        split.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         list_card, list_body = self._card(root, "Models")
         self.model_list = ListWidget(list_card)
-        self.model_list.setMinimumHeight(UI_SETTINGS_LIST_HEIGHT)
-        self.model_list.setMaximumHeight(UI_SETTINGS_LIST_HEIGHT + 40)
+        self._prep_settings_list(self.model_list)
         list_body.addWidget(self.model_list)
         list_actions = QHBoxLayout()
         self.btn_add_model = PushButton("Thêm", list_card)
@@ -347,28 +425,40 @@ class SystemSettingsDialog(MessageBoxBase):
         list_actions.addWidget(self.btn_del_model)
         list_actions.addStretch(1)
         list_body.addLayout(list_actions)
-        split.addWidget(list_card, stretch=2)
+        split.addWidget(list_card, stretch=2, alignment=Qt.AlignmentFlag.AlignTop)
 
         form_card, form_body = self._card(root, "Chi tiết model")
-        self.model_id = LineEdit(form_card)
+        self.model_id = EditableComboBox(form_card)
+        self.model_id.setPlaceholderText("Chọn hoặc gõ model id…")
+        self.model_id.setToolTip("Danh sách lấy từ API (OpenAI-compatible / Gemini). Có thể gõ tay nếu thiếu.")
+        self.btn_fetch_models = PushButton("Tải danh sách từ API", form_card)
+        self.btn_fetch_models.setFixedHeight(28)
+        self.model_fetch_status = CaptionLabel("", form_card)
+        self.model_fetch_status.setWordWrap(True)
+        self.model_fetch_status.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
         self.model_label = LineEdit(form_card)
         self.model_tier = ComboBox(form_card)
         self.model_tier.addItems([LLM_TIER_FAST, LLM_TIER_MID, LLM_TIER_STRONG])
         self.model_default = CheckBox("Default của API", form_card)
-        self._add_field(form_body, form_card, "Model id", self.model_id)
-        self._add_field(form_body, form_card, "Label", self.model_label)
+        self._add_field(form_body, form_card, "Model", self.model_id)
+        form_body.addWidget(self.btn_fetch_models)
+        form_body.addWidget(self.model_fetch_status)
+        self._add_field(form_body, form_card, "Label hiển thị", self.model_label)
         self._add_field(form_body, form_card, "Tier", self.model_tier)
         form_body.addWidget(self.model_default)
         self.btn_apply_model = PrimaryPushButton("Cập nhật model", form_card)
         form_body.addWidget(self.btn_apply_model)
-        split.addWidget(form_card, stretch=3)
+        split.addWidget(form_card, stretch=3, alignment=Qt.AlignmentFlag.AlignTop)
 
         layout.addLayout(split)
-        self.model_api_combo.currentIndexChanged.connect(self._reload_model_list)
+        layout.addStretch(1)
+        self.model_api_combo.currentIndexChanged.connect(self._on_model_api_changed)
         self.model_list.currentRowChanged.connect(self._load_model_row)
+        self.model_id.currentTextChanged.connect(self._on_model_id_changed)
         self.btn_add_model.clicked.connect(self._add_model)
         self.btn_del_model.clicked.connect(self._del_model)
         self.btn_apply_model.clicked.connect(self._apply_model)
+        self.btn_fetch_models.clicked.connect(self._fetch_remote_models)
         self._reload_model_api_combo()
         return root
 
@@ -399,33 +489,86 @@ class SystemSettingsDialog(MessageBoxBase):
     def _build_copilot(self) -> QWidget:
         root, layout = self._page_root()
         card, body = self._card(root, "Giới hạn runtime Copilot")
+        intro = BodyLabel(
+            "Điều khiển vòng lặp agent (Planner → Composer → Critic). "
+            "Giữ mặc định nếu không chắc; chỉnh khi agent bị lặp vòng hoặc hỏi clarify quá lâu.",
+            card,
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {THEME_TEXT_SECONDARY};")
+        body.addWidget(intro)
+
         c = self._draft.copilot
         self.spin_summary = SpinBox(card)
         self.spin_summary.setRange(40, 400)
         self.spin_summary.setValue(c.summary_max_chars)
-        self.spin_summary.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
+        self.spin_summary.setSuffix(" ký tự")
+        self.spin_summary.setToolTip("Độ dài tối đa khi rút gọn tin nhắn cũ trong ngữ cảnh chat.")
+
         self.spin_debate = SpinBox(card)
         self.spin_debate.setRange(0, 8)
         self.spin_debate.setValue(c.debate_max_rounds)
-        self.spin_debate.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
+        self.spin_debate.setSuffix(" vòng")
+        self.spin_debate.setToolTip("Số vòng Critic phản biện Composer trước khi chốt kết quả.")
+
         self.spin_loop = SpinBox(card)
         self.spin_loop.setRange(1, 5)
         self.spin_loop.setValue(c.loop_repeat_limit)
-        self.spin_loop.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
+        self.spin_loop.setSuffix(" lần")
+        self.spin_loop.setToolTip("Dừng agent nếu cùng một bước lặp lại quá số lần này.")
+
         self.spin_clarify = SpinBox(card)
         self.spin_clarify.setRange(5_000, 300_000)
         self.spin_clarify.setSingleStep(1000)
         self.spin_clarify.setValue(c.clarify_timeout_ms)
-        self.spin_clarify.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
+        self.spin_clarify.setSuffix(" ms")
+        self.spin_clarify.setToolTip(
+            "Thời gian chờ người dùng trả lời hộp thoại làm rõ; hết giờ dùng đáp án mặc định."
+        )
+
         self.spin_lean = SpinBox(card)
         self.spin_lean.setRange(500, 16_000)
         self.spin_lean.setValue(c.lean_tail_max_tokens)
-        self.spin_lean.setFixedWidth(UI_SETTINGS_SPIN_WIDTH)
-        self._add_field(body, card, "Summary max chars", self.spin_summary)
-        self._add_field(body, card, "Debate max rounds", self.spin_debate)
-        self._add_field(body, card, "Loop repeat limit", self.spin_loop)
-        self._add_field(body, card, "Clarify timeout (ms)", self.spin_clarify)
-        self._add_field(body, card, "Lean tail tokens", self.spin_lean)
+        self.spin_lean.setSuffix(" token")
+        self.spin_lean.setToolTip("Ngân sách token phần đuôi ngữ cảnh (lean tail) gửi lên LLM.")
+
+        self._add_spin_field(
+            body,
+            card,
+            "Độ dài tóm tắt tin nhắn",
+            "Rút gọn lịch sử chat cũ để khỏi vượt context window.",
+            self.spin_summary,
+        )
+        self._add_spin_field(
+            body,
+            card,
+            "Số vòng tranh luận agent",
+            "0 = bỏ Critic debate; 3 là mặc định cân bằng chất lượng/tốc độ.",
+            self.spin_debate,
+        )
+        self._add_spin_field(
+            body,
+            card,
+            "Giới hạn lặp bước",
+            "Chống agent kẹt vòng lặp cùng một hành động.",
+            self.spin_loop,
+        )
+        self._add_spin_field(
+            body,
+            card,
+            "Timeout hỏi làm rõ",
+            "60000 ms = 60 giây. Hết giờ → dùng câu trả lời mặc định.",
+            self.spin_clarify,
+            wide=True,
+        )
+        self._add_spin_field(
+            body,
+            card,
+            "Lean tail tokens",
+            "Token dành cho phần ngữ cảnh gần nhất gửi model.",
+            self.spin_lean,
+            wide=True,
+        )
         layout.addWidget(card)
         layout.addStretch(1)
         return root
@@ -590,6 +733,10 @@ class SystemSettingsDialog(MessageBoxBase):
         self._reload_model_api_combo()
         self._reload_default_conn()
 
+    def _on_model_api_changed(self) -> None:
+        self._reload_model_list()
+        self._fetch_remote_models()
+
     def _reload_model_list(self) -> None:
         self.model_list.clear()
         conn = self._models_conn()
@@ -606,7 +753,7 @@ class SystemSettingsDialog(MessageBoxBase):
         if conn is None or row < 0 or row >= len(conn.models):
             return
         model = conn.models[row]
-        self.model_id.setText(model.id)
+        self._set_model_id_text(model.id)
         self.model_label.setText(model.label)
         self.model_tier.setCurrentText(model.tier)
         self.model_default.setChecked(model.is_default)
@@ -615,10 +762,19 @@ class SystemSettingsDialog(MessageBoxBase):
         conn = self._models_conn()
         if conn is None:
             return
-        mid = f"model-{len(conn.models) + 1}"
-        conn.models.append(AiModelEntry(id=mid, label=mid, tier=LLM_TIER_MID, is_default=not conn.models))
+        preferred = self.model_id.currentText().strip()
+        if not preferred and self._remote_model_ids:
+            preferred = self._remote_model_ids[0]
+        mid = preferred or f"model-{len(conn.models) + 1}"
+        if any(m.id == mid for m in conn.models):
+            mid = f"{mid}-{len(conn.models) + 1}"
+        conn.models.append(
+            AiModelEntry(id=mid, label=mid, tier=LLM_TIER_MID, is_default=not conn.models)
+        )
         self._reload_model_list()
         self.model_list.setCurrentRow(len(conn.models) - 1)
+        if not self._remote_model_ids:
+            self._fetch_remote_models()
 
     def _del_model(self) -> None:
         conn = self._models_conn()
@@ -634,7 +790,7 @@ class SystemSettingsDialog(MessageBoxBase):
         if conn is None or row < 0 or row >= len(conn.models):
             return
         model = conn.models[row]
-        model.id = self.model_id.text().strip() or model.id
+        model.id = self.model_id.currentText().strip() or model.id
         model.label = self.model_label.text().strip() or model.id
         model.tier = self.model_tier.currentText()
         model.is_default = self.model_default.isChecked()
@@ -643,6 +799,78 @@ class SystemSettingsDialog(MessageBoxBase):
                 if other is not model:
                     other.is_default = False
         self._reload_model_list()
+
+    def _on_model_id_changed(self, text: str) -> None:
+        value = text.strip()
+        if not value:
+            return
+        current_label = self.model_label.text().strip()
+        if not current_label or current_label.startswith("model-"):
+            self.model_label.setText(value)
+
+    def _set_model_id_text(self, model_id: str) -> None:
+        self.model_id.blockSignals(True)
+        if model_id and self.model_id.findText(model_id) < 0:
+            self.model_id.addItem(model_id)
+        self.model_id.setCurrentText(model_id)
+        self.model_id.blockSignals(False)
+
+    def _fill_model_id_combo(self, ids: list[str], *, keep: str = "") -> None:
+        current = keep or self.model_id.currentText().strip()
+        self.model_id.blockSignals(True)
+        self.model_id.clear()
+        for mid in ids:
+            self.model_id.addItem(mid)
+        if current and self.model_id.findText(current) < 0:
+            self.model_id.addItem(current)
+        if current:
+            self.model_id.setCurrentText(current)
+        elif ids:
+            self.model_id.setCurrentIndex(0)
+        self.model_id.blockSignals(False)
+
+    def _fetch_remote_models(self) -> None:
+        conn = self._models_conn()
+        if conn is None:
+            self.model_fetch_status.setText("Chọn một API trước.")
+            return
+        if (conn.provider or "").strip().lower() == LLM_PROVIDER_OFFLINE:
+            self.model_fetch_status.setText("Provider offline — không có catalog từ API.")
+            return
+        # Prefer live form values if this connection is also selected on APIs tab.
+        api_key = resolve_api_key(conn.api_key_ref)
+        base_url = conn.base_url
+        provider = conn.provider
+        if self._current_conn() is not None and self._current_conn() is conn:
+            typed = self.api_key.text().strip()
+            if typed:
+                api_key = typed
+            base_url = self.api_base.text().strip() or base_url
+            provider = self.api_provider.currentText() or provider
+        if not api_key:
+            self.model_fetch_status.setText("Thiếu API key — lưu key ở tab AI APIs rồi tải lại.")
+            return
+        if self._model_worker is not None and self._model_worker.isRunning():
+            return
+        self.btn_fetch_models.setEnabled(False)
+        self.model_fetch_status.setText("Đang tải danh sách model…")
+        worker = _ModelListWorker(provider, api_key, base_url, self)
+        worker.succeeded.connect(self._on_remote_models_ok)
+        worker.failed.connect(self._on_remote_models_err)
+        worker.finished.connect(lambda: self.btn_fetch_models.setEnabled(True))
+        self._model_worker = worker
+        worker.start()
+
+    def _on_remote_models_ok(self, ids: list[str]) -> None:
+        self._remote_model_ids = list(ids)
+        if not ids:
+            self.model_fetch_status.setText("API không trả về model nào.")
+            return
+        self._fill_model_id_combo(ids)
+        self.model_fetch_status.setText(f"Đã tải {len(ids)} model — chọn trong danh sách.")
+
+    def _on_remote_models_err(self, message: str) -> None:
+        self.model_fetch_status.setText(f"Lỗi tải model: {message}")
 
     def result_settings(self) -> AppSettings | None:
         return copy.deepcopy(self._draft) if self._accepted else None

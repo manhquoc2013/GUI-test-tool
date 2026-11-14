@@ -17,6 +17,7 @@ from ai_qa_test_studio.constants import (
     ICON_COLOR_WARN,
     STATUS_DOT,
     THEME_BG_PANEL,
+    UI_EXPLORER_CONTENT_H_MARGIN,
     UI_EXPLORER_DENSITY_WIDE,
     UI_EXPLORER_MIN_WIDTH,
     UI_TREE_INDENT,
@@ -56,11 +57,17 @@ class ExplorerPane(QWidget):
         layout.addWidget(self.search_input)
 
         self.pivot = SegmentedWidget(self)
-        self.pivot.setAccessibleName("Chuyển Kịch bản, Elements hoặc Báo cáo")
-        self.pivot.addItem(routeKey="suites", text="Kịch bản", icon=FIF.FOLDER)
-        self.pivot.addItem(routeKey="elements", text="Elements (0)", icon=FIF.TAG)
-        self.pivot.addItem(routeKey="reports", text="Báo cáo", icon=FIF.DOCUMENT)
+        self.pivot.setAccessibleName("Chuyển Cases, Elements hoặc Reports")
+        self.pivot.addItem(routeKey="suites", text="Cases", icon=FIF.FOLDER)
+        self.pivot.addItem(routeKey="elements", text="EL (0)", icon=FIF.TAG)
+        self.pivot.addItem(routeKey="reports", text="Reports", icon=FIF.DOCUMENT)
         self.pivot.setCurrentItem("suites")
+        for key, tip in (
+            ("suites", "Cases"),
+            ("elements", "Elements (0)"),
+            ("reports", "Reports"),
+        ):
+            self.pivot.widget(key).setToolTip(tip)
         layout.addWidget(self.pivot)
 
         self.stack = QStackedWidget(self)
@@ -94,29 +101,33 @@ class ExplorerPane(QWidget):
         self.stack.setCurrentIndex(index)
 
     def apply_density(self, width: int) -> None:
-        if width >= UI_EXPLORER_DENSITY_WIDE:
-            suites = "Cases"
-            elements = f"EL ({self._element_count})"
-            reports = "Reports"
+        """Fit pivot into explorer: labeled only when content width ≥ DENSITY_WIDE."""
+        usable = max(0, width - UI_EXPLORER_CONTENT_H_MARGIN)
+        count_tip = f"Elements ({self._element_count})"
+        if usable >= UI_EXPLORER_DENSITY_WIDE:
+            labels = ("Cases", f"EL ({self._element_count})", "Reports")
+            tips = ("Cases", count_tip, "Reports")
             density = "wide"
             search_ph = _SEARCH_PLACEHOLDER_WIDE
-        elif width >= UI_EXPLORER_MIN_WIDTH:
-            suites = "Cases"
-            elements = f"EL ({self._element_count})"
-            reports = "BC"
-            density = "medium"
-            search_ph = _SEARCH_PLACEHOLDER_NARROW
         else:
-            suites = ""
-            elements = str(self._element_count)
-            reports = ""
-            density = "narrow"
+            # Icon-only — 3 labeled SegmentedItems overflow ~230–280px sidebars.
+            labels = ("", "", "")
+            tips = ("Cases", count_tip, "Reports")
+            density = "compact"
             search_ph = _SEARCH_PLACEHOLDER_NARROW
         self._density = density
         self.search_input.setPlaceholderText(search_ph)
-        self.pivot.setItemText("suites", suites)
-        self.pivot.setItemText("elements", elements)
-        self.pivot.setItemText("reports", reports)
+        for route, text, tip in zip(
+            ("suites", "elements", "reports"),
+            labels,
+            tips,
+            strict=True,
+        ):
+            self.pivot.setItemText(route, text)
+            item = self.pivot.widget(route)
+            item.setToolTip(tip)
+            item.adjustSize()
+        self.pivot.adjustSize()
 
     def set_element_count(self, count: int) -> None:
         self._element_count = max(0, count)

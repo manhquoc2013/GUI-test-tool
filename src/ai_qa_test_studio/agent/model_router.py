@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from ai_qa_test_studio.agent.llm_gateway import UnifiedLLMGateway
 from ai_qa_test_studio.constants import (
     COPILOT_MODEL_AUTO,
+    COPILOT_MODEL_LABEL_AUTO,
     LLM_PROVIDER_OFFLINE,
     LLM_TIER_FAST,
     LLM_TIER_MID,
@@ -50,7 +51,7 @@ class ModelRouter:
 
     def catalog_labels(self) -> list[tuple[str, str]]:
         """Return (ref, display) for Copilot combo."""
-        items: list[tuple[str, str]] = [(COPILOT_MODEL_AUTO, "Auto (theo tác vụ)")]
+        items: list[tuple[str, str]] = [(COPILOT_MODEL_AUTO, COPILOT_MODEL_LABEL_AUTO)]
         for conn in self.settings.connections:
             if not conn.enabled:
                 continue

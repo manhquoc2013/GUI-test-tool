@@ -6,10 +6,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
-    CaptionLabel,
     CardWidget,
     PrimaryPushButton,
-    StrongBodyLabel,
     TransparentToolButton,
 )
 from qfluentwidgets import (
@@ -23,6 +21,7 @@ from ai_qa_test_studio.constants import (
     THEME_ACTION_FILL_FG,
     THEME_ACTION_SELECT_FG,
     THEME_STATUS_UNBOUND,
+    THEME_TEXT_ON_LIGHT,
     UI_ACTION_BADGE_HEIGHT,
     UI_ACTION_BADGE_WIDTH,
     UI_TITLE_FONT_SIZE_PX,
@@ -32,6 +31,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.ui.theme import (
     action_badge_bg_css,
+    text_primary_css,
     unbound_banner_bg_css,
     unbound_banner_border_css,
 )
@@ -47,8 +47,16 @@ class ElidedTitleLabel(QLabel):
         self.setToolTip(text)
         self.setMinimumWidth(UI_TITLE_MIN_WIDTH)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setStyleSheet(f"font-size: {UI_TITLE_FONT_SIZE_PX}px; font-weight: 600;")
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._apply_theme_style()
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
+
+    def _apply_theme_style(self) -> None:
+        self.setStyleSheet(
+            f"color: {text_primary_css()};"
+            f"font-size: {UI_TITLE_FONT_SIZE_PX}px; font-weight: 600;"
+            "background: transparent;"
+        )
 
     def setText(self, text: str) -> None:  # type: ignore[override]
         self._full_text = text
@@ -111,20 +119,21 @@ class UnboundAlertBanner(CardWidget):
         row.setContentsMargins(16, 12, 16, 12)
         row.setSpacing(14)
 
-        icon_lbl = QLabel("!", self)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setFixedSize(22, 22)
-        icon_lbl.setStyleSheet(
-            f"background-color: {THEME_STATUS_UNBOUND}; color: #111827;"
-            "border-radius: 11px; font-weight: 700;"
-        )
-        row.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        # Plain QLabel — Fluent BodyLabel/CaptionLabel get opaque slabs when the
+        # CardWidget setStyleSheet overrides app QSS for descendants.
+        self._icon_lbl = QLabel("!", self)
+        self._icon_lbl.setObjectName("UnboundIcon")
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_lbl.setFixedSize(22, 22)
+        row.addWidget(self._icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         col = QVBoxLayout()
         col.setSpacing(3)
-        self._title = StrongBodyLabel(self._title_text(), self)
-        self._title.setStyleSheet(f"color: {THEME_STATUS_UNBOUND};")
-        self._desc = CaptionLabel(UI_UNBOUND_BANNER_BODY, self)
+        self._title = QLabel(self._title_text(), self)
+        self._title.setObjectName("UnboundTitle")
+        self._title.setWordWrap(True)
+        self._desc = QLabel(UI_UNBOUND_BANNER_BODY, self)
+        self._desc.setObjectName("UnboundDesc")
         self._desc.setWordWrap(True)
         col.addWidget(self._title)
         col.addWidget(self._desc)
@@ -157,9 +166,22 @@ class UnboundAlertBanner(CardWidget):
 
     def _apply_theme_style(self) -> None:
         self.setStyleSheet(
-            "UnboundAlertBanner {"
+            "#UnboundAlertBanner {"
             f"background-color: {unbound_banner_bg_css()};"
             f"border: 1px solid {unbound_banner_border_css()};"
             "border-radius: 10px;"
+            "}"
+            "#UnboundIcon {"
+            f"background-color: {THEME_STATUS_UNBOUND};"
+            f"color: {THEME_TEXT_ON_LIGHT};"
+            "border: none; border-radius: 11px; font-weight: 700;"
+            "}"
+            "#UnboundTitle {"
+            "background-color: transparent; border: none;"
+            f"color: {THEME_STATUS_UNBOUND}; font-weight: 600; font-size: 13px;"
+            "}"
+            "#UnboundDesc {"
+            "background-color: transparent; border: none;"
+            f"color: {text_primary_css()}; font-size: 12px;"
             "}"
         )

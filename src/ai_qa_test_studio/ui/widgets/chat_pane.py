@@ -32,12 +32,20 @@ from qfluentwidgets import FluentIcon as FIF
 from ai_qa_test_studio.constants import (
     APPLY_KIND_COMPOSE,
     COPILOT_BTN_SEND_SIZE,
+    COPILOT_CHIP_CASE,
+    COPILOT_CHIP_DOM,
+    COPILOT_CHIP_ERROR,
     COPILOT_CHIP_HEIGHT,
+    COPILOT_CONTEXT_FLOW_SPACING,
     COPILOT_INPUT_HEIGHT,
     COPILOT_MODE_CASE,
     COPILOT_MODE_COMPOSE,
     COPILOT_MODEL_AUTO,
     COPILOT_MODEL_COMBO_HEIGHT,
+    COPILOT_MODEL_COMBO_MAX_WIDTH,
+    COPILOT_MODEL_COMBO_MIN_WIDTH,
+    COPILOT_MODEL_HINT_AUTO,
+    COPILOT_MODEL_LABEL_AUTO,
     COPILOT_STARTER_PROMPTS,
     ROLE_COMPOSER,
     ROLE_CREW,
@@ -72,50 +80,69 @@ class CopilotChatPane(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        context_wrap = QWidget(self)
-        context = FlowLayout(context_wrap, needAni=False)
-        context.setContentsMargins(0, 0, 0, 0)
-        context.setHorizontalSpacing(6)
-        context.setVerticalSpacing(6)
-        self.model_combo = ComboBox(self)
-        self.model_combo.setFixedHeight(COPILOT_MODEL_COMBO_HEIGHT)
-        self.model_combo.setMinimumWidth(96)
-        self.model_combo.setMaximumWidth(160)
-        self.model_combo.setAccessibleName("Chọn model Copilot")
-        self.set_model_catalog([(COPILOT_MODEL_AUTO, "Auto (theo tác vụ)")])
-        context.addWidget(self.model_combo)
+        context_row = QWidget(self)
+        context_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        row = QHBoxLayout(context_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(COPILOT_CONTEXT_FLOW_SPACING)
 
-        self.chip_case = PillPushButton("@Case", self)
+        pill_box = QWidget(context_row)
+        pill_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._context_flow = FlowLayout(pill_box, needAni=False)
+        self._context_flow.setContentsMargins(0, 0, 0, 0)
+        self._context_flow.setHorizontalSpacing(COPILOT_CONTEXT_FLOW_SPACING)
+        self._context_flow.setVerticalSpacing(COPILOT_CONTEXT_FLOW_SPACING)
+
+        self.model_combo = ComboBox(pill_box)
+        self.model_combo.setFixedHeight(COPILOT_MODEL_COMBO_HEIGHT)
+        self.model_combo.setMinimumWidth(COPILOT_MODEL_COMBO_MIN_WIDTH)
+        self.model_combo.setMaximumWidth(COPILOT_MODEL_COMBO_MAX_WIDTH)
+        self.model_combo.setAccessibleName("Chọn model Copilot")
+        self.model_combo.setToolTip(COPILOT_MODEL_HINT_AUTO)
+        self.set_model_catalog([(COPILOT_MODEL_AUTO, COPILOT_MODEL_LABEL_AUTO)])
+        self._context_flow.addWidget(self.model_combo)
+
+        self.chip_case = PillPushButton(COPILOT_CHIP_CASE, pill_box)
         self.chip_case.setCheckable(True)
         self.chip_case.setChecked(True)
         self.chip_case.setFixedHeight(COPILOT_CHIP_HEIGHT)
-        self.chip_dom = PillPushButton("@DOM", self)
+        self.chip_case.setToolTip(COPILOT_CHIP_CASE)
+        self.chip_dom = PillPushButton(COPILOT_CHIP_DOM, pill_box)
         self.chip_dom.setCheckable(True)
         self.chip_dom.setChecked(False)
         self.chip_dom.setFixedHeight(COPILOT_CHIP_HEIGHT)
-        self.chip_error = PillPushButton("@Error", self)
+        self.chip_dom.setToolTip(COPILOT_CHIP_DOM)
+        self.chip_error = PillPushButton(COPILOT_CHIP_ERROR, pill_box)
         self.chip_error.setCheckable(True)
         self.chip_error.setChecked(False)
         self.chip_error.setFixedHeight(COPILOT_CHIP_HEIGHT)
+        self.chip_error.setToolTip(COPILOT_CHIP_ERROR)
         for chip in (self.chip_case, self.chip_dom, self.chip_error):
-            context.addWidget(chip)
+            self._context_flow.addWidget(chip)
 
-        self.btn_settings = TransparentToolButton(FIF.SETTING, self)
+        tools_wrap = QWidget(context_row)
+        tools = QHBoxLayout(tools_wrap)
+        tools.setContentsMargins(0, 0, 0, 0)
+        tools.setSpacing(2)
+        self.btn_settings = TransparentToolButton(FIF.SETTING, tools_wrap)
         self.btn_settings.setFixedSize(28, 28)
         self.btn_settings.setToolTip("System Settings")
         self.btn_settings.clicked.connect(lambda: self.settings_requested.emit())
-        self.btn_new = TransparentToolButton(FIF.ADD, self)
+        self.btn_new = TransparentToolButton(FIF.ADD, tools_wrap)
         self.btn_new.setFixedSize(28, 28)
         self.btn_new.setToolTip("Phiên chat mới")
         self.btn_new.clicked.connect(self.new_session)
-        self.btn_clear = TransparentToolButton(FIF.DELETE, self)
+        self.btn_clear = TransparentToolButton(FIF.DELETE, tools_wrap)
         self.btn_clear.setFixedSize(28, 28)
         self.btn_clear.setToolTip("Xóa tin trong phiên")
         self.btn_clear.clicked.connect(self.clear_messages)
-        context.addWidget(self.btn_settings)
-        context.addWidget(self.btn_new)
-        context.addWidget(self.btn_clear)
-        layout.addWidget(context_wrap)
+        tools.addWidget(self.btn_settings)
+        tools.addWidget(self.btn_new)
+        tools.addWidget(self.btn_clear)
+        row.addWidget(pill_box, stretch=1)
+        row.addWidget(tools_wrap, stretch=0, alignment=Qt.AlignmentFlag.AlignTop)
+        self._pill_box = pill_box
+        layout.addWidget(context_row)
 
         self.mode_pivot = SegmentedWidget(self)
         self.mode_pivot.setAccessibleName("Chat hoặc AI Wizard trong Copilot")
@@ -221,15 +248,9 @@ class CopilotChatPane(QWidget):
 
     def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().resizeEvent(event)
-        narrow = self.width() < 380
-        for chip, full in (
-            (self.chip_case, "@Case"),
-            (self.chip_dom, "@DOM"),
-            (self.chip_error, "@Error"),
-        ):
-            chip.setText("" if narrow else full)
-            chip.setToolTip(full)
-        self.model_combo.setMaximumWidth(110 if narrow else 160)
+        # Keep chip labels visible; FlowLayout wraps. Invalidate so heightForWidth updates.
+        self._context_flow.invalidate()
+        self._pill_box.updateGeometry()
 
     def _on_mode_pivot(self, key: str) -> None:
         if key == "wizard":
@@ -292,9 +313,10 @@ class CopilotChatPane(QWidget):
             self.model_combo.addItem(label, ref)
         self.model_combo.blockSignals(False)
         if not items:
-            self.model_combo.addItem("Auto (theo tác vụ)", COPILOT_MODEL_AUTO)
+            self.model_combo.addItem(COPILOT_MODEL_LABEL_AUTO, COPILOT_MODEL_AUTO)
         idx = max(0, self.model_combo.findData(current))
         self.model_combo.setCurrentIndex(idx)
+        self.model_combo.setToolTip(COPILOT_MODEL_HINT_AUTO)
 
     def selected_model_ref(self) -> str:
         data = self.model_combo.currentData()
