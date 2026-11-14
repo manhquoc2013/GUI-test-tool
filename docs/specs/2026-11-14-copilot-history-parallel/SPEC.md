@@ -1,6 +1,6 @@
 # Spec: Copilot Chat History + Parallel Runs
 
-**Status**: ACTIVE  
+**Status**: COMPLETE  
 **Product**: AI QA Test Studio v4.2  
 **Date**: 2026-11-14  
 **Capability map**: `CAPABILITY_MAP.md`  
@@ -80,9 +80,9 @@ uv run python -m ai_qa_test_studio
 
 ## Verification checklist
 
-- [ ] Open Copilot → history toggle shows prior sessions with titles.
-- [ ] Select session → transcript restores messages.
-- [ ] Restart app → last non-empty session transcript restored.
-- [ ] Run A, new session B, run B while A still working → both complete; A shows running badge then unread if not viewed.
-- [ ] Stop on B does not cancel A.
-- [ ] Gates green.
+- [x] Open Copilot → history toggle shows prior sessions with titles.
+- [x] Select session → transcript restores messages.
+- [x] Restart app → last non-empty session transcript restored.
+- [x] Run A, new session B, run B while A still working → both complete; A shows running badge then unread if not viewed.
+- [x] Stop on B does not cancel A.
+- [x] Gates green (ruff / mypy / pytest 287 passed).
