@@ -80,6 +80,33 @@ def test_compose_wizard_panel_three_steps_emit_drafts(host: QWidget) -> None:
     panel.close()
 
 
+def test_compose_wizard_imports_csv_test_cases(host: QWidget, tmp_path) -> None:
+    from pathlib import Path
+
+    csv_path = Path(tmp_path) / "login_test_cases.csv"
+    csv_path.write_text(
+        "Test Case ID,Scenario ID,Title,Step No,Action,Test Data,Expected Result\n"
+        "TC01,TS_LOGIN,Login,1,goto,https://app.example/,open\n"
+        "TC01,TS_LOGIN,Login,2,click,,submit\n",
+        encoding="utf-8",
+    )
+    panel = ComposeWizardPanel(host)
+    panel.source_page.markdown.setPlainText("")
+    from ai_qa_test_studio.core.wizard_documents import load_wizard_document
+
+    doc = load_wizard_document(csv_path)
+    panel.source_page._documents.append(doc)
+    panel.source_page.doc_list.addItem(doc.display_name)
+    panel._go_next()
+    assert panel.progress.current_index == 1
+    codes = [
+        panel.scenario_page.list.item(i).text()
+        for i in range(panel.scenario_page.list.count())
+    ]
+    assert any("TS_LOGIN" in text for text in codes)
+    panel.close()
+
+
 def test_ai_test_wizard_embeds_compose_panel(host: QWidget) -> None:
     wizard = AiTestWizard(host)
     assert isinstance(wizard.panel, ComposeWizardPanel)

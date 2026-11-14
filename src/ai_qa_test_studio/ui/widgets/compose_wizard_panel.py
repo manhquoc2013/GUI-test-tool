@@ -35,9 +35,18 @@ from ai_qa_test_studio.constants import (
     ICON_COLOR_WARN,
     UI_CARD_GAP,
     UI_MARKDOWN_PREVIEW_CHARS,
+    UI_WIZARD_DOC_LIST_MIN_HEIGHT,
     UI_WIZARD_STEP_COUNT,
+    WIZARD_DOC_FILE_FILTER,
 )
 from ai_qa_test_studio.core.models import TestScenario
+from ai_qa_test_studio.core.wizard_documents import (
+    WizardDocument,
+    build_wizard_llm_context,
+    collect_imported_scenarios,
+    load_wizard_document,
+    merge_wizard_scenarios,
+)
 from ai_qa_test_studio.ui.widgets.step_progress_bar import StepProgressBar
 
 _URL_HINT = "https://your-app.example/ (tuỳ chọn — dùng cho Sync/Run)"
@@ -97,6 +106,7 @@ class ComposeWizardPanel(QWidget):
     def reset(self) -> None:
         self._step = 0
         self.scenarios = []
+        self.source_page.reset()
         self._sync_chrome()
 
     def _go_back(self) -> None:
@@ -107,10 +117,15 @@ class ComposeWizardPanel(QWidget):
 
     def _go_next(self) -> None:
         if self._step == 0:
-            if not self.source_page.markdown_text():
-                self.source_page.show_hint("Nhập mô tả / SRS trước khi tiếp tục.")
+            if not self.source_page.has_input():
+                self.source_page.show_hint(
+                    "Nhập mô tả hoặc đính kèm ít nhất một tài liệu trước khi tiếp tục."
+                )
                 return
             self._generate_outline()
+            if not self.scenarios:
+                self.source_page.show_hint("Không tạo được scenario từ tài liệu đã cho.")
+                return
             self._step = 1
             self._sync_chrome()
             return
@@ -136,8 +151,14 @@ class ComposeWizardPanel(QWidget):
             self.btn_next.setText("Tiếp theo")
 
     def _generate_outline(self) -> None:
-        markdown = self.source_page.markdown_text()
-        self.scenarios = self.generator.generate_outline_sync(markdown)
+        documents = self.source_page.documents()
+        context = build_wizard_llm_context(
+            freeform_markdown=self.source_page.markdown_text(),
+            documents=documents,
+        )
+        imported = collect_imported_scenarios(documents)
+        generated = self.generator.generate_outline_sync(context) if context.strip() else []
+        self.scenarios = merge_wizard_scenarios(imported, generated)
         self.scenario_page.load_scenarios(self.scenarios)
 
     def _prepare_review(self, selected: list[TestScenario]) -> None:
@@ -156,6 +177,7 @@ class ComposeWizardPanel(QWidget):
 class _SourceStep(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._documents: list[WizardDocument] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -193,18 +215,32 @@ class _SourceStep(QWidget):
         self.figma.setClearButtonEnabled(True)
         add_card("Figma Design Link", "", self.figma)
 
-        srs_wrap = QWidget()
-        srs_row = QHBoxLayout(srs_wrap)
-        srs_row.setContentsMargins(0, 0, 0, 0)
-        self.doc_path = LineEdit()
-        self.doc_path.setReadOnly(True)
-        self.doc_path.setPlaceholderText("Chọn file .pdf, .docx, .md...")
-        self.btn_browse = PushButton(FIF.FOLDER, "Chọn tệp")
-        self.btn_browse.setToolTip("Chọn file SRS (md/txt/docx/pdf)")
-        self.btn_browse.clicked.connect(self._browse)
-        srs_row.addWidget(self.doc_path, 1)
-        srs_row.addWidget(self.btn_browse)
-        add_card("Tài liệu đặc tả (SRS)", "", srs_wrap)
+        docs_wrap = QWidget()
+        docs_col = QVBoxLayout(docs_wrap)
+        docs_col.setContentsMargins(0, 0, 0, 0)
+        docs_col.setSpacing(6)
+        self.doc_list = ListWidget(docs_wrap)
+        self.doc_list.setMinimumHeight(UI_WIZARD_DOC_LIST_MIN_HEIGHT)
+        docs_col.addWidget(self.doc_list)
+        docs_btns = QHBoxLayout()
+        docs_btns.setContentsMargins(0, 0, 0, 0)
+        self.btn_add_doc = PushButton(FIF.FOLDER, "Thêm tệp")
+        self.btn_add_doc.setToolTip(
+            "Đính kèm SRS / test scenario / test case — hệ thống tự nhận loại"
+        )
+        self.btn_add_doc.clicked.connect(self._add_documents)
+        self.btn_remove_doc = PushButton("Xóa")
+        self.btn_remove_doc.clicked.connect(self._remove_selected_document)
+        docs_btns.addWidget(self.btn_add_doc)
+        docs_btns.addWidget(self.btn_remove_doc)
+        docs_btns.addStretch(1)
+        docs_col.addLayout(docs_btns)
+        add_card(
+            "Tài liệu đầu vào",
+            "Hỗ trợ MarkItDown (md/xlsx/csv/pdf/docx…). Tự nhận SRS / Test Scenario / Test Case; "
+            "import + dùng làm context LLM.",
+            docs_wrap,
+        )
 
         self.markdown = PlainTextEdit()
         self.markdown.setPlaceholderText("Mô tả luồng nghiệp vụ hoặc dán User Story...")
@@ -219,25 +255,59 @@ class _SourceStep(QWidget):
         scroll.setWidget(container)
         layout.addWidget(scroll, 1)
 
-    def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "SRS", "", "Docs (*.md *.txt *.docx *.pdf)"
+    def reset(self) -> None:
+        self._documents.clear()
+        self.doc_list.clear()
+        self.hint.setText("")
+
+    def _add_documents(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Tài liệu đầu vào", "", WIZARD_DOC_FILE_FILTER
         )
-        if not path:
+        if not paths:
             return
-        self.doc_path.setText(path)
-        try:
-            text = Path(path).read_text(encoding="utf-8")[:UI_MARKDOWN_PREVIEW_CHARS]
-            self.markdown.setPlainText(text)
+        errors: list[str] = []
+        preview_chunks: list[str] = []
+        for raw in paths:
+            doc = load_wizard_document(raw)
+            if doc.error:
+                errors.append(f"{Path(raw).name}: {doc.error}")
+                continue
+            if any(existing.path == doc.path for existing in self._documents):
+                continue
+            self._documents.append(doc)
+            item = QListWidgetItem(doc.display_name)
+            item.setData(Qt.ItemDataRole.UserRole, str(doc.path))
+            self.doc_list.addItem(item)
+            if doc.markdown.strip():
+                preview_chunks.append(doc.markdown.strip()[: UI_MARKDOWN_PREVIEW_CHARS // 2])
+        if preview_chunks and not self.markdown.toPlainText().strip():
+            self.markdown.setPlainText("\n\n".join(preview_chunks)[:UI_MARKDOWN_PREVIEW_CHARS])
+        if errors:
+            self.hint.setText("Một số tệp lỗi: " + "; ".join(errors[:3]))
+        else:
             self.hint.setText("")
-        except OSError as exc:
-            self.hint.setText(f"Không đọc được file: {exc}")
+
+    def _remove_selected_document(self) -> None:
+        row = self.doc_list.currentRow()
+        if row < 0 or row >= len(self._documents):
+            return
+        self.doc_list.takeItem(row)
+        del self._documents[row]
+
+    def documents(self) -> list[WizardDocument]:
+        return list(self._documents)
 
     def markdown_text(self) -> str:
         return str(self.markdown.toPlainText()).strip()
 
     def url_text(self) -> str:
         return str(self.url.text()).strip()
+
+    def has_input(self) -> bool:
+        if self.markdown_text():
+            return True
+        return any(not doc.error and doc.markdown.strip() for doc in self._documents)
 
     def show_hint(self, message: str) -> None:
         self.hint.setText(message)
