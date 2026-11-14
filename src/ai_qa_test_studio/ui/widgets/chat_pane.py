@@ -516,6 +516,8 @@ class CopilotChatPane(QWidget):
         self._reset_ingest_state()
         self.set_apply_payload(None)
         self.starters.setVisible(True)
+        # Leaving a running conversation must not keep this pane locked.
+        self.set_busy(False)
         self.session_changed.emit()
 
     def clear_messages(self) -> None:

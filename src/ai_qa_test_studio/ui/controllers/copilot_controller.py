@@ -28,7 +28,6 @@ from ai_qa_test_studio.constants import (
     COPILOT_ARTIFACT_READY_NOTE,
     COPILOT_CHAT_REPLY_MAX_CHARS,
     COPILOT_FINAL_REPORT_MAX_CHARS,
-    COPILOT_HISTORY_SWITCH_BUSY,
     COPILOT_STATUS_CLARIFY,
     COPILOT_STATUS_CONNECTING,
     COPILOT_STATUS_PREPARING,
@@ -50,6 +49,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.ui.bubble_summary import format_final_report_bubble, summarize_for_bubble
+from ai_qa_test_studio.ui.controllers.copilot_turn_sink import CopilotTurnSink
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 
 if TYPE_CHECKING:
@@ -112,10 +112,6 @@ class CopilotController:
             w._chat_runs.mark_read(session_id)
             self.refresh_history_rail()
             return
-        if w.copilot.is_busy:
-            w._toast_warn("Copilot", COPILOT_HISTORY_SWITCH_BUSY)
-            self.refresh_history_rail()
-            return
         self.persist_session()
         live = w._chat_runs.get_live_session(session_id)
         stored = w._chat_store.get(session_id)
@@ -124,6 +120,15 @@ class CopilotController:
             self.refresh_history_rail()
             return
         w.copilot.load_session(target)
+        running = w._chat_runs.is_running(session_id)
+        w.copilot.set_busy(running)
+        if running:
+            run = w._chat_runs.get_run(session_id)
+            if run is not None and run.status:
+                w.copilot.set_status(run.status)
+            w._copilot_cancel = w._chat_runs.cancel_event(session_id)
+        else:
+            w.copilot.set_status("")
         w._chat_runs.mark_read(session_id)
         self.refresh_history_rail()
 
@@ -138,14 +143,15 @@ class CopilotController:
         w._chat_store.save()
         if w.copilot.session.id == session_id:
             w.copilot.new_session()
+            w.copilot.set_busy(False)
         self.refresh_history_rail()
 
     def stop(self) -> None:
         w = self._w
         session_id = w.copilot.session.id
+        w._chat_runs.request_cancel(session_id)
         if w._copilot_cancel is not None:
             w._copilot_cancel.set()
-        w._chat_runs.request_cancel(session_id)
         dialog = w._clarify_dialog
         if dialog is not None:
             dialog.abort_stopped()
@@ -190,16 +196,22 @@ class CopilotController:
                 "Copilot",
                 "Trình duyệt đang bận — bỏ qua @DOM cho lượt này.",
             )
-        w.copilot.set_busy(True)
-        w.copilot.set_status(COPILOT_STATUS_CONNECTING)
-        w._copilot_cancel = asyncio.Event()
-        w.copilot.set_apply_payload(None)
+        target = w.copilot.session
+        sink = CopilotTurnSink(w, target)
+        run = w._chat_runs.start_run(target, COPILOT_STATUS_CONNECTING)
+        cancel = run.cancel
+        if sink.viewing():
+            w._copilot_cancel = cancel
+        sink.set_busy(True)
+        sink.set_status(COPILOT_STATUS_CONNECTING)
+        sink.set_apply_payload(None)
+        self.refresh_history_rail()
         try:
             attach_paths = [
                 str(p) for p in (flags.get("attach_paths") or []) if str(p).strip()
             ]
             if attach_paths and hasattr(w.copilot, "await_attachment_ingests"):
-                w.copilot.set_status("Đang index tài liệu đính kèm…")
+                sink.set_status("Đang index tài liệu đính kèm…")
                 doc_by_path = await w.copilot.await_attachment_ingests(attach_paths)
                 if doc_by_path:
                     flags[CONTEXT_KEY_DOC_IDS] = list(doc_by_path.values())
@@ -214,13 +226,13 @@ class CopilotController:
                                 item["doc_id"] = doc_id
             context = await self.build_context(flags)
             # Mode is a UI hint only — orchestrator LLM classifies compose/test_data/explain.
-            mode = str(flags.get("mode") or w.copilot.session.mode)
-            w.copilot.set_status(COPILOT_STATUS_PREPARING)
+            mode = str(flags.get("mode") or target.mode)
+            sink.set_status(COPILOT_STATUS_PREPARING)
             gateway = UnifiedLLMGateway.from_settings(w.env.settings.ai)
-            router = ModelRouter(
-                w.env.settings.ai,
-                pin_ref=str(flags.get("model") or w.copilot.selected_model_ref()),
-            )
+            model_ref = str(flags.get("model") or "")
+            if not model_ref and sink.viewing():
+                model_ref = w.copilot.selected_model_ref()
+            router = ModelRouter(w.env.settings.ai, pin_ref=model_ref)
             copilot_cfg = w.env.settings.copilot
             orch = CopilotOrchestrator(
                 gateway,
@@ -233,9 +245,7 @@ class CopilotController:
             )
             history = [
                 ChatMessage(role=m.role if m.role == "user" else "assistant", content=m.content)
-                for m in w.copilot.session.llm_window(
-                    max_chars=copilot_cfg.lean_tail_max_tokens
-                )
+                for m in target.llm_window(max_chars=copilot_cfg.lean_tail_max_tokens)
                 if m.role
                 in {
                     "user",
@@ -252,20 +262,20 @@ class CopilotController:
                 80,
                 int(getattr(w.env.settings.copilot, "summary_max_chars", 0) or COPILOT_CHAT_REPLY_MAX_CHARS),
             )
-            w.copilot.set_status(COPILOT_STATUS_CONNECTING)
+            sink.set_status(COPILOT_STATUS_CONNECTING)
             async for event in orch.run(
                 user_text=text,
                 mode=mode,
                 context=context,
                 history=history[:-1] if history else [],
-                cancel=w._copilot_cancel,
+                cancel=cancel,
             ):
                 if event.kind == "role_start" and event.role:
                     current_role = event.role
-                    w.copilot.set_status(
+                    sink.set_status(
                         COPILOT_STATUS_WORKING.format(role=event.role.capitalize())
                     )
-                    w.copilot.begin_role(event.role)
+                    sink.begin_role(event.role)
                 elif event.kind == "chunk":
                     # Skip raw token stream in transcript — bubbles stay short.
                     continue
@@ -273,25 +283,25 @@ class CopilotController:
                     # Persist FULL body for next-turn / agent history; bubble stays short.
                     full = event.text or ""
                     display = clip_chat_reply(full, reply_cap)
-                    w.copilot.end_role(event.role, full, summary=display)
+                    sink.end_role(event.role, full, summary=display)
                     current_role = None
                 elif event.kind == EVENT_STATUS_SUMMARY and event.role:
                     summary = clip_chat_reply(event.text, reply_cap)
                     if summary:
-                        w.copilot.set_status(summary)
+                        sink.set_status(summary)
                     # Preview only — do not overwrite session with the short summary.
                     # role_end carries the full body for agent/LLM context.
                     if current_role and event.artifact_ref:
-                        w.copilot.preview_role(event.role, summary)
+                        sink.preview_role(event.role, summary)
                     elif current_role is None and event.artifact_ref:
-                        w.copilot.append_status_summary(
+                        sink.append_status_summary(
                             event.role, event.text or summary, summary=summary
                         )
                 elif event.kind == EVENT_AGENT_MESSAGE:
                     full = event.text or ""
                     from_role = event.from_role or "critic"
                     to_role = event.to_role or "composer"
-                    w.copilot.append_agent_message(
+                    sink.append_agent_message(
                         from_role,
                         to_role,
                         full,
@@ -310,39 +320,30 @@ class CopilotController:
                         full,
                         max_chars=max(reply_cap, COPILOT_FINAL_REPORT_MAX_CHARS),
                     )
-                    w.copilot.append_status_summary(
+                    sink.append_status_summary(
                         event.role or ROLE_COORDINATOR,
                         full,
                         summary=display,
                     )
-                    w.copilot.set_status(display.splitlines()[0] if display else "")
+                    sink.set_status(display.splitlines()[0] if display else "")
                 elif event.kind == EVENT_CLARIFY_REQUEST:
-                    w.copilot.set_status(COPILOT_STATUS_CLARIFY)
-                    w.copilot.append_clarify_note(
+                    sink.set_status(COPILOT_STATUS_CLARIFY)
+                    sink.append_clarify_note(
                         event.role or "crew",
                         clip_chat_reply(event.question or event.text, reply_cap),
                     )
                 elif event.kind == EVENT_CLARIFY_RESOLVED:
-                    w.copilot.append_clarify_note(
+                    sink.append_clarify_note(
                         event.role or "crew", clip_chat_reply(event.text, reply_cap)
                     )
                 elif event.kind == EVENT_LOOP_HALTED:
-                    w.copilot.append_clarify_note(
+                    sink.append_clarify_note(
                         event.role or "crew", clip_chat_reply(event.text, reply_cap)
                     )
                 elif event.kind == "apply_ready" and event.apply_payload:
                     payload = event.apply_payload
-                    w.copilot.set_apply_payload(payload)
-                    # Keep artifact on the latest composer/crew message for session history.
-                    for msg in reversed(w.copilot.session.messages):
-                        if msg.role in {
-                            ROLE_COMPOSER,
-                            ROLE_PLANNER,
-                            ROLE_CRITIC,
-                            ROLE_COORDINATOR,
-                        }:
-                            msg.apply_payload = dict(payload)
-                            break
+                    sink.set_apply_payload(payload)
+                    sink.attach_apply_to_latest_crew(payload)
                     if payload.get("kind") == APPLY_KIND_COMPOSE:
                         count = len(payload.get("scenarios") or [])
                     elif payload.get("kind") == APPLY_KIND_TEST_DATA:
@@ -350,26 +351,34 @@ class CopilotController:
                     else:
                         count = 1
                     note = COPILOT_ARTIFACT_READY_NOTE.format(count=count)
-                    w.copilot.append_status_summary(ROLE_SYSTEM, note, summary=note)
-                    w.copilot.set_status(note)
+                    sink.append_status_summary(ROLE_SYSTEM, note, summary=note)
+                    sink.set_status(note)
                 elif event.kind == "stopped":
-                    w.copilot.mark_stopped(event.role or current_role)
+                    sink.mark_stopped(event.role or current_role)
                     return
-            self.persist_session()
-            used = w._token_budget.count(
-                "\n".join(m.content for m in w.copilot.session.messages)
-            )
-            w._set_pill(
-                w._pill_tokens,
-                f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
-            )
+            if sink.viewing():
+                used = w._token_budget.count(
+                    "\n".join(m.content for m in target.messages)
+                )
+                w._set_pill(
+                    w._pill_tokens,
+                    f"Tokens: {used / 1000:.1f}k / {TOKEN_CONTEXT_BUDGET / 1000:.0f}k",
+                )
         except Exception as exc:  # noqa: BLE001
             w._last_error = str(exc)
             w._toast_error("Copilot", str(exc))
-            w.copilot.mark_stopped()
+            sink.mark_stopped()
         finally:
-            w.copilot.set_busy(False)
-            w._copilot_cancel = None
+            viewed_id = w.copilot.session.id
+            w._chat_runs.finish_run(target.id, viewed_session_id=viewed_id)
+            if target.has_user_messages():
+                w._chat_store.upsert(target)
+                w._chat_store.prune_empties()
+                w._chat_store.save()
+            sink.set_busy(False)
+            if sink.viewing() and w._copilot_cancel is cancel:
+                w._copilot_cancel = None
+            self.refresh_history_rail()
 
     async def build_context(self, flags: dict[str, Any]) -> dict[str, Any]:
         w = self._w

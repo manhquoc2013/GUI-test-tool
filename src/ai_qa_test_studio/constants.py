@@ -42,7 +42,6 @@ COPILOT_HISTORY_EMPTY = "Chưa có cuộc trò chuyện"
 COPILOT_HISTORY_BADGE_RUNNING = "⏳"
 COPILOT_HISTORY_BADGE_UNREAD = "●"
 COPILOT_HISTORY_DELETE_TIP = "Xóa phiên đã chọn khỏi lịch sử"
-COPILOT_HISTORY_SWITCH_BUSY = "Phiên đang chạy — Stop trước khi đổi sang cuộc trò chuyện khác."
 COPILOT_SLIDING_TURNS = 8
 COPILOT_CHAT_MAX_TOKENS = 2048
 COPILOT_INPUT_HEIGHT = 64
