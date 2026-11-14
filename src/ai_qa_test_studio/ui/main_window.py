@@ -28,10 +28,10 @@ from ai_qa_test_studio.constants import (
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
     TOKEN_CONTEXT_BUDGET,
+    UI_BREAKPOINT_WIDE,
     UI_DRAWER_WIDTH,
     UI_INFOBAR_DURATION_MS,
-    UI_SIDEBAR_WIDTH,
-    UI_SPLIT_SIZES_V,
+    UI_SPLIT_SIZES_H,
     UI_WINDOW_DEFAULT_HEIGHT,
     UI_WINDOW_DEFAULT_WIDTH,
     UI_WINDOW_MIN_HEIGHT,
@@ -54,7 +54,6 @@ from ai_qa_test_studio.ui.qt_compat import bind_accessible_root
 from ai_qa_test_studio.ui.session_controller import SessionController
 from ai_qa_test_studio.ui.widgets.clarify_dialog import ClarifyDialog
 from ai_qa_test_studio.ui.widgets.command_palette import CommandPalette, PaletteCommand
-from ai_qa_test_studio.ui.widgets.data_drawer import TestDataDrawer
 from ai_qa_test_studio.ui.widgets.editor_pane import EditorPane
 from ai_qa_test_studio.ui.widgets.explorer_pane import ExplorerPane
 from ai_qa_test_studio.ui.widgets.right_drawer import RightDrawer
@@ -65,7 +64,7 @@ from ai_qa_test_studio.ui.widgets.top_toolbar import UnifiedTopBar
 class MainWindow(QMainWindow):
     def __init__(self, data_root: Path | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("AI QA Test Studio v4.1")
+        self.setWindowTitle("AI QA Test Studio v4.2")
         self.setAccessibleName("AI QA Test Studio")
         self.setMinimumSize(UI_WINDOW_MIN_WIDTH, UI_WINDOW_MIN_HEIGHT)
         self.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
@@ -87,7 +86,7 @@ class MainWindow(QMainWindow):
         self._bundled_mcp = BundledMcpRegistry()
         self._bundled_mcp.start()
         self._sidebar_collapsed = False
-        self._overlay_mode = False
+        self._prefer_dock = True
         self._drawer_width = UI_DRAWER_WIDTH
         self._narrow_auto_collapsed = False
         self._shutdown_started = False
@@ -138,12 +137,8 @@ class MainWindow(QMainWindow):
         self.skill_combo = self.top_bar.skill_combo
         self.unbound_badge = self.top_bar.unbound_badge
 
-        v_splitter = QSplitter(Qt.Orientation.Vertical, central)
-
-        self.workspace = QWidget(v_splitter)
-        self.workspace.setAccessibleName("Workspace 2-pane")
-        self.workspace.installEventFilter(self)
-        # Layout owns the H-splitter so setGeometry sync never resets drag sizes.
+        self.workspace = QWidget(central)
+        self.workspace.setAccessibleName("Workspace 3-column")
         workspace_layout = QHBoxLayout(self.workspace)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
@@ -155,18 +150,8 @@ class MainWindow(QMainWindow):
         self.builder = EditorPane(self.h_splitter)
         self.builder.case_changed.connect(self._on_case_fields_changed)
         self.builder.sync_requested.connect(self._sync_url)
-        self.h_splitter.addWidget(self.explorer)
-        self.h_splitter.addWidget(self.builder)
-        self.h_splitter.setChildrenCollapsible(False)
-        self.h_splitter.setOpaqueResize(True)
-        self.h_splitter.setStretchFactor(0, 0)
-        self.h_splitter.setStretchFactor(1, 1)
-        self.h_splitter.setSizes([UI_SIDEBAR_WIDTH, UI_WINDOW_DEFAULT_WIDTH - UI_SIDEBAR_WIDTH])
-        workspace_layout.addWidget(self.h_splitter, stretch=1)
-
-        # Drawer sibling — geometry synced; push reserves layout margin, overlay covers.
-        self.right_drawer = RightDrawer(self.workspace)
-        self.right_drawer.hide()
+        self.builder.breadcrumb_navigate.connect(self._on_breadcrumb_navigate)
+        self.right_drawer = RightDrawer(self.h_splitter)
         self.browser_agent = self.right_drawer.browser
         self.viewport = self.browser_agent
         self._run_logs = self.browser_agent.agent_feed
@@ -182,16 +167,33 @@ class MainWindow(QMainWindow):
         self.right_drawer.drawer_opened.connect(lambda: self.top_bar.set_copilot_checked(True))
         self.right_drawer.drawer_closed.connect(lambda: self.top_bar.set_copilot_checked(False))
 
-        self.data_drawer = TestDataDrawer(v_splitter)
+        self.data_drawer = self.builder.data_drawer
         self.data_grid = self.data_drawer.table
         self.data_drawer.add_requested.connect(self._add_test_data_row)
         self.data_drawer.rows_changed.connect(self._on_test_data_rows_changed)
-        v_splitter.addWidget(self.workspace)
-        v_splitter.addWidget(self.data_drawer)
-        v_splitter.setSizes(list(UI_SPLIT_SIZES_V))
 
-        root_layout.addWidget(v_splitter, stretch=1)
+        self.h_splitter.addWidget(self.explorer)
+        self.h_splitter.addWidget(self.builder)
+        self.h_splitter.addWidget(self.right_drawer)
+        self.h_splitter.setChildrenCollapsible(False)
+        self.h_splitter.setOpaqueResize(True)
+        self.h_splitter.setStretchFactor(0, 0)
+        self.h_splitter.setStretchFactor(1, 1)
+        self.h_splitter.setStretchFactor(2, 0)
+        self.h_splitter.setSizes(list(UI_SPLIT_SIZES_H))
+        self._layout.connect_splitter()
+        workspace_layout.addWidget(self.h_splitter, stretch=1)
+
+        root_layout.addWidget(self.workspace, stretch=1)
         self.setCentralWidget(central)
+
+        # Default: Copilot dock open on wide launches (M1).
+        if self.width() >= UI_BREAKPOINT_WIDE:
+            self.right_drawer.open_drawer()
+            self.top_bar.set_copilot_checked(True)
+        else:
+            self.right_drawer.close_drawer()
+            self.top_bar.set_copilot_checked(False)
 
         act_save = QAction("Save", self)
         act_save.setShortcut(QKeySequence.StandardKey.Save)
@@ -303,8 +305,21 @@ class MainWindow(QMainWindow):
         if isinstance(case, TestCase):
             self._load_case(case)
 
+    def _case_path(self, case: TestCase) -> tuple[str, str]:
+        if self.project is None:
+            return "", ""
+        for group in [self.project.root_group, *self.project.root_group.children]:
+            for scenario in group.scenarios:
+                if any(c.id == case.id for c in scenario.cases):
+                    return group.name, scenario.title or scenario.code
+            for suite in group.suites:
+                if any(c.id == case.id for c in suite.cases):
+                    return group.name, suite.name
+        return self.project.root_group.name, ""
+
     def _load_case(self, case: TestCase) -> None:
-        self.builder.load_case(case)
+        module, suite = self._case_path(case)
+        self.builder.load_case(case, module=module, suite=suite)
         if case.start_url:
             self.url_edit.setText(case.start_url)
         if case.test_data_rows:
@@ -313,6 +328,9 @@ class MainWindow(QMainWindow):
             self.data_drawer.load_rows([])
         self._update_unbound_badge(case)
         self._status_caption.setText(f"Case {case.code} · {len(case.steps)} bước")
+
+    def _on_breadcrumb_navigate(self, module: str, suite: str) -> None:
+        self.explorer.focus_path(module, suite)
 
     def _update_unbound_badge(self, case: TestCase | None) -> None:
         if case is None:

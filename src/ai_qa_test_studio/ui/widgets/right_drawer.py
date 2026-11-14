@@ -1,4 +1,4 @@
-"""Right slide-over drawer — Pivot AI Copilot | Trình duyệt."""
+"""Right dock column — Pivot AI Copilot | Trình duyệt (splitter child)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,9 @@ from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import SegmentedWidget
 
-from ai_qa_test_studio.constants import (
-    THEME_BG_SURFACE,
-    THEME_BORDER_SUBTLE,
-    UI_WIDGET_SIZE_MAX,
-)
+from ai_qa_test_studio.constants import UI_DOCK_MAX_WIDTH, UI_DOCK_MIN_WIDTH
+from ai_qa_test_studio.ui.theme import panel_stylesheet
+from ai_qa_test_studio.ui.theme_bind import bind_theme_changed, safe_theme_slot
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
 from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
 
@@ -25,19 +23,16 @@ class RightDrawer(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("RightDock")
         self.setAccessibleName("Right Drawer Copilot Browser")
-        self.setMinimumWidth(0)
-        self.setMaximumWidth(UI_WIDGET_SIZE_MAX)
+        self.setMinimumWidth(UI_DOCK_MIN_WIDTH)
+        self.setMaximumWidth(UI_DOCK_MAX_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(
-            f"RightDrawer {{ background-color: {THEME_BG_SURFACE};"
-            f"border-left: 1px solid {THEME_BORDER_SUBTLE}; }}"
-        )
         self._open = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(12)
 
         self.pivot = SegmentedWidget(self)
         self.pivot.setAccessibleName("Chuyển AI Copilot hoặc Trình duyệt")
@@ -54,6 +49,12 @@ class RightDrawer(QWidget):
         layout.addWidget(self.stack, stretch=1)
 
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
+        self._theme_slot = safe_theme_slot(self._apply_theme_style)
+        self._apply_theme_style()
+        bind_theme_changed(self._theme_slot)
+
+    def _apply_theme_style(self) -> None:
+        self.setStyleSheet(panel_stylesheet("RightDock", border_left=True))
 
     @property
     def is_open(self) -> bool:
