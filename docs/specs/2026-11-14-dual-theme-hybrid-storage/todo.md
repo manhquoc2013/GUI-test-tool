@@ -1,9 +1,9 @@
 # Todo: Dual-Theme + Hybrid Storage
 
-**Progress**: 1/12 tasks (8%)
+**Progress**: 2/12 tasks (17%)
 
 - [x] S0: SPEC + CAPABILITY_MAP + plan (this folder); archive v4.2
-- [ ] S1: Add `aiosqlite`; constants for `.studio` / app DB paths; `init_high_speed_db` + schema (`app_settings`, stubs for index/runs)
+- [x] S1: Add `aiosqlite`; constants for `.studio` / app DB paths; `init_high_speed_db` + schema (`app_settings`, stubs for index/runs)
 - [ ] S2: `StorageRepository` + `SqliteRepository`; wire `EnvManager` settings load/save through DB; migrate `settings.json`
 - [ ] S3: `ThemeTokens` DARK/LIGHT + `get_theme_tokens`; rewrite `theme.py` apply helpers; tests for token resolve
 - [ ] S4: TopBar theme toggle + Settings combo `auto|dark|light`; persist via settings repo; launch respects AUTO

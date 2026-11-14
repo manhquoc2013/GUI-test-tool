@@ -169,7 +169,7 @@ class AiSettings(BaseModel):
 class AppSettings(BaseModel):
     browser: str = "CHROMIUM"
     headless_default: bool = False
-    theme: str = "dark"
+    theme: str = "auto"
     ai: AiSettings = Field(default_factory=AiSettings)
     active_environment: str = "DEV"
     copilot: CopilotRuntimeSettings = Field(default_factory=CopilotRuntimeSettings)

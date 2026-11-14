@@ -1,0 +1,19 @@
+"""Async storage boundary for Hybrid Local-First (UI/Agent talk only to this)."""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+
+class StorageRepository(Protocol):
+    async def open(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    async def get_setting(self, key: str) -> str | None: ...
+
+    async def set_setting(self, key: str, value: str) -> None: ...
+
+    async def get_app_settings_blob(self) -> dict[str, Any] | None: ...
+
+    async def set_app_settings_blob(self, payload: dict[str, Any]) -> None: ...

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_qa_test_studio.constants import (
+    APP_STUDIO_DB,
     COMPLEXITY_COMPLEX,
     COMPLEXITY_NORMAL,
     COMPLEXITY_SIMPLE,
@@ -25,7 +26,9 @@ from ai_qa_test_studio.constants import (
     LLM_TIER_MID,
     LLM_TIER_STRONG,
     SETTINGS_FILENAME,
+    THEME_PREF_AUTO,
 )
+from ai_qa_test_studio.core.async_bridge import run_sync
 from ai_qa_test_studio.core.models import (
     AiConnection,
     AiModelEntry,
@@ -39,6 +42,7 @@ from ai_qa_test_studio.core.models import (
     TestDataProfile,
 )
 from ai_qa_test_studio.core.secret_store import is_keyring_ref, seal_api_key_ref
+from ai_qa_test_studio.core.sqlite_repository import SqliteRepository
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +230,8 @@ class EnvManager:
     def __init__(self, data_root: Path) -> None:
         self.data_root = data_root
         self.settings_path = data_root / SETTINGS_FILENAME
+        self.db_path = data_root / APP_STUDIO_DB
+        self._repo = SqliteRepository(self.db_path)
         self._settings = AppSettings()
         self._profiles: dict[str, TestDataProfile] = {}
 
@@ -234,21 +240,51 @@ class EnvManager:
         return self._settings
 
     def load_settings(self) -> AppSettings:
-        if not self.settings_path.is_file():
-            self._settings = AppSettings(ai=migrate_ai_config({}))
+        payload = self._load_settings_payload()
+        if payload is None:
+            self._settings = AppSettings(ai=migrate_ai_config({}), theme=THEME_PREF_AUTO)
             return self._settings
-        payload = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self._settings = self._settings_from_payload(payload)
+        if self._has_plaintext_api_keys():
+            self.save_settings()
+        return self._settings
+
+    def _load_settings_payload(self) -> dict[str, Any] | None:
+        async def _from_db() -> dict[str, Any] | None:
+            await self._repo.open()
+            try:
+                return await self._repo.get_app_settings_blob()
+            finally:
+                await self._repo.close()
+
+        blob = run_sync(_from_db())
+        if blob is not None:
+            return blob
+        if not self.settings_path.is_file():
+            return None
+        try:
+            raw = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("settings_json_load_failed path=%s err=%s", self.settings_path, exc)
+            return None
+        if not isinstance(raw, dict):
+            return None
+        # One-shot migrate JSON → SQLite (primary store).
+        self._settings = self._settings_from_payload(raw)
+        self.save_settings()
+        return self._settings_to_payload()
+
+    def _settings_from_payload(self, payload: dict[str, Any]) -> AppSettings:
         ai_raw = payload.get("aiConfig") or payload.get("ai") or {}
-        # Keep ciphertext/ref only — never decode into logs.
         copilot_raw = payload.get("copilot") or {}
         mcp_raw = payload.get("mcp") or {}
         ext = mcp_raw.get("external") or {}
-        self._settings = AppSettings(
+        return AppSettings(
             browser=str(payload.get("browser") or "CHROMIUM"),
             headless_default=bool(
                 payload.get("headlessDefault", payload.get("headless_default", False))
             ),
-            theme=str(payload.get("theme") or "dark"),
+            theme=str(payload.get("theme") or THEME_PREF_AUTO),
             ai=migrate_ai_config(ai_raw if isinstance(ai_raw, dict) else {}),
             active_environment=str(payload.get("active_environment") or "DEV"),
             copilot=CopilotRuntimeSettings(
@@ -265,17 +301,9 @@ class EnvManager:
                 )
             ),
         )
-        if self._has_plaintext_api_keys():
-            self.save_settings()
-        return self._settings
 
-    def _has_plaintext_api_keys(self) -> bool:
-        ai = self._settings.ai
-        refs = [ai.api_key_ref, *(c.api_key_ref for c in ai.connections)]
-        return any(bool(r) and not is_keyring_ref(r) for r in refs)
-
-    def save_settings(self) -> None:
-        payload = {
+    def _settings_to_payload(self) -> dict[str, Any]:
+        return {
             "browser": self._settings.browser,
             "headlessDefault": self._settings.headless_default,
             "theme": self._settings.theme,
@@ -295,6 +323,25 @@ class EnvManager:
                 }
             },
         }
+
+    def _has_plaintext_api_keys(self) -> bool:
+        ai = self._settings.ai
+        refs = [ai.api_key_ref, *(c.api_key_ref for c in ai.connections)]
+        return any(bool(r) and not is_keyring_ref(r) for r in refs)
+
+    def save_settings(self) -> None:
+        payload = self._settings_to_payload()
+
+        async def _persist() -> None:
+            await self._repo.open()
+            try:
+                await self._repo.set_app_settings_blob(payload)
+            finally:
+                await self._repo.close()
+
+        run_sync(_persist())
+        # Keep a sealed JSON mirror for operators / emergency recovery (DB remains primary).
+        self.data_root.mkdir(parents=True, exist_ok=True)
         tmp = self.settings_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(self.settings_path)
