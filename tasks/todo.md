@@ -1,5 +1,6 @@
-# Todo — s-review remediation #2
+# Todo — Copilot History + Parallel Runs
 
-- [x] T1: Restore `data/copilot/sessions.json` to `origin/main`
-- [x] T2: Regression test — narrow sidebar snap calls/cancels dock `stop_channel`
-- [x] T3: Gates + learnings
+- [ ] T1: ChatRunRegistry + unit tests (start/cancel/finish/unread/live)
+- [ ] T2: History rail UI + transcript restore on select/startup + empty prune
+- [ ] T3: Parallel runs — switch sessions without hijacking; badges; per-view Stop
+- [ ] T4: Gates (ruff/mypy/pytest) + learnings
