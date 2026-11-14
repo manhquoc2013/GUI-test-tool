@@ -35,6 +35,45 @@ def test_flat_ai_config_migrates_to_connection(tmp_path: Path) -> None:
     assert ai.routing.task_complexity_models
 
 
+def test_load_settings_seals_legacy_plaintext_keys(
+    tmp_path: Path, fake_keyring: dict[tuple[str, str], str]
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "aiConfig": {
+                    "apiKey": "sk-legacy-plain",
+                    "provider": "openai_compatible",
+                    "model": "gpt-4o",
+                    "connections": [
+                        {
+                            "id": "c1",
+                            "label": "A",
+                            "provider": "openai_compatible",
+                            "apiKeyRef": "sk-conn-plain",
+                            "enabled": True,
+                            "models": [
+                                {"id": "m1", "label": "M1", "tier": "fast", "isDefault": True}
+                            ],
+                        }
+                    ],
+                    "defaultConnectionId": "c1",
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    env = EnvManager(tmp_path)
+    env.load_settings()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    dumped = json.dumps(raw)
+    assert "sk-legacy-plain" not in dumped
+    assert "sk-conn-plain" not in dumped
+    assert raw["aiConfig"]["connections"][0]["apiKeyRef"].startswith(KEYRING_REF_PREFIX)
+
+
 def test_round_trip_multi_api(tmp_path: Path, fake_keyring: dict[tuple[str, str], str]) -> None:
     env = EnvManager(tmp_path)
     env.load_settings()

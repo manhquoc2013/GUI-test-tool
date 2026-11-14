@@ -90,6 +90,8 @@ class MainWindow(QMainWindow):
         self._overlay_mode = False
         self._drawer_width = UI_DRAWER_WIDTH
         self._narrow_auto_collapsed = False
+        self._shutdown_started = False
+        self._shutdown_ready = False
         self._layout = LayoutController(self)
         self._run = RunController(self)
         self._copilot_ctl = CopilotController(self)
@@ -622,6 +624,23 @@ class MainWindow(QMainWindow):
         self._sync_drawer_geometry()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._shutdown_ready:
+            super().closeEvent(event)
+            return
+        event.ignore()
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._bundled_mcp.stop()
+            self._shutdown_ready = True
+            self.close()
+            return
+        loop.create_task(self._async_shutdown())
+
+    async def _async_shutdown(self) -> None:
         self._bundled_mcp.stop()
         if self._copilot_cancel is not None:
             self._copilot_cancel.set()
@@ -633,9 +652,8 @@ class MainWindow(QMainWindow):
             self.session.request_cancel()
             self._append_log("Đang đóng — dừng trình duyệt…")
             try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                pass
-            else:
-                asyncio.ensure_future(self.session.stop(log=self._append_log))
-        super().closeEvent(event)
+                await self.session.stop(log=self._append_log)
+            except Exception as exc:  # noqa: BLE001
+                self._append_log(f"Stop khi đóng thất bại: {exc}")
+        self._shutdown_ready = True
+        self.close()

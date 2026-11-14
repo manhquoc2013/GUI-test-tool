@@ -38,7 +38,7 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
     TestDataProfile,
 )
-from ai_qa_test_studio.core.secret_store import seal_api_key_ref
+from ai_qa_test_studio.core.secret_store import is_keyring_ref, seal_api_key_ref
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +265,14 @@ class EnvManager:
                 )
             ),
         )
+        if self._has_plaintext_api_keys():
+            self.save_settings()
         return self._settings
+
+    def _has_plaintext_api_keys(self) -> bool:
+        ai = self._settings.ai
+        refs = [ai.api_key_ref, *(c.api_key_ref for c in ai.connections)]
+        return any(bool(r) and not is_keyring_ref(r) for r in refs)
 
     def save_settings(self) -> None:
         payload = {

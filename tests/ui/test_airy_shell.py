@@ -310,11 +310,13 @@ def test_require_case_and_sync_url_avoid_blocking_dialogs() -> None:
 
 
 def test_close_event_schedules_session_stop() -> None:
-    src = inspect.getsource(MainWindow.closeEvent)
-    assert "request_cancel" in src
-    assert "ensure_future" in src or "create_task" in src
-    assert "session.stop" in src
-    assert "_copilot_cancel" in src or "_stop_copilot" in src
+    close_src = inspect.getsource(MainWindow.closeEvent)
+    shut_src = inspect.getsource(MainWindow._async_shutdown)
+    assert "create_task" in close_src
+    assert "_async_shutdown" in close_src
+    assert "request_cancel" in shut_src
+    assert "session.stop" in shut_src
+    assert "_copilot_cancel" in shut_src
 
 
 def test_escape_stops_copilot_before_browser(qapp: QApplication, tmp_path: Path) -> None:
