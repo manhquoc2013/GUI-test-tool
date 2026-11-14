@@ -38,7 +38,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.ui.formatting import format_param_cell, humanize_header
 from ai_qa_test_studio.ui.theme import card_stylesheet
-from ai_qa_test_studio.ui.theme_bind import bind_theme_changed, safe_theme_slot
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 _SCENARIO_KEYS = ("scenario", "Scenario", "case", "Case", "name", "Name", "title")
 _EXPECTED_KEYS = (
@@ -106,9 +106,8 @@ class TestDataDrawer(QWidget):
         layout.addWidget(self.stack, 1)
 
         self.setMinimumHeight(UI_DRAWER_EXPANDED_HEIGHT)
-        self._theme_slot = safe_theme_slot(self._apply_theme_style)
         self._apply_theme_style()
-        bind_theme_changed(self._theme_slot)
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
 
     def _build_data_table(self) -> TableWidget:
         table = TableWidget(self)

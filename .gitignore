@@ -41,3 +41,4 @@ __pycache__/
 build/
 uv.lock
 data/v4/
+data/copilot/**

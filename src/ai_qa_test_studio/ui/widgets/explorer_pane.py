@@ -95,13 +95,13 @@ class ExplorerPane(QWidget):
 
     def apply_density(self, width: int) -> None:
         if width >= UI_EXPLORER_DENSITY_WIDE:
-            suites = "Kịch bản"
-            elements = f"Elements ({self._element_count})"
-            reports = "Báo cáo"
+            suites = "Cases"
+            elements = f"EL ({self._element_count})"
+            reports = "Reports"
             density = "wide"
             search_ph = _SEARCH_PLACEHOLDER_WIDE
         elif width >= UI_EXPLORER_MIN_WIDTH:
-            suites = "Kịch bản"
+            suites = "Cases"
             elements = f"EL ({self._element_count})"
             reports = "BC"
             density = "medium"

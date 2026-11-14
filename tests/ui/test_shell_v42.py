@@ -99,11 +99,50 @@ def test_laptop_band_hides_explorer_when_dock_opens(qapp: QApplication, tmp_path
     qapp.processEvents()
     assert window.explorer.isVisible()
 
-    window.top_bar.btn_copilot.setChecked(True)
-    window.apply_layout_breakpoint(window.width())
+    window._layout.on_copilot_toggle(True)
     qapp.processEvents()
     assert window.right_drawer.is_open is True
     assert window.explorer.isHidden()
+    window.close()
+
+
+def test_hamburger_reopens_explorer_with_dock_in_laptop_band(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    """☰ must reopen Explorer while Copilot stays open when W ≥ UI_THREE_COL_SAFE."""
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    mid = (UI_BREAKPOINT_MEDIUM + UI_BREAKPOINT_WIDE) // 2
+    assert mid >= UI_THREE_COL_SAFE
+    window.resize(mid, 720)
+    qapp.processEvents()
+    window._layout.on_copilot_toggle(True)
+    qapp.processEvents()
+    assert window.right_drawer.is_open is True
+    assert window.explorer.isHidden()
+
+    window._layout.toggle_sidebar()
+    qapp.processEvents()
+    assert window.explorer.isVisible()
+    assert window.right_drawer.is_open is True
+    assert window.right_drawer.isVisible()
+    window.close()
+
+
+def test_sync_drawer_geometry_does_not_close_dock(qapp: QApplication, tmp_path: Path) -> None:
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    mid = (UI_BREAKPOINT_MEDIUM + UI_BREAKPOINT_WIDE) // 2
+    window.resize(mid, 720)
+    qapp.processEvents()
+    window._layout.on_copilot_toggle(True)
+    qapp.processEvents()
+    window._sidebar_collapsed = False
+    window._sync_drawer_geometry()
+    qapp.processEvents()
+    assert window.right_drawer.is_open is True
     window.close()
 
 

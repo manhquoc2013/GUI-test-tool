@@ -8,3 +8,4 @@
 - [x] Slices 4–7: chrome polish (TopBar, Editor, Chat/Wizard, DataDrawer)
 - [x] Slice 8: Settings Master-Detail
 - [x] Slice 9: gates + .ai-context.md
+- [x] Remediation: hamburger+dock laptop band, sync sizes-only, minWidth hide, theme destroyed, gitignore

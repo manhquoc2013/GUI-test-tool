@@ -39,31 +39,47 @@ class LayoutController:
 
     def apply_layout_breakpoint(self, width: int) -> None:
         w = self._w
-        if width >= UI_BREAKPOINT_WIDE:
-            w._narrow_auto_collapsed = False
-            w._drawer_width = UI_DRAWER_WIDTH
-            sidebar_target = UI_SIDEBAR_WIDTH
-        elif width >= UI_BREAKPOINT_MEDIUM:
-            w._narrow_auto_collapsed = False
-            w._drawer_width = UI_DRAWER_WIDTH_COMPACT
-            sidebar_target = UI_SIDEBAR_WIDTH_COMPACT
-        else:
-            if not w._narrow_auto_collapsed:
-                w._sidebar_collapsed = True
-                w._narrow_auto_collapsed = True
-            w._drawer_width = UI_DRAWER_WIDTH_NARROW
-            sidebar_target = UI_SIDEBAR_WIDTH_COMPACT
-
-        if w.right_drawer.is_open and width < UI_BREAKPOINT_WIDE and not w._sidebar_collapsed:
-            w._sidebar_collapsed = True
-
+        sidebar_target = self._update_breakpoint_chrome(width)
+        self._resolve_pane_flags(width)
         self._apply_pane_visibility(sidebar_target)
         w.top_bar.apply_density(width)
         w.builder.apply_density(width)
-        if hasattr(w.explorer, "apply_density"):
-            exp_w = self._saved_explorer_w if not w._sidebar_collapsed else 0
-            if exp_w > 0:
-                w.explorer.apply_density(exp_w)
+        if hasattr(w.explorer, "apply_density") and not w._sidebar_collapsed:
+            w.explorer.apply_density(self._saved_explorer_w)
+
+    def _update_breakpoint_chrome(self, width: int) -> int:
+        w = self._w
+        if width >= UI_BREAKPOINT_WIDE:
+            w._narrow_auto_collapsed = False
+            w._drawer_width = UI_DRAWER_WIDTH
+            return UI_SIDEBAR_WIDTH
+        if width >= UI_BREAKPOINT_MEDIUM:
+            w._narrow_auto_collapsed = False
+            w._drawer_width = UI_DRAWER_WIDTH_COMPACT
+            return UI_SIDEBAR_WIDTH_COMPACT
+        if not w._narrow_auto_collapsed:
+            w._sidebar_collapsed = True
+            w._narrow_auto_collapsed = True
+        w._drawer_width = UI_DRAWER_WIDTH_NARROW
+        return UI_SIDEBAR_WIDTH_COMPACT
+
+    def _resolve_pane_flags(self, width: int) -> None:
+        """Apply mutual exclusion only below UI_THREE_COL_SAFE.
+
+        Open-dock auto-hide of Explorer is handled in open_* APIs, not on every
+        resize — so ☰ can re-open Explorer while Copilot stays open in the
+        laptop band (1150 ≤ W < 1440).
+        """
+        w = self._w
+        want_explorer = not w._sidebar_collapsed
+        want_dock = w.right_drawer.is_open
+        if not (want_explorer and want_dock and width < UI_THREE_COL_SAFE):
+            return
+        if getattr(w, "_prefer_dock", False):
+            w._sidebar_collapsed = True
+        elif w.right_drawer.is_open:
+            w.right_drawer.close_drawer()
+            w.top_bar.set_copilot_checked(False)
 
     def _apply_pane_visibility(self, sidebar_target: int) -> None:
         w = self._w
@@ -72,36 +88,46 @@ class LayoutController:
             explorer_visible = not w._sidebar_collapsed
             dock_visible = w.right_drawer.is_open
 
-            if explorer_visible and dock_visible and w.width() < UI_THREE_COL_SAFE:
-                # Mutual exclusion under safe width — prefer dock if it was just opened.
-                if getattr(w, "_prefer_dock", False):
-                    explorer_visible = False
-                    w._sidebar_collapsed = True
-                else:
-                    dock_visible = False
-                    w.right_drawer.close_drawer()
-
-            w.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
-            w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
-            w.right_drawer.setMinimumWidth(UI_DOCK_MIN_WIDTH)
-            w.right_drawer.setMaximumWidth(UI_DOCK_MAX_WIDTH)
             w.builder.setMinimumWidth(UI_EDITOR_MIN_WIDTH)
+
+            if explorer_visible:
+                w.explorer.setMinimumWidth(UI_EXPLORER_MIN_WIDTH)
+                w.explorer.setMaximumWidth(UI_SIDEBAR_WIDTH_MAX)
+            else:
+                w.explorer.setMinimumWidth(0)
+                w.explorer.setMaximumWidth(0)
+
+            if dock_visible:
+                w.right_drawer.setMinimumWidth(UI_DOCK_MIN_WIDTH)
+                w.right_drawer.setMaximumWidth(UI_DOCK_MAX_WIDTH)
+            else:
+                w.right_drawer.setMinimumWidth(0)
+                w.right_drawer.setMaximumWidth(0)
 
             w.explorer.setVisible(explorer_visible)
             w.right_drawer.setVisible(dock_visible)
 
-            total = max(w.h_splitter.width(), w.width(), 1)
-            sizes = [0, 0, 0]
-            if explorer_visible:
-                preferred = sidebar_target or self._saved_explorer_w
-                sizes[0] = min(max(self._saved_explorer_w, UI_EXPLORER_MIN_WIDTH), preferred)
-                sizes[0] = max(UI_EXPLORER_MIN_WIDTH, min(sizes[0], UI_SIDEBAR_WIDTH_MAX))
-            if dock_visible:
-                sizes[2] = max(UI_DOCK_MIN_WIDTH, min(self._saved_dock_w, w._drawer_width))
-            sizes[1] = max(UI_EDITOR_MIN_WIDTH, total - sizes[0] - sizes[2])
-            w.h_splitter.setSizes(sizes)
+            self._restore_splitter_sizes(sidebar_target, explorer_visible, dock_visible)
         finally:
             self._applying = False
+
+    def _restore_splitter_sizes(
+        self,
+        sidebar_target: int,
+        explorer_visible: bool,
+        dock_visible: bool,
+    ) -> None:
+        w = self._w
+        total = max(w.h_splitter.width(), w.width(), 1)
+        sizes = [0, 0, 0]
+        if explorer_visible:
+            preferred = sidebar_target or self._saved_explorer_w
+            sizes[0] = min(max(self._saved_explorer_w, UI_EXPLORER_MIN_WIDTH), preferred)
+            sizes[0] = max(UI_EXPLORER_MIN_WIDTH, min(sizes[0], UI_SIDEBAR_WIDTH_MAX))
+        if dock_visible:
+            sizes[2] = max(UI_DOCK_MIN_WIDTH, min(self._saved_dock_w, w._drawer_width))
+        sizes[1] = max(UI_EDITOR_MIN_WIDTH, total - sizes[0] - sizes[2])
+        w.h_splitter.setSizes(sizes)
 
     def _on_splitter_moved(self, _pos: int = 0, _index: int = 0) -> None:
         if self._applying:
@@ -126,10 +152,22 @@ class LayoutController:
         return False
 
     def sync_drawer_geometry(self) -> None:
-        """Compatibility no-op — dock is a splitter child in v4.2."""
-        self._apply_pane_visibility(
-            UI_SIDEBAR_WIDTH if not self._w._sidebar_collapsed else 0
-        )
+        """Restore splitter sizes only — never flip open/collapsed policy."""
+        w = self._w
+        target = UI_SIDEBAR_WIDTH if not w._sidebar_collapsed else 0
+        if w.width() >= UI_BREAKPOINT_MEDIUM and w.width() < UI_BREAKPOINT_WIDE:
+            target = UI_SIDEBAR_WIDTH_COMPACT if not w._sidebar_collapsed else 0
+        elif w.width() < UI_BREAKPOINT_MEDIUM:
+            target = UI_SIDEBAR_WIDTH_COMPACT if not w._sidebar_collapsed else 0
+        self._applying = True
+        try:
+            self._restore_splitter_sizes(
+                target,
+                explorer_visible=not w._sidebar_collapsed,
+                dock_visible=w.right_drawer.is_open,
+            )
+        finally:
+            self._applying = False
 
     def toggle_sidebar(self) -> None:
         w = self._w
@@ -142,23 +180,25 @@ class LayoutController:
         w._prefer_dock = False
         self.apply_layout_breakpoint(w.width())
 
+    def _open_dock_policy(self) -> None:
+        w = self._w
+        w._prefer_dock = True
+        if w.width() < UI_BREAKPOINT_WIDE:
+            w._sidebar_collapsed = True
+
     def toggle_copilot_drawer(self) -> None:
         w = self._w
         if w.right_drawer.is_open and w.right_drawer.stack.currentIndex() == 0:
             w.right_drawer.close_drawer()
         else:
-            w._prefer_dock = True
-            if w.width() < UI_BREAKPOINT_WIDE:
-                w._sidebar_collapsed = True
+            self._open_dock_policy()
             w.right_drawer.open_drawer(TAB_COPILOT)
         self.apply_layout_breakpoint(w.width())
 
     def on_copilot_toggle(self, checked: bool) -> None:
         w = self._w
         if checked:
-            w._prefer_dock = True
-            if w.width() < UI_BREAKPOINT_WIDE:
-                w._sidebar_collapsed = True
+            self._open_dock_policy()
             w.right_drawer.open_drawer(TAB_COPILOT)
         else:
             w.right_drawer.close_drawer()
@@ -166,9 +206,7 @@ class LayoutController:
 
     def open_copilot(self) -> None:
         w = self._w
-        w._prefer_dock = True
-        if w.width() < UI_BREAKPOINT_WIDE:
-            w._sidebar_collapsed = True
+        self._open_dock_policy()
         w.right_drawer.show_copilot(compose=True)
         w.top_bar.set_copilot_checked(True)
         self.apply_layout_breakpoint(w.width())

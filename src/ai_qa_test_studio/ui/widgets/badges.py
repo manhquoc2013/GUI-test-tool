@@ -35,7 +35,7 @@ from ai_qa_test_studio.ui.theme import (
     unbound_banner_bg_css,
     unbound_banner_border_css,
 )
-from ai_qa_test_studio.ui.theme_bind import bind_theme_changed, safe_theme_slot
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 
 
 class ElidedTitleLabel(QLabel):
@@ -139,9 +139,8 @@ class UnboundAlertBanner(CardWidget):
         row.addWidget(self.sync_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._theme_slot = safe_theme_slot(self._apply_theme_style)
         self._apply_theme_style()
-        bind_theme_changed(self._theme_slot)
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
 
     def set_count(self, count: int) -> None:
         self._count = count

@@ -9,7 +9,7 @@ from qfluentwidgets import SegmentedWidget
 
 from ai_qa_test_studio.constants import UI_DOCK_MAX_WIDTH, UI_DOCK_MIN_WIDTH
 from ai_qa_test_studio.ui.theme import panel_stylesheet
-from ai_qa_test_studio.ui.theme_bind import bind_theme_changed, safe_theme_slot
+from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
 from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
 
@@ -49,9 +49,8 @@ class RightDrawer(QWidget):
         layout.addWidget(self.stack, stretch=1)
 
         self.pivot.currentItemChanged.connect(self._on_pivot_changed)
-        self._theme_slot = safe_theme_slot(self._apply_theme_style)
         self._apply_theme_style()
-        bind_theme_changed(self._theme_slot)
+        self._theme_slot = bind_widget_theme(self, self._apply_theme_style)
 
     def _apply_theme_style(self) -> None:
         self.setStyleSheet(panel_stylesheet("RightDock", border_left=True))
