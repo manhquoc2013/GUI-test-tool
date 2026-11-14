@@ -1,6 +1,13 @@
-# Plan — Coverage review fixes
+# Plan — s-review remediation
 
-1. TDD: multi-doc pair completeness (RED then GREEN).
-2. Refactor `doc_coverage` — `plan_coverage_windows`, `covered_chunk_keys`.
-3. Extract `run_coverage_pass(host, …)`; empty-path mark_compose.
-4. Gates + `tasks/learnings.md`.
+## Dependency order
+1. **T1 Motion stop API + dock snap** — foundation for layout race
+2. **T2 Path-aligned ingest return** — API change for controller
+3. **T3 Ingest cache lifecycle + tests** — builds on T2
+4. **T4 Shared result_line** — independent of T1–T3 but after green gates
+5. **T5 CTX markers DOM/CASE/LAST_ERROR** — small constants + orchestrator
+6. **T6 sessions restore + learnings + full gates**
+
+## Parallelism
+- T4 can run after T1–T3 land (or in parallel if no file overlap with bubble/crew).
+- T5 independent of T2–T4 except orchestrator touch — sequence after T4 to avoid thrash.

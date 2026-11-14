@@ -18,6 +18,7 @@ from ai_qa_test_studio.constants import (
     UI_WIDGET_SIZE_MAX,
 )
 from ai_qa_test_studio.ui.motion import (
+    CHANNEL_WIDTH,
     animate_splitter_size,
     bind_motion_enabled,
     clear_registry_for_tests,
@@ -25,6 +26,7 @@ from ai_qa_test_studio.ui.motion import (
     motion_enabled,
     registry_size,
     slide_height,
+    stop_channel,
     unlock_height,
 )
 
@@ -183,4 +185,41 @@ def test_animate_splitter_size_reduce_motion(qapp: QApplication) -> None:
     qapp.processEvents()
     assert splitter.sizes()[1] >= 100
     assert registry_size() == 0
+    host.close()
+
+
+def test_stop_channel_prevents_splitter_on_done(qapp: QApplication) -> None:
+    """Sidebar snap-close must cancel dock open on_done (no resurrect)."""
+    host = QWidget()
+    layout = QHBoxLayout(host)
+    splitter = QSplitter(host)
+    left = QWidget()
+    right = QWidget()
+    left.setMinimumWidth(40)
+    right.setMinimumWidth(0)
+    splitter.addWidget(left)
+    splitter.addWidget(right)
+    layout.addWidget(splitter)
+    host.resize(400, 200)
+    host.show()
+    qapp.processEvents()
+    splitter.setSizes([280, 0])
+    qapp.processEvents()
+    done = {"n": 0}
+    animate_splitter_size(
+        splitter,
+        1,
+        0,
+        120,
+        host=right,
+        duration_ms=400,
+        on_done=lambda: done.__setitem__("n", done["n"] + 1),
+    )
+    assert registry_size() == 1
+    stop_channel(right, CHANNEL_WIDTH)
+    assert registry_size() == 0
+    qapp.processEvents()
+    time.sleep(0.05)
+    qapp.processEvents()
+    assert done["n"] == 0
     host.close()

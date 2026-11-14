@@ -76,7 +76,11 @@ def _key(widget: QObject, channel: Channel) -> RegistryKey:
     return (id(widget), channel)
 
 
-def _stop_channel(widget: QObject, channel: Channel) -> None:
+def stop_channel(widget: QObject, channel: Channel) -> None:
+    """Stop and unregister an in-flight animation on ``widget``/``channel``.
+
+    Disconnects finished/value slots so a cancelled animation cannot run ``on_done``.
+    """
     key = _key(widget, channel)
     entry = _REGISTRY.pop(key, None)
     if entry is None:
@@ -100,6 +104,10 @@ def _stop_channel(widget: QObject, channel: Channel) -> None:
             widget.destroyed.disconnect(entry.destroyed_slot)
         except (TypeError, RuntimeError):
             pass
+
+
+def _stop_channel(widget: QObject, channel: Channel) -> None:
+    stop_channel(widget, channel)
 
 
 def _register(
@@ -427,5 +435,6 @@ __all__ = [
     "motion_enabled",
     "registry_size",
     "slide_height",
+    "stop_channel",
     "unlock_height",
 ]

@@ -22,7 +22,11 @@ from ai_qa_test_studio.constants import (
     UI_SIDEBAR_WIDTH_MAX,
     UI_THREE_COL_SAFE,
 )
-from ai_qa_test_studio.ui.motion import animate_splitter_size
+from ai_qa_test_studio.ui.motion import (
+    CHANNEL_WIDTH,
+    animate_splitter_size,
+    stop_channel,
+)
 from ai_qa_test_studio.ui.widgets.right_drawer import TAB_COPILOT
 
 if TYPE_CHECKING:
@@ -193,8 +197,10 @@ class LayoutController:
         opening = w._sidebar_collapsed
         if opening and w.right_drawer.is_open and w.width() < UI_THREE_COL_SAFE:
             # Mutual-exclusion swap snaps dock closed (explorer takes the slot).
+            # Stop in-flight width anim so open/close on_done cannot resurrect dock.
             w._prefer_dock = False
             self._dock_animating = False
+            stop_channel(w.right_drawer, CHANNEL_WIDTH)
             w.right_drawer.close_drawer()
             w.top_bar.set_copilot_checked(False)
             w.right_drawer.setMinimumWidth(0)
