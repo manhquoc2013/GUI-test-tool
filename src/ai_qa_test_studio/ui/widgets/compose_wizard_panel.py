@@ -38,6 +38,7 @@ from ai_qa_test_studio.constants import (
     UI_WIZARD_DOC_LIST_MIN_HEIGHT,
     UI_WIZARD_STEP_COUNT,
     WIZARD_DOC_FILE_FILTER,
+    WIZARD_DOC_SAMPLE_MARKDOWN,
 )
 from ai_qa_test_studio.core.models import TestScenario
 from ai_qa_test_studio.core.wizard_documents import (
@@ -152,13 +153,29 @@ class ComposeWizardPanel(QWidget):
 
     def _generate_outline(self) -> None:
         documents = self.source_page.documents()
+        llm_parser = None
+        if self.generator.llm is not None:
+            llm_parser = self.generator.parse_test_table_sync
+        # Re-parse needs_llm docs with LLM when available (attachments may predate llm wire-up).
+        enriched: list[WizardDocument] = []
+        for doc in documents:
+            if doc.needs_llm and llm_parser is not None and doc.markdown.strip():
+                llm_scenarios = llm_parser(doc.markdown)
+                if llm_scenarios:
+                    doc.scenarios = merge_wizard_scenarios(doc.scenarios, llm_scenarios)
+                    doc.needs_llm = False
+            enriched.append(doc)
         context = build_wizard_llm_context(
             freeform_markdown=self.source_page.markdown_text(),
-            documents=documents,
+            documents=enriched,
         )
-        imported = collect_imported_scenarios(documents)
-        generated = self.generator.generate_outline_sync(context) if context.strip() else []
-        self.scenarios = merge_wizard_scenarios(imported, generated)
+        imported = collect_imported_scenarios(enriched)
+        if imported:
+            self.scenarios = imported
+        elif context.strip():
+            self.scenarios = self.generator.generate_outline_sync(context)
+        else:
+            self.scenarios = []
         self.scenario_page.load_scenarios(self.scenarios)
 
     def _prepare_review(self, selected: list[TestScenario]) -> None:
@@ -169,7 +186,11 @@ class ComposeWizardPanel(QWidget):
             if start:
                 for case in scenario.cases:
                     case.start_url = start
-                    if case.steps and case.steps[0].action == "goto":
+                    if (
+                        case.steps
+                        and case.steps[0].action == "goto"
+                        and not (case.steps[0].input_data or "").strip()
+                    ):
                         case.steps[0].input_data = start
         self.review_page.set_summary(selected)
 
@@ -244,7 +265,7 @@ class _SourceStep(QWidget):
 
         self.markdown = PlainTextEdit()
         self.markdown.setPlaceholderText("Mô tả luồng nghiệp vụ hoặc dán User Story...")
-        self.markdown.setPlainText("Sample SRS: login and checkout happy path")
+        self.markdown.setPlainText(WIZARD_DOC_SAMPLE_MARKDOWN)
         self.markdown.setMinimumHeight(100)
         add_card("Mô tả tính năng / Markdown", "", self.markdown)
 
@@ -259,6 +280,9 @@ class _SourceStep(QWidget):
         self._documents.clear()
         self.doc_list.clear()
         self.hint.setText("")
+        self.markdown.setPlainText(WIZARD_DOC_SAMPLE_MARKDOWN)
+        self.url.setText(DEFAULT_TARGET_URL)
+        self.figma.clear()
 
     def _add_documents(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -268,12 +292,18 @@ class _SourceStep(QWidget):
             return
         errors: list[str] = []
         preview_chunks: list[str] = []
+        llm_parser = None
+        parent = self.parent()
+        generator = getattr(parent, "generator", None) if parent is not None else None
+        if generator is not None and getattr(generator, "llm", None) is not None:
+            llm_parser = generator.parse_test_table_sync
         for raw in paths:
-            doc = load_wizard_document(raw)
+            doc = load_wizard_document(raw, llm_parser=llm_parser)
             if doc.error:
                 errors.append(f"{Path(raw).name}: {doc.error}")
                 continue
             if any(existing.path == doc.path for existing in self._documents):
+                errors.append(f"{Path(raw).name}: đã đính kèm")
                 continue
             self._documents.append(doc)
             item = QListWidgetItem(doc.display_name)
@@ -281,10 +311,13 @@ class _SourceStep(QWidget):
             self.doc_list.addItem(item)
             if doc.markdown.strip():
                 preview_chunks.append(doc.markdown.strip()[: UI_MARKDOWN_PREVIEW_CHARS // 2])
-        if preview_chunks and not self.markdown.toPlainText().strip():
+        current_md = self.markdown.toPlainText().strip()
+        if preview_chunks and (
+            not current_md or current_md == WIZARD_DOC_SAMPLE_MARKDOWN
+        ):
             self.markdown.setPlainText("\n\n".join(preview_chunks)[:UI_MARKDOWN_PREVIEW_CHARS])
         if errors:
-            self.hint.setText("Một số tệp lỗi: " + "; ".join(errors[:3]))
+            self.hint.setText("Một số tệp: " + "; ".join(errors[:3]))
         else:
             self.hint.setText("")
 

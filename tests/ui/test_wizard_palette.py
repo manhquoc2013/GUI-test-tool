@@ -83,7 +83,7 @@ def test_compose_wizard_panel_three_steps_emit_drafts(host: QWidget) -> None:
 def test_compose_wizard_imports_csv_test_cases(host: QWidget, tmp_path) -> None:
     from pathlib import Path
 
-    csv_path = Path(tmp_path) / "login_test_cases.csv"
+    csv_path = Path(tmp_path) / "login_scenarios.csv"
     csv_path.write_text(
         "Test Case ID,Scenario ID,Title,Step No,Action,Test Data,Expected Result\n"
         "TC01,TS_LOGIN,Login,1,goto,https://app.example/,open\n"
@@ -104,6 +104,18 @@ def test_compose_wizard_imports_csv_test_cases(host: QWidget, tmp_path) -> None:
         for i in range(panel.scenario_page.list.count())
     ]
     assert any("TS_LOGIN" in text for text in codes)
+    assert not any("TS_HAPPY" in text or "TS_NEG" in text for text in codes)
+    panel.close()
+
+
+def test_compose_wizard_reset_clears_sample_markdown(host: QWidget) -> None:
+    from ai_qa_test_studio.constants import WIZARD_DOC_SAMPLE_MARKDOWN
+
+    panel = ComposeWizardPanel(host)
+    panel.source_page.markdown.setPlainText("custom notes")
+    panel.reset()
+    assert panel.source_page.markdown.toPlainText() == WIZARD_DOC_SAMPLE_MARKDOWN
+    assert panel.source_page.documents() == []
     panel.close()
 
 
