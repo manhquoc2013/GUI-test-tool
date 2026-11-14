@@ -12,6 +12,7 @@ from ai_qa_test_studio.constants import (
     COMPLEXITY_COMPLEX,
     COMPLEXITY_NORMAL,
     COMPLEXITY_SIMPLE,
+    KEYRING_SLOT_LEGACY_API,
     LLM_PROVIDER_OFFLINE,
     LLM_TASK_CLARIFY_DRAFT,
     LLM_TASK_COMPOSE,
@@ -37,6 +38,7 @@ from ai_qa_test_studio.core.models import (
     McpSettings,
     TestDataProfile,
 )
+from ai_qa_test_studio.core.secret_store import seal_api_key_ref
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +174,16 @@ def migrate_ai_config(ai_raw: dict[str, Any]) -> AiSettings:
     )
 
 
+def _seal_ai_secrets(ai: AiSettings) -> None:
+    """Replace raw API keys in-memory with keyring refs before JSON persistence."""
+    for conn in ai.connections:
+        conn.api_key_ref = seal_api_key_ref(conn.id, conn.api_key_ref)
+    legacy_slot = ai.default_connection_id or KEYRING_SLOT_LEGACY_API
+    ai.api_key_ref = seal_api_key_ref(legacy_slot, ai.api_key_ref)
+
+
 def ai_settings_to_payload(ai: AiSettings) -> dict[str, Any]:
+    _seal_ai_secrets(ai)
     return {
         "apiKey": ai.api_key_ref,
         "baseUrl": ai.base_url,

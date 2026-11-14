@@ -16,6 +16,7 @@ from ai_qa_test_studio.constants import (
 )
 from ai_qa_test_studio.core.env_manager import default_task_complexity_matrix
 from ai_qa_test_studio.core.models import AiConnection, AiModelEntry, AiSettings
+from ai_qa_test_studio.core.secret_store import resolve_api_key
 
 
 @dataclass(frozen=True)
@@ -73,14 +74,15 @@ class ModelRouter:
         if conn is None or model is None:
             return self._offline_route(task, complexity, tier)
         provider = conn.provider or LLM_PROVIDER_OFFLINE
-        if provider != LLM_PROVIDER_OFFLINE and not (conn.api_key_ref or "").strip():
+        api_key = resolve_api_key(conn.api_key_ref)
+        if provider != LLM_PROVIDER_OFFLINE and not api_key:
             return self._offline_route(task, complexity, tier)
         return ModelRoute(
             connection_id=conn.id,
             provider=provider,
             model=model.id,
             base_url=conn.base_url,
-            api_key=conn.api_key_ref,
+            api_key=api_key,
             tier=tier,
             complexity=complexity,
             task=task,
@@ -131,14 +133,15 @@ class ModelRouter:
         if model is None:
             return self._offline_route(task, complexity, tier)
         provider = conn.provider or LLM_PROVIDER_OFFLINE
-        if provider != LLM_PROVIDER_OFFLINE and not (conn.api_key_ref or "").strip():
+        api_key = resolve_api_key(conn.api_key_ref)
+        if provider != LLM_PROVIDER_OFFLINE and not api_key:
             return self._offline_route(task, complexity, tier)
         return ModelRoute(
             connection_id=conn.id,
             provider=provider,
             model=model.id,
             base_url=conn.base_url,
-            api_key=conn.api_key_ref,
+            api_key=api_key,
             tier=tier,
             complexity=complexity,
             task=task,

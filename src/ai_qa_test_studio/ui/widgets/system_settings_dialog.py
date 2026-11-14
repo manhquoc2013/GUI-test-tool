@@ -65,6 +65,7 @@ from ai_qa_test_studio.core.models import (
     McpExternalSettings,
     McpSettings,
 )
+from ai_qa_test_studio.core.secret_store import resolve_api_key, seal_api_key_ref
 
 _TAB_DEFS: tuple[tuple[str, str], ...] = (
     ("general", "Chung"),
@@ -441,6 +442,10 @@ class SystemSettingsDialog(MessageBoxBase):
             if default_model is None and primary.models:
                 default_model = primary.models[0]
             self._draft.ai.model = default_model.id if default_model else ""
+        for conn in self._draft.ai.connections:
+            conn.api_key_ref = seal_api_key_ref(conn.id, conn.api_key_ref)
+        if primary is not None:
+            self._draft.ai.api_key_ref = primary.api_key_ref
         if not self._draft.ai.routing.task_complexity_models:
             self._draft.ai.routing.task_complexity_models = default_task_complexity_matrix()
         self._draft.copilot = CopilotRuntimeSettings(
@@ -510,7 +515,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self.api_label.setText(conn.label)
         self.api_provider.setCurrentText(conn.provider or LLM_PROVIDER_OFFLINE)
         self.api_base.setText(conn.base_url)
-        self.api_key.setText(conn.api_key_ref)
+        self.api_key.setText(resolve_api_key(conn.api_key_ref))
         self.api_enabled.setChecked(conn.enabled)
 
     def _add_api(self) -> None:

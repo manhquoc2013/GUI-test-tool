@@ -14,6 +14,7 @@ from ai_qa_test_studio.constants import (
     LLM_PROVIDER_OPENAI_COMPAT,
 )
 from ai_qa_test_studio.core.models import AiSettings
+from ai_qa_test_studio.core.secret_store import resolve_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,12 @@ class ChatMessage:
 
 def resolve_llm_provider(ai: AiSettings) -> str:
     provider = (ai.provider or "").strip().lower()
+    api_key = resolve_api_key(ai.api_key_ref)
     if provider in {LLM_PROVIDER_OFFLINE, LLM_PROVIDER_OPENAI_COMPAT, LLM_PROVIDER_GEMINI}:
-        if provider != LLM_PROVIDER_OFFLINE and not (ai.api_key_ref or "").strip():
+        if provider != LLM_PROVIDER_OFFLINE and not api_key:
             return LLM_PROVIDER_OFFLINE
         return provider
-    if not (ai.api_key_ref or "").strip():
+    if not api_key:
         return LLM_PROVIDER_OFFLINE
     model = (ai.model or "").lower()
     if "gemini" in model:
@@ -56,7 +58,7 @@ class UnifiedLLMGateway:
         provider = resolve_llm_provider(ai)
         return cls(
             provider=provider,
-            api_key=ai.api_key_ref,
+            api_key=resolve_api_key(ai.api_key_ref),
             model=ai.model or ("gemini-2.0-flash" if provider == LLM_PROVIDER_GEMINI else "gpt-4o"),
             base_url=ai.base_url or None,
         )
