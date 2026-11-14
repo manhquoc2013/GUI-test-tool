@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         self.h_splitter.setSizes([UI_SIDEBAR_WIDTH, UI_WINDOW_DEFAULT_WIDTH - UI_SIDEBAR_WIDTH])
         workspace_layout.addWidget(self.h_splitter, stretch=1)
 
-        # Overlay sibling — positioned manually; not in the HBox layout.
+        # Drawer sibling — geometry synced; push reserves layout margin, overlay covers.
         self.right_drawer = RightDrawer(self.workspace)
         self.right_drawer.hide()
         self.browser_agent = self.right_drawer.browser
@@ -264,8 +264,8 @@ class MainWindow(QMainWindow):
         return self.data_drawer.collapsed
 
     def apply_layout_breakpoint(self, width: int) -> None:
-        # Right drawer is always a right-edge overlay; breakpoints only size chrome.
-        self._overlay_mode = True
+        # ≥960 push drawer; <960 overlay. Breakpoints also size chrome.
+        self._overlay_mode = width < UI_BREAKPOINT_MEDIUM
         if width >= UI_BREAKPOINT_WIDE:
             self._narrow_auto_collapsed = False
             sidebar = 0 if self._sidebar_collapsed else UI_SIDEBAR_WIDTH
@@ -316,9 +316,13 @@ class MainWindow(QMainWindow):
         wh = self.workspace.height()
         if ww <= 0 or wh <= 0:
             return
-        # H-splitter is layout-managed; only overlay the right drawer.
+        layout = self.workspace.layout()
         if self.right_drawer.is_open:
             dw = min(self._drawer_width, max(1, ww))
+            # Push: reserve right margin so h_splitter shrinks; overlay: full canvas.
+            reserve = 0 if self._overlay_mode else dw
+            if layout is not None:
+                layout.setContentsMargins(0, 0, reserve, 0)
             x = max(0, ww - dw)
             self.right_drawer.setMinimumSize(0, 0)
             self.right_drawer.setMaximumSize(UI_WIDGET_SIZE_MAX, UI_WIDGET_SIZE_MAX)
@@ -326,6 +330,8 @@ class MainWindow(QMainWindow):
             self.right_drawer.show()
             self.right_drawer.raise_()
         else:
+            if layout is not None:
+                layout.setContentsMargins(0, 0, 0, 0)
             self.right_drawer.hide()
 
     def _toggle_sidebar(self) -> None:
@@ -347,6 +353,9 @@ class MainWindow(QMainWindow):
         self._sync_drawer_geometry()
 
     def _on_escape(self) -> None:
+        if self.copilot.is_busy:
+            self._stop_copilot()
+            return
         if self._busy:
             self._stop_browser()
             return
@@ -511,6 +520,11 @@ class MainWindow(QMainWindow):
 
     @asyncSlot(str, dict)
     async def _on_copilot_prompt(self, text: str, flags: dict[str, Any]) -> None:
+        if self._busy and flags.get("include_dom"):
+            self._toast_warn(
+                "Copilot",
+                "Trình duyệt đang bận — bỏ qua @DOM cho lượt này.",
+            )
         self.copilot.set_busy(True)
         self._copilot_cancel = asyncio.Event()
         self.copilot.set_apply_payload(None)
@@ -608,7 +622,7 @@ class MainWindow(QMainWindow):
             ctx["srs"] = f"{case.title}\n{case.expected_final_result or ''}"
         if ctx["include_last_error"] and self._last_error:
             ctx["last_error"] = self._last_error
-        if ctx["include_dom"] and self.session.started:
+        if ctx["include_dom"] and self.session.started and not self._busy:
             try:
                 compact, _ = await self._dom_distiller.extract(self.session.engine.page)
                 ctx["dom"] = compact
@@ -722,7 +736,7 @@ class MainWindow(QMainWindow):
     def _require_case(self) -> TestCase | None:
         case = self.builder.current_case()
         if case is None:
-            QMessageBox.information(self, "Case", "Chọn một test case trên Explorer trước.")
+            self._toast_warn("Case", "Chọn một test case trên Explorer trước.")
             return None
         return case
 
@@ -786,13 +800,9 @@ class MainWindow(QMainWindow):
             return
         url = self.url_edit.text().strip()
         if not url:
-            url, ok = QInputDialog.getText(
-                self, "Sync & Bind URL", "Base URL:", text=DEFAULT_TARGET_URL
-            )
-            if not ok or not url.strip():
-                return
-            url = url.strip()
+            url = DEFAULT_TARGET_URL
             self.url_edit.setText(url)
+            self._toast_info("Sync URL", f"URL trống — dùng mặc định {url}")
         self._busy = True
         self._set_busy_chrome(True)
         self._status_caption.setText("Đang đồng bộ…")
@@ -1043,6 +1053,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._bundled_mcp.stop()
-        if self.session.started:
-            self._append_log("Đang đóng — trình duyệt sẽ dừng ở phiên tiếp theo")
+        if self._copilot_cancel is not None:
+            self._copilot_cancel.set()
+        dialog = self._clarify_dialog
+        if dialog is not None:
+            dialog.abort_stopped()
+            self._clarify_dialog = None
+        if self.session.started or self.session.run_in_progress:
+            self.session.request_cancel()
+            self._append_log("Đang đóng — dừng trình duyệt…")
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                asyncio.ensure_future(self.session.stop(log=self._append_log))
         super().closeEvent(event)

@@ -51,7 +51,7 @@ class ScreencastViewport(QWidget):
 
         self.btn_launch = PrimaryPushButton(FIF.GLOBE, UI_LABEL_BROWSER, self)
         self.btn_launch.setAccessibleName("Mở trình duyệt")
-        self.btn_launch.clicked.connect(self.launch_requested.emit)
+        self.btn_launch.clicked.connect(lambda: self.launch_requested.emit())
 
         self.resolution = CaptionLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT}", self)
 
@@ -81,7 +81,7 @@ class ScreencastViewport(QWidget):
         empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_cta = PrimaryPushButton(FIF.PLAY, "Mở trình duyệt để Inspect / Chạy thử", self.empty)
         self.empty_cta.setAccessibleName("Mở trình duyệt để Inspect hoặc chạy thử")
-        self.empty_cta.clicked.connect(self.launch_requested.emit)
+        self.empty_cta.clicked.connect(lambda: self.launch_requested.emit())
         empty_layout.addWidget(empty_hint)
         empty_layout.addWidget(self.empty_cta)
 

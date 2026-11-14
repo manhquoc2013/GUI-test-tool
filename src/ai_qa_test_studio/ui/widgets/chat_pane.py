@@ -203,6 +203,10 @@ class CopilotChatPane(QWidget):
     def session(self) -> CopilotSession:
         return self._session
 
+    @property
+    def is_busy(self) -> bool:
+        return self._busy
+
     def eventFilter(self, obj: object, event: object) -> bool:
         if obj is self.input_box and isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (

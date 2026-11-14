@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from ai_qa_test_studio.constants import (
 from ai_qa_test_studio.core.models import Project, TestCase, TestGroup, TestScenario, TestStep
 from ai_qa_test_studio.core.storage import ProjectStorage
 from ai_qa_test_studio.ui.main_window import MainWindow
+from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
+from ai_qa_test_studio.ui.widgets.compose_wizard_panel import ComposeWizardPanel
+from ai_qa_test_studio.ui.widgets.embedded_browser import ScreencastViewport
 
 
 @pytest.fixture(scope="session")
@@ -248,14 +252,15 @@ def test_editor_title_elides_long_names(qapp: QApplication, tmp_path: Path) -> N
     window.close()
 
 
-def test_right_drawer_overlay_survives_resize(qapp: QApplication, tmp_path: Path) -> None:
-    """Drawer stays a full-height right overlay; canvas width is not shrunk."""
+def test_right_drawer_push_vs_overlay(qapp: QApplication, tmp_path: Path) -> None:
+    """≥960 push (reserve width); <960 overlay (splitter full width)."""
     _seed(tmp_path)
     window = MainWindow(data_root=tmp_path)
     window.show()
     window.resize(UI_WINDOW_DEFAULT_WIDTH, UI_WINDOW_DEFAULT_HEIGHT)
     qapp.processEvents()
     window.top_bar.btn_copilot.setChecked(True)
+    window.apply_layout_breakpoint(window.width())
     window._sync_drawer_geometry()
     qapp.processEvents()
 
@@ -263,22 +268,113 @@ def test_right_drawer_overlay_survives_resize(qapp: QApplication, tmp_path: Path
     ws = window.workspace
     assert drawer.is_open is True
     assert drawer.isVisible()
-    assert window._overlay_mode is True
-    assert window.h_splitter.width() == ws.width()
+    assert window._overlay_mode is False
+    assert window.h_splitter.width() < ws.width()
     assert drawer.x() + drawer.width() == ws.width()
     assert drawer.height() == ws.height()
     assert drawer.width() > 0
 
-    for width in (UI_BREAKPOINT_WIDE + 40, UI_BREAKPOINT_MEDIUM + 10, UI_BREAKPOINT_MEDIUM - 40, 900):
+    for width, expect_overlay in (
+        (UI_BREAKPOINT_WIDE + 40, False),
+        (UI_BREAKPOINT_MEDIUM + 10, False),
+        (UI_BREAKPOINT_MEDIUM - 40, True),
+        (900, True),
+    ):
         window.resize(width, 700)
         qapp.processEvents()
         window.apply_layout_breakpoint(window.width())
+        window._sync_drawer_geometry()
         qapp.processEvents()
         assert drawer.is_open is True
         assert drawer.isVisible()
         assert drawer.width() > 0
         assert drawer.height() == ws.height()
         assert drawer.x() + drawer.width() == ws.width()
-        assert window.h_splitter.geometry().width() == ws.width()
+        assert window._overlay_mode is expect_overlay
+        if expect_overlay:
+            assert window.h_splitter.geometry().width() == ws.width()
+        else:
+            assert window.h_splitter.geometry().width() < ws.width()
 
     window.close()
+
+
+def test_require_case_and_sync_url_avoid_blocking_dialogs() -> None:
+    """@asyncSlot paths must not call QMessageBox / QInputDialog (qasync clash)."""
+    require_src = inspect.getsource(MainWindow._require_case)
+    sync_src = inspect.getsource(MainWindow._sync_url)
+    assert "QMessageBox" not in require_src
+    assert "QInputDialog" not in sync_src
+    assert "_toast_warn" in require_src or "_toast_error" in require_src
+    assert "DEFAULT_TARGET_URL" in sync_src
+
+
+def test_close_event_schedules_session_stop() -> None:
+    src = inspect.getsource(MainWindow.closeEvent)
+    assert "request_cancel" in src
+    assert "ensure_future" in src or "create_task" in src
+    assert "session.stop" in src
+    assert "_copilot_cancel" in src or "_stop_copilot" in src
+
+
+def test_escape_stops_copilot_before_browser(qapp: QApplication, tmp_path: Path) -> None:
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    window.copilot.set_busy(True)
+    window._copilot_cancel = __import__("asyncio").Event()
+    window._busy = True
+    stopped: list[str] = []
+    window._stop_copilot = lambda: stopped.append("copilot")  # type: ignore[method-assign]
+    window._stop_browser = lambda: stopped.append("browser")  # type: ignore[method-assign]
+    window._on_escape()
+    assert stopped == ["copilot"]
+    window.copilot.set_busy(False)
+    window._on_escape()
+    assert stopped == ["copilot", "browser"]
+    window.close()
+
+
+def test_build_copilot_context_skips_dom_when_browser_busy(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed(tmp_path)
+    window = MainWindow(data_root=tmp_path)
+    window._busy = True
+    called = {"dom": False}
+
+    async def _fake_extract(_page: object) -> tuple[str, object]:
+        called["dom"] = True
+        return "DOM", object()
+
+    monkeypatch.setattr(window._dom_distiller, "extract", _fake_extract)
+    window.session._started = True  # type: ignore[attr-defined]
+
+    import asyncio
+
+    ctx = asyncio.run(
+        window._build_copilot_context(
+            {"include_case": False, "include_dom": True, "include_last_error": False}
+        )
+    )
+    assert called["dom"] is False
+    assert "dom" not in ctx
+    window.close()
+
+
+def test_signal_emit_wrappers_avoid_arity_error(qapp: QApplication) -> None:
+    """clicked(bool) must not connect directly to Signal() with 0 args."""
+    hits: list[str] = []
+    browser = BrowserAgentPane()
+    browser.launch_browser_clicked.connect(lambda: hits.append("browser"))
+    browser.btn_launch.click()
+
+    embedded = ScreencastViewport()
+    embedded.launch_requested.connect(lambda: hits.append("embedded"))
+    embedded.btn_launch.click()
+    embedded.empty_cta.click()
+
+    wizard = ComposeWizardPanel()
+    wizard.cancelled.connect(lambda: hits.append("wizard"))
+    wizard.btn_cancel.click()
+    assert hits == ["browser", "embedded", "embedded", "wizard"]

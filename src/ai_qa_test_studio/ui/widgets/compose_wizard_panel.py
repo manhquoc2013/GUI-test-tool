@@ -84,7 +84,7 @@ class ComposeWizardPanel(QWidget):
         self.btn_back = PushButton("Quay lại", self)
         self.btn_back.clicked.connect(self._go_back)
         self.btn_cancel = PushButton("Về Chat", self)
-        self.btn_cancel.clicked.connect(self.cancelled.emit)
+        self.btn_cancel.clicked.connect(lambda: self.cancelled.emit())
         self.btn_next = PrimaryPushButton("Tiếp theo", self)
         self.btn_next.clicked.connect(self._go_next)
         nav.addWidget(self.btn_back)

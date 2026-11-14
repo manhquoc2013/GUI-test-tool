@@ -50,7 +50,7 @@ class BrowserAgentPane(QWidget):
         self.btn_launch.setMinimumWidth(UI_BTN_LAUNCH_MIN_WIDTH)
         self.btn_launch.setToolTip("Launch Browser — Khởi chạy Chromium CDP")
         self.btn_launch.setAccessibleName("Mở trình duyệt")
-        self.btn_launch.clicked.connect(self.launch_browser_clicked.emit)
+        self.btn_launch.clicked.connect(lambda: self.launch_browser_clicked.emit())
 
         self.res_label = CaptionLabel(f"{UI_VIEWPORT_WIDTH}×{UI_VIEWPORT_HEIGHT}", self)
 
