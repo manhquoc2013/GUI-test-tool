@@ -313,6 +313,8 @@ class EnvManager:
                     continue
                 ctx = entry.get("context_window", entry.get("contextWindow"))
                 out = entry.get("max_output_tokens", entry.get("maxOutputTokens"))
+                if ctx is None or out is None:
+                    continue
                 try:
                     ctx_i = int(ctx)
                     out_i = int(out)
