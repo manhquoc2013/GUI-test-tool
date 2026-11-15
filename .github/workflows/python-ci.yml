@@ -14,10 +14,10 @@ concurrency:
 
 env:
   QT_API: pyside6
-  # offscreen does not need Xvfb; pairing both can abort Qt graphics paths (exit 134).
-  QT_QPA_PLATFORM: offscreen
   QT_OPENGL: software
   LIBGL_ALWAYS_SOFTWARE: "1"
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
 
 jobs:
   quality:
@@ -31,6 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            xvfb \
             libegl1 \
             libgl1 \
             libglib2.0-0 \
@@ -63,8 +64,11 @@ jobs:
         run: uv run mypy src
 
       - name: Test
-        # No xvfb-run: QT_QPA_PLATFORM=offscreen is sufficient and safer for DropShadow/grab.
-        run: uv run pytest -q --tb=line
+        # offscreen alone SIGABRT (exit 134) on current ubuntu-latest + some Qt widget tests.
+        # Xvfb + xcb avoids pairing offscreen with a real display server.
+        env:
+          QT_QPA_PLATFORM: xcb
+        run: xvfb-run -a uv run pytest -q --tb=line
 
   build:
     # Package artifacts only on version tags (e.g. v4.2.0).

@@ -14,6 +14,33 @@ def _configure_loop_policy() -> None:
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
+def _ensure_utf8_stdio() -> None:
+    """Windows consoles default to cp1252 — publisher metadata contains non-ASCII."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError, AttributeError):
+                pass
+
+
+def _print_line(text: str) -> None:
+    """Write one UTF-8 line; never raise UnicodeEncodeError on legacy Windows code pages."""
+    _ensure_utf8_stdio()
+    try:
+        print(text, flush=True)
+        return
+    except UnicodeEncodeError:
+        pass
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write((text + "\n").encode("utf-8", errors="replace"))
+        buffer.flush()
+        return
+    print(text.encode("ascii", errors="backslashreplace").decode("ascii"), flush=True)
+
+
 def _parse_early_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--version", action="store_true", help="Print app version and exit")
@@ -39,9 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         from ai_qa_test_studio.app_metadata import metadata_dict
 
         if ns.print_metadata_json:
-            print(json.dumps(metadata_dict(), ensure_ascii=False))
+            _print_line(json.dumps(metadata_dict(), ensure_ascii=False))
             return 0
-        print(__version__)
+        _print_line(__version__)
         return 0
 
     # Before any Playwright / heavy app imports that may touch browsers

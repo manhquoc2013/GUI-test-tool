@@ -111,7 +111,13 @@ def _install_chromium_sync(*, on_progress: ProgressCb | None = None) -> None:
     )
     _active_proc = proc
     assert proc.stdout is not None
+    code: int | None = None
     try:
+        if _cancel_flag.is_set():
+            _terminate_proc(proc)
+            proc.wait(timeout=60)
+            _purge_chromium_dirs(browsers)
+            raise InterruptedError("chromium_install_cancelled")
         for line in proc.stdout:
             text = line.rstrip()
             if on_progress is not None:
@@ -130,7 +136,7 @@ def _install_chromium_sync(*, on_progress: ProgressCb | None = None) -> None:
     finally:
         _active_proc = None
 
-    if code != 0:
+    if code is None or code != 0:
         _purge_chromium_dirs(browsers)
         raise RuntimeError(f"chromium_install_failed exit={code}")
     if not chromium_ready(browsers):

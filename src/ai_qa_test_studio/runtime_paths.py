@@ -31,10 +31,11 @@ def app_dir() -> Path:
     exe = Path(sys.executable).resolve()
     if sys.platform == "darwin":
         # .../AIQATestStudio.app/Contents/MacOS/AIQATestStudio → folder containing .app
-        parts = exe.parts
-        for i, part in enumerate(parts):
+        # Prefer parents[] over Path(*parts) so Windows CI path mocks stay consistent.
+        for index, part in enumerate(exe.parts):
             if part.endswith(".app"):
-                return Path(*parts[:i]).resolve() if i > 0 else exe.parent
+                depth = len(exe.parts) - 1 - index
+                return exe.parents[depth] if depth < len(exe.parents) else exe.parent
         # Fallback: Contents/MacOS → parents[3] when layout matches
         if len(exe.parents) >= 4 and exe.parents[1].name == "Contents":
             return exe.parents[3]

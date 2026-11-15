@@ -33,21 +33,26 @@ def test_runtime_paths_source_has_no_playwright_import() -> None:
 
 def test_import_runtime_paths_does_not_add_playwright_module() -> None:
     """Isolated subprocess: importing runtime_paths must not load playwright."""
+    import os
     import subprocess
 
+    repo_root = Path(__file__).resolve().parents[2]
     script = (
         "import sys\n"
         "import ai_qa_test_studio.runtime_paths\n"
         "bad = [n for n in sys.modules if n == 'playwright' or n.startswith('playwright.')]\n"
         "raise SystemExit(1 if bad else 0)\n"
     )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root / "src")
+    env["PYTHONIOENCODING"] = "utf-8"
     proc = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
-        cwd=str(Path(__file__).resolve().parents[2]),
-        env={**dict(**{k: v for k, v in __import__("os").environ.items()}), "PYTHONPATH": "src"},
+        cwd=str(repo_root),
+        env=env,
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -94,8 +99,10 @@ def test_macos_app_dir_parents(monkeypatch: pytest.MonkeyPatch) -> None:
         "/Users/me/Apps/AIQATestStudio.app/Contents/MacOS/AIQATestStudio"
     )
     monkeypatch.setattr(sys, "executable", str(fake))
-    # Path.resolve on non-existent path still works for structure
-    assert app_dir() == Path("/Users/me/Apps")
+    result = app_dir()
+    # Structural assert — avoid drive-letter / Path(*parts) equality traps on Windows runners
+    assert result.name == "Apps"
+    assert not any(part.endswith(".app") for part in result.parts)
 
 
 def test_is_frozen_default() -> None:
