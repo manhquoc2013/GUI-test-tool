@@ -13,6 +13,12 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  QT_API: pyside6
+  QT_QPA_PLATFORM: offscreen
+  QT_OPENGL: software
+  LIBGL_ALWAYS_SOFTWARE: "1"
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -32,6 +38,8 @@ jobs:
         shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup uv / Python 3.11
         uses: astral-sh/setup-uv@v5
@@ -39,11 +47,20 @@ jobs:
           python-version: "3.11"
           enable-cache: true
 
+      - name: Install Qt headless runtime (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libglib2.0-0 libxkbcommon0 libxkbcommon-x11-0 \
+            libdbus-1-3 libxcb1 libxcb-cursor0 libfontconfig1 libfreetype6 \
+            fakeroot dpkg-dev zip
+
       - name: Sync project (no Playwright browser install)
         run: uv sync --extra build --extra dev
 
       - name: Unit tests (packaging helpers)
-        run: uv run pytest tests/unit/test_runtime_paths.py tests/unit/test_chromium_bootstrap.py tests/unit/test_app_metadata.py -q
+        run: uv run pytest tests/unit/test_runtime_paths.py tests/unit/test_chromium_bootstrap.py tests/unit/test_app_metadata.py -q --tb=short
 
       - name: Package portable (Unix)
         if: runner.os != 'Windows'
@@ -78,10 +95,7 @@ jobs:
 
       - name: Build Linux deb
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg-dev zip
-          bash scripts/build-deb.sh
+        run: bash scripts/build-deb.sh
 
       - name: Smoke-check portable binary
         if: runner.os != 'Windows'
@@ -138,6 +152,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: actions/download-artifact@v4
         with:
           path: release-assets

@@ -592,7 +592,7 @@ DEFAULT_COPILOT_MODELS = (
 # App identity / branding
 APP_DISPLAY_NAME = "AI QA Test Studio"
 APP_EXE_NAME = "AIQATestStudio"
-APP_WINDOW_TITLE = "AI QA Test Studio v4.1"
+APP_WINDOW_TITLE = "AI QA Test Studio v4.1.2"
 APP_PUBLISHER = "Mạnh Quốc"
 APP_PUBLISHER_EMAIL = "manhquoc11@gmail.com"
 APP_PUBLISHER_URL = "https://github.com/manhquoc11"
