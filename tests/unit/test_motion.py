@@ -29,6 +29,12 @@ from ai_qa_test_studio.ui.motion import (
     stop_channel,
     unlock_height,
 )
+from ai_qa_test_studio.ui.qt_compat import opacity_effects_supported
+
+
+def _require_compositing() -> None:
+    if not opacity_effects_supported():
+        pytest.skip("QGraphicsOpacityEffect unsafe on Linux headless/CI QPA")
 
 
 @pytest.fixture
@@ -65,6 +71,7 @@ def test_bind_motion_enabled_gate(qapp: QApplication) -> None:
 
 
 def test_fade_in_clears_graphics_effect(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     host.show()
     label = QLabel("hi", host)
@@ -74,6 +81,22 @@ def test_fade_in_clears_graphics_effect(qapp: QApplication) -> None:
     fade_in(label, duration_ms=40, on_done=lambda: done.__setitem__("ok", True))
     assert registry_size() == 1
     assert _pump_until(qapp, lambda: done["ok"])
+    assert label.graphicsEffect() is None
+    assert registry_size() == 0
+    host.close()
+
+
+def test_fade_in_headless_is_instant(qapp: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIQA_DISABLE_QT_EFFECTS", "1")
+    host = QWidget()
+    label = QLabel("x", host)
+    host.show()
+    label.show()
+    qapp.processEvents()
+    called = {"n": 0}
+    fade_in(label, duration_ms=UI_MOTION_CHAT_MS, on_done=lambda: called.__setitem__("n", 1))
+    qapp.processEvents()
+    assert called["n"] == 1
     assert label.graphicsEffect() is None
     assert registry_size() == 0
     host.close()
@@ -96,6 +119,7 @@ def test_fade_in_reduce_motion_instant(qapp: QApplication) -> None:
 
 
 def test_race_second_fade_stops_first_on_done(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     label = QLabel("race", host)
     host.show()
@@ -113,6 +137,7 @@ def test_race_second_fade_stops_first_on_done(qapp: QApplication) -> None:
 
 
 def test_destroyed_clears_registry(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     label = QLabel("bye", host)
     host.show()

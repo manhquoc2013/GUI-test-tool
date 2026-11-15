@@ -35,6 +35,7 @@ from ai_qa_test_studio.ui.motion import (  # noqa: E402
     motion_enabled,
     registry_size,
 )
+from ai_qa_test_studio.ui.qt_compat import opacity_effects_supported  # noqa: E402
 from ai_qa_test_studio.ui.smooth_scroll import (  # noqa: E402
     SmartAutoScroller,
     apply_pixel_scroll,
@@ -42,6 +43,11 @@ from ai_qa_test_studio.ui.smooth_scroll import (  # noqa: E402
     make_jump_button,
     uses_smooth_scroll_delegate,
 )
+
+
+def _require_compositing() -> None:
+    if not opacity_effects_supported():
+        pytest.skip("QGraphicsOpacityEffect unsafe on Linux headless/CI QPA")
 
 
 @pytest.fixture(scope="module")
@@ -77,6 +83,7 @@ def test_motion_timing_constants_in_fluent_range() -> None:
 
 
 def test_fade_in_clears_graphics_effect(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     host.show()
     label = QLabel("hi", host)
@@ -92,6 +99,7 @@ def test_fade_in_clears_graphics_effect(qapp: QApplication) -> None:
 
 
 def test_fade_in_slide_clears_effect_and_reduce_motion(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     host.show()
     label = QLabel("slide", host)
@@ -113,6 +121,7 @@ def test_fade_in_slide_clears_effect_and_reduce_motion(qapp: QApplication) -> No
 
 
 def test_delete_later_clears_registry_safely(qapp: QApplication) -> None:
+    _require_compositing()
     host = QWidget()
     label = QLabel("bye", host)
     host.show()

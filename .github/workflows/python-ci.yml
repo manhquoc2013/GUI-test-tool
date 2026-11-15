@@ -14,6 +14,9 @@ concurrency:
 
 env:
   QT_API: pyside6
+  # offscreen + effects disabled: xcb/Xvfb re-enables DropShadow and SIGABRT (134).
+  QT_QPA_PLATFORM: offscreen
+  AIQA_DISABLE_QT_EFFECTS: "1"
   QT_OPENGL: software
   LIBGL_ALWAYS_SOFTWARE: "1"
   PYTHONUTF8: "1"
@@ -31,7 +34,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xvfb \
             libegl1 \
             libgl1 \
             libglib2.0-0 \
@@ -64,11 +66,8 @@ jobs:
         run: uv run mypy src
 
       - name: Test
-        # offscreen alone SIGABRT (exit 134) on current ubuntu-latest + some Qt widget tests.
-        # Xvfb + xcb avoids pairing offscreen with a real display server.
-        env:
-          QT_QPA_PLATFORM: xcb
-        run: xvfb-run -a uv run pytest -q --tb=line
+        # No xvfb-run with offscreen (pairing can abort). Effects gated via env above.
+        run: uv run pytest -q --tb=line
 
   build:
     # Package artifacts only on version tags (e.g. v4.2.0).

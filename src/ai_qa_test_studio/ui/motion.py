@@ -203,6 +203,13 @@ def _clear_opacity_effect(widget: QWidget) -> None:
         return
 
 
+def _compositing_safe() -> bool:
+    """False on Linux CI/headless — QGraphicsOpacityEffect paints can SIGABRT (exit 134)."""
+    from ai_qa_test_studio.ui.qt_compat import opacity_effects_supported
+
+    return opacity_effects_supported()
+
+
 def fade_in(
     widget: QWidget,
     *,
@@ -212,7 +219,7 @@ def fade_in(
     """Fade child widget 0→1 via temporary QGraphicsOpacityEffect; always remove effect."""
     if not _widget_alive(widget):
         return
-    if not motion_enabled():
+    if not motion_enabled() or not _compositing_safe():
         _clear_opacity_effect(widget)
         if on_done is not None:
             on_done()
@@ -245,7 +252,7 @@ def fade_in_slide(
     """Fade-in plus a short upward slide; clears QGraphicsOpacityEffect on finish."""
     if not _widget_alive(widget):
         return
-    if not motion_enabled():
+    if not motion_enabled() or not _compositing_safe():
         _clear_opacity_effect(widget)
         if on_done is not None:
             on_done()
@@ -296,7 +303,7 @@ def fade_out_then(
     *,
     duration_ms: int = UI_MOTION_FAST_MS,
 ) -> None:
-    if not motion_enabled():
+    if not motion_enabled() or not _compositing_safe():
         _clear_opacity_effect(widget)
         on_done()
         return

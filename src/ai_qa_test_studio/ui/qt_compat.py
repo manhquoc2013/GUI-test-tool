@@ -67,12 +67,46 @@ def ensure_qt_api() -> None:
         PySide6.__version__ = qt_version
 
 
+def _effects_force_disabled() -> bool:
+    flag = (os.environ.get("AIQA_DISABLE_QT_EFFECTS") or "").strip().lower()
+    return flag in {"1", "true", "yes", "on"}
+
+
+def _running_in_ci() -> bool:
+    return (os.environ.get("CI") or "").strip().lower() in {"1", "true", "yes"}
+
+
 def graphics_effects_supported() -> bool:
-    """False on headless QPA plugins where DropShadow/grab often abort (exit 134)."""
+    """False where DropShadow / grab often SIGABRT (exit 134).
+
+    Headless QPA plugins, GitHub ``CI``, and ``AIQA_DISABLE_QT_EFFECTS=1`` disable
+    shadows. Prefer ``offscreen`` over ``xcb``+Xvfb in CI — ``xcb`` is not in the
+    headless set and would re-enable the aborting shadow path.
+    """
     from ai_qa_test_studio.constants import QT_QPA_HEADLESS_PLATFORMS
 
+    if _effects_force_disabled() or _running_in_ci():
+        return False
     platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
     return platform not in QT_QPA_HEADLESS_PLATFORMS
+
+
+def opacity_effects_supported() -> bool:
+    """False where ``QGraphicsOpacityEffect`` paint often SIGABRT on Linux CI.
+
+    macOS ``offscreen`` usually tolerates opacity fades; Linux headless does not.
+    """
+    from ai_qa_test_studio.constants import QT_QPA_HEADLESS_PLATFORMS
+
+    if _effects_force_disabled():
+        return False
+    if _running_in_ci() and sys.platform.startswith("linux"):
+        return False
+    if sys.platform.startswith("linux"):
+        platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
+        if platform in QT_QPA_HEADLESS_PLATFORMS:
+            return False
+    return True
 
 
 def install_platform_noise_filters() -> None:
