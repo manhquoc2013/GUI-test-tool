@@ -61,6 +61,7 @@ from ai_qa_test_studio.core.env_manager import EnvManager
 from ai_qa_test_studio.core.index_sync import ProjectIndexSync
 from ai_qa_test_studio.core.java_importer import JavaProjectImporter
 from ai_qa_test_studio.core.models import (
+    AppSettings,
     Project,
     RunReport,
     TestCase,
@@ -593,20 +594,38 @@ class MainWindow(QMainWindow):
         )
 
     def _open_system_settings(self) -> None:
+        previous_theme = self.env.settings.theme
         dialog = SystemSettingsDialog(self.env.settings, self)
-        if dialog.exec():
-            result = dialog.result_settings()
-            if result is not None:
-                self.env._settings = result
-                try:
-                    self.env.save_settings()
-                except RuntimeError as exc:
-                    self._toast_error("Settings", str(exc))
-                    return
-                self._apply_theme_preference(result.theme)
-                self._refresh_model_catalog()
-                self._refresh_status_pills()
-                self._toast_info("Settings", "Đã lưu cấu hình hệ thống.")
+        if not dialog.exec():
+            return
+        result = dialog.result_settings()
+        if result is None:
+            return
+        theme_changed = result.theme != previous_theme
+        # Commit on the next loop turn: the dialog was just hidden, and the
+        # blocking part (SQLite + JSON write, optional full stylesheet re-polish)
+        # would otherwise delay that hide paint and look like a freeze.
+        QTimer.singleShot(
+            0,
+            lambda: self._commit_system_settings(result, theme_changed=theme_changed),
+        )
+
+    def _commit_system_settings(
+        self, result: AppSettings, *, theme_changed: bool
+    ) -> None:
+        self.env.replace_settings(result)
+        try:
+            self.env.save_settings()
+        except RuntimeError as exc:
+            self._toast_error("Settings", str(exc))
+            return
+        # Re-applying the theme re-polishes every widget in the app (seconds on
+        # Windows); it is only needed when the preference actually changed.
+        if theme_changed:
+            self._apply_theme_preference(result.theme)
+        self._refresh_model_catalog()
+        self._refresh_status_pills()
+        self._toast_info("Settings", "Đã lưu cấu hình hệ thống.")
 
     def _show_about(self) -> None:
         from PySide6.QtWidgets import QMessageBox

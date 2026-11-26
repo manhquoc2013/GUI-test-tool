@@ -265,6 +265,10 @@ class EnvManager:
     def settings(self) -> AppSettings:
         return self._settings
 
+    def replace_settings(self, settings: AppSettings) -> None:
+        """Adopt an edited settings object (draft returned by the Settings dialog)."""
+        self._settings = settings
+
     def load_settings(self) -> AppSettings:
         payload = self._load_settings_payload()
         if payload is None:

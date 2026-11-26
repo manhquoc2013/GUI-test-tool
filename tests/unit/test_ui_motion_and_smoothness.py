@@ -263,3 +263,56 @@ def test_editor_and_explorer_have_popup_stacks(qapp: QApplication) -> None:
     assert isinstance(editor.stack, PopUpAniStackedWidget)
     explorer.close()
     editor.close()
+
+
+class _CountingDensityExplorer(QWidget):
+    """Explorer stand-in that records apply_density calls during resize."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.calls: list[int] = []
+
+    def apply_density(self, width: int) -> None:
+        self.calls.append(width)
+
+
+def test_sidebar_slide_skips_explorer_density_per_frame(qapp: QApplication) -> None:
+    """Density re-measures the pivot; it must run once, not on every slide tick."""
+    from PySide6.QtCore import QEvent
+
+    from ai_qa_test_studio.ui.controllers.layout_controller import LayoutController
+
+    host = QWidget()
+    explorer = _CountingDensityExplorer(host)
+    host.explorer = explorer  # type: ignore[attr-defined]
+    controller = LayoutController(host)  # type: ignore[arg-type]
+    host.resize(1200, 700)
+    host.show()
+    explorer.resize(240, 600)
+    qapp.processEvents()
+    assert explorer.isVisible() is True
+
+    controller._sidebar_animating = True
+    assert controller.handle_resize_filter(explorer, QEvent(QEvent.Type.Resize)) is True
+    assert explorer.calls == []
+
+    controller._sidebar_animating = False
+    assert controller.handle_resize_filter(explorer, QEvent(QEvent.Type.Resize)) is True
+    assert explorer.calls == [explorer.width()]
+    host.close()
+
+
+def test_right_drawer_tab_switch_respects_reduce_motion(qapp: QApplication) -> None:
+    from ai_qa_test_studio.ui.widgets.right_drawer import TAB_BROWSER, RightDrawer
+
+    bind_motion_enabled(lambda: False)
+    try:
+        drawer = RightDrawer()
+        drawer.show()
+        qapp.processEvents()
+        drawer.set_tab(TAB_BROWSER)
+        assert drawer.stack.isAnimationEnabled is False
+        assert drawer.stack.currentIndex() == 1
+        drawer.close()
+    finally:
+        bind_motion_enabled(lambda: True)

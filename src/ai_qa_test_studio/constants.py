@@ -765,6 +765,9 @@ UI_MOTION_CHAT_MS = 180
 UI_MOTION_SLIDE_PX = 10
 UI_RESIZE_DEBOUNCE_MS = 24
 UI_SPLITTER_PAINT_PAUSE_MS = 16
+# Coalesce chat bubble width caps: splitter/drawer slides resize the pane every
+# frame, and re-capping every bubble per frame is pure layout churn on Windows.
+UI_CHAT_WIDTH_SYNC_MS = 48
 UI_SCROLL_NEAR_BOTTOM_PX = 48
 UI_JUMP_LATEST_LABEL = "Cuộn xuống mới nhất"
 UI_JUMP_LATEST_FG_LIGHT = "#1a1a1a"

@@ -89,6 +89,31 @@ def test_composer_bubble_label(qapp: QApplication) -> None:
     row.close()
 
 
+def test_chat_pane_defers_panel_wide_bubble_sync(qapp: QApplication, qtbot) -> None:
+    """Drawer slides resize the pane per frame — do not re-cap every row per frame."""
+    from ai_qa_test_studio.constants import UI_CHAT_WIDTH_SYNC_MS
+    from ai_qa_test_studio.ui.widgets.chat_pane import CopilotChatPane
+
+    pane = CopilotChatPane()
+    pane.resize(640, 480)
+    pane.show()
+    qapp.processEvents()
+    pane._append_row("m-debounce", ROLE_COMPOSER, "nội dung dài " * 20, animate=False)
+    qapp.processEvents()
+
+    pane.resize(420, 480)
+    assert pane._width_sync_timer.isActive() is True
+    qtbot.wait(UI_CHAT_WIDTH_SYNC_MS + 40)
+    assert pane._width_sync_timer.isActive() is False
+    row = pane._rows[0]
+    inner = row.width() - (CHAT_BUBBLE_ROW_MARGIN * 2)
+    if inner > 0:
+        assert row.bubble.maximumWidth() == max(
+            CHAT_BUBBLE_MIN_WIDTH, int(inner * CHAT_BUBBLE_PANEL_RATIO)
+        )
+    pane.close()
+
+
 def test_empty_agent_bubble_shows_typing_indicator(qapp: QApplication) -> None:
     row = ChatMessageRow("m5", ROLE_COMPOSER, "")
     row.show()

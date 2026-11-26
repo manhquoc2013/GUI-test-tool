@@ -342,3 +342,35 @@ def test_apply_api_seals_key_into_draft_immediately(
     assert "sk-live-plaintext" not in conn.api_key_ref
     dialog.close()
     host.close()
+
+
+def test_settings_dialog_has_no_offscreen_shadow_effect(qapp: QApplication) -> None:
+    """A drop shadow forces a full offscreen re-raster per repaint (Windows stall)."""
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.widget.graphicsEffect() is None
+    assert dialog.graphicsEffect() is None
+    dialog.close()
+    host.close()
+
+
+def test_settings_dialog_closes_immediately_without_fade(qapp: QApplication) -> None:
+    """MaskDialogBase.done fades the whole dialog; that blocks the close paint."""
+    from PySide6.QtWidgets import QDialog
+
+    host = QWidget()
+    host.resize(1200, 800)
+    host.show()
+    dialog = SystemSettingsDialog(AppSettings(), host)
+    dialog.show()
+    qapp.processEvents()
+
+    dialog.done(QDialog.DialogCode.Accepted)
+    assert dialog.isVisible() is False
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert dialog.graphicsEffect() is None
+    host.close()

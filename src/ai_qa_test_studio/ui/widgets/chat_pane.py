@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QHideEvent, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -108,6 +108,7 @@ from ai_qa_test_studio.constants import (
     ROLE_PLANNER,
     ROLE_SYSTEM,
     THEME_CARD_RADIUS,
+    UI_CHAT_WIDTH_SYNC_MS,
     UI_MOTION_CHAT_MS,
     UI_MOTION_NORMAL_MS,
     UI_PROGRESS_RING_SIZE,
@@ -179,6 +180,10 @@ class CopilotChatPane(QWidget):
         self._streaming_row: ChatMessageRow | None = None
         self._pending_apply: dict[str, Any] | None = None
         self._rows: list[ChatMessageRow] = []
+        self._width_sync_timer = QTimer(self)
+        self._width_sync_timer.setSingleShot(True)
+        self._width_sync_timer.setInterval(UI_CHAT_WIDTH_SYNC_MS)
+        self._width_sync_timer.timeout.connect(self._sync_bubble_widths)
         self._attachments: list[ChatAttachment] = []
         self._attach_compressor = ContextCompressor()
         self._project_root: Path | None = None
@@ -554,7 +559,9 @@ class CopilotChatPane(QWidget):
         flow_h = self._context_flow.heightForWidth(max(1, self._pill_box.width()))
         if flow_h > 0:
             self._pill_box.setMinimumHeight(flow_h)
-        self._sync_bubble_widths()
+        # Rows already re-cap themselves on their own resizeEvent; debounce the
+        # panel-wide pass so a 220 ms drawer slide does not redo it every frame.
+        self._width_sync_timer.start()
 
     def _sync_bubble_widths(self) -> None:
         for row in self._rows:

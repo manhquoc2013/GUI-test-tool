@@ -212,7 +212,9 @@ class LayoutController:
             return False
         w = self._w
         if watched is getattr(w, "explorer", None):
-            if w.explorer.isVisible():
+            # Density re-measures the pivot (text + adjustSize) — skip per-frame
+            # work while the sidebar is sliding, then apply once in _on_done.
+            if w.explorer.isVisible() and not self._sidebar_animating:
                 w.explorer.apply_density(w.explorer.width())
             return True
         return False
@@ -277,8 +279,13 @@ class LayoutController:
 
     def _stop_sidebar_anim(self) -> None:
         w = self._w
+        was_animating = self._sidebar_animating
         self._sidebar_animating = False
         stop_channel(w.explorer, CHANNEL_WIDTH)
+        # Resize-filter density was skipped mid-flight; restore it for the width
+        # the sidebar actually stopped at.
+        if was_animating and w.explorer.isVisible():
+            w.explorer.apply_density(w.explorer.width())
 
     def _stop_dock_anim(self) -> None:
         w = self._w

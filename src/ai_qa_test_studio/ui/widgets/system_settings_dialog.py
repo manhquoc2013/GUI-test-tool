@@ -207,6 +207,12 @@ class SystemSettingsDialog(MessageBoxBase):
     def __init__(self, settings: AppSettings, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Cấu hình hệ thống")
+        # Qt re-renders a widget's whole subtree into an offscreen pixmap whenever
+        # a QGraphicsEffect is attached. The Fluent frame ships a 60px drop shadow,
+        # so every keystroke / scroll step / fade of this 820x640 panel re-rasters
+        # the full widget tree on the GUI thread — the main Windows stutter source.
+        # The mask + card border already separate the panel visually.
+        self.widget.setGraphicsEffect(None)
         self._draft = settings.model_copy(deep=True)
         self._ensure_ai_defaults()
         self._accepted = False
@@ -395,6 +401,19 @@ class SystemSettingsDialog(MessageBoxBase):
             if child is not None:
                 child.setEnabled(True)
                 child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
+    def done(self, code: int) -> None:  # noqa: N802 — Qt override
+        """Hide immediately; skip MaskDialogBase's full-dialog opacity fade.
+
+        ``MaskDialogBase.done`` wraps the whole dialog in a ``QGraphicsOpacityEffect``
+        for 100 ms. Each frame then re-rasters this large panel offscreen, so the
+        close animation stretches to ~1 s of frozen UI on Windows right after
+        pressing "Lưu". The dialog must disappear on the same frame as the click.
+        """
+        self.setGraphicsEffect(None)
+        self.setWindowOpacity(1.0)
+        self.widget.setGraphicsEffect(None)
+        QDialog.done(self, code)
 
     def _on_nav_changed(
         self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None

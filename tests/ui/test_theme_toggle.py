@@ -71,3 +71,25 @@ def test_settings_reduce_motion_switch(qapp: QApplication) -> None:
     assert result.reduce_motion is False
     dialog.close()
     host.close()
+
+
+def test_settings_commit_skips_theme_repolish_when_unchanged(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving with the same theme must not re-polish the whole widget tree."""
+    window = MainWindow(data_root=tmp_path)
+    window.show()
+    qapp.processEvents()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "ai_qa_test_studio.ui.main_window.apply_studio_theme",
+        lambda _app, *, preference=None: calls.append(str(preference)),
+    )
+
+    result = window.env.settings.model_copy(deep=True)
+    window._commit_system_settings(result, theme_changed=False)
+    assert calls == []
+
+    window._commit_system_settings(result, theme_changed=True)
+    assert calls == [result.theme]
+    window.close()

@@ -13,6 +13,7 @@ from ai_qa_test_studio.constants import (
     UI_EVIDENCE_TAB_LABEL,
     UI_MOTION_NORMAL_MS,
 )
+from ai_qa_test_studio.ui.motion import motion_enabled
 from ai_qa_test_studio.ui.theme import panel_stylesheet
 from ai_qa_test_studio.ui.theme_bind import bind_widget_theme
 from ai_qa_test_studio.ui.widgets.browser_agent_pane import BrowserAgentPane
@@ -74,10 +75,12 @@ class RightDrawer(QWidget):
         return self._open
 
     def _on_pivot_changed(self, key: str) -> None:
-        self.stack.setCurrentIndex(
-            _TAB_INDEX.get(key, 0),
-            duration=UI_MOTION_NORMAL_MS,
-        )
+        self._switch_stack(_TAB_INDEX.get(key, 0))
+
+    def _switch_stack(self, index: int) -> None:
+        """Single animated switch; honours the "Giảm chuyển động" setting."""
+        self.stack.setAnimationEnabled(motion_enabled())
+        self.stack.setCurrentIndex(index, duration=UI_MOTION_NORMAL_MS)
 
     def open_drawer(self, tab: str = TAB_COPILOT, *, compose: bool = False) -> None:
         was_open = self._open
@@ -108,7 +111,10 @@ class RightDrawer(QWidget):
         else:
             key = TAB_COPILOT
         self.pivot.setCurrentItem(key)
-        self.stack.setCurrentIndex(_TAB_INDEX[key])
+        # setCurrentItem already animated the stack through _on_pivot_changed;
+        # a second setCurrentIndex would abort that animation and snap.
+        if self.stack.currentIndex() != _TAB_INDEX[key]:
+            self._switch_stack(_TAB_INDEX[key])
         if key == TAB_COPILOT:
             if compose:
                 self.copilot.focus_compose()
