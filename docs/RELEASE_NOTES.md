@@ -1,5 +1,23 @@
 # Release Notes — AI QA Test Studio
 
+## AI QA Test Studio v4.1.6
+
+**Release date:** 2026-11-26
+
+Bản vá khởi động trên **bản cài Windows/macOS đóng gói PyInstaller**: sửa `ValueError: Unknown encoding o200k_base.` làm ứng dụng thoát ngay khi mở.
+
+### Điểm nổi bật
+
+1. **Bundle `tiktoken_ext`** — spec PyInstaller khai báo `hiddenimports` cho namespace plugin mà tiktoken dò bằng `pkgutil`; trước đây bundle thiếu nên `ENCODING_CONSTRUCTORS` rỗng.
+2. **`TokenBudget` không còn kill GUI** — bắt mọi lỗi tiktoken (không chỉ `KeyError`), degrade sang heuristic ký tự nếu thiếu BPE ranks.
+3. **Guard hồi quy** — `tests/unit/test_packaging_spec.py` chặn việc spec mất plugin lần nữa.
+4. **Tự cập nhật (stable channel)** — menu `⋯ → Kiểm tra cập nhật`, kiểm tra GitHub Releases, xác thực OpenPGP bằng public key pin sẵn, swap khi thoát rồi tự khởi động lại. Bản không có `SHA256SUMS.asc` bị từ chối cài.
+5. **Ký OS-level tự động trong CI** — Windows Authenticode (PFX base64 → file tạm, Inno ký cả uninstaller qua `SignTool=aiqa` + `SignedUninstaller=yes`, verify `Get-AuthenticodeSignature`); macOS import `.p12` vào keychain tạm + `codesign --options runtime` + ký DMG + notarize + staple + `spctl`. Thiếu secret thì build vẫn chạy nhưng cảnh báo và bỏ ký — không publish im lặng bản hỏng chữ ký.
+
+> **Bảo mật:** private key ký release nằm ở `packaging/release-signing-key.asc` (đã gitignore). Thêm nội dung file này vào GitHub secret `RELEASE_SIGNING_KEY` thì CI mới ký được; không có secret, bước ký sẽ fail và updater từ chối bản unsigned.
+
+---
+
 ## AI QA Test Studio v4.1.0 (Airy UI)
 
 **Release date:** 2026-11-14

@@ -19,7 +19,7 @@ datas: list[tuple[str, str]] = []
 binaries: list[tuple[str, str]] = []
 hiddenimports: list[str] = []
 
-for pkg in ("playwright", "qfluentwidgets", "mcp", "markitdown", "keyring"):
+for pkg in ("playwright", "qfluentwidgets", "mcp", "markitdown", "keyring", "tiktoken", "pysequoia"):
     try:
         pkg_datas, pkg_bins, pkg_hidden = collect_all(pkg)
         datas += pkg_datas
@@ -28,7 +28,17 @@ for pkg in ("playwright", "qfluentwidgets", "mcp", "markitdown", "keyring"):
     except Exception as exc:  # noqa: BLE001
         print(f"collect_all({pkg}) skipped: {exc}", file=sys.stderr)
 
+# tiktoken >=0.4 discovers encodings at runtime through pkgutil scanning of the
+# tiktoken_ext namespace package; PyInstaller only bundles static imports, so an
+# unlisted plugin leaves `ENCODING_CONSTRUCTORS` empty at runtime and every
+# get_encoding() call raises "ValueError: Unknown encoding o200k_base".
+hiddenimports += ["tiktoken_ext", "tiktoken_ext.openai_public"]
+
 datas += collect_data_files("PySide6")
+RESOURCES = SRC / "ai_qa_test_studio" / "resources"
+if RESOURCES.is_dir():
+    # Pinned release signing key (OpenPGP) must ship inside the bundle.
+    datas.append((str(RESOURCES), "ai_qa_test_studio/resources"))
 if SKILLS.is_dir():
     datas.append((str(SKILLS), "skills"))
 if MCP_JSON.is_file():

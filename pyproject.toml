@@ -1,6 +1,6 @@
 [project]
 name = "ai-qa-test-studio"
-version = "4.1.5"
+version = "4.1.6"
 description = "Autonomous Shift-Left & MCP-Powered AI QA Test Studio"
 readme = "README.md"
 authors = [
@@ -24,6 +24,7 @@ dependencies = [
     "pyside6-fluent-widgets[full]>=1.11.3",
     "keyring>=25.7.0",
     "aiosqlite>=0.22.1",
+    "pysequoia>=0.1.36",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +88,7 @@ module = [
     "headroom_ai",
     "markitdown",
     "markitdown.*",
+    "pysequoia",
 ]
 ignore_missing_imports = true
 

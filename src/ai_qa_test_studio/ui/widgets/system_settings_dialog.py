@@ -532,6 +532,11 @@ class SystemSettingsDialog(MessageBoxBase):
         self.reduce_motion_switch = SwitchButton(card)
         self.reduce_motion_switch.setChecked(self._draft.reduce_motion)
         self.reduce_motion_switch.setToolTip("Tắt fade/slide drawer, dialog và tin nhắn chat")
+        self.auto_update_switch = SwitchButton(card)
+        self.auto_update_switch.setChecked(self._draft.auto_update_check)
+        self.auto_update_switch.setToolTip(
+            "Kiểm tra GitHub Releases (kênh stable) khi khởi động; bản cập nhật phải có chữ ký hợp lệ"
+        )
         self._add_field(body, card, "Theme", self.theme_combo)
         self._add_field(body, card, "Environment", self.env_edit)
         switch_row = QHBoxLayout()
@@ -544,6 +549,11 @@ class SystemSettingsDialog(MessageBoxBase):
         motion_row.addStretch(1)
         motion_row.addWidget(self.reduce_motion_switch)
         body.addLayout(motion_row)
+        update_row = QHBoxLayout()
+        update_row.addWidget(CaptionLabel("Tự động kiểm tra cập nhật", card))
+        update_row.addStretch(1)
+        update_row.addWidget(self.auto_update_switch)
+        body.addLayout(update_row)
         layout.addWidget(card)
         layout.addStretch(1)
         return root
@@ -860,6 +870,7 @@ class SystemSettingsDialog(MessageBoxBase):
         self._draft.active_environment = self.env_edit.text().strip() or "DEV"
         self._draft.headless_default = self.headless_switch.isChecked()
         self._draft.reduce_motion = self.reduce_motion_switch.isChecked()
+        self._draft.auto_update_check = self.auto_update_switch.isChecked()
         self._draft.browser = self.browser_combo.currentText()
         self._draft.ai.max_tokens = int(self.spin_max_output.value())
         self._draft.ai.routing.mode = self.route_mode.currentText()

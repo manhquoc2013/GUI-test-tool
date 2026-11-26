@@ -5,9 +5,10 @@ Usage:
     python3 scripts/extract-release-notes.py [TAG_OR_VERSION] [OUTPUT_FILE]
 """
 
-import sys
 import re
+import sys
 from pathlib import Path
+
 
 def extract_release_notes(tag_or_version=None, notes_path="docs/RELEASE_NOTES.md"):
     notes_file = Path(notes_path)

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Write SHA256SUMS for release artifacts in a directory.
+# Write + sign SHA256SUMS for release artifacts in a directory.
+# Signing uses the pinned OpenPGP release key (RELEASE_SIGNING_KEY) so the
+# in-app updater can verify what it downloads.
 set -euo pipefail
 
 TARGET_DIR="${1:?Usage: make_checksums.sh dist_dir}"
@@ -17,7 +19,9 @@ else
   sha256sum "${FILES[@]}" > SHA256SUMS
 fi
 
-if [[ -n "${GPG_RELEASE_KEY:-}" ]] && command -v gpg >/dev/null 2>&1; then
-  gpg --batch --yes --detach-sign --armor -u "${GPG_RELEASE_KEY}" -o SHA256SUMS.asc SHA256SUMS
+if [[ -n "${RELEASE_SIGNING_KEY:-}" ]]; then
+  uv run python "$(cd "$(dirname "$0")/.." && pwd)/scripts/release_sign.py" "${TARGET_DIR}"
+else
+  echo "WARNING: RELEASE_SIGNING_KEY not set — SHA256SUMS is unsigned" >&2
 fi
 echo "Wrote ${TARGET_DIR}/SHA256SUMS"

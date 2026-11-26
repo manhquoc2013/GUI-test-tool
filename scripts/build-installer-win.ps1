@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
+. (Join-Path $Root "scripts\sign_common.ps1")
 
 $MetaJson = uv run python -m ai_qa_test_studio --print-metadata-json
 $Meta = $MetaJson | ConvertFrom-Json
@@ -19,19 +20,40 @@ if (-not $Iscc -or -not (Test-Path $Iscc)) {
     throw "ISCC.exe not found — install Inno Setup 6"
 }
 
-& $Iscc "/DMyAppVersion=$($Meta.version)" "/DMyAppPublisher=$($Meta.publisher)" "/DMyAppURL=$($Meta.publisher_url)" "scripts\installer.iss"
+$IsccArgs = @(
+    "/DMyAppVersion=$($Meta.version)",
+    "/DMyAppPublisher=$($Meta.publisher)",
+    "/DMyAppURL=$($Meta.publisher_url)"
+)
+
+if ($env:WINDOWS_CERT_PFX) {
+    # Delegate signing to our helper so the PFX path/password never reach the
+    # compiler command line (they would leak into build logs otherwise).
+    $SignHelper = Join-Path $Root "scripts\inno_sign.ps1"
+    $SignCommand = "/Saiqa=powershell -NoProfile -ExecutionPolicy Bypass -File `"$SignHelper`" `$f"
+    $IsccArgs += "/DSignedBuild"
+    $IsccArgs += $SignCommand
+    Write-Host "Inno sign tool: $SignCommand"
+    # pwsh 7.3+ passes native arguments verbatim; pin it so quoting never drifts.
+    if (Get-Variable -Name PSNativeCommandArgumentPassing -ErrorAction SilentlyContinue) {
+        $PSNativeCommandArgumentPassing = "Standard"
+    }
+} else {
+    Write-Warning "WINDOWS_CERT_PFX not set — Setup and uninstaller will be unsigned"
+}
+
+& $Iscc @IsccArgs "scripts\installer.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
 $Setup = Get-ChildItem dist -Filter "AIQATestStudio-*-Setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($Setup -and $env:WINDOWS_CERT_PFX) {
-    & "$Root\scripts\windows_sign.ps1" -Onedir (Split-Path $Setup.FullName -Parent) 2>$null
-    # Sign the setup exe explicitly
-    $env:SIGN_TARGET = $Setup.FullName
-    $Signtool = if ($env:SIGNTOOL_PATH) { $env:SIGNTOOL_PATH } else { "signtool" }
-    if ($env:WINDOWS_CERT_PASSWORD) {
-        & $Signtool sign /f $env:WINDOWS_CERT_PFX /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Setup.FullName
-    } else {
-        & $Signtool sign /f $env:WINDOWS_CERT_PFX /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Setup.FullName
+if (-not $Setup) { throw "Setup.exe was not produced" }
+
+if ($env:WINDOWS_CERT_PFX) {
+    try {
+        # Inno already signed it; re-verify by hash to catch a broken timestamp.
+        Assert-AuthenticodeValid $Setup.FullName
+    } finally {
+        Remove-TempPfx
     }
 }
 Write-Host "Setup: $($Setup.FullName)"

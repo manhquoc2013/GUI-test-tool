@@ -334,6 +334,9 @@ class EnvManager:
             reduce_motion=bool(
                 payload.get("reduceMotion", payload.get("reduce_motion", False))
             ),
+            auto_update_check=bool(
+                payload.get("autoUpdateCheck", payload.get("auto_update_check", True))
+            ),
             ai=migrate_ai_config(ai_raw if isinstance(ai_raw, dict) else {}),
             active_environment=str(payload.get("active_environment") or "DEV"),
             copilot=CopilotRuntimeSettings(
@@ -362,6 +365,7 @@ class EnvManager:
             "headlessDefault": self._settings.headless_default,
             "theme": self._settings.theme,
             "reduceMotion": self._settings.reduce_motion,
+            "autoUpdateCheck": self._settings.auto_update_check,
             "active_environment": self._settings.active_environment,
             "aiConfig": ai_settings_to_payload(self._settings.ai),
             "copilot": {

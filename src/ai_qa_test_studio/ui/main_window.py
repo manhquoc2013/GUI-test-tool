@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -36,6 +36,7 @@ from ai_qa_test_studio.agent.skill_loader import ProgressiveSkillLoader
 from ai_qa_test_studio.browser.dom_distiller import DomDistiller
 from ai_qa_test_studio.constants import (
     APP_DISPLAY_NAME,
+    APP_UPDATE_STARTUP_DELAY_MS,
     APP_WINDOW_TITLE,
     DEFAULT_SKILLS_DIRNAME,
     DEFAULT_TARGET_URL,
@@ -76,11 +77,13 @@ from ai_qa_test_studio.core.project_tree_ops import (
 )
 from ai_qa_test_studio.core.storage import ProjectStorage
 from ai_qa_test_studio.core.token_budget import TokenBudget
+from ai_qa_test_studio.runtime_paths import is_frozen
 from ai_qa_test_studio.ui.controllers import (
     CopilotController,
     ExportController,
     LayoutController,
     RunController,
+    UpdateController,
 )
 from ai_qa_test_studio.ui.formatting import count_unbound_steps
 from ai_qa_test_studio.ui.motion import bind_motion_enabled
@@ -138,6 +141,7 @@ class MainWindow(QMainWindow):
         self._run = RunController(self)
         self._copilot_ctl = CopilotController(self)
         self._export_ctl = ExportController(self)
+        self._update_ctl = UpdateController(self)
         self._build_chrome()
         if self.project is None:
             self.project = self._import_or_empty()
@@ -147,6 +151,11 @@ class MainWindow(QMainWindow):
         self._refresh_status_pills()
         self._copilot_ctl.restore_startup_session()
         self.apply_layout_breakpoint(self.width())
+        if is_frozen():
+            QTimer.singleShot(APP_UPDATE_STARTUP_DELAY_MS, self._update_ctl.check_on_startup)
+
+    def _check_updates(self) -> None:
+        self._update_ctl.check(manual=True)
 
     def _build_chrome(self) -> None:
         central = QWidget(self)
@@ -175,6 +184,7 @@ class MainWindow(QMainWindow):
         self.top_bar.export_requested.connect(self._export)
         self.top_bar.settings_requested.connect(self._open_system_settings)
         self.top_bar.about_requested.connect(self._show_about)
+        self.top_bar.update_requested.connect(self._check_updates)
         self.top_bar.theme_toggle_requested.connect(self._toggle_theme)
         root_layout.addWidget(self.top_bar)
 
@@ -881,6 +891,13 @@ class MainWindow(QMainWindow):
                 "Lưu project.v4.json",
                 ("save", "persist"),
                 self._save_project,
+            ),
+            PaletteCommand(
+                "update",
+                "Kiểm tra cập nhật",
+                "Tải và cài bản phát hành mới (có xác thực chữ ký số)",
+                ("update", "upgrade", "version", "release"),
+                self._check_updates,
             ),
             PaletteCommand(
                 "settings",

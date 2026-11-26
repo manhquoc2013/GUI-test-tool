@@ -1,6 +1,6 @@
 ; AI QA Test Studio v4 — Inno Setup (PyInstaller onedir)
 #ifndef MyAppVersion
-#define MyAppVersion "4.1.0"
+#define MyAppVersion "4.1.6"
 #endif
 #ifndef MyAppPublisher
 #define MyAppPublisher "Manh Quoc"
@@ -30,6 +30,12 @@ AllowNoIcons=yes
 OutputDir=..\dist
 OutputBaseFilename=AIQATestStudio-{#MyAppVersion}-windows-x64-Setup
 SetupIconFile=..\assets\icon.ico
+; Inno signs the Setup and the generated uninstaller only when a sign tool is
+; supplied (`/DSignedBuild /Saiqa=...`). Without it the build stays unsigned.
+#ifdef SignedBuild
+SignTool=aiqa
+SignedUninstaller=yes
+#endif
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
 SolidCompression=yes

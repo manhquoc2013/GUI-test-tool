@@ -225,6 +225,7 @@ class AppSettings(BaseModel):
     theme: str = "auto"
     reduce_motion: bool = False
     sync_before_run: bool = False
+    auto_update_check: bool = True
     ai: AiSettings = Field(default_factory=AiSettings)
     active_environment: str = "DEV"
     copilot: CopilotRuntimeSettings = Field(default_factory=CopilotRuntimeSettings)

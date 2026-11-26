@@ -30,6 +30,10 @@ docs/intel/_intake/
 # Gradle build state captured inside vendored reference projects
 **/.gradle/
 
+# Release signing private key (CI secret: RELEASE_SIGNING_KEY)
+packaging/release-signing-key.asc
+*.secret.asc
+
 # Python / uv
 .venv/
 __pycache__/

@@ -107,9 +107,26 @@ bash scripts/build-deb.sh            # Linux .deb → /opt/ai-qa-test-studio + /
 
 ### Signing / authenticity (optional secrets)
 
-- Always: `bash scripts/make_checksums.sh dist` → `SHA256SUMS`
-- Windows: `WINDOWS_CERT_PFX` (+ password) → `scripts/windows_sign.ps1` (root `.exe` + `_internal/**/*.exe`, especially Playwright `node.exe`)
-- macOS: `MACOS_CODESIGN_IDENTITY` → `scripts/macos_codesign.sh` (**no `--deep`**; inside-out + entitlements in `packaging/entitlements.plist`); optional notarize via `MACOS_NOTARY_PROFILE`
+- Always: `bash scripts/make_checksums.sh dist` → `SHA256SUMS` + `SHA256SUMS.asc`
+- Manifest signature: `RELEASE_SIGNING_KEY` (armored OpenPGP secret key) → `scripts/release_sign.py`. The public half is pinned in `src/ai_qa_test_studio/resources/release_signing_key.asc`; the in-app updater refuses anything not signed by it.
+- Windows: `WINDOWS_CERT_PFX` accepts **a path or the base64 body** of the `.pfx` + `WINDOWS_CERT_PASSWORD` → `scripts/windows_sign.ps1` (root `.exe`, `_internal/**/*.exe`, and `*.dll|*.pyd` with `-IncludeLibraries`). Inno also signs the Setup **and the generated uninstaller** through `SignTool=aiqa` + `SignedUninstaller=yes`, wired by `scripts/inno_sign.ps1`.
+- macOS: `MACOS_CODESIGN_IDENTITY` → `scripts/macos_codesign.sh` (**no `--deep`**; inside-out + hardened runtime + entitlements in `packaging/entitlements.plist`). `build-dmg.sh` then codesigns the DMG (not just the app), notarizes it and staples it. Notarization needs **either** `MACOS_NOTARY_APPLE_ID` + `MACOS_NOTARY_TEAM_ID` + `MACOS_NOTARY_PASSWORD` (preferred on CI, no keychain profile needed) **or** `MACOS_NOTARY_PROFILE`.
+- macOS certificate import: `MACOS_CERT_P12` (base64 `.p12`) + `MACOS_CERT_PASSWORD`. CI imports it into an ephemeral keychain (with `set-key-partition-list`, mandatory on macOS 11+) and deletes the keychain afterwards.
+
+Both platform jobs end with an explicit verification step (`Get-AuthenticodeSignature` / `codesign --verify` + `spctl`), so a broken timestamp, expired cert or missing ticket fails the release instead of shipping silently. Without the secrets the build still succeeds but warns loudly and produces unsigned artifacts.
+
+Push every secret in one shot (streams values over stdin, never argv):
+
+```bash
+gh auth login
+WINDOWS_CERT_PFX_FILE=/path/cert.pfx WINDOWS_CERT_PASSWORD=... \
+MACOS_CERT_P12_FILE=/path/devid.p12 MACOS_CERT_PASSWORD=... \
+MACOS_CODESIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+MACOS_NOTARY_APPLE_ID=... MACOS_NOTARY_TEAM_ID=... MACOS_NOTARY_PASSWORD=... \
+  bash scripts/setup_github_secrets.sh
+```
+
+`publish` refuses to run without `RELEASE_SIGNING_KEY` (`scripts/release_sign.py` exits non-zero), so unsigned updates can never reach users.
 
 CI: [`.github/workflows/release-v4.yml`](../.github/workflows/release-v4.yml) builds ZIP + Setup per OS on `v*` tags. **Do not** run `playwright install` before PyInstaller.
 

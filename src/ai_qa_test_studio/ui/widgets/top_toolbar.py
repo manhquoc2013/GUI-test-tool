@@ -57,6 +57,7 @@ class UnifiedTopBar(QWidget):
     export_requested = Signal(str)
     settings_requested = Signal()
     about_requested = Signal()
+    update_requested = Signal()
     theme_toggle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -186,6 +187,13 @@ class UnifiedTopBar(QWidget):
             )
         )
         more_menu.addSeparator()
+        more_menu.addAction(
+            Action(
+                FIF.SYNC,
+                "Kiểm tra cập nhật",
+                triggered=lambda: self.update_requested.emit(),
+            )
+        )
         more_menu.addAction(
             Action(
                 FIF.SETTING,

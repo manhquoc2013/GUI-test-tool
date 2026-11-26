@@ -48,5 +48,5 @@ done < <(find "${APP_PATH}/Contents" -type d -name "*.framework" -print0 \
 
 echo "sign app bundle: ${APP_PATH}"
 sign_file "${APP_PATH}"
-codesign --verify --verbose=2 "${APP_PATH}"
+codesign --verify --strict --verbose=2 "${APP_PATH}"
 echo "=== Codesign complete ==="

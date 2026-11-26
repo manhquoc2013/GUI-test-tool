@@ -43,7 +43,10 @@ from ai_qa_test_studio.constants import (
     SLIDING_HISTORY_SUMMARY_CHARS,
     TOKEN_CONTEXT_BUDGET,
     TOKEN_DOM_SOFT_CAP,
+    TOKEN_ENCODING_FALLBACK,
+    TOKEN_FALLBACK_CHARS_PER_TOKEN,
     TOKEN_MAX_ATOMIC_OUTPUT,
+    TOKEN_MODEL_DEFAULT,
 )
 
 logger = logging.getLogger(__name__)
@@ -394,20 +397,52 @@ def resolve_model_token_profile(
     return safe
 
 
-class TokenBudget:
-    def __init__(self, model: str = "gpt-4o") -> None:
+def _resolve_token_encoding(model: str) -> tiktoken.Encoding | None:
+    """Resolve a tiktoken encoding, degrading to ``None`` when unavailable.
+
+    ``encoding_for_model`` / ``get_encoding`` raise ``ValueError`` (not only
+    ``KeyError``) when the ``tiktoken_ext`` plugin modules or the BPE rank data
+    cannot be loaded — e.g. a frozen build that did not bundle the namespace
+    plugin, or a first launch without network access to download the ranks.
+    """
+    resolvers: tuple[Callable[[], tiktoken.Encoding], ...] = (
+        lambda: tiktoken.encoding_for_model(model),
+        lambda: tiktoken.get_encoding(TOKEN_ENCODING_FALLBACK),
+    )
+    for resolve in resolvers:
         try:
-            self._enc = tiktoken.encoding_for_model(model)
-        except KeyError:
-            self._enc = tiktoken.get_encoding("cl100k_base")
+            return resolve()
+        except Exception as exc:  # noqa: BLE001 — any tiktoken failure must not block UI
+            logger.warning(
+                "token_encoding_unavailable model=%s err=%s", model, str(exc).replace("\n", " ")
+            )
+    logger.warning("token_encoding_heuristic_fallback model=%s", model)
+    return None
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return (len(text) + TOKEN_FALLBACK_CHARS_PER_TOKEN - 1) // TOKEN_FALLBACK_CHARS_PER_TOKEN
+
+
+class TokenBudget:
+    def __init__(self, model: str = TOKEN_MODEL_DEFAULT) -> None:
+        self._enc: tiktoken.Encoding | None = _resolve_token_encoding(model)
         self.max_atomic_output = TOKEN_MAX_ATOMIC_OUTPUT
         self.dom_soft_cap = TOKEN_DOM_SOFT_CAP
 
     def count(self, text: str) -> int:
+        if self._enc is None:
+            return _estimate_tokens(text or "")
         return len(self._enc.encode(text or ""))
 
     def truncate_to_cap(self, text: str, cap: int | None = None) -> str:
         limit = cap or self.dom_soft_cap
+        if limit <= 0:
+            return ""
+        if self._enc is None:
+            return (text or "")[: limit * TOKEN_FALLBACK_CHARS_PER_TOKEN]
         tokens = self._enc.encode(text or "")
         if len(tokens) <= limit:
             return text

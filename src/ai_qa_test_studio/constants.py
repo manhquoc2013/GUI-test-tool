@@ -38,6 +38,9 @@ CDP_PORT_EPHEMERAL = 0
 TOKEN_MAX_ATOMIC_OUTPUT = 512
 TOKEN_DOM_SOFT_CAP = 1200
 TOKEN_CONTEXT_BUDGET = 8000
+TOKEN_MODEL_DEFAULT = "gpt-4o"
+TOKEN_ENCODING_FALLBACK = "cl100k_base"
+TOKEN_FALLBACK_CHARS_PER_TOKEN = 4
 MODEL_TOKEN_PROFILE_API_TIMEOUT_S = 3.0
 MODEL_TOKEN_DEFAULT_CONTEXT = 65_536
 MODEL_TOKEN_DEFAULT_MAX_OUTPUT = 8_192
@@ -592,7 +595,7 @@ DEFAULT_COPILOT_MODELS = (
 # App identity / branding
 APP_DISPLAY_NAME = "AI QA Test Studio"
 APP_EXE_NAME = "AIQATestStudio"
-APP_WINDOW_TITLE = "AI QA Test Studio v4.1.5"
+APP_WINDOW_TITLE = "AI QA Test Studio v4.1.6"
 APP_PUBLISHER = "Mạnh Quốc"
 APP_PUBLISHER_EMAIL = "manhquoc11@gmail.com"
 APP_PUBLISHER_URL = "https://github.com/manhquoc11"
@@ -623,6 +626,52 @@ APP_ICON_DIRNAME = "icons"
 APP_ICON_MASTER_FILENAME = "app_icon.png"
 APP_ICON_FILENAME_TEMPLATE = "app_icon_{size}.png"
 APP_ICON_SIZES: tuple[int, ...] = (16, 32, 48, 64, 128, 256, 512)
+
+# Auto-update (GitHub Releases, stable channel, pinned OpenPGP signing key)
+APP_UPDATE_REPO = "manhquoc2013/GUI-test-tool"
+APP_UPDATE_LATEST_API_URL = f"https://api.github.com/repos/{APP_UPDATE_REPO}/releases/latest"
+APP_UPDATE_USER_AGENT = "AIQATestStudio-Updater"
+APP_UPDATE_TIMEOUT_S = 20.0
+APP_UPDATE_DOWNLOAD_CHUNK_BYTES = 262_144
+APP_UPDATE_MAX_ARCHIVE_BYTES = 1_073_741_824
+APP_UPDATE_CHECKSUMS_ASSET = "SHA256SUMS"
+APP_UPDATE_SIGNATURE_ASSET = "SHA256SUMS.asc"
+APP_UPDATE_METADATA_ASSET = "metadata.json"
+APP_UPDATE_STAGING_DIRNAME = "updates"
+APP_UPDATE_SIGNING_KEY_FILENAME = "release_signing_key.asc"
+APP_UPDATE_SIGNING_FINGERPRINT = "71c0641e59937ea0f96bab522671d908dc2c8156"
+APP_UPDATE_HELPER_FILENAME = "aiqa-update.cmd"
+APP_UPDATE_LOG_FILENAME = "update.log"
+APP_UPDATE_PROCESS_POLL_S = 1
+APP_UPDATE_STARTUP_DELAY_MS = 8_000
+APP_UPDATE_ASSET_TEMPLATE_WINDOWS_ZIP = "{exe}-{version}-windows-{arch}.zip"
+APP_UPDATE_ASSET_TEMPLATE_WINDOWS_SETUP = "{exe}-{version}-windows-x64-Setup.exe"
+APP_UPDATE_ASSET_TEMPLATE_MACOS_DMG = "{exe}-{version}-macos-{arch}.dmg"
+APP_UPDATE_ASSET_TEMPLATE_LINUX_ZIP = "{exe}-{version}-linux-{arch}.zip"
+APP_UPDATE_ASSET_TEMPLATE_LINUX_DEB = "{exe}-{version}-linux-{arch}.deb"
+UI_UPDATE_TITLE = "Cập nhật phần mềm"
+UI_UPDATE_CHECKING = "Đang kiểm tra bản cập nhật…"
+UI_UPDATE_UP_TO_DATE = "Bạn đang dùng bản mới nhất (v{version})."
+UI_UPDATE_AVAILABLE = "Có bản mới v{version} (hiện tại v{current})."
+UI_UPDATE_DOWNLOADING = "Đang tải bản cập nhật…"
+UI_UPDATE_VERIFYING = "Đang xác thực chữ ký số…"
+UI_UPDATE_READY = "Đã tải và xác thực. Ứng dụng sẽ khởi động lại để hoàn tất."
+UI_UPDATE_FAILED = "Cập nhật thất bại"
+UI_UPDATE_UNVERIFIED = (
+    "Không xác thực được chữ ký số của bản phát hành — từ chối tự cài. "
+    "Tải thủ công tại {url}"
+)
+UI_UPDATE_OFFLINE = "Không kiểm tra được bản cập nhật (mạng hoặc GitHub API)."
+UI_UPDATE_DISABLED = "Tự động kiểm tra cập nhật đang tắt trong Cấu hình hệ thống."
+UI_UPDATE_CONFIRM_TITLE = "Cài bản cập nhật?"
+UI_UPDATE_CONFIRM_BODY = "Tải và cài đặt v{version}? Ứng dụng sẽ tự khởi động lại."
+UI_UPDATE_NEEDS_ADMIN = (
+    "Thư mục cài đặt cần quyền quản trị nên không thể tự cập nhật. Tải thủ công tại {url}"
+)
+UI_UPDATE_MACOS_HINT = "Đã mở bộ cài — kéo AI QA Test Studio vào Applications để hoàn tất."
+UI_UPDATE_DOWNLOAD_FAILED = "Không tải được bản cập nhật: {error}"
+UPDATE_CHECK_TASK_KEY = "update:check"
+UPDATE_INSTALL_TASK_KEY = "update:install"
 
 # UI workspace (Fluent QMainWindow shell) — v4.2 three-column
 UI_WINDOW_MIN_WIDTH = 980
